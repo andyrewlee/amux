@@ -7,6 +7,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/andyrewlee/amux/internal/git"
 )
 
@@ -18,6 +20,55 @@ func newSizedModel() *Model {
 		mode:   git.DiffModeUnstaged,
 		width:  80,
 		height: 24,
+	}
+}
+
+// TestViewMemoized pins the plan-135 render gate: repeated View() calls with
+// no state change reuse the cached string, and any render input change
+// rebuilds. The memo exists because the center compose path calls View()
+// every frame while a diff tab is active.
+func TestViewMemoized(t *testing.T) {
+	m := newSizedModel()
+	m.diff = &git.DiffResult{
+		Lines: []git.DiffLine{{Kind: git.DiffLineContext, Content: "ctx"}},
+	}
+
+	first := m.View()
+	if first == "" {
+		t.Fatal("View() empty")
+	}
+	if !m.viewValid {
+		t.Fatal("View() did not record the memo")
+	}
+	for i := 0; i < 5; i++ {
+		if got := m.View(); got != first {
+			t.Fatalf("View() #%d changed without a state change", i)
+		}
+	}
+
+	// Each render-input field must invalidate the memo — assert via the
+	// recorded key, not the output (a legitimate rebuild can produce
+	// identical bytes when the input doesn't shape this branch).
+	m.scroll = 1
+	m.View()
+	if m.viewKey.scroll != 1 {
+		t.Fatal("scroll change did not invalidate the memo key")
+	}
+	m.scroll = 0
+	m.View()
+
+	m.width = 40
+	m.View()
+	if m.viewKey.width != 40 {
+		t.Fatal("width change did not invalidate the memo key")
+	}
+	m.width = 80
+	m.View()
+
+	m.SetStyles(m.styles)
+	m.View()
+	if m.viewKey.stylesRev == 0 {
+		t.Fatal("SetStyles did not invalidate the memo key")
 	}
 }
 
@@ -224,5 +275,60 @@ func TestViewMultibyteOverflowProducesValidUTF8(t *testing.T) {
 				t.Fatalf("View() produced invalid UTF-8 with wrap=%v", wrap)
 			}
 		})
+	}
+}
+
+// TestViewStripsRepoControlledEscapes feeds diff content and a filename loaded
+// with terminal escape sequences (OSC8 hyperlink, OSC52 clipboard write, CSI
+// color) and asserts none survive into the rendered frame — the diff viewer is
+// a repo-controlled-bytes surface, so these must never reach the host
+// terminal. Style SGR from lipgloss legitimately uses ESC[ so assertions run
+// against ansi.Strip(output) for visibility and raw output for OSC absence.
+func TestViewStripsRepoControlledEscapes(t *testing.T) {
+	m := newSizedModel()
+	m.change = &git.Change{Path: "evil\x1b]8;;https://example.com\x07name.go"}
+	m.diff = &git.DiffResult{
+		Lines: []git.DiffLine{
+			{Kind: git.DiffLineAdd, Content: "safe\x1b]8;;https://example.com\x07link\x1b]8;;\x07tail"},
+			{Kind: git.DiffLineContext, Content: "x\x1b[31mred\x1b[0m"},
+			{Kind: git.DiffLineDelete, Content: "clip\x1b]52;c;aGVsbG8=\x07end"},
+			{Kind: git.DiffLineContext, Content: "日本語 🎉 combining é"},
+		},
+	}
+
+	out := m.View()
+	if strings.Contains(out, "\x1b]") {
+		t.Fatalf("View() leaked an OSC sequence into the frame:\n%q", out)
+	}
+
+	visible := ansi.Strip(out)
+	for _, want := range []string{
+		"safelinktail",       // OSC8 sequence gone, label text kept
+		"xred",               // injected CSI gone, content kept
+		"clipend",            // OSC52 gone
+		"evilname.go",        // header path sanitized
+		"日本語 🎉 combining é", // real UTF-8 untouched
+	} {
+		if !strings.Contains(visible, want) {
+			t.Errorf("View() visible text missing %q\n--- visible ---\n%s", want, visible)
+		}
+	}
+	if strings.Contains(visible, "https://example.com") {
+		t.Error("View() visible text still contains the OSC8 target URL")
+	}
+}
+
+// TestViewStripsEscapesFromError covers the renderError arm: git error
+// messages can echo repo paths, so they get the same ansi.Strip treatment.
+func TestViewStripsEscapesFromError(t *testing.T) {
+	m := newSizedModel()
+	m.err = errors.New("open \x1b]8;;https://evil.example\x07bad path\x1b]8;;\x07: nope")
+
+	out := m.View()
+	if strings.Contains(out, "\x1b]") {
+		t.Fatalf("View() error path leaked an OSC sequence:\n%q", out)
+	}
+	if visible := ansi.Strip(out); !strings.Contains(visible, "bad path") {
+		t.Errorf("error message lost its text: %q", visible)
 	}
 }

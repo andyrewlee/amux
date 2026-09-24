@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 )
 
 func TestChangesSetWorkspaceSameIDPreservesState(t *testing.T) {
@@ -206,14 +207,14 @@ func TestProjectTreeSetWorkspaceCanonicalMatchDifferentIDPreservesState(t *testi
 		t.Fatal("expected file-open command for selected file")
 	}
 	opened := cmd()
-	msg, ok := opened.(OpenFileInEditor)
+	msg, ok := opened.(messages.OpenFileInVim)
 	if !ok {
-		t.Fatalf("expected OpenFileInEditor, got %T", opened)
+		t.Fatalf("expected OpenFileInVim, got %T", opened)
 	}
 	if !filepath.IsAbs(msg.Path) {
-		t.Fatalf("expected absolute file path in OpenFileInEditor, got %q", msg.Path)
+		t.Fatalf("expected absolute file path in OpenFileInVim, got %q", msg.Path)
 	}
 	if !strings.HasPrefix(msg.Path, absRoot+string(filepath.Separator)) {
-		t.Fatalf("expected OpenFileInEditor path under %q, got %q", absRoot, msg.Path)
+		t.Fatalf("expected OpenFileInVim path under %q, got %q", absRoot, msg.Path)
 	}
 }

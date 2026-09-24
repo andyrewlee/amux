@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // reattachFailedModel returns a model with a single detached, reattach-in-flight
@@ -20,10 +21,10 @@ func reattachFailedModel(t *testing.T) (*TerminalModel, *data.Workspace, Termina
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 	state := &TerminalState{
-		SessionName:      "session-1",
-		Running:          true,
-		Detached:         true,
-		reattachInFlight: true,
+		SessionName: "session-1",
+		Running:     true,
+		Detached:    true,
+		Reattach:    ptyio.ReattachGuard{InFlight: true},
 	}
 	m := NewTerminalModel()
 	m.workspace = ws
@@ -94,7 +95,7 @@ func TestHandleReattachFailedClearsRunningAndInFlight(t *testing.T) {
 
 			state.mu.Lock()
 			running := state.Running
-			inFlight := state.reattachInFlight
+			inFlight := state.Reattach.InFlight
 			detached := state.Detached
 			state.mu.Unlock()
 
@@ -235,7 +236,7 @@ func TestHandleReattachFailedRoutedThroughUpdate(t *testing.T) {
 
 	state.mu.Lock()
 	running := state.Running
-	inFlight := state.reattachInFlight
+	inFlight := state.Reattach.InFlight
 	detached := state.Detached
 	state.mu.Unlock()
 
@@ -255,7 +256,7 @@ func TestHandleCreateFailedClearsPendingCreation(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	wsID := string(ws.ID())
 	m := NewTerminalModel()
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 
 	cmd := m.handleCreateFailed(SidebarTerminalCreateFailed{
 		WorkspaceID: wsID,
@@ -277,7 +278,7 @@ func TestHandleCreateFailedNilErrReturnsNilCmd(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	wsID := string(ws.ID())
 	m := NewTerminalModel()
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 
 	cmd := m.handleCreateFailed(SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: nil})
 
@@ -295,7 +296,7 @@ func TestHandleCreateFailedUnknownWorkspaceIsSafe(t *testing.T) {
 	// error.
 	other := "other-ws"
 	m := NewTerminalModel()
-	m.pendingCreation[other] = true
+	m.markPendingCreation(other)
 
 	cmd := m.handleCreateFailed(SidebarTerminalCreateFailed{
 		WorkspaceID: "ghost-ws",
@@ -315,7 +316,7 @@ func TestHandleCreateFailedRoutedThroughUpdate(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	wsID := string(ws.ID())
 	m := NewTerminalModel()
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 
 	_, _ = m.Update(SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: errors.New("routed")})
 
@@ -333,7 +334,7 @@ func TestHandleWorkspaceDeletedNilWorkspaceIsNoop(t *testing.T) {
 	wsID := string(ws.ID())
 	m := NewTerminalModel()
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: generateTerminalTabID(), State: &TerminalState{}}}
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 
 	cmd := m.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: nil})
 
@@ -365,7 +366,7 @@ func TestHandleWorkspaceDeletedTearsDownTabs(t *testing.T) {
 		{ID: generateTerminalTabID(), Name: "Terminal 2", State: state2},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 1
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 
 	cmd := m.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: ws})
 
@@ -421,7 +422,7 @@ func TestHandleWorkspaceDeletedHandlesNilStateAndTerminal(t *testing.T) {
 		{ID: generateTerminalTabID(), Name: "no terminal", State: stateNoTerm},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 
 	cmd := m.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: ws})
 
@@ -469,22 +470,5 @@ func TestHandleWorkspaceDeletedUnknownWorkspaceIsSafe(t *testing.T) {
 	keepState.mu.Unlock()
 	if !running {
 		t.Fatal("expected an unrelated tab's Running flag left untouched")
-	}
-}
-
-func TestHandleWorkspaceDeletedRoutedThroughUpdate(t *testing.T) {
-	// Update must dispatch messages.WorkspaceDeleted to handleWorkspaceDeleted.
-	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
-	wsID := string(ws.ID())
-	m := NewTerminalModel()
-	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{ID: generateTerminalTabID(), State: &TerminalState{Running: true}},
-	}
-	m.tabs.ActiveByWorkspace[wsID] = 0
-
-	_, _ = m.Update(messages.WorkspaceDeleted{Workspace: ws})
-
-	if _, ok := m.tabs.ByWorkspace[wsID]; ok {
-		t.Fatal("expected Update to route the delete and drop the workspace's tabs")
 	}
 }

@@ -21,7 +21,7 @@ func TestAgentManager_CleanupSkipsNilAgentEntries(t *testing.T) {
 	m.agents[ws.ID()] = []*Agent{nil}
 	m.mu.Unlock()
 
-	m.CloseWorkspaceAgents(ws)
+	m.CloseWorkspaceAgents(ws, nil)
 
 	m.mu.Lock()
 	_, stillTracked := m.agents[ws.ID()]

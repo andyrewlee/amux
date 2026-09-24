@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -46,7 +47,7 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		return m.handleMouseMotion(msg)
 	case tea.MouseReleaseMsg:
 		return m.handleMouseRelease(msg)
-	case SidebarSelectionScrollTick:
+	case messages.SidebarSelectionScrollTick:
 		if cmd := m.handleSelectionScrollTick(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -101,6 +102,11 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		if cmd := m.handleWorkspaceDeleted(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+
+	case messages.WorkspaceShelved:
+		if cmd := m.handleWorkspaceShelved(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return m, common.SafeBatch(cmds...)
@@ -138,7 +144,7 @@ func (m *TerminalModel) handlePaste(msg tea.PasteMsg) (*TerminalModel, tea.Cmd) 
 
 	// Handle bracketed paste - send entire content at once with escape sequences
 	text := msg.Content
-	bracketedText := "\x1b[200~" + text + "\x1b[201~"
+	bracketedText := ansi.BracketedPasteStart + text + ansi.BracketedPasteEnd
 	if err := ts.Terminal.SendString(bracketedText); err != nil {
 		logging.Warn("Sidebar paste failed: %v", err)
 		m.detachState(ts, false)

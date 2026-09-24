@@ -1,7 +1,6 @@
 package center
 
 import (
-	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,7 +8,6 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
@@ -18,9 +16,9 @@ import (
 func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 	var cmds []tea.Cmd
 	var tagSessionName string
-	var tagTimestamp int64
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYStopped")
 	if tab != nil {
+		msg.WorkspaceID = wsID
 		termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
@@ -30,17 +28,11 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			tab.Terminal.Write(trailing)
 			flushDone()
 			perf.Count("pty_flush_bytes", int64(len(trailing)))
-			tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLocked(tab, false, tab.pendingVisibleSeq)
+			tagSessionName, _, _ = m.noteVisibleActivityLocked(tab, false, tab.pendingVisibleSeq)
 		}
 		tab.mu.Unlock()
 		if tagSessionName != "" {
-			opts := m.tmuxOpts
-			sessionName := tagSessionName
-			timestamp := strconv.FormatInt(tagTimestamp, 10)
-			cmds = append(cmds, func() tea.Msg {
-				_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
-				return nil
-			})
+			m.markActivityTagForFlush(tagSessionName)
 		}
 		tab.resetActivityANSIState()
 		tab.mu.Lock()
@@ -75,7 +67,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 // updatePTYRestart handles PTYRestart.
 func (m *Model) updatePTYRestart(msg PTYRestart) tea.Cmd {
 	var cmds []tea.Cmd
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYRestart")
 	if tab == nil {
 		return nil
 	}
@@ -86,7 +78,7 @@ func (m *Model) updatePTYRestart(msg PTYRestart) tea.Cmd {
 		tab.mu.Unlock()
 		return nil
 	}
-	if cmd := m.startPTYReader(msg.WorkspaceID, tab); cmd != nil {
+	if cmd := m.startPTYReader(wsID, tab); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return common.SafeBatch(cmds...)

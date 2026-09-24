@@ -1,9 +1,10 @@
 package dashboard
 
 import (
+	"fmt"
+
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -43,13 +44,12 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		main := row.MainWorkspace
 		active := m.projectRowActive(row.ActivityWorkspaceID, main)
 		if main != nil {
-			if m.deletingWorkspaces[main.Root] {
+			if op := m.busyWorkspaces[main.Root]; op != "" {
 				frame := common.SpinnerFrame(m.spinnerFrame)
-				statusText = m.styles.StatusPending.Render(frame + " deleting")
+				statusText = m.styles.StatusPending.Render(frame + " " + string(op))
 			} else if !active &&
 				row.ActivityWorkspaceID != "" &&
-				m.agentStates[row.ActivityWorkspaceID] == activity.StateDone &&
-				!m.doneAcked[row.ActivityWorkspaceID] {
+				m.doneBadgeVisible(row.ActivityWorkspaceID) {
 				done = true
 			} else if s, ok := m.statusCache[main.Root]; ok && !s.Clean {
 				dirty = true
@@ -84,15 +84,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 
 		// Truncate project name to fit within pane (width - border - padding - status - deleteSlot)
-		name := row.Project.Name
+		name := common.SanitizeDisplayText(row.Project.Name, 256)
 		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - lipgloss.Width(prefix) - 1
-		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
-			runes := []rune(name)
-			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
-				runes = runes[:len(runes)-1]
-			}
-			name = string(runes) + "…"
-		}
+		name = common.TruncateRightCells(name, maxNameWidth, "…", 0)
 
 		// Track delete slot position for click detection
 		if selected {
@@ -104,7 +98,10 @@ func (m *Model) renderRow(row Row, selected bool) string {
 	case RowWorkspace:
 		unstyledPrefix := " "
 		styledPrefix := " "
-		name := row.Workspace.Name
+		if m.isMarked(row) {
+			styledPrefix = "●"
+		}
+		name := common.SanitizeDisplayText(row.Workspace.Name, 256)
 		status := ""
 		statusText := ""
 		dirty := false
@@ -112,9 +109,9 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		done := false
 
 		// Check deletion state first
-		if m.deletingWorkspaces[row.Workspace.Root] {
+		if op := m.busyWorkspaces[row.Workspace.Root]; op != "" {
 			frame := common.SpinnerFrame(m.spinnerFrame)
-			statusText = m.styles.StatusPending.Render(frame + " deleting")
+			statusText = m.styles.StatusPending.Render(frame + " " + string(op))
 		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " creating")
@@ -122,8 +119,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 			// Active agents - color change only, no spinner
 			working = true
 		} else if row.ActivityWorkspaceID != "" &&
-			m.agentStates[row.ActivityWorkspaceID] == activity.StateDone &&
-			!m.doneAcked[row.ActivityWorkspaceID] {
+			m.doneBadgeVisible(row.ActivityWorkspaceID) {
 			done = true
 		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
 			dirty = true
@@ -155,19 +151,41 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		// Truncate workspace name to fit within pane (width - border - padding - status - deleteSlot)
 		prefixWidth := lipgloss.Width(unstyledPrefix) + lipgloss.Width(styledPrefix)
 		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - prefixWidth - 1
-		if maxNameWidth > 0 && lipgloss.Width(name) > maxNameWidth {
-			runes := []rune(name)
-			for len(runes) > 0 && lipgloss.Width(string(runes)) > maxNameWidth-1 {
-				runes = runes[:len(runes)-1]
-			}
-			name = string(runes) + "…"
-		}
+		name = common.TruncateRightCells(name, maxNameWidth, "…", 0)
 
 		// Track delete slot position for click detection
 		if selected {
 			m.deleteIconX = lipgloss.Width(unstyledPrefix) + lipgloss.Width(style.Render(styledPrefix+name))
 		}
 
+		return unstyledPrefix + style.Render(styledPrefix+name+deleteSlot) + status
+
+	case RowShelved:
+		// Shelf rows are inert: no agent, no worktree, no dirty state — a
+		// dimmed name plus a "shelved" tag, with the delete slot reserved so
+		// the status column still lines up for purge (D).
+		unstyledPrefix := " "
+		styledPrefix := " "
+		if m.isMarked(row) {
+			styledPrefix = "●"
+		}
+		name := common.SanitizeDisplayText(row.Workspace.Name, 256)
+		status := " " + m.styles.StatusPending.Render("shelved")
+		style := m.styles.WorkspaceRow.Foreground(common.ColorMuted())
+		if selected {
+			style = m.styles.SelectedRow
+		}
+		deleteSlot := "   "
+		deleteSlotWidth := 3
+		if selected {
+			deleteSlot = " " + common.Icons.Close + " "
+		}
+		prefixWidth := lipgloss.Width(unstyledPrefix) + lipgloss.Width(styledPrefix)
+		maxNameWidth := m.width - 3 - lipgloss.Width(status) - deleteSlotWidth - prefixWidth - 1
+		name = common.TruncateRightCells(name, maxNameWidth, "…", 0)
+		if selected {
+			m.deleteIconX = lipgloss.Width(unstyledPrefix) + lipgloss.Width(style.Render(styledPrefix+name))
+		}
 		return unstyledPrefix + style.Render(styledPrefix+name+deleteSlot) + status
 
 	case RowCreate:
@@ -213,12 +231,32 @@ func (m *Model) helpLines(contentWidth int) []string {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		switch m.rows[m.cursor].Type {
 		case RowWorkspace:
+			items = append(items, m.helpItem("space", "mark"))
 			items = append(items, m.helpItem("R", "rename"))
 			items = append(items, m.helpItem("M", "merge"))
+			if n := len(m.markedShelveItems()); n > 0 {
+				items = append(items, m.helpItem("S", fmt.Sprintf("shelve %d marked", n)))
+			} else {
+				items = append(items, m.helpItem("S", "shelve"))
+			}
 			items = append(items, m.helpItem("D", "delete"))
+		case RowShelved:
+			items = append(items, m.helpItem("space", "mark"))
+			if n := len(m.markedShelvedItems()); n > 0 {
+				items = append(items, m.helpItem("enter", fmt.Sprintf("restore %d marked", n)))
+				items = append(items, m.helpItem("D", fmt.Sprintf("purge %d marked", n)))
+			} else {
+				items = append(items, m.helpItem("enter", "restore"))
+				items = append(items, m.helpItem("D", "purge"))
+			}
 		case RowProject:
 			items = append(items, m.helpItem("D", "remove"))
 		}
+	}
+	if n := m.MarkedCount(); n > 0 {
+		items = append(items,
+			m.helpItem("esc", fmt.Sprintf("clear %d marks", n)),
+		)
 	}
 	items = append(items,
 		m.helpItem("r", "rescan"),

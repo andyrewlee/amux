@@ -3,7 +3,6 @@ package sidebar
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -64,69 +63,25 @@ func applyTerminalSessionTags(sessionName string, tags tmux.SessionTags, opts tm
 	return nil
 }
 
+// terminalTagChecks resolves the verify/retag expectations from the single
+// SessionTags→option mapping in internal/tmux — the same pairs session
+// creation emits, so a new tag field cannot drift between emit and verify.
+// Display tags (@amux_workspace_name/@amux_project) ride along, which is
+// what lets a reattach retag self-heal stale names.
 func terminalTagChecks(tags tmux.SessionTags) []struct {
 	key  string
 	want string
 } {
-	checks := []struct {
+	pairs := tmux.SessionTagPairs(tags)
+	checks := make([]struct {
 		key  string
 		want string
-	}{
-		{key: "@amux", want: "1"},
-	}
-	if strings.TrimSpace(tags.WorkspaceID) != "" {
+	}, 0, len(pairs))
+	for _, p := range pairs {
 		checks = append(checks, struct {
 			key  string
 			want string
-		}{key: "@amux_workspace", want: strings.TrimSpace(tags.WorkspaceID)})
-	}
-	if strings.TrimSpace(tags.TabID) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_tab", want: strings.TrimSpace(tags.TabID)})
-	}
-	if strings.TrimSpace(tags.Type) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_type", want: strings.TrimSpace(tags.Type)})
-	}
-	if strings.TrimSpace(tags.Assistant) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_assistant", want: strings.TrimSpace(tags.Assistant)})
-	}
-	// CreatedAt is optional for reattach paths; SessionOwner/LeaseAtMS remain the
-	// primary freshness/ownership tags for those sessions.
-	if tags.CreatedAt > 0 {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_created_at", want: strconv.FormatInt(tags.CreatedAt, 10)})
-	}
-	if strings.TrimSpace(tags.InstanceID) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: "@amux_instance", want: strings.TrimSpace(tags.InstanceID)})
-	}
-	if strings.TrimSpace(tags.SessionOwner) != "" {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: tmux.TagSessionOwner, want: strings.TrimSpace(tags.SessionOwner)})
-	}
-	if tags.LeaseAtMS > 0 {
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: tmux.TagSessionLeaseAt, want: strconv.FormatInt(tags.LeaseAtMS, 10)})
-		checks = append(checks, struct {
-			key  string
-			want string
-		}{key: tmux.TagSessionOwnerHeartbeatAt, want: strconv.FormatInt(tags.LeaseAtMS, 10)})
+		}{key: p.Key, want: strings.TrimSpace(p.Value)})
 	}
 	return checks
 }

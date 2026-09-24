@@ -11,11 +11,13 @@ import (
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *Model) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
+	m.markContentDirty()
 }
 
 // SetStyles updates the component's styles (for theme changes).
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.markContentDirty()
 }
 
 // Init initializes the sidebar.
@@ -25,22 +27,34 @@ func (m *Model) Init() tea.Cmd {
 
 // SetSize sets the sidebar size.
 func (m *Model) SetSize(width, height int) {
+	if m.width == width && m.height == height {
+		return
+	}
 	m.width = width
 	m.height = height
+	m.markContentDirty()
 }
 
 // Focus sets the focus state.
 func (m *Model) Focus() {
+	if m.focused {
+		return
+	}
 	m.focused = true
+	m.markContentDirty()
 }
 
 // Blur removes focus.
 func (m *Model) Blur() {
+	changed := m.focused || m.filterMode
 	m.focused = false
 	// Exit filter mode when losing focus
 	if m.filterMode {
 		m.filterMode = false
 		m.filterInput.Blur()
+	}
+	if changed {
+		m.markContentDirty()
 	}
 }
 
@@ -53,6 +67,7 @@ func (m *Model) Focused() bool {
 // the ahead/behind badge for the new workspace (nil when ws is nil or this is
 // just a pointer rebind of the same workspace).
 func (m *Model) SetWorkspace(ws *data.Workspace) tea.Cmd {
+	m.markContentDirty()
 	if sameWorkspaceByCanonicalPaths(m.workspace, ws) {
 		// Rebind pointer for metadata freshness without resetting UI state.
 		m.workspace = ws
@@ -92,6 +107,7 @@ func (m *Model) FilterActive() bool {
 func (m *Model) SetGitStatus(status *git.StatusResult) {
 	m.gitStatus = status
 	m.rebuildDisplayList()
+	m.markContentDirty()
 }
 
 // SetScriptRunning records whether the `run` script for the workspace rooted at
@@ -102,6 +118,7 @@ func (m *Model) SetGitStatus(status *git.StatusResult) {
 func (m *Model) SetScriptRunning(root string, running bool) {
 	m.scriptRunningRoot = root
 	m.scriptRunning = running
+	m.markContentDirty()
 }
 
 // scriptRunningHere reports whether the run-script indicator applies to the

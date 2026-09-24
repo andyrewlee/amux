@@ -23,7 +23,7 @@ func (m *Model) CanConsumeWheel() bool {
 	defer tab.mu.Unlock()
 
 	detached := tab.Detached
-	reattachInFlight := tab.reattachInFlight
+	reattachInFlight := tab.Reattach.InFlight
 	isChat := m.isChatTabLocked(tab)
 
 	if detached && !reattachInFlight && isChat {

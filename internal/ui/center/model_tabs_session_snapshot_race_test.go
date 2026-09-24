@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // installPostAttachDemotionSeams wires a session that looks eligible right up to
@@ -25,15 +26,15 @@ func installPostAttachDemotionSeams(t *testing.T, calls *[]string, postAttach tm
 	// Three probes bracket the capture (eligibility, post-resize, post-capture);
 	// everything after them is the post-attach world.
 	probeSeq(calls, eligibleReattachProbe(), eligibleReattachProbe(), eligibleReattachProbe(), postAttach)
-	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		*calls = append(*calls, "resize")
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "snapshot")
 		return []byte("stale frame"), nil
 	}
-	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "scrollback")
 		return []byte("post history"), nil
 	}

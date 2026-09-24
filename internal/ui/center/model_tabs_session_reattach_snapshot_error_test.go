@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func TestReattachActiveTab_SnapshotCommandErrorFallsBackToHistoryOnly(t *testing.T) {
@@ -18,15 +19,15 @@ func TestReattachActiveTab_SnapshotCommandErrorFallsBackToHistoryOnly(t *testing
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
 	probeSeq(&calls, eligibleReattachProbe())
-	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		calls = append(calls, "resize")
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		calls = append(calls, "snapshot")
 		return nil, errors.New("snapshot command failed")
 	}
-	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
 		calls = append(calls, "scrollback")
 		return []byte("history"), nil
 	}

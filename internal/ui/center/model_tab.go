@@ -53,11 +53,12 @@ type Tab struct {
 	Agent       *appPty.Agent
 	SessionName string
 	Detached    bool
-	// reattachInFlight prevents overlapping reattach attempts for the same tab.
-	reattachInFlight bool
-	// reattachStartedAt is when reattachInFlight was last acquired, used by the
-	// stalled-reattach sweep to release a lock whose outcome never arrived.
-	reattachStartedAt time.Time
+	// DetachOnly marks a tab attached to a session it does not own (run
+	// session): closing detaches the client but never kills the session.
+	DetachOnly bool
+	// Reattach is the reattach lock+stamp shared with the sidebar terminal;
+	// see ptyio.ReattachGuard for the sweep contract.
+	Reattach ptyio.ReattachGuard
 	// reattachEpoch increments on every acquisition so a result can be matched
 	// to the attempt that produced it; see beginReattachLocked.
 	reattachEpoch uint64
@@ -442,37 +443,3 @@ func (m *Model) removeTab(idx int) {
 }
 
 // CleanupWorkspace removes all tabs and state for a deleted workspace
-func (m *Model) CleanupWorkspace(ws *data.Workspace) {
-	if ws == nil {
-		return
-	}
-	wsID := string(ws.ID())
-
-	// Close resources for each tab before removing
-	for _, tab := range m.tabs.ByWorkspace[wsID] {
-		tab.markClosing()
-		m.stopPTYReader(tab)
-		tab.mu.Lock()
-		if tab.ptyTraceFile != nil {
-			_ = tab.ptyTraceFile.Close()
-			tab.ptyTraceFile = nil
-			tab.ptyTraceClosed = true
-		}
-		tab.resetPTYStateLocked()
-		tab.DiffViewer = nil
-		tab.Terminal = nil
-		tab.ResetSnapshotCache()
-		tab.Workspace = nil
-		tab.Running = false
-		tab.mu.Unlock()
-		tab.markClosed()
-	}
-
-	m.tabs.DeleteWorkspace(wsID)
-	m.noteTabsChanged()
-
-	// Also cleanup agents for this workspace
-	if m.agentManager != nil {
-		m.agentManager.CloseWorkspaceAgents(ws)
-	}
-}

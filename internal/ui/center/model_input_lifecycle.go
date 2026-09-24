@@ -116,7 +116,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	// user-detached tab is not silently resurrected. Release the freshly created
 	// agent/PTY so it does not leak.
 	tab.mu.Lock()
-	staleDetached := tab.Detached && !tab.reattachInFlight
+	staleDetached := tab.Detached && !tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if staleDetached {
 		_ = m.agentManager.CloseAgent(msg.Agent)
@@ -263,17 +263,11 @@ func (m *Model) SweepStalledReattaches() tea.Cmd {
 				continue
 			}
 			tab.mu.Lock()
-			// A running tab holds no meaningful lock even if the flag lingers,
-			// and a zero stamp means the flag was set outside beginReattachLocked
-			// — stamp it now rather than releasing something never timed.
-			stuck := false
-			switch {
-			case !tab.reattachInFlight || tab.Running:
-			case tab.reattachStartedAt.IsZero():
-				tab.reattachStartedAt = now
-			case now.Sub(tab.reattachStartedAt) > ptyio.ReattachStallTimeout:
+			stuck := tab.Reattach.Sweep(now, tab.Running)
+			if stuck {
+				// Preserve the release action (not just the flag clear): the
+				// phase transition keeps Running/Detached consistent.
 				tab.markReattachFailedLocked(false)
-				stuck = true
 			}
 			tabID := tab.ID
 			tab.mu.Unlock()
@@ -336,7 +330,16 @@ func (m *Model) updateOpenDiff(msg messages.OpenDiff) (*Model, tea.Cmd) {
 
 // updateWorkspaceDeleted handles messages.WorkspaceDeleted.
 func (m *Model) updateWorkspaceDeleted(msg messages.WorkspaceDeleted) (*Model, tea.Cmd) {
-	m.CleanupWorkspace(msg.Workspace)
+	m.CleanupWorkspace(msg.Workspace, msg.WorkspaceIDs)
+	return m, nil
+}
+
+// updateWorkspaceShelved handles messages.WorkspaceShelved. Shelve kills the
+// workspace's tmux sessions exactly like delete, so its tabs and agents come
+// down the same way — leaving them would file stale tabs against dead
+// sessions that resurface on restore.
+func (m *Model) updateWorkspaceShelved(msg messages.WorkspaceShelved) (*Model, tea.Cmd) {
+	m.CleanupWorkspace(msg.Workspace, msg.WorkspaceIDs)
 	return m, nil
 }
 

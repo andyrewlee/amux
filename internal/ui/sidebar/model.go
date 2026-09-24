@@ -71,7 +71,28 @@ type Model struct {
 
 	// Styles
 	styles common.Styles
+
+	// contentVersion is a monotonic version of every input that shapes View
+	// output. INVARIANT: every update path that changes what View renders
+	// MUST call markContentDirty (Update marks at the funnel), or the
+	// compose-time gate in internal/app will keep reusing a stale drawable.
+	contentVersion uint64
+	// contentBuilds counts View invocations; test instrumentation for the
+	// compose-time skip gate in internal/app.
+	contentBuilds uint64
 }
+
+// markContentDirty bumps contentVersion; see the field's invariant.
+func (m *Model) markContentDirty() { m.contentVersion++ }
+
+// ContentVersion returns the monotonic version of the inputs to View. The
+// compose layer in internal/app skips rebuilding the content string while
+// this version and the compose geometry are unchanged.
+func (m *Model) ContentVersion() uint64 { return m.contentVersion }
+
+// ContentBuildCount reports how many times View has been invoked. Test
+// instrumentation for the compose-time skip gate; not for production use.
+func (m *Model) ContentBuildCount() uint64 { return m.contentBuilds }
 
 // New creates a new sidebar model.
 func New() *Model {

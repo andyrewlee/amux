@@ -1,9 +1,6 @@
 package sidebar
 
 import (
-	"path/filepath"
-	"strings"
-
 	"github.com/andyrewlee/amux/internal/data"
 )
 
@@ -29,19 +26,11 @@ func sameWorkspaceByCanonicalPaths(left, right *data.Workspace) bool {
 	return leftRepo == rightRepo
 }
 
+// canonicalWorkspacePath compares workspace repo paths across storage forms
+// (a stored relative path vs a live absolute one). It delegates to
+// data.CanonicalPath — the match contract (absolutize + resolve-or-fallback),
+// deliberately not data.NormalizePath, whose relative preservation exists for
+// identity hashing and would make a rel-vs-abs pair compare unequal here.
 func canonicalWorkspacePath(path string) string {
-	value := strings.TrimSpace(path)
-	if value == "" {
-		return ""
-	}
-
-	cleaned := filepath.Clean(value)
-	if abs, err := filepath.Abs(cleaned); err == nil {
-		cleaned = abs
-	}
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = resolved
-	}
-
-	return filepath.Clean(cleaned)
+	return data.CanonicalPath(path)
 }

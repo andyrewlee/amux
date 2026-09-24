@@ -1,11 +1,11 @@
 package dashboard
 
 import (
+	"maps"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -36,6 +36,9 @@ const (
 	RowAddProject
 	RowProject
 	RowWorkspace
+	// RowShelved is an intentionally archived workspace (worktree removed,
+	// branch kept) — selectable for restore/purge, rendered dimmed.
+	RowShelved
 	RowCreate
 	RowSpacer
 )
@@ -101,20 +104,37 @@ type Model struct {
 	// clear is gated on being focused.
 	pendingSelectLoads int
 
+	// marked holds workspace marks for bulk lifecycle ops, keyed by
+	// string(ws.MetadataID()) — the persisted store key, stable across row
+	// rebuilds, renames, and NormalizePath drift. Marks outlive row
+	// rebuilds by design; collection walks live rows so a vanished row's
+	// stale mark simply never matches.
+	marked map[string]bool
+
 	// Loading state
 	creatingWorkspaces map[string]*data.Workspace // Workspaces currently being created
-	deletingWorkspaces map[string]bool            // Workspaces currently being deleted
+	busyWorkspaces     map[string]WorkspaceOp     // Workspaces mid-mutation (root -> op label)
 	spinnerFrame       int                        // Current spinner animation frame
 	spinnerActive      bool                       // Whether spinner ticks are active
 
 	// Agent activity state
-	activeWorkspaceIDs map[string]bool                // Workspace IDs with active agents (synced from center)
-	agentStates        map[string]activity.AgentState // Per-workspace semantic agent states
-	doneAcked          map[string]bool                // Workspace IDs whose "done" indicator has been seen by the user
-	notifyOnDone       bool                           // Ring a terminal bell on the unacked Working→Done edge
+	activeWorkspaceIDs map[string]bool            // Workspace IDs with active agents (synced from center)
+	agentStates        map[string]data.AgentState // Per-workspace semantic agent states
+	doneAcked          map[string]bool            // Workspace IDs whose "done" indicator has been seen by the user
+	donePending        map[string]bool            // Unacked done latch — survives ClassifyState's Done→Idle decay (plan 117)
+	notifyOnDone       bool                       // Ring a terminal bell on the unacked Working→Done edge
 
 	// Styles
 	styles common.Styles
+
+	// contentVersion is bumped by markContentDirty on EVERY mutation that can
+	// change View() output — the app-layer paneGate skips the string build
+	// while it is unchanged at the same compose geometry. Any new field or
+	// update path that affects rendered output MUST call markContentDirty;
+	// a missed mark produces a stale pane with no crash. contentBuilds counts
+	// actual View() builds for the skip tests.
+	contentVersion uint64
+	contentBuilds  uint64
 }
 
 // New creates a new dashboard model
@@ -124,18 +144,52 @@ func New() *Model {
 		rows:               []Row{},
 		statusCache:        make(map[string]*git.StatusResult),
 		creatingWorkspaces: make(map[string]*data.Workspace),
-		deletingWorkspaces: make(map[string]bool),
+		busyWorkspaces:     make(map[string]WorkspaceOp),
 		activeWorkspaceIDs: make(map[string]bool),
 		doneAcked:          make(map[string]bool),
+		donePending:        make(map[string]bool),
+		marked:             make(map[string]bool),
 		cursor:             0,
 		focused:            true,
 		styles:             common.DefaultStyles(),
 	}
 }
 
+// markContentDirty bumps contentVersion. It MUST be called by every update
+// path that changes View() output; see the contentVersion field invariant.
+func (m *Model) markContentDirty() { m.contentVersion++ }
+
+// ContentVersion reports the current content version for the compose-side
+// pane gate.
+func (m *Model) ContentVersion() uint64 { return m.contentVersion }
+
+// ContentBuildCount reports how many times View() actually built — test
+// instrumentation for the pane gate.
+func (m *Model) ContentBuildCount() uint64 { return m.contentBuilds }
+
+// syncScrollToCursor keeps the cursor inside the visible window. Cursor-moving
+// update paths call it directly so click hit-tests (rowIndexAt) see a fresh
+// offset without waiting for a render; View calls it again as a backstop.
+func (m *Model) syncScrollToCursor() {
+	visibleHeight := m.visibleHeight()
+	if m.cursor < m.scrollOffset {
+		m.scrollOffset = m.cursor
+	}
+	if m.cursor >= m.scrollOffset+visibleHeight {
+		m.scrollOffset = m.cursor - visibleHeight + 1
+	}
+	m.clampScrollOffset()
+}
+
 // SetActiveWorkspaces updates the set of workspaces with active agents.
+// The activity sync feeds this every scan — dirtying only on real change
+// keeps steady-state scans from forcing content rebuilds.
 func (m *Model) SetActiveWorkspaces(active map[string]bool) {
+	if maps.Equal(m.activeWorkspaceIDs, active) {
+		return
+	}
 	m.activeWorkspaceIDs = active
+	m.markContentDirty()
 }
 
 // SetNotifyOnDone controls whether a terminal bell fires when a workspace
@@ -152,20 +206,32 @@ func (m *Model) SetNotifyOnDone(enabled bool) {
 // notify-on-done is enabled: the previous state is compared against the new one
 // so a workspace that stays Done across frames does not re-bell. A frame with
 // several simultaneous edges still rings a single bell.
-func (m *Model) SetAgentStates(states map[string]activity.AgentState) tea.Cmd {
+func (m *Model) SetAgentStates(states map[string]data.AgentState) tea.Cmd {
+	if m.donePending == nil {
+		m.donePending = make(map[string]bool)
+	}
 	prev := m.agentStates
 	m.agentStates = states
+	if !maps.Equal(prev, states) {
+		m.markContentDirty()
+	}
 	bell := false
 	for wsID, st := range states {
 		switch st {
-		case activity.StateWorking:
+		case data.StateWorking:
 			delete(m.doneAcked, wsID)
-		case activity.StateDone:
+			delete(m.donePending, wsID)
+		case data.StateDone:
 			// Fire only on the fresh, unacked Working→Done transition. Gating on
 			// prev == Working de-dupes steady-state Done (prev is already Done)
 			// and skips Idle/absent→Done, which is not a finish the user watched.
-			if m.notifyOnDone && prev[wsID] == activity.StateWorking && !m.doneAcked[wsID] {
-				bell = true
+			if prev[wsID] == data.StateWorking {
+				// The done badge latches past DoneWindow's decay — it stays
+				// visible until ackDone (row activation) or a new Working edge.
+				m.donePending[wsID] = true
+				if m.notifyOnDone && !m.doneAcked[wsID] {
+					bell = true
+				}
 			}
 		}
 	}
@@ -183,21 +249,25 @@ func (m *Model) InvalidateStatus(root string) {
 		return
 	}
 	delete(m.statusCache, root)
+	m.markContentDirty()
 }
 
 // SetCanFocusRight controls whether focus-right hints should be shown.
 func (m *Model) SetCanFocusRight(can bool) {
 	m.canFocusRight = can
+	m.markContentDirty()
 }
 
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *Model) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
+	m.markContentDirty()
 }
 
 // SetStyles updates the component's styles (for theme changes).
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.markContentDirty()
 }
 
 // Init initializes the dashboard
@@ -207,18 +277,30 @@ func (m *Model) Init() tea.Cmd {
 
 // SetSize sets the dashboard size
 func (m *Model) SetSize(width, height int) {
+	if m.width == width && m.height == height {
+		return
+	}
 	m.width = width
 	m.height = height
+	m.markContentDirty()
 }
 
 // Focus sets the focus state
 func (m *Model) Focus() {
+	if m.focused {
+		return
+	}
 	m.focused = true
+	m.markContentDirty()
 }
 
 // Blur removes focus
 func (m *Model) Blur() {
+	if !m.focused {
+		return
+	}
 	m.focused = false
+	m.markContentDirty()
 }
 
 // Focused returns whether the dashboard is focused

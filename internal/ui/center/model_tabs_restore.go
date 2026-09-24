@@ -145,22 +145,31 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 				Action:      "reattach",
 			}
 		}
-		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "agent",
-			Assistant:    assistant,
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
+		// Ownership check shared with the other attach paths: a live session
+		// under the stored name must carry our tags, else it is a foreign
+		// squatter and reattach refuses rather than attaching to it.
+		owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
+		if ownErr != nil {
+			return ptyTabReattachFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Epoch:       epoch,
+				Err:         ownErr,
+				Action:      "reattach",
+			}
 		}
-		bootstrap := captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
-		snapshot := bootstrap.Snapshot
-		captureFullPane := bootstrap.CaptureFullPane
-		var scrollback []byte
-		captureCols := termWidth
-		captureRows := termHeight
-		var postAttachScrollback []byte
+		if !owned {
+			return ptyTabReattachFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Epoch:       epoch,
+				Err:         errors.New("tmux session is not owned by this workspace"),
+				Stopped:     true,
+				Action:      "reattach",
+			}
+		}
+		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, false)
+		bootstrap := ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
 		agent, err := createAgentWithTagsFn(
 			m.agentManager,
@@ -172,7 +181,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			tags,
 		)
 		if err != nil {
-			rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
+			ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
@@ -181,16 +190,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 				Action:      "reattach",
 			}
 		}
-		if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
-			scrollback = snapshot.Data
-			postAttachScrollback, _ = capturePaneFn(sessionName, opts)
-		} else {
-			if captureFullPane {
-				captureFullPane = false
-				snapshot = tmux.PaneSnapshot{}
-			}
-			scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
-		}
+		scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows := ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
 		return ptyTabReattachResult{
 			WorkspaceID: string(ws.ID()),
 			TabID:       tabID,

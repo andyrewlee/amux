@@ -7,28 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/messages"
 )
-
-// BranchChangesLoaded carries the result of an async BranchChangesVsBase
-// fetch triggered by toggling branch mode on. It is routed back into the
-// sidebar explicitly by internal/app (see app_input.go), since Bubbletea has
-// no generic message broadcast.
-type BranchChangesLoaded struct {
-	Root    string
-	LoadID  int
-	Changes []git.Change
-	Err     error
-}
-
-// AheadBehindLoaded carries the result of an async AheadBehind fetch,
-// triggered on workspace switch, manual refresh ("g"), and after a commit.
-type AheadBehindLoaded struct {
-	Root   string
-	LoadID int
-	Ahead  int
-	Behind int
-	Err    error
-}
 
 // loadBranchChanges returns a command that fetches BranchChangesVsBase for
 // the current workspace. Bumps branchLoadID so a stale result (e.g. from a
@@ -42,7 +22,7 @@ func (m *Model) loadBranchChanges() tea.Cmd {
 	loadID := m.branchLoadID
 	return func() tea.Msg {
 		changes, err := git.BranchChangesVsBase(root)
-		return BranchChangesLoaded{Root: root, LoadID: loadID, Changes: changes, Err: err}
+		return messages.BranchChangesLoaded{Root: root, LoadID: loadID, Changes: changes, Err: err}
 	}
 }
 
@@ -57,13 +37,13 @@ func (m *Model) refreshAheadBehind() tea.Cmd {
 	loadID := m.aheadBehindLoadID
 	return func() tea.Msg {
 		ahead, behind, err := git.AheadBehind(root)
-		return AheadBehindLoaded{Root: root, LoadID: loadID, Ahead: ahead, Behind: behind, Err: err}
+		return messages.AheadBehindLoaded{Root: root, LoadID: loadID, Ahead: ahead, Behind: behind, Err: err}
 	}
 }
 
 // handleBranchChangesLoaded applies a BranchChangesLoaded result, dropping it
 // if it's stale (superseded by a newer toggle or a workspace switch).
-func (m *Model) handleBranchChangesLoaded(msg BranchChangesLoaded) {
+func (m *Model) handleBranchChangesLoaded(msg messages.BranchChangesLoaded) {
 	if msg.LoadID != m.branchLoadID {
 		return
 	}
@@ -80,7 +60,7 @@ func (m *Model) handleBranchChangesLoaded(msg BranchChangesLoaded) {
 
 // handleAheadBehindLoaded applies an AheadBehindLoaded result, dropping it if
 // it's stale.
-func (m *Model) handleAheadBehindLoaded(msg AheadBehindLoaded) {
+func (m *Model) handleAheadBehindLoaded(msg messages.AheadBehindLoaded) {
 	if msg.LoadID != m.aheadBehindLoadID {
 		return
 	}

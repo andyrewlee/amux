@@ -1,7 +1,5 @@
 package center
 
-import "time"
-
 // A Tab's PTY lifecycle is held as the underlying flags
 // (Running/Detached/reattachInFlight) rather than a derived phase value:
 // Running and Detached are exported package API (the app, harness and
@@ -24,7 +22,7 @@ import "time"
 // launch or successful reattach). Clears any reattach lock.
 func (t *Tab) markAttachedLocked() {
 	t.Detached = false
-	t.reattachInFlight = false
+	t.Reattach.InFlight = false
 	t.Running = true
 	t.discardDetachedPTYOutput = false
 }
@@ -44,7 +42,7 @@ func (t *Tab) markDetachedLocked() {
 func (t *Tab) markDetachedEndingReattachLocked() {
 	t.Running = false
 	t.Detached = true
-	t.reattachInFlight = false
+	t.Reattach.InFlight = false
 }
 
 // markStoppedLocked transitions to stopped: no PTY and no session worth
@@ -56,7 +54,7 @@ func (t *Tab) markDetachedEndingReattachLocked() {
 func (t *Tab) markStoppedLocked() {
 	t.Running = false
 	t.Detached = false
-	t.reattachInFlight = false
+	t.Reattach.InFlight = false
 	t.discardDetachedPTYOutput = false
 }
 
@@ -65,7 +63,7 @@ func (t *Tab) markStoppedLocked() {
 // the tab shows as stopped rather than detached.
 func (t *Tab) markReattachFailedLocked(stopped bool) {
 	t.Running = false
-	t.reattachInFlight = false
+	t.Reattach.InFlight = false
 	if stopped {
 		t.Detached = false
 	}
@@ -88,11 +86,10 @@ func (t *Tab) markReattachFailedLocked(stopped bool) {
 // superseded. Results carry the epoch they were dispatched under and are
 // dropped if a newer attempt has since started.
 func (t *Tab) beginReattachLocked() bool {
-	if t.reattachInFlight {
+	if t.Reattach.InFlight {
 		return false
 	}
-	t.reattachInFlight = true
-	t.reattachStartedAt = time.Now()
+	t.Reattach.Begin()
 	t.reattachEpoch++
 	return true
 }
@@ -105,5 +102,5 @@ func (t *Tab) reattachEpochLocked() uint64 {
 // endReattachLocked releases the reattach transition lock without changing
 // the running/detached outcome (used on early-bail paths).
 func (t *Tab) endReattachLocked() {
-	t.reattachInFlight = false
+	t.Reattach.InFlight = false
 }

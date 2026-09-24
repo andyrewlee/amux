@@ -9,6 +9,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -20,17 +21,24 @@ const (
 	TabProject
 )
 
-// tabHitKind identifies the type of tab bar click target
-type tabHitKind int
+// sidebarTabDef describes one sidebar tab in display order. Adding a tab is:
+// a SidebarTab const, an entry here, and wiring its content model into
+// TabbedSidebar — the bar, number keys, click regions, focus, and
+// Next/Prev cycling all follow this table.
+type sidebarTabDef struct {
+	tab   SidebarTab
+	label string
+	key   string // number key that selects this tab while the sidebar is focused
+}
 
-const (
-	tabHitChanges tabHitKind = iota
-	tabHitProject
-)
+var sidebarTabDefs = []sidebarTabDef{
+	{tab: TabChanges, label: "Changes", key: "1"},
+	{tab: TabProject, label: "Project", key: "2"},
+}
 
 // tabHit represents a clickable region in the tab bar
 type tabHit struct {
-	kind   tabHitKind
+	tab    SidebarTab
 	region common.HitRegion
 }
 
@@ -49,6 +57,9 @@ type TabbedSidebar struct {
 	// tabBarBuilds counts TabBarView invocations; test instrumentation for
 	// the compose-time skip gate in internal/app.
 	tabBarBuilds uint64
+	// contentBuilds counts ContentView invocations; test instrumentation for
+	// the compose-time skip gate in internal/app.
+	contentBuilds uint64
 
 	workspace       *data.Workspace
 	focused         bool
@@ -98,7 +109,7 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 
 	// Handle tab switching on mouse click
 	switch msg := msg.(type) {
-	case BranchChangesLoaded, AheadBehindLoaded:
+	case messages.BranchChangesLoaded, messages.AheadBehindLoaded:
 		// Route straight to the Changes model regardless of which tab is
 		// active: these are background fetches (workspace switch, "g"
 		// refresh, branch-mode toggle) that must land even if the user has
@@ -113,16 +124,9 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			// Check if click is in tab bar
 			for _, hit := range m.tabHits {
 				if hit.region.Contains(msg.X, msg.Y) {
-					switch hit.kind {
-					case tabHitChanges:
-						m.activeTab = TabChanges
-						m.markTabBarDirty()
-						m.updateFocus()
-					case tabHitProject:
-						m.activeTab = TabProject
-						m.markTabBarDirty()
-						m.updateFocus()
-					}
+					m.activeTab = hit.tab
+					m.markTabBarDirty()
+					m.updateFocus()
 					return m, nil
 				}
 			}
@@ -134,16 +138,7 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			X:      msg.X,
 			Y:      msg.Y - 1, // Subtract tab bar height
 		}
-		switch m.activeTab {
-		case TabChanges:
-			var cmd tea.Cmd
-			m.changes, cmd = m.changes.Update(adjustedMsg)
-			cmds = append(cmds, cmd)
-		case TabProject:
-			var cmd tea.Cmd
-			m.projectTree, cmd = m.projectTree.Update(adjustedMsg)
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, m.updateActiveContent(adjustedMsg))
 		return m, common.SafeBatch(cmds...)
 
 	case tea.MouseWheelMsg:
@@ -153,16 +148,7 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 			X:      msg.X,
 			Y:      msg.Y - 1,
 		}
-		switch m.activeTab {
-		case TabChanges:
-			var cmd tea.Cmd
-			m.changes, cmd = m.changes.Update(adjustedMsg)
-			cmds = append(cmds, cmd)
-		case TabProject:
-			var cmd tea.Cmd
-			m.projectTree, cmd = m.projectTree.Update(adjustedMsg)
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, m.updateActiveContent(adjustedMsg))
 		return m, common.SafeBatch(cmds...)
 
 	case tea.KeyPressMsg:
@@ -170,50 +156,62 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 		// view is in filter mode (so digits get typed into the filter instead of
 		// silently switching tabs).
 		if m.focused && !(m.activeTab == TabChanges && m.changes.FilterActive()) {
-			switch {
-			case key.Matches(msg, key.NewBinding(key.WithKeys("1"))):
-				m.activeTab = TabChanges
-				m.markTabBarDirty()
-				m.updateFocus()
-				return m, nil
-			case key.Matches(msg, key.NewBinding(key.WithKeys("2"))):
-				m.activeTab = TabProject
-				m.markTabBarDirty()
-				m.updateFocus()
-				return m, nil
+			for _, def := range sidebarTabDefs {
+				if key.Matches(msg, key.NewBinding(key.WithKeys(def.key))) {
+					m.activeTab = def.tab
+					m.markTabBarDirty()
+					m.updateFocus()
+					return m, nil
+				}
 			}
 		}
 	}
 
 	// Forward messages to active tab
-	switch m.activeTab {
-	case TabChanges:
-		var cmd tea.Cmd
-		m.changes, cmd = m.changes.Update(msg)
-		cmds = append(cmds, cmd)
-	case TabProject:
-		var cmd tea.Cmd
-		m.projectTree, cmd = m.projectTree.Update(msg)
-		cmds = append(cmds, cmd)
-	}
+	cmds = append(cmds, m.updateActiveContent(msg))
 
 	return m, common.SafeBatch(cmds...)
 }
 
+// updateActiveContent forwards msg to the model backing the active tab. The
+// children's concrete Update return types differ, so this is the one place
+// the per-tab dispatch lives.
+func (m *TabbedSidebar) updateActiveContent(msg tea.Msg) tea.Cmd {
+	switch m.activeTab {
+	case TabChanges:
+		var cmd tea.Cmd
+		m.changes, cmd = m.changes.Update(msg)
+		return cmd
+	case TabProject:
+		var cmd tea.Cmd
+		m.projectTree, cmd = m.projectTree.Update(msg)
+		return cmd
+	}
+	return nil
+}
+
+// setContentFocus focuses or blurs the model backing tab.
+func (m *TabbedSidebar) setContentFocus(tab SidebarTab, focused bool) {
+	switch tab {
+	case TabChanges:
+		if focused {
+			m.changes.Focus()
+		} else {
+			m.changes.Blur()
+		}
+	case TabProject:
+		if focused {
+			m.projectTree.Focus()
+		} else {
+			m.projectTree.Blur()
+		}
+	}
+}
+
 // updateFocus ensures only the active tab is focused
 func (m *TabbedSidebar) updateFocus() {
-	if m.focused {
-		switch m.activeTab {
-		case TabChanges:
-			m.changes.Focus()
-			m.projectTree.Blur()
-		case TabProject:
-			m.changes.Blur()
-			m.projectTree.Focus()
-		}
-	} else {
-		m.changes.Blur()
-		m.projectTree.Blur()
+	for _, def := range sidebarTabDefs {
+		m.setContentFocus(def.tab, m.focused && m.activeTab == def.tab)
 	}
 }
 
@@ -231,46 +229,26 @@ func (m *TabbedSidebar) renderTabBar() string {
 	var tabs []string
 	x := 0
 
-	// Changes tab
-	changesLabel := "Changes"
-	var changesRendered string
-	if m.activeTab == TabChanges {
-		changesRendered = activeTabStyle.Render(changesLabel)
-	} else {
-		changesRendered = inactiveStyle.Render(m.styles.Muted.Render(changesLabel))
+	for _, def := range sidebarTabDefs {
+		var rendered string
+		if m.activeTab == def.tab {
+			rendered = activeTabStyle.Render(def.label)
+		} else {
+			rendered = inactiveStyle.Render(m.styles.Muted.Render(def.label))
+		}
+		w := lipgloss.Width(rendered)
+		m.tabHits = append(m.tabHits, tabHit{
+			tab: def.tab,
+			region: common.HitRegion{
+				X:      x,
+				Y:      0,
+				Width:  w,
+				Height: 1,
+			},
+		})
+		tabs = append(tabs, rendered)
+		x += w
 	}
-	changesWidth := lipgloss.Width(changesRendered)
-	m.tabHits = append(m.tabHits, tabHit{
-		kind: tabHitChanges,
-		region: common.HitRegion{
-			X:      x,
-			Y:      0,
-			Width:  changesWidth,
-			Height: 1,
-		},
-	})
-	tabs = append(tabs, changesRendered)
-	x += changesWidth
-
-	// Project tab
-	projectLabel := "Project"
-	var projectRendered string
-	if m.activeTab == TabProject {
-		projectRendered = activeTabStyle.Render(projectLabel)
-	} else {
-		projectRendered = inactiveStyle.Render(m.styles.Muted.Render(projectLabel))
-	}
-	projectWidth := lipgloss.Width(projectRendered)
-	m.tabHits = append(m.tabHits, tabHit{
-		kind: tabHitProject,
-		region: common.HitRegion{
-			X:      x,
-			Y:      0,
-			Width:  projectWidth,
-			Height: 1,
-		},
-	})
-	tabs = append(tabs, projectRendered)
 
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, tabs...)
 }
@@ -292,19 +270,23 @@ func (m *TabbedSidebar) View() string {
 	var b strings.Builder
 	b.WriteString(tabBar)
 	b.WriteString("\n")
+	b.WriteString(m.viewContent(contentHeight))
+	return b.String()
+}
 
-	var content string
+// viewContent sizes and renders the active tab's content. The children's
+// concrete types differ, so this is the one place the per-tab view dispatch
+// lives.
+func (m *TabbedSidebar) viewContent(contentHeight int) string {
 	switch m.activeTab {
 	case TabChanges:
 		m.changes.SetSize(m.width, contentHeight)
-		content = m.changes.View()
+		return m.changes.View()
 	case TabProject:
 		m.projectTree.SetSize(m.width, contentHeight)
-		content = m.projectTree.View()
+		return m.projectTree.View()
 	}
-
-	b.WriteString(content)
-	return b.String()
+	return ""
 }
 
 // TabBarView returns only the tab bar view (for compositor)
@@ -335,20 +317,29 @@ func (m *TabbedSidebar) TabBarBuildCount() uint64 {
 
 // ContentView returns only the content view without tab bar (for compositor)
 func (m *TabbedSidebar) ContentView() string {
+	m.contentBuilds++
 	contentHeight := m.height - 1
 	if contentHeight <= 0 {
 		return ""
 	}
+	return m.viewContent(contentHeight)
+}
 
-	switch m.activeTab {
-	case TabChanges:
-		m.changes.SetSize(m.width, contentHeight)
-		return m.changes.View()
-	case TabProject:
-		m.projectTree.SetSize(m.width, contentHeight)
-		return m.projectTree.View()
-	}
-	return ""
+// ContentVersion folds the versions of every input to ContentView: the
+// active tab (tabBarVersion bumps on every activeTab write) and each child
+// model's own content version, which cover their mutation surfaces (see the
+// contentVersion invariants on Model and ProjectTree).
+func (m *TabbedSidebar) ContentVersion() uint64 {
+	fp := common.FoldFingerprint(0, m.tabBarVersion)
+	fp = common.FoldFingerprint(fp, m.changes.ContentVersion())
+	fp = common.FoldFingerprint(fp, m.projectTree.ContentVersion())
+	return fp
+}
+
+// ContentBuildCount reports how many times ContentView has been invoked.
+// Test instrumentation for the compose-time skip gate; not for production use.
+func (m *TabbedSidebar) ContentBuildCount() uint64 {
+	return m.contentBuilds
 }
 
 // SetSize sets the sidebar size
@@ -422,22 +413,25 @@ func (m *TabbedSidebar) SetActiveTab(tab SidebarTab) {
 
 // NextTab switches to the next tab (circular)
 func (m *TabbedSidebar) NextTab() {
-	if m.activeTab == TabChanges {
-		m.activeTab = TabProject
-	} else {
-		m.activeTab = TabChanges
-	}
-	m.markTabBarDirty()
-	m.updateFocus()
+	m.stepTab(1)
 }
 
 // PrevTab switches to the previous tab (circular)
 func (m *TabbedSidebar) PrevTab() {
-	if m.activeTab == TabChanges {
-		m.activeTab = TabProject
-	} else {
-		m.activeTab = TabChanges
+	m.stepTab(-1)
+}
+
+// stepTab cycles the active tab by delta positions through sidebarTabDefs.
+func (m *TabbedSidebar) stepTab(delta int) {
+	idx := 0
+	for i, def := range sidebarTabDefs {
+		if def.tab == m.activeTab {
+			idx = i
+			break
+		}
 	}
+	idx = (idx + delta + len(sidebarTabDefs)) % len(sidebarTabDefs)
+	m.activeTab = sidebarTabDefs[idx].tab
 	m.markTabBarDirty()
 	m.updateFocus()
 }

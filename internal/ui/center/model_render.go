@@ -3,6 +3,7 @@ package center
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -122,7 +123,70 @@ func (m *Model) View() string {
 
 // TabBarView returns the rendered tab bar string.
 func (m *Model) TabBarView() string {
+	m.tabBarBuilds++
 	return m.renderTabBar()
+}
+
+// TabBarVersion fingerprints every input that shapes the tab bar: the tab
+// set/order (tabsRevision, which also covers tab name/assistant writes under
+// noteTabsChanged), the active index (setActiveTabIdx does not bump
+// tabsRevision), per-tab chat-ness/disconnect/activity (folded under tab.mu —
+// the activity bit is time-windowed, so like ActivityVersion this is a
+// computed fingerprint, not a mutation counter), and the theme (stylesRev).
+func (m *Model) TabBarVersion() uint64 {
+	tabs := m.getTabs()
+	now := time.Now()
+	fp := common.FoldFingerprint(0, m.tabsRevision)
+	fp = common.FoldFingerprint(fp, uint64(m.getActiveTabIdx()+1))
+	fp = common.FoldFingerprint(fp, m.stylesRev)
+	for _, tab := range tabs {
+		tab.mu.Lock()
+		fp = common.FoldFingerprintString(fp, string(tab.ID))
+		fp = common.FoldFingerprintBool(fp, tab.Detached || !tab.Running)
+		fp = common.FoldFingerprintBool(fp, m.isChatTabLocked(tab))
+		fp = common.FoldFingerprintBool(fp, isTabVisiblyActiveLocked(tab, now))
+		tab.mu.Unlock()
+	}
+	return fp
+}
+
+// StatusLineVersion fingerprints the inputs to ActiveTerminalStatusLine for
+// the compose-time gate: which tab is active, its lifecycle flags, and its
+// scroll state (ViewOffset can move without a terminal version bump via
+// anchored scrollback adjustments, so the offset/total fold directly).
+func (m *Model) StatusLineVersion() uint64 {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	fp := common.FoldFingerprint(0, m.stylesRev)
+	fp = common.FoldFingerprint(fp, uint64(activeIdx+1))
+	if activeIdx < 0 || activeIdx >= len(tabs) {
+		return common.FoldFingerprint(fp, 0)
+	}
+	tab := tabs[activeIdx]
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	fp = common.FoldFingerprintString(fp, string(tab.ID))
+	fp = common.FoldFingerprintBool(fp, tab.Terminal != nil)
+	fp = common.FoldFingerprintBool(fp, tab.Running)
+	fp = common.FoldFingerprintBool(fp, tab.Detached)
+	fp = common.FoldFingerprintBool(fp, tab.Reattach.InFlight)
+	offset, total := m.displayedScrollInfoLocked(tab)
+	fp = common.FoldFingerprintBool(fp, tab.Terminal != nil && tab.Terminal.IsScrolled())
+	fp = common.FoldFingerprint(fp, uint64(offset))
+	fp = common.FoldFingerprint(fp, uint64(total))
+	return fp
+}
+
+// TabBarBuildCount reports how many times TabBarView has been invoked. Test
+// instrumentation for the compose-time skip gate; not for production use.
+func (m *Model) TabBarBuildCount() uint64 {
+	return m.tabBarBuilds
+}
+
+// StatusLineBuildCount reports how many times ActiveTerminalStatusLine has
+// been invoked. Test instrumentation for the compose-time skip gate.
+func (m *Model) StatusLineBuildCount() uint64 {
+	return m.statusLineBuilds
 }
 
 // HelpLines returns the help lines for the given width, respecting visibility.
@@ -314,7 +378,7 @@ func (m *Model) terminalStatusLineLocked(tab *Tab) string {
 	// pumping output for every other attached agent, so it can visibly take a
 	// moment. Saying so beats leaving DETACHED up, which reads as "nothing is
 	// happening" exactly when something is.
-	if tab.reattachInFlight {
+	if tab.Reattach.InFlight {
 		return statusStyle.Render(" REATTACHING ")
 	}
 	status := ""
@@ -343,5 +407,6 @@ func (m *Model) activeTerminalStatusLine() string {
 
 // ActiveTerminalStatusLine returns the status line for the active terminal.
 func (m *Model) ActiveTerminalStatusLine() string {
+	m.statusLineBuilds++
 	return m.activeTerminalStatusLine()
 }

@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -236,7 +237,7 @@ func (m *Model) sendKeyToTerminal(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cm
 // literal bytes, since input can contain prompts, passwords, or pasted secrets.
 func terminalInputHint(input []byte) string {
 	var hints []string
-	if bytes.Contains(input, []byte("\x1b[200~")) || bytes.Contains(input, []byte("\x1b[201~")) {
+	if bytes.Contains(input, []byte(ansi.BracketedPasteStart)) || bytes.Contains(input, []byte(ansi.BracketedPasteEnd)) {
 		hints = append(hints, "paste")
 	}
 	if bytes.Contains(input, []byte{0x0d}) {

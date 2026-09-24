@@ -34,7 +34,7 @@ func consumableTree(t *testing.T) *ProjectTree {
 	tree := NewProjectTree()
 	tree.SetSize(80, 20)
 	tree.workspace = data.NewWorkspace("feature", "feature", "main", "/tmp/repo", "/tmp/repo/feature")
-	tree.flatNodes = []*ProjectTreeNode{
+	tree.flatNodes = []*projectTreeNode{
 		{Name: "root", Path: "/tmp/repo/feature", IsDir: true},
 		{Name: "main.go", Path: "/tmp/repo/feature/main.go", IsDir: false},
 	}
@@ -79,7 +79,7 @@ func TestProjectTreeCanConsumeWheelWithShortList(t *testing.T) {
 	tree := NewProjectTree()
 	tree.SetSize(80, 20)
 	tree.workspace = data.NewWorkspace("feature", "feature", "main", "/tmp/repo", "/tmp/repo/feature")
-	tree.flatNodes = []*ProjectTreeNode{
+	tree.flatNodes = []*projectTreeNode{
 		{Name: "root", Path: "/tmp/repo/feature", IsDir: true},
 		{Name: "main.go", Path: "/tmp/repo/feature/main.go", IsDir: false},
 	}
@@ -93,7 +93,7 @@ func TestProjectTreeCannotConsumeWheelWithSingleNode(t *testing.T) {
 	tree := NewProjectTree()
 	tree.SetSize(80, 1)
 	tree.workspace = data.NewWorkspace("feature", "feature", "main", "/tmp/repo", "/tmp/repo/feature")
-	tree.flatNodes = []*ProjectTreeNode{
+	tree.flatNodes = []*projectTreeNode{
 		{Name: "root", Path: "/tmp/repo/feature", IsDir: true},
 	}
 

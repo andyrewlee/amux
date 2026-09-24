@@ -12,6 +12,11 @@ import (
 
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
+	// Every handled message below can move the cursor, toggle marks/toolbar
+	// state, or mutate status/agent maps — marking at the funnel guarantees
+	// coverage; messages that early-return untouched still bump, which only
+	// costs one extra build. (See the contentVersion invariant.)
+	defer m.markContentDirty()
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -58,7 +63,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			// Check if click is on the delete "x" icon for the currently selected row
 			if idx == m.cursor {
 				rowType := m.rows[idx].Type
-				if rowType == RowProject || rowType == RowWorkspace {
+				if rowType == RowProject || rowType == RowWorkspace || rowType == RowShelved {
 					// Convert screen X to content X
 					borderLeft := 1
 					paddingLeft := 0
@@ -89,8 +94,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case SpinnerTickMsg:
 		// Advance spinner frame if we have loading items or active agents
-		if len(m.creatingWorkspaces) > 0 || len(m.deletingWorkspaces) > 0 {
+		if len(m.creatingWorkspaces) > 0 || len(m.busyWorkspaces) > 0 {
 			m.spinnerFrame++
+			m.markContentDirty()
 			cmds = append(cmds, m.tickSpinner())
 		} else {
 			m.spinnerActive = false
@@ -107,10 +113,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case messages.WorkspaceActivated:
 		if msg.Workspace != nil {
 			m.activeRoot = msg.Workspace.Root
+			m.markContentDirty()
 		}
 
 	case messages.ShowWelcome:
 		m.activeRoot = ""
+		m.markContentDirty()
 	}
 
 	return m, common.SafeBatch(cmds...)
@@ -180,6 +188,14 @@ func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*
 		return m, m.handleRename()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("M"))):
 		return m, m.handleMerge()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("S"))):
+		return m, m.handleShelve()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("space"))):
+		m.toggleMarkAtCursor()
+	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+		if m.MarkedCount() > 0 {
+			m.clearMarks()
+		}
 	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 		return m, m.refresh()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("G"))):
@@ -200,6 +216,7 @@ func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*
 
 // View renders the dashboard
 func (m *Model) View() string {
+	m.contentBuilds++
 	var b strings.Builder
 
 	// Calculate visible area (inner height minus toolbar + help)
@@ -207,21 +224,10 @@ func (m *Model) View() string {
 	if innerHeight < 0 {
 		innerHeight = 0
 	}
-	headerHeight := 0
-	helpHeight := m.helpLineCount()
-	toolbarHeight := m.toolbarHeight()
-	visibleHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
-	if visibleHeight < 1 {
-		visibleHeight = 1
-	}
+	visibleHeight := m.visibleHeight()
 
 	// Adjust scroll offset to keep cursor visible
-	if m.cursor < m.scrollOffset {
-		m.scrollOffset = m.cursor
-	}
-	if m.cursor >= m.scrollOffset+visibleHeight {
-		m.scrollOffset = m.cursor - visibleHeight + 1
-	}
+	m.syncScrollToCursor()
 
 	// Rows
 	for i, row := range m.rows {
@@ -238,7 +244,7 @@ func (m *Model) View() string {
 
 	// Pad to the inner pane height (border excluded), reserving toolbar and help lines.
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := innerHeight - toolbarHeight - helpHeight
+	targetHeight := innerHeight - m.toolbarHeight() - m.helpLineCount()
 	if targetHeight < 0 {
 		targetHeight = 0
 	}

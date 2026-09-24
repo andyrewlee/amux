@@ -162,16 +162,7 @@ func (m *TerminalModel) StartPTYReaders() tea.Cmd {
 func (m *TerminalModel) CloseTerminal(wsID string) {
 	tabs := m.tabs.ByWorkspace[wsID]
 	for _, tab := range tabs {
-		if tab.State != nil {
-			m.stopPTYReader(tab.State)
-			tab.State.mu.Lock()
-			if tab.State.Terminal != nil {
-				closeTerminalForSidebar(tab.State.Terminal, "workspace close")
-			}
-			tab.State.Running = false
-			tab.State.RestartBackoff = 0
-			tab.State.mu.Unlock()
-		}
+		m.teardownTabState(tab.State, "workspace close")
 	}
 	m.tabs.DeleteWorkspace(wsID)
 	delete(m.pendingCreation, wsID)
@@ -190,6 +181,25 @@ func (m *TerminalModel) stopPTYReader(ts *TerminalState) {
 		return
 	}
 	ts.State.StopReader(&ts.mu)
+}
+
+// teardownTabState stops a tab's PTY reader and closes its terminal — the
+// shared teardown behind tab close, workspace close, and workspace deletion.
+// It returns the tab's session name so callers can kill the tmux session.
+func (m *TerminalModel) teardownTabState(ts *TerminalState, reason string) (sessionName string) {
+	if ts == nil {
+		return ""
+	}
+	m.stopPTYReader(ts)
+	ts.mu.Lock()
+	sessionName = ts.SessionName
+	if ts.Terminal != nil {
+		closeTerminalForSidebar(ts.Terminal, reason)
+	}
+	ts.Running = false
+	ts.RestartBackoff = 0
+	ts.mu.Unlock()
+	return sessionName
 }
 
 func closeTerminalForSidebar(term *pty.Terminal, reason string) {

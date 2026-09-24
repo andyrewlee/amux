@@ -85,7 +85,7 @@ func TestRestoreTabsFromWorkspace_MarksReattachInFlightForRunningTabs(t *testing
 	}
 	tab := tabs[0]
 	tab.mu.Lock()
-	inFlight := tab.reattachInFlight
+	inFlight := tab.Reattach.InFlight
 	detached := tab.Detached
 	tab.mu.Unlock()
 	if !detached {

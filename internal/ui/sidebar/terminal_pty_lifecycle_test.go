@@ -75,7 +75,7 @@ func TestCreateTerminalStateForTab(t *testing.T) {
 			resizes := stubTerminalResize(t)
 			m, wsID := newBoundModel(t)
 			// Pre-mark a pending creation so we can prove it is cleared.
-			m.pendingCreation[wsID] = true
+			m.markPendingCreation(wsID)
 			tabID := generateTerminalTabID()
 
 			ts := m.createTerminalStateForTab(wsID, tabID, tt.term, tt.sessionName)
@@ -116,7 +116,7 @@ func TestCreateTerminalStateForTab(t *testing.T) {
 			if got := m.tabs.ActiveByWorkspace[wsID]; got != 0 {
 				t.Fatalf("active index = %d, want 0", got)
 			}
-			if m.pendingCreation[wsID] {
+			if _, ok := m.pendingCreation[wsID]; ok {
 				t.Fatal("expected pendingCreation cleared after the tab exists")
 			}
 
@@ -277,7 +277,7 @@ func TestCloseTerminal(t *testing.T) {
 	nilStateTab := &TerminalTab{ID: generateTerminalTabID(), Name: "Terminal 2", State: nil}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{tab, nilStateTab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 
 	m.CloseTerminal(wsID)
 
@@ -297,7 +297,7 @@ func TestCloseTerminal(t *testing.T) {
 	if _, ok := m.tabs.ByWorkspace[wsID]; ok {
 		t.Fatal("expected the workspace tab entry deleted")
 	}
-	if m.pendingCreation[wsID] {
+	if _, ok := m.pendingCreation[wsID]; ok {
 		t.Fatal("expected pendingCreation cleared")
 	}
 }

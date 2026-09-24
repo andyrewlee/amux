@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -59,21 +60,10 @@ func (m *TerminalModel) closeTabAt(idx int) (*TerminalModel, tea.Cmd) {
 
 	wtID := m.workspaceID()
 	tab := tabs[idx]
-	sessionName := ""
 	opts := m.tmuxOpts
 
 	// Close PTY and cleanup
-	if tab.State != nil {
-		m.stopPTYReader(tab.State)
-		tab.State.mu.Lock()
-		sessionName = tab.State.SessionName
-		if tab.State.Terminal != nil {
-			closeTerminalForSidebar(tab.State.Terminal, "tab close")
-		}
-		tab.State.Running = false
-		tab.State.RestartBackoff = 0
-		tab.State.mu.Unlock()
-	}
+	sessionName := m.teardownTabState(tab.State, "tab close")
 
 	// Remove tab from slice
 	m.tabs.ByWorkspace[wtID] = append(tabs[:idx], tabs[idx+1:]...)
@@ -182,7 +172,7 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 				wsID := m.workspaceID()
 				tabID := activeTab.ID
 				cmd = common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
-					return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+					return messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
 				})
 			}
 		}
@@ -234,8 +224,8 @@ func (m *TerminalModel) SetOffset(x, y int) {
 
 // handleSelectionScrollTick handles a SidebarSelectionScrollTick message,
 // scrolling the viewport and extending the selection highlight.
-func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick) tea.Cmd {
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+func (m *TerminalModel) handleSelectionScrollTick(msg messages.SidebarSelectionScrollTick) tea.Cmd {
+	tab := m.getTabByID(msg.WorkspaceID, TerminalTabID(msg.TabID))
 	if tab == nil || tab.State == nil {
 		return nil
 	}
@@ -261,7 +251,7 @@ func (m *TerminalModel) handleSelectionScrollTick(msg SidebarSelectionScrollTick
 	wsID := msg.WorkspaceID
 	tabID := msg.TabID
 	return common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
-		return SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: msg.Gen, Seq: nextSeq}
+		return messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: msg.Gen, Seq: nextSeq}
 	})
 }
 

@@ -52,6 +52,9 @@ func (m *TerminalModel) renderTabBar() string {
 		if name == "" {
 			name = fmt.Sprintf("Terminal %d", i+1)
 		}
+		// Tab names are persisted/session-derived — sanitize before any
+		// Render/Width use so hit regions measure the string that's drawn.
+		name = common.SanitizeDisplayText(name, 256)
 		disconnected := false
 		if tab.State != nil {
 			tab.State.mu.Lock()
@@ -138,6 +141,7 @@ func (m *TerminalModel) renderTabBar() string {
 
 // TabBarView returns the rendered tab bar string.
 func (m *TerminalModel) TabBarView() string {
+	m.tabBarBuilds++
 	return m.renderTabBar()
 }
 
@@ -184,6 +188,7 @@ func (m *TerminalModel) TerminalLayerWithCursorOwner(cursorOwner bool) *composit
 
 // StatusLine returns the status line for the active terminal.
 func (m *TerminalModel) StatusLine() string {
+	m.statusBuilds++
 	ts := m.getTerminal()
 	if ts == nil || ts.VTerm == nil {
 		return ""
@@ -217,6 +222,7 @@ func (m *TerminalModel) StatusLine() string {
 
 // HelpLines returns the help lines for the given width, respecting visibility and height.
 func (m *TerminalModel) HelpLines(width int) []string {
+	m.helpBuilds++
 	return m.helpLinesForLayout(width)
 }
 

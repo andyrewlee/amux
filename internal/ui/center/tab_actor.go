@@ -25,6 +25,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
@@ -69,6 +70,8 @@ type tabEvent struct {
 	input           []byte
 	pasteText       string
 	output          []byte
+	filteredOutput  []byte
+	noiseAfter      []byte
 	writeEpoch      uint64
 	catchUp         bool
 	hasMoreBuffered bool
@@ -309,7 +312,7 @@ func (m *Model) handleSendMouse(ev tabEvent) {
 
 func (m *Model) handlePaste(ev tabEvent) {
 	if ev.pasteText != "" {
-		m.sendToTerminal(ev.tab, "\x1b[200~"+ev.pasteText+"\x1b[201~", ev.tabID, ev.workspaceID, "Paste")
+		m.sendToTerminal(ev.tab, ansi.BracketedPasteStart+ev.pasteText+ansi.BracketedPasteEnd, ev.tabID, ev.workspaceID, "Paste")
 	}
 }
 

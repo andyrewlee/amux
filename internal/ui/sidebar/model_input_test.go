@@ -108,6 +108,49 @@ func TestInputNavArrowKeys(t *testing.T) {
 	}
 }
 
+// TestInputOEmitsShowScriptOutput proves the O binding emits the lifecycle
+// output request for the sidebar's workspace — the sibling of R's run
+// output for setup/archive/on-done.
+func TestInputOEmitsShowScriptOutput(t *testing.T) {
+	m := newInputModel(t)
+	ws := &data.Workspace{Name: "ws", Root: "/repo/ws"}
+	m.SetWorkspace(ws)
+
+	_, cmd := m.Update(keyPress('O'))
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from O")
+	}
+	msg := cmd()
+	show, ok := msg.(messages.ShowScriptOutput)
+	if !ok {
+		t.Fatalf("expected messages.ShowScriptOutput, got %T", msg)
+	}
+	if show.Workspace != ws {
+		t.Fatalf("ShowScriptOutput workspace = %p, want %p", show.Workspace, ws)
+	}
+}
+
+// TestInputIEmitsShowWorkspaceStatus proves the i binding emits the
+// operational-status request for the sidebar's workspace.
+func TestInputIEmitsShowWorkspaceStatus(t *testing.T) {
+	m := newInputModel(t)
+	ws := &data.Workspace{Name: "ws", Root: "/repo/ws"}
+	m.SetWorkspace(ws)
+
+	_, cmd := m.Update(keyPress('i'))
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from i")
+	}
+	msg := cmd()
+	show, ok := msg.(messages.ShowWorkspaceStatus)
+	if !ok {
+		t.Fatalf("expected messages.ShowWorkspaceStatus, got %T", msg)
+	}
+	if show.Workspace != ws {
+		t.Fatalf("ShowWorkspaceStatus workspace = %p, want %p", show.Workspace, ws)
+	}
+}
+
 func TestInputOpenEmitsOpenDiffForSelectedChange(t *testing.T) {
 	m := newInputModel(t)
 
@@ -325,5 +368,36 @@ func TestInputIgnoredWhenUnfocused(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Fatal("expected nil cmd when unfocused")
+	}
+}
+
+func TestInputStatusKeyRequestsRefreshViaApp(t *testing.T) {
+	// The status key must not call git.GetStatus in the UI layer: status is
+	// shared data owned by the app's cache + dedup. The model emits a
+	// GitStatusRequest; the app's dispatch owns the refresh.
+	m := New()
+	m.SetSize(80, 20)
+	m.Focus()
+	m.SetWorkspace(&data.Workspace{Name: "feature", Root: "/tmp/ws"})
+
+	_, cmd := m.Update(keyPress('g'))
+	if cmd == nil {
+		t.Fatal("expected a request cmd from the status key")
+	}
+	bm, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("status key should batch refresh cmds, got %T", cmd())
+	}
+	var sawRequest bool
+	for _, c := range bm {
+		if req, ok := c().(messages.GitStatusRequest); ok {
+			sawRequest = true
+			if req.Root != "/tmp/ws" {
+				t.Fatalf("GitStatusRequest root = %q, want /tmp/ws", req.Root)
+			}
+		}
+	}
+	if !sawRequest {
+		t.Fatal("expected messages.GitStatusRequest in the batch")
 	}
 }

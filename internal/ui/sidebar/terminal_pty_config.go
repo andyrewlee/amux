@@ -40,7 +40,12 @@ const (
 	ptyMaxBufferedBytes = 4 * 1024 * 1024
 )
 
-// SidebarTerminalCreated is a message for terminal creation
+// SidebarTerminalCreated is a message for terminal creation.
+//
+// The sidebar's cross-boundary messages conventionally live in
+// internal/messages — this family stays leaf-local because its payload
+// (*pty.Terminal, ptyio.SessionRestoreCapture) would force
+// messages→ptyio→common→messages, an import cycle.
 type SidebarTerminalCreated struct {
 	WorkspaceID string
 	TabID       TerminalTabID
@@ -51,11 +56,22 @@ type SidebarTerminalCreated struct {
 	ptyio.SessionRestoreCapture
 }
 
+// MarkCriticalExternalMsg marks SidebarTerminalCreated as critical: the
+// message is the only thing that releases the workspace's pendingCreation
+// mark — if the lossy queue evicted it, the workspace could never create a
+// terminal again for the session's lifetime (plus the built tmux client
+// would leak).
+func (SidebarTerminalCreated) MarkCriticalExternalMsg() {}
+
 // SidebarTerminalCreateFailed is a message for terminal creation failure
 type SidebarTerminalCreateFailed struct {
 	WorkspaceID string
 	Err         error
 }
+
+// MarkCriticalExternalMsg marks SidebarTerminalCreateFailed as critical —
+// same pendingCreation release contract as SidebarTerminalCreated.
+func (SidebarTerminalCreateFailed) MarkCriticalExternalMsg() {}
 
 type SidebarTerminalReattachResult struct {
 	WorkspaceID string
@@ -67,6 +83,11 @@ type SidebarTerminalReattachResult struct {
 	ptyio.SessionRestoreCapture
 }
 
+// MarkCriticalExternalMsg marks SidebarTerminalReattachResult as critical —
+// the reattach path also clears pendingCreation, so a drop wedges it the
+// same way a lost create result does.
+func (SidebarTerminalReattachResult) MarkCriticalExternalMsg() {}
+
 type SidebarTerminalReattachFailed struct {
 	WorkspaceID string
 	TabID       TerminalTabID
@@ -74,3 +95,7 @@ type SidebarTerminalReattachFailed struct {
 	Stopped     bool
 	Action      string
 }
+
+// MarkCriticalExternalMsg marks SidebarTerminalReattachFailed as critical —
+// see SidebarTerminalReattachResult.
+func (SidebarTerminalReattachFailed) MarkCriticalExternalMsg() {}

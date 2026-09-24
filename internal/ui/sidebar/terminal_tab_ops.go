@@ -24,13 +24,13 @@ func (m *TerminalModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 		m.refreshTerminalSize()
 		return nil
 	}
-	if m.pendingCreation[wsID] {
+	if m.pendingCreationActive(wsID) {
 		// Creation already in progress
 		return nil
 	}
 
 	// Create first terminal tab
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 	return m.createTerminalTab(ws)
 }
 
@@ -49,10 +49,10 @@ func (m *TerminalModel) EnsureTerminalTab() tea.Cmd {
 		return nil
 	}
 	wsID := m.workspaceID()
-	if m.pendingCreation[wsID] {
+	if m.pendingCreationActive(wsID) {
 		return nil
 	}
-	m.pendingCreation[wsID] = true
+	m.markPendingCreation(wsID)
 	return m.createTerminalTab(m.workspace)
 }
 
@@ -78,21 +78,10 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 	}
 
 	tab := tabs[idx]
-	sessionName := ""
 	opts := m.tmuxOpts
 
 	// Close PTY and cleanup
-	if tab.State != nil {
-		m.stopPTYReader(tab.State)
-		tab.State.mu.Lock()
-		sessionName = tab.State.SessionName
-		if tab.State.Terminal != nil {
-			closeTerminalForSidebar(tab.State.Terminal, "tab close")
-		}
-		tab.State.Running = false
-		tab.State.RestartBackoff = 0
-		tab.State.mu.Unlock()
-	}
+	sessionName := m.teardownTabState(tab.State, "tab close")
 
 	// Remove tab from slice
 	m.tabs.ByWorkspace[wsID] = append(tabs[:idx], tabs[idx+1:]...)

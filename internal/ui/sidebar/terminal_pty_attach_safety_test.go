@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // installSidebarHistoryFallbackSeams wires a live session whose probe reports
@@ -22,15 +23,15 @@ func installSidebarHistoryFallbackSeams(t *testing.T, calls *[]string, probe tmu
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
 	probeSeq(calls, probe)
-	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		*calls = append(*calls, "resize")
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "snapshot")
 		return []byte("should not use"), nil
 	}
-	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "scrollback")
 		return []byte("history only"), nil
 	}
@@ -174,11 +175,11 @@ func TestAttachToSession_AttachFailureRollsBackBootstrapResize(t *testing.T) {
 	// Still unattached and unchanged at the rollback probe, so the rollback is
 	// safe to perform.
 	probeSeq(&calls, eligibleAttachProbe())
-	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		calls = append(calls, "resize")
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		calls = append(calls, "snapshot")
 		return []byte("resized"), nil
 	}

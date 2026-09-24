@@ -12,8 +12,33 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// View renders the diff viewer
+// View renders the diff viewer. The result is memoized on every render
+// input — a static diff tab composing each frame reuses the last build.
 func (m *Model) View() string {
+	key := diffViewKey{
+		diff:      m.diff,
+		loading:   m.loading,
+		scroll:    m.scroll,
+		hunkIdx:   m.hunkIdx,
+		wrap:      m.wrap,
+		focused:   m.focused,
+		width:     m.width,
+		height:    m.height,
+		stylesRev: m.stylesRev,
+	}
+	if m.err != nil {
+		key.errStr = m.err.Error()
+	}
+	if m.viewValid && m.viewKey == key {
+		return m.viewCache
+	}
+	out := m.renderView()
+	m.viewKey, m.viewCache, m.viewValid = key, out, true
+	return out
+}
+
+// renderView performs the actual string build — the memoized half of View.
+func (m *Model) renderView() string {
 	if m.loading {
 		return m.renderLoading()
 	}
@@ -65,7 +90,7 @@ func (m *Model) renderError() string {
 
 	errorStyle := lipgloss.NewStyle().
 		Foreground(common.ColorError())
-	b.WriteString(errorStyle.Render("  Error: " + m.err.Error()))
+	b.WriteString(errorStyle.Render("  Error: " + common.SanitizeDisplayText(m.err.Error(), 512)))
 
 	return b.String()
 }
@@ -132,7 +157,7 @@ func (m *Model) renderNoChanges() string {
 func (m *Model) renderHeader() string {
 	path := ""
 	if m.change != nil {
-		path = m.change.Path
+		path = common.SanitizeDisplayText(m.change.Path, 256)
 	}
 
 	headerStyle := lipgloss.NewStyle().
@@ -241,8 +266,12 @@ func (m *Model) renderLine(lineNum int, line git.DiffLine, numWidth, contentWidt
 
 	lineNumStr := gutterStyle.Render(strconv.Itoa(lineNum + 1))
 
-	// Get line content and style based on type
-	content := line.Content
+	// Get line content and style based on type. Diff content is repo-controlled
+	// bytes: strip terminal escapes (OSC8 hyperlinks, OSC52 clipboard writes,
+	// CSI) before styling so a crafted file can't inject sequences into the
+	// host terminal — the same treatment pty_output_filter.go applies to
+	// untrusted streams.
+	content := ansi.Strip(line.Content)
 	var contentStyle lipgloss.Style
 
 	switch line.Kind {

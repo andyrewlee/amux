@@ -23,10 +23,7 @@ func TestApplyActorWriteLocked_DrainsPendingClipboard(t *testing.T) {
 
 	// OSC 52 write: "\x1b]52;c;aGk=\x07" sets clipboard to "hi"
 	osc52 := []byte("\x1b]52;c;aGk=\x07")
-	ev := tabEvent{
-		tab:    tab,
-		output: osc52,
-	}
+	ev := enqueueWriteEvent(t, tab, osc52)
 	processedBytes := len(osc52)
 
 	tab.mu.Lock()
@@ -60,7 +57,7 @@ func TestApplyActorWriteLocked_NilClipboardWhenNoOSC52(t *testing.T) {
 	m.AddTab(tab)
 
 	plain := []byte("hello world\n")
-	ev := tabEvent{tab: tab, output: plain}
+	ev := enqueueWriteEvent(t, tab, plain)
 
 	tab.mu.Lock()
 	_, _, _, _, _, _, pendingClip := m.applyActorWriteLocked(tab, ev, len(plain))

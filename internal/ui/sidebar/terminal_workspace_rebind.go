@@ -1,10 +1,15 @@
 package sidebar
 
 import (
+	"sync"
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // RebindWorkspaceID migrates terminal tabs from a previous workspace ID to a new one.
@@ -32,8 +37,10 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		if m.workspace != nil && string(m.workspace.ID()) == oldID {
 			m.workspace = current
 		}
-		if m.pendingCreation[oldID] {
-			m.pendingCreation[newID] = true
+		if m.pendingCreationActive(oldID) {
+			// Migrate the original start time so the staleness clock keeps
+			// ticking under the new key.
+			m.pendingCreation[newID] = m.pendingCreation[oldID]
 			delete(m.pendingCreation, oldID)
 		}
 		return nil
@@ -43,31 +50,35 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		func(t *TerminalTab) TerminalTabID { return t.ID },
 		func(t *TerminalTab) bool { return t == nil })
 
-	if m.pendingCreation[oldID] {
-		m.pendingCreation[newID] = true
+	if m.pendingCreationActive(oldID) {
+		m.pendingCreation[newID] = m.pendingCreation[oldID]
 		delete(m.pendingCreation, oldID)
 	}
 	if m.workspace != nil && string(m.workspace.ID()) == oldID {
 		m.workspace = current
 	}
 
-	var cmds []tea.Cmd
-	for _, tab := range merged {
-		if tab == nil || tab.State == nil {
-			continue
-		}
-		ts := tab.State
-		ts.mu.Lock()
-		shouldRestart := ts.Running && ts.Terminal != nil
-		ts.mu.Unlock()
-
-		if shouldRestart {
-			m.stopPTYReader(ts)
-			if cmd := m.startPTYReader(newID, tab.ID); cmd != nil {
-				cmds = append(cmds, cmd)
+	return ptyio.RebindMigratedTabs(merged, ptyio.RebindHooks[*TerminalTab]{
+		State: func(t *TerminalTab) *ptyio.State {
+			if t == nil || t.State == nil {
+				return nil
 			}
-		}
-	}
-
-	return common.SafeBatch(cmds...)
+			return &t.State.State
+		},
+		Lock: func(t *TerminalTab) *sync.Mutex { return &t.State.mu },
+		ExamineLocked: func(t *TerminalTab) bool {
+			return t.State.Running && t.State.Terminal != nil
+		},
+		Restart: func(t *TerminalTab) tea.Cmd {
+			m.stopPTYReader(t.State)
+			return m.startPTYReader(newID, t.ID)
+		},
+		FlushTiming: func(t *TerminalTab) time.Duration {
+			quiet, _ := m.flushTimingFor(t.State)
+			return quiet
+		},
+		FlushMsg: func(t *TerminalTab) tea.Msg {
+			return messages.SidebarPTYFlush{WorkspaceID: newID, TabID: string(t.ID)}
+		},
+	})
 }

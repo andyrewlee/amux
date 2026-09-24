@@ -28,12 +28,15 @@ func TestTerminalTagChecks(t *testing.T) {
 		want []tagCheck
 	}{
 		{
-			name: "empty tags emit only the marker",
+			// The single-source mapping (tmux.SessionTagPairs, plan 127)
+			// refuses a marker without identity — same rule session
+			// creation applies, so nothing is emitted for an empty set.
+			name: "empty tags emit nothing",
 			tags: tmux.SessionTags{},
-			want: []tagCheck{{key: "@amux", want: "1"}},
+			want: nil,
 		},
 		{
-			name: "whitespace-only string fields are dropped",
+			name: "whitespace-only string fields normalize to empty",
 			tags: tmux.SessionTags{
 				WorkspaceID: "   ",
 				TabID:       "\t",
@@ -41,7 +44,7 @@ func TestTerminalTagChecks(t *testing.T) {
 				Assistant:   "",
 				InstanceID:  "  ",
 			},
-			want: []tagCheck{{key: "@amux", want: "1"}},
+			want: nil,
 		},
 		{
 			name: "non-positive numeric fields are dropped",
@@ -49,7 +52,7 @@ func TestTerminalTagChecks(t *testing.T) {
 				CreatedAt: 0,
 				LeaseAtMS: 0,
 			},
-			want: []tagCheck{{key: "@amux", want: "1"}},
+			want: nil,
 		},
 		{
 			name: "negative numeric fields are dropped",
@@ -57,7 +60,7 @@ func TestTerminalTagChecks(t *testing.T) {
 				CreatedAt: -1,
 				LeaseAtMS: -42,
 			},
-			want: []tagCheck{{key: "@amux", want: "1"}},
+			want: nil,
 		},
 		{
 			name: "boundary numeric values of one are included",
@@ -125,6 +128,22 @@ func TestTerminalTagChecks(t *testing.T) {
 				{key: tmux.TagSessionOwnerHeartbeatAt, want: "1700000000123"},
 			},
 		},
+		{
+			// Plan 127: display tags ride the same mapping — verify catches a
+			// stale @amux_workspace_name/@amux_project and retag heals them.
+			name: "display tags emit alongside identity",
+			tags: tmux.SessionTags{
+				WorkspaceID:   "ws-1",
+				WorkspaceName: "feature-x",
+				ProjectName:   "proj",
+			},
+			want: []tagCheck{
+				{key: "@amux", want: "1"},
+				{key: "@amux_workspace", want: "ws-1"},
+				{key: "@amux_workspace_name", want: "feature-x"},
+				{key: "@amux_project", want: "proj"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -146,14 +165,15 @@ func TestTerminalTagChecks(t *testing.T) {
 }
 
 // TestTerminalTagChecks_AlwaysLeadsWithMarker guarantees the @amux marker is the
-// first emitted check regardless of which optional fields are set, since callers
-// rely on it to identify amux-owned sessions.
+// first emitted check for any identity-bearing tag set, since callers rely on
+// it to identify amux-owned sessions. (An all-empty set emits nothing at all —
+// see TestTerminalTagChecks.)
 func TestTerminalTagChecks_AlwaysLeadsWithMarker(t *testing.T) {
 	cases := []tmux.SessionTags{
-		{},
 		{WorkspaceID: "ws"},
 		{SessionOwner: "owner", LeaseAtMS: 5},
 		{CreatedAt: 99, InstanceID: "inst"},
+		{WorkspaceName: "ws-name", WorkspaceID: "ws"},
 	}
 	for i, tags := range cases {
 		checks := terminalTagChecks(tags)
@@ -209,7 +229,7 @@ func TestVerifyTerminalSessionTagsOnce_NonexistentSessionMismatch(t *testing.T) 
 	skipIfNoTmuxSidebar(t)
 	opts := tmuxTestServer(t)
 
-	err := verifyTerminalSessionTagsOnce("no-such-session-xyz", tmux.SessionTags{}, opts)
+	err := verifyTerminalSessionTagsOnce("no-such-session-xyz", tmux.SessionTags{WorkspaceID: "ws-1"}, opts)
 	if err == nil {
 		t.Fatal("expected a mismatch error for a session with no tags")
 	}
@@ -257,8 +277,10 @@ func TestApplyAndVerifyTerminalSessionTags_Roundtrip(t *testing.T) {
 	}
 }
 
-// TestApplyTerminalSessionTags_MinimalSession applies only the marker (empty
-// optional fields) and confirms the single @amux tag is written and verified.
+// TestApplyTerminalSessionTags_MinimalSession applies the smallest
+// identity-bearing tag set and confirms the marker plus the identity tag are
+// written and verified. (An all-empty set emits nothing under the
+// single-source mapping — a marker without identity is refused.)
 func TestApplyTerminalSessionTags_MinimalSession(t *testing.T) {
 	skipIfNoTmuxSidebar(t)
 	opts := tmuxTestServer(t)
@@ -266,11 +288,12 @@ func TestApplyTerminalSessionTags_MinimalSession(t *testing.T) {
 	const session = "tags-minimal"
 	createTmuxSession(t, opts, session)
 
-	if err := applyTerminalSessionTags(session, tmux.SessionTags{}, opts); err != nil {
+	tags := tmux.SessionTags{WorkspaceID: "ws-1"}
+	if err := applyTerminalSessionTags(session, tags, opts); err != nil {
 		t.Fatalf("applyTerminalSessionTags: %v", err)
 	}
-	if err := verifyTerminalSessionTagsOnce(session, tmux.SessionTags{}, opts); err != nil {
-		t.Fatalf("expected marker-only verification to pass, got %v", err)
+	if err := verifyTerminalSessionTagsOnce(session, tags, opts); err != nil {
+		t.Fatalf("expected marker+identity verification to pass, got %v", err)
 	}
 	got, err := tmux.SessionTagValue(session, "@amux", opts)
 	if err != nil {
@@ -278,6 +301,13 @@ func TestApplyTerminalSessionTags_MinimalSession(t *testing.T) {
 	}
 	if got != "1" {
 		t.Fatalf("expected @amux=1, got %q", got)
+	}
+	got, err = tmux.SessionTagValue(session, "@amux_workspace", opts)
+	if err != nil {
+		t.Fatalf("SessionTagValue: %v", err)
+	}
+	if got != "ws-1" {
+		t.Fatalf("expected @amux_workspace=ws-1, got %q", got)
 	}
 }
 

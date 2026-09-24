@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // installSidebarSnapshotSeams wires an eligible session: the pre-attach resize
@@ -38,15 +39,15 @@ func installSidebarSnapshotSeams(t *testing.T, calls *[]string, snapshotData str
 		sized(eligibleAttachProbe()),
 		sized(attached),
 	)
-	resizePaneToSizeFn = func(_ string, cols, rows int, _ tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(_ string, cols, rows int, _ tmux.Options) error {
 		*calls = append(*calls, fmt.Sprintf("resize:%dx%d", cols, rows))
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "snapshot")
 		return []byte(snapshotData), nil
 	}
-	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "scrollback")
 		return []byte("fallback"), nil
 	}

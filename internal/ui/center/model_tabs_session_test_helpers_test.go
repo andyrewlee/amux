@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func setKnownViewport(m *Model) {
@@ -18,22 +19,30 @@ func setKnownViewport(m *Model) {
 func restoreReattachSeams(t *testing.T) {
 	t.Helper()
 	oldSessionStateFor := sessionStateForFn
-	oldProbeSession := probeSessionFn
+	oldSessionOwned := sessionOwnedFn
+	oldProbeSession := ptyio.ProbeSessionFn
 	oldKillSession := killSessionFn
-	oldResizePaneToSize := resizePaneToSizeFn
-	oldCapturePaneFullData := capturePaneFullDataFn
-	oldCapturePaneHistoryData := capturePaneHistoryDataFn
+	oldResizePaneToSize := ptyio.ResizePaneToSizeFn
+	oldCapturePaneFullData := ptyio.CapturePaneFullDataFn
+	oldCapturePaneHistoryData := ptyio.CapturePaneHistoryDataFn
 	oldCapturePane := capturePaneFn
 	oldCreateAgentWithTags := createAgentWithTagsFn
+	oldCreateRunAttach := createRunAttachFn
+	// Ownership defaults to owned: the reattach tests exercise
+	// dead/attachable session states, not the shared-server squatting check —
+	// tests for that override sessionOwnedFn after this helper runs.
+	sessionOwnedFn = func(string, []string, tmux.Options) (bool, error) { return true, nil }
 	t.Cleanup(func() {
 		sessionStateForFn = oldSessionStateFor
-		probeSessionFn = oldProbeSession
+		sessionOwnedFn = oldSessionOwned
+		ptyio.ProbeSessionFn = oldProbeSession
 		killSessionFn = oldKillSession
-		resizePaneToSizeFn = oldResizePaneToSize
-		capturePaneFullDataFn = oldCapturePaneFullData
-		capturePaneHistoryDataFn = oldCapturePaneHistoryData
+		ptyio.ResizePaneToSizeFn = oldResizePaneToSize
+		ptyio.CapturePaneFullDataFn = oldCapturePaneFullData
+		ptyio.CapturePaneHistoryDataFn = oldCapturePaneHistoryData
 		capturePaneFn = oldCapturePane
 		createAgentWithTagsFn = oldCreateAgentWithTags
+		createRunAttachFn = oldCreateRunAttach
 	})
 }
 
@@ -59,13 +68,13 @@ func eligibleReattachProbe() tmux.SessionProbe {
 	}
 }
 
-// probeSeq installs a probeSessionFn handing out the given probes in order,
+// probeSeq installs a ptyio.ProbeSessionFn handing out the given probes in order,
 // repeating the last once exhausted, recording each call in calls. The bootstrap
 // guards are a sequence of point-in-time reads, so scripting the probes is how a
 // test says "the session changed at step N".
 func probeSeq(calls *[]string, probes ...tmux.SessionProbe) {
 	i := 0
-	probeSessionFn = func(string, tmux.Options) (tmux.SessionProbe, error) {
+	ptyio.ProbeSessionFn = func(string, tmux.Options) (tmux.SessionProbe, error) {
 		*calls = append(*calls, "probe")
 		p := probes[i]
 		if i < len(probes)-1 {

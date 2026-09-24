@@ -6,6 +6,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // installSnapshotSeams wires an eligible session: the pre-attach resize and
@@ -25,15 +26,15 @@ func installSnapshotSeams(t *testing.T, calls *[]string) {
 	// Quiet and unattached through the capture; the attaching client shows up in
 	// the post-attach validation probe.
 	probeSeq(calls, eligibleReattachProbe(), eligibleReattachProbe(), eligibleReattachProbe(), attached)
-	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		*calls = append(*calls, "resize")
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "snapshot")
 		return []byte("frame"), nil
 	}
-	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
 		*calls = append(*calls, "scrollback")
 		return []byte("fallback"), nil
 	}

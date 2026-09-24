@@ -168,3 +168,63 @@ func TestSelectWorkspace_ExpiresWhenRowNeverArrives(t *testing.T) {
 		t.Fatal("expected an expired selection not to grab the cursor when the row later appears")
 	}
 }
+
+// Shelve removes the live row immediately but only re-renders it as a shelved
+// row on the next projects load. The cursor must re-anchor to that shelved
+// row — without it, Enter/D after a shelve land on the predecessor (project)
+// row, activating or offering to remove the project instead of restoring or
+// purging the shelved workspace.
+func TestSelectWorkspace_ShelveReanchorsCursorToShelvedRow(t *testing.T) {
+	ws := *data.NewWorkspace("ws1", "feature1", "main", "/repo", "/repo/ws1")
+	wsID := string(ws.ID())
+	project := data.Project{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{ws}}
+
+	m := New()
+	m.SetProjects([]data.Project{project})
+	m.SelectWorkspace(wsID)
+
+	// Transient state: the live row is gone but the reload carrying the
+	// shelved row has not landed yet.
+	m.SetProjects([]data.Project{{Name: "repo", Path: "/repo"}})
+	if got := m.selectedWorkspaceIDAt(m.cursor); got == wsID {
+		t.Fatal("expected the shelved row to be absent in the transient rebuild")
+	}
+
+	// The reload surfaces the workspace as shelved; the cursor must follow.
+	shelved := ws
+	shelved.Archived = true
+	shelved.Shelved = true
+	m.SetProjects([]data.Project{{Name: "repo", Path: "/repo", ShelvedWorkspaces: []data.Workspace{shelved}}})
+	if got := m.selectedWorkspaceIDAt(m.cursor); got != wsID {
+		t.Fatalf("expected cursor re-anchored to the shelved row, got %q", got)
+	}
+	if m.rows[m.cursor].Type != RowShelved {
+		t.Fatalf("expected cursor on a shelved row, got type %v", m.rows[m.cursor].Type)
+	}
+}
+
+// A workspace that never reappears (delete) still walks the cursor to the
+// predecessor and drops the pending re-anchor within the bounded wait.
+func TestSelectWorkspace_DeleteKeepsPredecessorAnchor(t *testing.T) {
+	ws := *data.NewWorkspace("ws1", "feature1", "main", "/repo", "/repo/ws1")
+	project := data.Project{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{ws}}
+
+	m := New()
+	m.SetProjects([]data.Project{project})
+	m.SelectWorkspace(string(ws.ID()))
+
+	empty := []data.Project{{Name: "repo", Path: "/repo"}}
+	m.SetProjects(empty)
+	if m.rows[m.cursor].Type != RowProject {
+		t.Fatalf("expected cursor on the predecessor row after delete, got type %v", m.rows[m.cursor].Type)
+	}
+	for i := 0; i < pendingSelectMaxLoads+1; i++ {
+		m.SetProjects(empty)
+	}
+	if m.pendingSelectID != "" {
+		t.Fatalf("expected pending selection to expire for a workspace that never returns, got %q", m.pendingSelectID)
+	}
+	if m.rows[m.cursor].Type != RowProject {
+		t.Fatalf("expected cursor to stay on the predecessor row, got type %v", m.rows[m.cursor].Type)
+	}
+}

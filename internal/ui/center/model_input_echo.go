@@ -5,6 +5,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func isDigitsAndSemicolons(s string) bool {
@@ -129,8 +131,8 @@ func isReadlineEditingEscapeInput(data string) bool {
 
 func bracketedPasteContent(data string) (string, bool) {
 	const (
-		pasteStart = "\x1b[200~"
-		pasteEnd   = "\x1b[201~"
+		pasteStart = ansi.BracketedPasteStart
+		pasteEnd   = ansi.BracketedPasteEnd
 	)
 	if !strings.HasPrefix(data, pasteStart) || !strings.HasSuffix(data, pasteEnd) {
 		return "", false
@@ -157,7 +159,7 @@ func shouldSuppressLocalEchoInput(data string) bool {
 	if data == "" {
 		return false
 	}
-	if strings.HasPrefix(data, "\x1b[200~") {
+	if strings.HasPrefix(data, ansi.BracketedPasteStart) {
 		return false
 	}
 	if data == "\r" || data == "\n" {
@@ -195,7 +197,7 @@ func shouldTrackRecentChatPromptInput(data string) bool {
 		isReadlinePromptControlInput(data) ||
 		data == "\r" || data == "\n" ||
 		isReadlineEditingEscapeInput(data) ||
-		strings.HasPrefix(data, "\x1b[200~")
+		strings.HasPrefix(data, ansi.BracketedPasteStart)
 }
 
 func isSubmitStylePromptInput(data string) bool {

@@ -41,7 +41,7 @@ func (m *TerminalModel) EnforceAttachedTerminalTabLimit(maxAttached int) []Detac
 			ts := tab.State
 			ts.mu.Lock()
 			attached := ts.Running && !ts.Detached
-			inFlight := ts.reattachInFlight
+			inFlight := ts.Reattach.InFlight
 			lastOutput := ts.LastOutputAt
 			ts.mu.Unlock()
 			if !attached {

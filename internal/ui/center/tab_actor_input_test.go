@@ -87,13 +87,10 @@ func TestHandleTabEvent_WriteOutputEmitsPostWriteRedrawOnlyForVisibleTab(t *test
 				}
 			}
 
-			m.handleTabEvent(tabEvent{
-				tab:         tab,
-				workspaceID: "ws",
-				tabID:       tab.ID,
-				kind:        tabEventWriteOutput,
-				output:      []byte("x"),
-			})
+			ev := enqueueWriteEvent(t, tab, []byte("x"))
+			ev.workspaceID = "ws"
+			ev.tabID = tab.ID
+			m.handleTabEvent(ev)
 
 			if refreshes != tt.wantRefreshes {
 				t.Fatalf("expected %d cursor refresh messages, got %d", tt.wantRefreshes, refreshes)
@@ -110,7 +107,6 @@ func TestHandleTabEvent_WriteOutputPreservesCatchUpForParserResetRetry(t *testin
 		Terminal:  vterm.New(80, 24),
 		tabActorWriteState: tabActorWriteState{
 			actorWriteEpoch:    7,
-			actorWritesPending: 1,
 			parserResetPending: true,
 		},
 	}
@@ -124,15 +120,11 @@ func TestHandleTabEvent_WriteOutputPreservesCatchUpForParserResetRetry(t *testin
 		}
 	}
 
-	m.handleTabEvent(tabEvent{
-		tab:         tab,
-		workspaceID: "ws",
-		tabID:       tab.ID,
-		kind:        tabEventWriteOutput,
-		output:      []byte("x"),
-		writeEpoch:  tab.actorWriteEpoch,
-		catchUp:     true,
-	})
+	ev := enqueueWriteEvent(t, tab, []byte("x"))
+	ev.workspaceID = "ws"
+	ev.tabID = tab.ID
+	ev.catchUp = true
+	m.handleTabEvent(ev)
 
 	if flushes != 1 {
 		t.Fatalf("expected 1 PTYFlush retry, got %d", flushes)
@@ -148,13 +140,9 @@ func TestHandleTabEvent_WriteOutputPreservesCatchUpForParserResetRetry(t *testin
 func TestHandleTabEvent_WriteOutputSuppressesRedrawUntilCatchUpTarget(t *testing.T) {
 	m := newTestModel()
 	tab := &Tab{
-		ID:        TabID("tab-write-output-catch-up-redraw"),
-		Assistant: "codex",
-		Terminal:  vterm.New(80, 24),
-		tabActorWriteState: tabActorWriteState{
-			actorWritesPending: 2,
-			actorQueuedBytes:   2,
-		},
+		ID:                   TabID("tab-write-output-catch-up-redraw"),
+		Assistant:            "codex",
+		Terminal:             vterm.New(80, 24),
 		catchUpPendingOutput: true,
 		catchUpTargetBytes:   2,
 		ptyBytesReceived:     2,
@@ -168,13 +156,10 @@ func TestHandleTabEvent_WriteOutputSuppressesRedrawUntilCatchUpTarget(t *testing
 		}
 	}
 
-	m.handleTabEvent(tabEvent{
-		tab:         tab,
-		workspaceID: "ws",
-		tabID:       tab.ID,
-		kind:        tabEventWriteOutput,
-		output:      []byte("a"),
-	})
+	evA := enqueueWriteEvent(t, tab, []byte("a"))
+	evA.workspaceID = "ws"
+	evA.tabID = tab.ID
+	m.handleTabEvent(evA)
 
 	if refreshes != 0 {
 		t.Fatalf("expected catch-up actor write to suppress intermediate redraws, got %d", refreshes)
@@ -183,13 +168,10 @@ func TestHandleTabEvent_WriteOutputSuppressesRedrawUntilCatchUpTarget(t *testing
 		t.Fatalf("expected catch-up to remain active before the selected backlog target is settled")
 	}
 
-	m.handleTabEvent(tabEvent{
-		tab:         tab,
-		workspaceID: "ws",
-		tabID:       tab.ID,
-		kind:        tabEventWriteOutput,
-		output:      []byte("b"),
-	})
+	evB := enqueueWriteEvent(t, tab, []byte("b"))
+	evB.workspaceID = "ws"
+	evB.tabID = tab.ID
+	m.handleTabEvent(evB)
 
 	if refreshes != 1 {
 		t.Fatalf("expected final catch-up actor write to emit one redraw, got %d", refreshes)
@@ -350,18 +332,15 @@ func TestHandleTabEvent_WriteOutputDropsStaleEpoch(t *testing.T) {
 	}
 
 	// Positive control: a matching epoch applies the write and decrements pending.
-	m.handleTabEvent(tabEvent{
-		tab:         tab,
-		workspaceID: "ws",
-		tabID:       tab.ID,
-		kind:        tabEventWriteOutput,
-		output:      []byte("LIVE"),
-		writeEpoch:  tab.actorWriteEpoch,
-	})
+	// The enqueue bumps pending to 2; the apply returns it to the stale slot's 1.
+	ev := enqueueWriteEvent(t, tab, []byte("LIVE"))
+	ev.workspaceID = "ws"
+	ev.tabID = tab.ID
+	m.handleTabEvent(ev)
 	if got := tab.Terminal.Render(); got == baseline {
 		t.Fatalf("matching-epoch write should have mutated the terminal")
 	}
-	if tab.actorWritesPending != 0 {
-		t.Fatalf("matching-epoch write should decrement pending to 0, got %d", tab.actorWritesPending)
+	if tab.actorWritesPending != 1 {
+		t.Fatalf("matching-epoch write should decrement pending by one, got %d", tab.actorWritesPending)
 	}
 }

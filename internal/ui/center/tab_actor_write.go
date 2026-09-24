@@ -1,11 +1,8 @@
 package center
 
 import (
-	"strconv"
-
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -16,7 +13,6 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 	processedBytes := len(ev.output)
 	var (
 		tagSessionName string
-		tagTimestamp   int64
 		filteredLen    int
 		filterApplied  bool
 		requestFlush   bool
@@ -26,7 +22,7 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 	tab.mu.Lock()
 	staleWrite := ev.writeEpoch != tab.actorWriteEpoch
 	if !staleWrite && tab.Terminal != nil {
-		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp, pendingClip = m.applyActorWriteLocked(tab, ev, processedBytes)
+		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip = m.applyActorWriteLocked(tab, ev, processedBytes)
 	}
 	tab.mu.Unlock()
 	if staleWrite {
@@ -40,12 +36,7 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		}
 	}
 	if tagSessionName != "" {
-		opts := m.tmuxOpts
-		sessionName := tagSessionName
-		timestamp := strconv.FormatInt(tagTimestamp, 10)
-		safego.Go("center.tmux_tag_write", func() {
-			_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
-		})
+		m.markActivityTagForFlush(tagSessionName)
 	}
 	if clip, ok := common.OSC52ClipboardText(pendingClip); ok {
 		safego.Go("center.osc52_clipboard", func() {
@@ -71,7 +62,14 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 // whether a follow-up flush is needed, the activity tag to publish, and any
 // clipboard payload captured from an OSC 52 write (to be drained off the lock).
 func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64, pendingClip []byte) {
-	output := ptyio.FilterKnownPTYNoiseStream(ev.output, &tab.NoiseTrailing)
+	// The enqueue preview already ran the noise filter against the queued
+	// carry chain, and every non-actor mutation of NoiseTrailing coincides with
+	// an actorWriteEpoch bump (stale-drop above) or happens while no write is
+	// pending — so the carried filtered bytes and post-filter trailing are
+	// exactly what re-filtering here would produce. Committing them directly
+	// removes a second full filter pass over the same chunk.
+	output := ev.filteredOutput
+	tab.NoiseTrailing = ev.noiseAfter
 	filteredLen = len(output)
 	filterApplied = true
 	if len(output) > 0 {
@@ -104,13 +102,17 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 // chunk about to be dispatched to the tab actor: it captures the prior epoch,
 // queued carry, and queued noise trailing (returned so a failed send can roll
 // back), advances the queued parser carry/noise across the chunk, and bumps the
-// pending/queued counters. It manages tab.mu itself and makes no mutation when
+// pending/queued counters. It also returns the filtered bytes and post-filter
+// noise trailing so the caller can carry them on the event — the apply then
+// commits them instead of filtering the chunk a second time. previewFiltered
+// may alias chunk; previewTrailing is owned by the caller (the queued copy is
+// stored separately). It manages tab.mu itself and makes no mutation when
 // tab.Terminal == nil (the symmetric apply side bails the same way).
-func enqueueActorWrite(tab *Tab, chunk []byte) (prevEpoch uint64, prevCarry vterm.ParserCarryState, prevNoiseTrailing []byte) {
+func enqueueActorWrite(tab *Tab, chunk []byte) (prevEpoch uint64, prevCarry vterm.ParserCarryState, prevNoiseTrailing, previewFiltered, previewTrailing []byte) {
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
 	if tab.Terminal == nil {
-		return 0, vterm.ParserCarryState{}, nil
+		return 0, vterm.ParserCarryState{}, nil, nil, nil
 	}
 	prevPending := tab.actorWritesPending
 	prevEpoch = tab.actorWriteEpoch
@@ -120,18 +122,17 @@ func enqueueActorWrite(tab *Tab, chunk []byte) (prevEpoch uint64, prevCarry vter
 	if prevPending > 0 {
 		seedCarry = prevCarry
 	}
-	previewTrailing := append([]byte(nil), tab.NoiseTrailing...)
+	previewTrailing = append([]byte(nil), tab.NoiseTrailing...)
 	if prevPending > 0 {
 		previewTrailing = append(previewTrailing[:0], tab.actorQueuedNoiseTrailing...)
 	}
-	filteredPreview := ptyio.FilterKnownPTYNoiseStream(chunk, &previewTrailing)
-	nextCarry := vterm.AdvanceParserCarryState(seedCarry, filteredPreview)
-	nextNoiseTrailing := append([]byte(nil), previewTrailing...)
+	previewFiltered = ptyio.FilterKnownPTYNoiseStream(chunk, &previewTrailing)
+	nextCarry := vterm.AdvanceParserCarryState(seedCarry, previewFiltered)
 	tab.actorWritesPending = prevPending + 1
 	tab.actorQueuedBytes += len(chunk)
 	tab.actorQueuedCarry = nextCarry
-	tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], nextNoiseTrailing...)
-	return prevEpoch, prevCarry, prevNoiseTrailing
+	tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], previewTrailing...)
+	return prevEpoch, prevCarry, prevNoiseTrailing, previewFiltered, previewTrailing
 }
 
 // recoverFailedActorSend rolls back an actor-write enqueue when sendTabEvent

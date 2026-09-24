@@ -3,6 +3,8 @@ package sidebar
 import (
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
@@ -17,8 +19,7 @@ import (
 // flag is set. The stamp is what lets the sweep tell a slow attach from a lost
 // one; see SweepStalledReattaches.
 func (ts *TerminalState) beginReattachLocked() {
-	ts.reattachInFlight = true
-	ts.reattachStartedAt = time.Now()
+	ts.Reattach.Begin()
 }
 
 // SweepStalledReattaches releases reattach locks whose outcome never arrived.
@@ -28,7 +29,7 @@ func (ts *TerminalState) beginReattachLocked() {
 // opt in. It is not a cancellation: the attach goroutine is untouched, and
 // releasing the lock simply lets the next attach sweep retry the terminal,
 // which is how a sidebar terminal recovers on its own.
-func (m *TerminalModel) SweepStalledReattaches() {
+func (m *TerminalModel) SweepStalledReattaches() tea.Cmd {
 	now := time.Now()
 	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
@@ -37,21 +38,14 @@ func (m *TerminalModel) SweepStalledReattaches() {
 			}
 			ts := tab.State
 			ts.mu.Lock()
-			stalled := false
-			switch {
-			case !ts.reattachInFlight || ts.Running:
-			case ts.reattachStartedAt.IsZero():
-				// Never timed (set outside beginReattachLocked): start its clock
-				// now rather than releasing an attach that may be in progress.
-				ts.reattachStartedAt = now
-			case now.Sub(ts.reattachStartedAt) > ptyio.ReattachStallTimeout:
-				ts.reattachInFlight = false
-				stalled = true
-			}
+			stalled := ts.Reattach.Sweep(now, ts.Running)
 			ts.mu.Unlock()
 			if stalled {
 				logging.Warn("Sidebar terminal attach for tab %s produced no outcome within %s; releasing reattach lock", tab.ID, ptyio.ReattachStallTimeout)
 			}
 		}
 	}
+	// Unlike the center sweep there is nothing to dispatch: a stalled sidebar
+	// terminal recovers on its own the next time the attach sweep retries it.
+	return nil
 }

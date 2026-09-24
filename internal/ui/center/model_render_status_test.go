@@ -71,7 +71,7 @@ func TestTerminalStatusLine(t *testing.T) {
 			tab := statusTab(m)
 			tab.Running = tt.running
 			tab.Detached = tt.detached
-			tab.reattachInFlight = tt.reattachInFlight
+			tab.Reattach.InFlight = tt.reattachInFlight
 
 			got := strings.TrimSpace(ansi.Strip(m.ActiveTerminalStatusLine()))
 			if got != tt.want {
@@ -87,7 +87,7 @@ func TestTerminalStatusLine_ScrollPositionWinsOverReattach(t *testing.T) {
 	m := newTestModel()
 	tab := statusTab(m)
 	tab.Detached = true
-	tab.reattachInFlight = true
+	tab.Reattach.InFlight = true
 	tab.Terminal.Scrollback = [][]vterm.Cell{vterm.MakeBlankLine(20), vterm.MakeBlankLine(20)}
 
 	tab.mu.Lock()

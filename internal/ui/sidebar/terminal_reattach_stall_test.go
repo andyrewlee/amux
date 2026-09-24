@@ -48,12 +48,12 @@ func TestSidebarSweepStalledReattachesReleasesOnlyStaleLocks(t *testing.T) {
 	m.tabs.ByWorkspace = map[string][]*TerminalTab{}
 
 	stalled := inFlightTerminalTab(TerminalTabID("term-tab-stalled"), "sess-stalled")
-	stalled.State.reattachStartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
+	stalled.State.Reattach.StartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
 
 	fresh := inFlightTerminalTab(TerminalTabID("term-tab-fresh"), "sess-fresh")
 
 	running := inFlightTerminalTab(TerminalTabID("term-tab-running"), "sess-running")
-	running.State.reattachStartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
+	running.State.Reattach.StartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
 	running.State.Running = true
 
 	m.tabs.ByWorkspace["ws"] = []*TerminalTab{stalled, fresh, running}
@@ -70,7 +70,7 @@ func TestSidebarSweepStalledReattachesReleasesOnlyStaleLocks(t *testing.T) {
 		{"running", running, true},
 	} {
 		tc.tab.State.mu.Lock()
-		got := tc.tab.State.reattachInFlight
+		got := tc.tab.State.Reattach.InFlight
 		tc.tab.State.mu.Unlock()
 		if got != tc.wantInFlight {
 			t.Fatalf("%s: reattachInFlight = %v, want %v", tc.name, got, tc.wantInFlight)
@@ -93,17 +93,17 @@ func TestSidebarSweepStampsUntimedLock(t *testing.T) {
 	m := &TerminalModel{}
 	m.tabs.ByWorkspace = map[string][]*TerminalTab{}
 	tab := inFlightTerminalTab(TerminalTabID("term-tab-unstamped"), "sess-unstamped")
-	tab.State.reattachStartedAt = time.Time{}
+	tab.State.Reattach.StartedAt = time.Time{}
 	m.tabs.ByWorkspace["ws"] = []*TerminalTab{tab}
 
 	m.SweepStalledReattaches()
 
 	tab.State.mu.Lock()
 	defer tab.State.mu.Unlock()
-	if !tab.State.reattachInFlight {
+	if !tab.State.Reattach.InFlight {
 		t.Fatal("expected the lock to survive the stamping sweep")
 	}
-	if tab.State.reattachStartedAt.IsZero() {
+	if tab.State.Reattach.StartedAt.IsZero() {
 		t.Fatal("expected the sweep to stamp the lock so a later sweep can time it")
 	}
 }

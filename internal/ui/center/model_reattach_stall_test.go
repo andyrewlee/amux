@@ -32,12 +32,12 @@ func drainMsgs(t *testing.T, cmd tea.Cmd) []tea.Msg {
 
 func inFlightTab(id TabID, sessionName string) *Tab {
 	return &Tab{
-		ID:               id,
-		Assistant:        "claude",
-		SessionName:      sessionName,
-		Running:          false,
-		Detached:         true,
-		reattachInFlight: true,
+		ID:          id,
+		Assistant:   "claude",
+		SessionName: sessionName,
+		Running:     false,
+		Detached:    true,
+		Reattach:    ptyio.ReattachGuard{InFlight: true},
 	}
 }
 
@@ -59,7 +59,7 @@ func TestReattachFailedResolvesTabAcrossWorkspaceDrift(t *testing.T) {
 	})
 
 	tab.mu.Lock()
-	inFlight := tab.reattachInFlight
+	inFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if inFlight {
 		t.Fatalf("expected the reattach lock to be released despite the workspace mismatch")
@@ -97,7 +97,7 @@ func TestReattachResultWithoutAgentReleasesLock(t *testing.T) {
 
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
-	if tab.reattachInFlight {
+	if tab.Reattach.InFlight {
 		t.Fatal("expected the reattach lock to be released when the result carries no agent")
 	}
 	if !tab.Detached {
@@ -111,14 +111,14 @@ func TestSweepStalledReattachesReleasesOnlyStaleLocks(t *testing.T) {
 	wsID := string(ws.ID())
 
 	stalled := inFlightTab(TabID("tab-stalled"), "sess-stalled")
-	stalled.reattachStartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
+	stalled.Reattach.StartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
 
 	fresh := inFlightTab(TabID("tab-fresh"), "sess-fresh")
-	fresh.reattachStartedAt = time.Now()
+	fresh.Reattach.StartedAt = time.Now()
 
 	// Running tabs hold no meaningful lock even if the flag lingers.
 	running := inFlightTab(TabID("tab-running"), "sess-running")
-	running.reattachStartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
+	running.Reattach.StartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
 	running.Running = true
 	running.Detached = false
 
@@ -133,21 +133,21 @@ func TestSweepStalledReattachesReleasesOnlyStaleLocks(t *testing.T) {
 	}
 
 	stalled.mu.Lock()
-	stalledInFlight := stalled.reattachInFlight
+	stalledInFlight := stalled.Reattach.InFlight
 	stalled.mu.Unlock()
 	if stalledInFlight {
 		t.Fatal("expected the stalled reattach lock to be released")
 	}
 
 	fresh.mu.Lock()
-	freshInFlight := fresh.reattachInFlight
+	freshInFlight := fresh.Reattach.InFlight
 	fresh.mu.Unlock()
 	if !freshInFlight {
 		t.Fatal("expected a reattach still within the timeout to be left alone")
 	}
 
 	running.mu.Lock()
-	runningInFlight := running.reattachInFlight
+	runningInFlight := running.Reattach.InFlight
 	running.mu.Unlock()
 	if !runningInFlight {
 		t.Fatal("expected a running tab to be skipped by the sweep")
@@ -179,10 +179,10 @@ func TestSweepStalledReattachesStampsUntimedLock(t *testing.T) {
 
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
-	if !tab.reattachInFlight {
+	if !tab.Reattach.InFlight {
 		t.Fatal("expected the lock to survive the stamping sweep")
 	}
-	if tab.reattachStartedAt.IsZero() {
+	if tab.Reattach.StartedAt.IsZero() {
 		t.Fatal("expected the sweep to stamp the lock so a later sweep can time it")
 	}
 }
@@ -221,7 +221,7 @@ func TestSupersededReattachResultIsDropped(t *testing.T) {
 	if tab.Agent != nil {
 		t.Fatal("expected the superseded result's agent to be dropped, not installed")
 	}
-	if !tab.reattachInFlight {
+	if !tab.Reattach.InFlight {
 		t.Fatal("expected the live attempt to keep its reattach lock")
 	}
 }
@@ -252,7 +252,7 @@ func TestSupersededReattachFailureIsIgnored(t *testing.T) {
 
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
-	if !tab.reattachInFlight {
+	if !tab.Reattach.InFlight {
 		t.Fatal("expected the live attempt to keep its reattach lock")
 	}
 }
@@ -276,7 +276,7 @@ func TestBeginReattachStampsAcquisition(t *testing.T) {
 	if !tab.beginReattachLocked() {
 		t.Fatal("expected to acquire the reattach lock")
 	}
-	if tab.reattachStartedAt.IsZero() {
+	if tab.Reattach.StartedAt.IsZero() {
 		t.Fatal("expected the acquisition to be stamped")
 	}
 }
