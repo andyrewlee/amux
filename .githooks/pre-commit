@@ -28,9 +28,13 @@ echo "amux pre-commit: running golangci-lint..."
 make lint
 
 echo "amux pre-commit: checking file lengths (max 500 lines)..."
+# NUL-delimited plumbing: --name-only splits on newlines and xargs splits on
+# all whitespace, so a staged "my file.go" would otherwise become bogus args
+# and fail/skip the whole guard. Any future filename pipeline here must keep
+# -z / xargs -0.
 staged_go_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
 if [[ -n "$staged_go_files" ]]; then
-  echo "$staged_go_files" | xargs wc -l | awk '!/total$/ && $1 > 500 { print "ERROR: " $2 " has " $1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
+  git diff --cached --name-only -z --diff-filter=ACM -- '*.go' | xargs -0 wc -l | awk '!/total$/ && $1 > 500 { count=$1; $1=""; sub(/^ +/, ""); print "ERROR: " $0 " has " count " lines (max 500)"; found=1 } END { if(found) exit 1 }'
 fi
 
 echo "amux pre-commit: all checks passed."

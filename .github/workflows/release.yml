@@ -25,10 +25,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Pinned sha256-verified install (plan 066) — the tool verifying our
+      # release signatures is not fetched unverified.
       - name: Install minisign
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y minisign
+        run: ./scripts/install_minisign.sh
 
       - name: Materialize minisign signing key
         # The signing key comes from a GitHub Actions secret and is written
@@ -43,10 +43,13 @@ jobs:
           umask 077
           printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
 
+      # goreleaser pinned to an exact release — no floating `latest` on the
+      # release tool itself (plan 066). Bump deliberately; pick a release at
+      # least a week old.
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
-          version: latest
+          version: v2.18.1
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

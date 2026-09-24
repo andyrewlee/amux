@@ -7,7 +7,15 @@ HARNESS_WARMUP ?= 30
 HARNESS_WIDTH ?= 160
 HARNESS_HEIGHT ?= 48
 HARNESS_SCROLLBACK_FRAMES ?= 600
+# GOFUMPT/GOIMPORTS pins must match the versions bundled in the golangci-lint
+# pinned by .golangci-version (CI runs `golangci-lint fmt --diff` against its
+# bundled formatters): golangci-lint v2.12.2 vendors gofumpt v0.9.2 and
+# x/tools v0.44.0 — bump both pins when .golangci-version bumps.
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
+GOIMPORTS ?= go run golang.org/x/tools/cmd/goimports@v0.44.0
+# LOCAL_PREFIXES mirrors `formatters.settings.goimports.local-prefixes` in
+# .golangci.yml/.golangci.strict.yml — keep in sync.
+LOCAL_PREFIXES ?= github.com/andyrewlee/amux
 STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 
 # GOLANGCI resolves to the repo-local pinned golangci-lint (built from source by
@@ -25,32 +33,60 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-ci-parity check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test test-race tidy-check govulncheck ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity lint-config-drift check-golangci-version check-file-length fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check
+.PHONY: build install test test-race test-race-tmux soak tidy-check govulncheck windows-build ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity lint-config-drift check-golangci-version check-file-length check-fmt-config fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check doctor
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
 
+# install drops the binary into $(PREFIX)/bin; override PREFIX for a custom
+# location (e.g. `make install PREFIX=$HOME/.local`). If the destination isn't
+# writable it tries sudo, then falls back to GOPATH/bin with a PATH hint.
+PREFIX ?= /usr/local
 install: build
-	cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
+	@dest="$(PREFIX)/bin"; \
+	if [ -w "$$dest" ]; then \
+		install -m 755 $(BINARY_NAME) "$$dest/$(BINARY_NAME)"; \
+		echo "installed $$dest/$(BINARY_NAME)"; \
+	elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then \
+		sudo install -m 755 $(BINARY_NAME) "$$dest/$(BINARY_NAME)"; \
+		echo "installed $$dest/$(BINARY_NAME)"; \
+	else \
+		dest="$$(go env GOPATH)/bin"; \
+		mkdir -p "$$dest"; \
+		install -m 755 $(BINARY_NAME) "$$dest/$(BINARY_NAME)"; \
+		echo "$(PREFIX)/bin not writable; installed $$dest/$(BINARY_NAME) (ensure it is on PATH)"; \
+	fi
 
 test:
 	@packages=$$(go list ./...) || exit 1; \
-	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app)$$') || exit 1; \
+	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app|pty)$$') || exit 1; \
 	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
 	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
 
 # test-race mirrors CI's "Test (race)" step: `go test -race` over CI's package
-# set, which excludes only internal/e2e and internal/tmux. Note this is wider
-# than `make test`/`make devcheck` (their filter also excludes internal/app) —
-# keep this filter coupled to .github/workflows/ci.yml, not to the test filter
-# above. Race runs are slow; that is why this is a separate target rather than
-# part of devcheck (same reasoning as verify-loop).
+# set, which excludes only internal/e2e and internal/tmux — the single source
+# for that set is scripts/test_pkgs.sh, shared with .github/workflows/ci.yml.
+# Note this is wider than `make test`/`make devcheck` (their filter also
+# excludes internal/app). Race runs are slow; that is why this is a separate
+# target rather than part of devcheck (same reasoning as verify-loop).
 test-race:
-	@packages=$$(go list ./...) || exit 1; \
-	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e)$$') || exit 1; \
+	@filtered=$$(./scripts/test_pkgs.sh) || exit 1; \
 	echo "go test -race $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
 	go test -race $$filtered
+
+# test-race-tmux covers the packages test_pkgs.sh excludes plus the real-tmux
+# integration tests in app/pty — they need a real tmux server and run under
+# -race here and in the tmux-e2e CI job. Without tmux the tests skip cleanly.
+test-race-tmux:
+	go test -race ./internal/tmux ./internal/e2e ./internal/app ./internal/pty
+
+# soak runs the build-tagged sustained-workload test (PTY ingest + message
+# pump under load for minutes). Not part of CI — run before landing
+# render/ingest changes. Duration knobs: AMUX_SOAK_DURATION=2m (Go duration)
+# or AMUX_SOAK_MINUTES=10; default 5m. -timeout must exceed the duration.
+soak:
+	go test -tags=soak ./internal/app -run TestSoakHarnessPTY -count=1 -timeout 20m
 
 # tidy-check mirrors CI's "Tidy check" step: it fails when go.mod/go.sum are
 # not tidy. Note it runs `go mod tidy`, so an untidy module is rewritten in
@@ -59,38 +95,49 @@ tidy-check:
 	go mod tidy
 	git diff --exit-code go.mod go.sum
 
-# govulncheck scans for known vulnerabilities using the same pinned version CI
-# uses (keep GOVULNCHECK_VERSION in sync with .github/workflows/ci.yml).
-GOVULNCHECK_VERSION ?= v1.1.4
+# govulncheck scans for known vulnerabilities. GOVULNCHECK_VERSION is the
+# single source for the pin — CI's Govulncheck step calls this target rather
+# than carrying its own env var.
+GOVULNCHECK_VERSION ?= v1.8.0
 govulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
+# windows-build mirrors CI's "Windows cross-compile" step — catches
+# Windows-only build breaks (os-specific imports, syscalls) locally.
+windows-build:
+	GOOS=windows GOARCH=amd64 go build ./...
+
 # ci is the local mirror of the CI `test` job's gate set: devcheck (vet +
-# tests + lint + file-length) plus the race, tidy, and govulncheck gates that
-# devcheck skips. Keep this target in sync with .github/workflows/ci.yml — if
-# CI gains a gate, add it here. Not mirrored locally (yet): the harness/perf
-# smoke steps.
-ci: devcheck test-race tidy-check govulncheck
+# tests + lint + file-length + lint-config-drift) plus the race, tidy,
+# govulncheck, and windows-build gates. Keep this target in sync with
+# .github/workflows/ci.yml — if CI gains a gate, add it here. Coverage map:
+# CI test job = lint + fmt --diff + file-length + vet + windows-build + tidy +
+# test + test-race + govulncheck + harness smoke + lint-config-drift.
+# Not mirrored locally: the three harness smoke steps (run via release-check
+# or `make harness-presets`); the tmux-e2e, lint-strict-pr, and macos-build
+# jobs (host-specific).
+ci: devcheck test-race tidy-check govulncheck windows-build
 
 devcheck:
 	go vet ./...
 	@packages=$$(go list ./...) || exit 1; \
-	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app)$$') || exit 1; \
+	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app|pty)$$') || exit 1; \
 	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
 	go test $$filtered
 	@$(MAKE) --no-print-directory tmux-skip-check
 	$(MAKE) lint-config-drift
+	$(MAKE) check-fmt-config
 	$(MAKE) lint
 
 # tmux-skip-check is the single `make test`/`make devcheck` execution of the
 # real-tmux package set excluded from the main go test sweep:
-# internal/tmux, internal/e2e, and internal/app. Keep this package list coupled
-# to the exclusion regex above. The -v output exposes per-test `--- SKIP:`
-# lines, failures propagate, and skipped real-tmux coverage still prints the
-# same non-fatal NOTE unless STRICT_TMUX=1.
+# internal/tmux, internal/e2e, internal/app, and internal/pty. Keep this
+# package list coupled to the exclusion regex above. The -v output exposes
+# per-test `--- SKIP:` lines, failures propagate, and skipped real-tmux
+# coverage still prints the same non-fatal NOTE unless STRICT_TMUX=1.
 tmux-skip-check:
 	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
-	if ! go test ./internal/tmux ./internal/e2e ./internal/app -v >"$$output" 2>&1; then \
+	if ! go test ./internal/tmux ./internal/e2e ./internal/app ./internal/pty -v >"$$output" 2>&1; then \
 		cat "$$output"; \
 		exit 1; \
 	fi; \
@@ -125,7 +172,66 @@ verify-loop:
 		exit 1; \
 	fi; \
 	tmux -L "$$server" kill-server >/dev/null 2>&1 || true
-	go test ./internal/e2e -run 'TestCloseLoopKeystrokeDeliveryToRawAgent|TestFakeAgentRecordsRawCarriageReturn' -count=1 -v
+	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
+	if ! go test ./internal/e2e -run 'TestCloseLoopKeystrokeDeliveryToRawAgent|TestFakeAgentRecordsRawCarriageReturn' -count=1 -v >"$$output" 2>&1; then \
+		cat "$$output"; \
+		exit 1; \
+	fi; \
+	cat "$$output"; \
+	for t in TestCloseLoopKeystrokeDeliveryToRawAgent TestFakeAgentRecordsRawCarriageReturn; do \
+		if ! grep -qE -- "--- PASS: $$t[ (]" "$$output"; then \
+			echo "make verify-loop: $$t did not PASS (missing, renamed, or skipped) — the input gate is vacuous" >&2; \
+			exit 1; \
+		fi; \
+	done
+
+# doctor checks that this host can build, test, and run amux: required tools
+# present and usable (go at the go.mod version floor, git, a working tmux
+# server), plus warn-only environment hints (pre-commit hooks path,
+# golangci-lint for the lint targets). Exits nonzero only when a REQUIRED
+# tool is missing or unusable.
+doctor:
+	@fail=0; \
+	if command -v go >/dev/null 2>&1; then \
+		gov=$$(go version | awk '{print $$3}' | sed 's/^go//'); \
+		need=$$(awk '/^go [0-9]/{print $$2; exit}' go.mod); \
+		if [ "$$(printf '%s\n%s\n' "$$need" "$$gov" | sort -V | head -1)" = "$$need" ]; then \
+			echo "ok   go $$gov (>= $$need required)"; \
+		else \
+			echo "FAIL go $$gov < $$need (go.mod)"; fail=1; \
+		fi; \
+	else \
+		echo "FAIL go: not installed"; fail=1; \
+	fi; \
+	if command -v git >/dev/null 2>&1; then \
+		echo "ok   git $$(git --version | awk '{print $$3}')"; \
+	else \
+		echo "FAIL git: not installed"; fail=1; \
+	fi; \
+	if command -v tmux >/dev/null 2>&1; then \
+		server="amux-doctor-check-$$$$"; \
+		if tmux -L "$$server" -f /dev/null new-session -d -s probe "sleep 5" >/dev/null 2>&1; then \
+			echo "ok   tmux $$(tmux -V | awk '{print $$2}') (server probe passed)"; \
+			tmux -L "$$server" kill-server >/dev/null 2>&1 || true; \
+		else \
+			echo "FAIL tmux is installed but cannot start a server"; fail=1; \
+		fi; \
+	else \
+		echo "FAIL tmux: not installed (real-tmux tests and verify-loop need it)"; fail=1; \
+	fi; \
+	hooks=$$(git config --local core.hooksPath 2>/dev/null || true); \
+	if [ "$$hooks" = ".githooks" ]; then \
+		echo "ok   core.hooksPath=.githooks"; \
+	else \
+		echo "warn core.hooksPath is '$${hooks:-unset}' — run scripts/install-hooks.sh to enable the repo's pre-commit hooks"; \
+	fi; \
+	if [ -x .cache/bin/golangci-lint ] || command -v golangci-lint >/dev/null 2>&1; then \
+		echo "ok   golangci-lint present"; \
+	else \
+		echo "warn golangci-lint not found — fetched on demand by make lint"; \
+	fi; \
+	if [ "$$fail" -ne 0 ]; then exit 1; fi; \
+	echo "doctor: environment looks good"
 
 bench:
 	go test -bench=. -benchmem ./internal/ui/compositor/ -run=^$$
@@ -180,12 +286,12 @@ lint-tools:
 	bash scripts/install-golangci-lint.sh
 
 lint: check-golangci-version
-	$(GOLANGCI) run
+	$(GOLANGCI) run --timeout=10m
 	$(GOLANGCI) fmt --diff
 	$(MAKE) check-file-length
 
 lint-strict: check-golangci-version
-	$(GOLANGCI) run -c .golangci.strict.yml
+	$(GOLANGCI) run -c .golangci.strict.yml --timeout=10m
 	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
 lint-strict-new: check-golangci-version
@@ -198,7 +304,7 @@ lint-strict-new: check-golangci-version
 	fi
 	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
-lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored local directory (/.cache/).
+lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored repo-local directory (./.cache/).
 	@command -v $(GOLANGCI) >/dev/null 2>&1 || (echo "golangci-lint is required: run 'make lint-tools' to build the pinned version locally, or install from https://golangci-lint.run/welcome/install/"; exit 1)
 	@BASE_REF="$${BASE_REF:-origin/main}"; \
 	CACHE_ROOT="$${CACHE_ROOT:-$$(pwd)/.cache}"; \
@@ -239,9 +345,21 @@ lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored loc
 	fi
 	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
+# check-file-length runs scripts/check_file_length.sh — the single source
+# shared with ci.yml's "File length guard" step.
 check-file-length:
-	@echo "Checking file lengths (max 500 lines)..."
-	@find . -name '*.go' -exec wc -l {} + | awk '!/total$$/ && $$1 > 500 { print "ERROR: " $$2 " has " $$1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
+	@./scripts/check_file_length.sh
+
+# check-fmt-config guards the LOCAL_PREFIXES ↔ .golangci.yml local-prefixes
+# mirror (two consumers, two formats — kept in sync by this drift check, same
+# role as lint-config-drift). lint-config-drift already forces strict.yml to
+# carry the same block, so checking the baseline is enough.
+check-fmt-config:
+	@yml=$$(awk '/local-prefixes:/{getline; gsub(/[ \t-]/, "", $$0); print; exit}' .golangci.yml); \
+	if [ "$$yml" != "$(LOCAL_PREFIXES)" ]; then \
+		echo "ERROR: Makefile LOCAL_PREFIXES ($(LOCAL_PREFIXES)) != .golangci.yml local-prefixes ($$yml)"; \
+		exit 1; \
+	fi
 
 # lint-config-drift guards the invariant that .golangci.strict.yml is
 # .golangci.yml verbatim plus strict-only additions (every baseline line is
@@ -261,10 +379,11 @@ lint-config-drift: ## Fail if strict lint config drifts from the baseline
 
 fmt:
 	$(GOFUMPT) -extra -w .
-	goimports -w .
+	$(GOIMPORTS) -local $(LOCAL_PREFIXES) -w .
 
 fmt-check:
 	@test -z "$$($(GOFUMPT) -extra -l .)" || ($(GOFUMPT) -extra -l .; exit 1)
+	@test -z "$$($(GOIMPORTS) -local $(LOCAL_PREFIXES) -l .)" || ($(GOIMPORTS) -local $(LOCAL_PREFIXES) -l .; exit 1)
 
 vet:
 	go vet ./...
@@ -294,6 +413,8 @@ help:
 	@echo "  build      - Build the binary"
 	@echo "  test       - Run all tests"
 	@echo "  test-race  - Run go test -race over CI's package set (slow; mirrors CI's race gate)"
+	@echo "  test-race-tmux - Run go test -race on the real-tmux packages (tmux, e2e, app, pty; skips cleanly sans tmux)"
+	@echo "  soak       - Run the sustained-workload soak test (PTY ingest + msgpump; AMUX_SOAK_DURATION=2m or AMUX_SOAK_MINUTES=10; default 5m)"
 	@echo "  tidy-check - Run go mod tidy and fail if go.mod/go.sum change (mirrors CI's tidy gate)"
 	@echo "  govulncheck - Scan for known vulnerabilities with the CI-pinned govulncheck (mirrors CI's vuln gate)"
 	@echo "  ci         - Full local CI mirror: devcheck + test-race + tidy-check + govulncheck"
@@ -313,6 +434,7 @@ help:
 	@echo "  dev        - Rebuild + compile-error feedback on save via air; does NOT run the TUI (use 'make run')"
 	@echo "  verify-loop - Drive a real keystroke through amux into a raw-mode agent (close-the-loop input gate; requires tmux)"
 	@echo "  tmux-skip-check - Warn (non-fatal) when real-tmux/e2e tests silently skip (no tmux server)"
+	@echo "  doctor         - Check this host can build/test/run amux (go, git, tmux probe, hooks, lint tools)"
 	@echo "  bench      - Run rendering benchmarks"
 	@echo "  harness-center  - Run center harness preset"
 	@echo "  harness-sidebar - Run sidebar harness preset (deep scrollback)"
@@ -320,15 +442,26 @@ help:
 	@echo "  harness-presets - Run all harness presets"
 	@echo "  harness-golden  - Run byte-exact golden-frame snapshot tests (pure render; -update to regenerate)"
 	@echo "  perf-check      - Compare harness p95 against host baselines (DARWIN_ARM64_* here; PERF_STRICT=1 to fail on missing baseline)"
-	@echo "  release-check - Run tests and harness smoke checks"
+	@echo "  release-check - Full ci gate set + harness smoke + goreleaser config check"
 	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"
 	@echo "  release       - release-check + release-tag + release-push"
 
-release-check: test
+# release-check is the pre-tag gate: the full `ci` gate set (devcheck +
+# test-race + tidy + govulncheck + windows-build) so a tag can't ship a tree
+# that would fail CI, plus the three harness smoke runs (the one CI-test-job
+# piece `ci` doesn't mirror) and a .goreleaser.yml validation so a broken
+# release config fails pre-tag rather than in release.yml. goreleaser is
+# optional locally (warn-not-fail) until plan 066 pins it.
+release-check: ci
 	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
 	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
 	go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
+	@if command -v goreleaser >/dev/null 2>&1; then \
+		goreleaser check; \
+	else \
+		echo "NOTE: goreleaser not installed; skipping .goreleaser.yml validation"; \
+	fi
 
 release-tag:
 	@test -n "$(VERSION)" || (echo "VERSION is required (e.g. VERSION=v0.0.5)" && exit 1)

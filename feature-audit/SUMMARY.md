@@ -1,5 +1,7 @@
 # Feature Audit — Status Summary
 
+_Generated 2026-09-22 at commit b04fbeb. Point-in-time audit — not a living document._
+
 Total user stories: **144**
 
 ## By status

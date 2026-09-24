@@ -4,7 +4,7 @@ Date: 2026-07-12
 
 Machine
 - Host: darwin-arm64 dev host (Apple Silicon)
-- Go: go1.26.4
+- Go: go1.26.8
 
 Enforced baselines (source of truth)
 

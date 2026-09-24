@@ -42,39 +42,60 @@ the bare string `amux`.
 - replace every other byte with `-`;
 - trim leading and trailing `-`.
 
-The call sites (grep `SessionName(` under `internal/`) all pass `"amux"` as the
-first part, the workspace ID as the second, and a per-tab identifier as the
-third:
+The interactive-session call sites (grep `SessionName(` under `internal/`) all
+pass `"amux"` as the first part, the workspace ID as the second, and a per-tab
+identifier as the third:
 
 ```
 amux-<workspaceID>-<tabPart>
 ```
 
-- `<workspaceID>` is `data.Workspace.ID()`: `hex(sha256(repo+root)[:8])`
-  (`internal/data/workspace.go`) — 16 lowercase hex characters, deterministic
-  for a given repo+root, and **never contains `-`**. sanitize is a no-op on it.
+- `<workspaceID>` is `data.Workspace.ID()`: the workspace's persisted store key
+  when one exists, else `hex(sha256(repo+root)[:8])`
+  (`internal/data/workspace.go`) — 16 lowercase hex characters for anything
+  minted by current amux, and in practice **never contains `-`** (sanitize
+  would rewrite anything else anyway).
 - `<tabPart>` identifies the pane within the workspace. For an interactive agent
   tab it is the tab ID `tab-<prefix>-<counter>` (`internal/ui/center/model_tab.go`,
   `formatTabID`), where `<prefix>` is 4 random bytes hex-encoded **per amux
   process** and `<counter>` is a base-36 in-process counter. Viewer and other
   panes use different literals (e.g. `viewer`).
 
+There is a second session family that does **not** fit this grammar: hosted
+`run` script sessions. They are named by literal concatenation in
+`internal/process/run_session.go` (`runSessionBaseName`), not by
+`SessionName`:
+
+```
+amux-ws-<workspaceID>-run        (primary run session)
+amux-ws-<workspaceID>-run-<N>    (concurrent runs, N = 2, 3, …)
+```
+
+Run sessions carry `@amux_workspace` and `@amux_type=run` tags but **no
+`@amux_tab`** — they host a detached command, not a tab.
+
 Worked example — workspace ID `9f8e7d6c5b4a3210`, tab ID `tab-1a2b3c4d-5`:
 
 ```
 SessionName("amux", "9f8e7d6c5b4a3210", "tab-1a2b3c4d-5")
   => "amux-9f8e7d6c5b4a3210-tab-1a2b3c4d-5"
+runSessionBaseName(...)          => "amux-ws-9f8e7d6c5b4a3210-run"
 ```
 
 **Guaranteed** (relied on by amux itself and pinned by the contract test):
 
 - Every amux session name begins with the literal prefix `amux-` (or is exactly
   `amux`).
-- The workspace ID is the first `-`-delimited segment after `amux-` and is
-  recovered by `activity.WorkspaceIDFromSessionName`
-  (`internal/app/activity/fetch.go`): strip `amux-`, split on `-`, take the first
-  field. This round-trips because workspace IDs are dashless hex — see the caveat
-  below.
+- For **tab sessions**, the workspace ID is the first `-`-delimited segment
+  after `amux-` and is recovered by `activity.WorkspaceIDFromSessionName`
+  (`internal/app/activity/fetch.go`): strip `amux-`, split on `-`, take the
+  first field. This round-trips because minted workspace IDs are dashless hex —
+  see the caveat below.
+- For **run sessions** name-parsing is unreliable: the same function returns
+  `ws` for `amux-ws-<id>-run`, not the workspace ID. Recover the workspace from
+  the `@amux_workspace` tag instead — that is the supported field, and it is
+  how amux itself finds run sessions (`tmux.FindRunSessions` filters on
+  `@amux_workspace` + `@amux_type=run`, never the name).
 
 **Not guaranteed** — do not build these into an orchestrator:
 
@@ -118,8 +139,9 @@ tmux -L "${AMUX_TMUX_SERVER:-amux}" list-sessions \
 ```
 
 Keep the lines whose `session_name` starts with `amux-`. The `@amux_workspace`
-tag is the authoritative workspace ID for a session (equivalently, parse it out
-of the name per the grammar above).
+tag is the authoritative workspace ID for a session — for tab sessions it
+matches the name-derived value, and for `amux-ws-*-run` sessions it is the
+*only* reliable source (name parsing yields `ws`, not the ID).
 
 ## Sending input
 
@@ -165,7 +187,7 @@ return, `0x0D`) arrive intact:
 amux stores per-session metadata as tmux session options (`@amux_*`). Read one
 with `tmux show-options -t <bare-name> -v <key>` (bare name, no `=` — see above)
 or read them all with `tmux show-options -t <bare-name>`. The keys, set at
-session creation (`appendSessionTags`, `internal/tmux/command.go`) and updated at
+session creation (`sessionTagArgs`, `internal/tmux/command.go`) and updated at
 runtime (`internal/tmux/tags.go`, `internal/ui/center/model_input_lifecycle.go`,
 `internal/app/app_tmux_activity_result.go`):
 
@@ -180,9 +202,21 @@ runtime (`internal/tmux/tags.go`, `internal/ui/center/model_input_lifecycle.go`,
 | `@amux_instance` | amux instance ID | string |
 | `@amux_session_owner` | owning amux instance | string |
 | `@amux_session_lease_ms` | ownership lease timestamp | Unix **milliseconds** |
+| `@amux_owner_heartbeat_ms` | last heartbeat from the owning amux process | Unix **milliseconds** |
 | `@amux_last_output_at` | last observed agent output | Unix **milliseconds** |
 | `@amux_last_input_at` | last input amux delivered | Unix **milliseconds** |
 | `@amux_agent_state` | semantic agent state (idle/working/done) | `idle` \| `working` \| `done` |
+| `@amux_workspace_name` | workspace display name | string, sanitized |
+| `@amux_project` | project display name (repo dir basename) | string, sanitized |
+
+`@amux_workspace_name` and `@amux_project` are **display-only** labels for
+external tooling (`tmux ls`, `list-sessions -F`) so a session is identifiable
+without resolving IDs against amux's store. They are never identity keys —
+`@amux_workspace` remains the only workspace identity — and amux never reads
+them back. They snapshot the names **as of the last session attach**: a
+workspace rename does not re-tag a live session, so the value may be stale
+until the next attach/reattach refreshes it. Values pass through a
+control-byte strip and a 128-rune cap before becoming tag values.
 
 Note the unit split: `@amux_created_at` is in seconds; the activity/lease
 timestamps are in milliseconds. amux parses these back with
@@ -196,6 +230,38 @@ per session so an external orchestrator does not have to re-derive it from the
 raw timestamp tags above. It is read-only telemetry, written best-effort and
 only when the state actually changes (not on every scan), so a missing or
 momentarily stale value should be tolerated the same way as the other tags.
+
+## Trust boundary
+
+Every actor able to reach amux's tmux server (`$AMUX_TMUX_SERVER` socket, or a
+default-socket tmux server it shares) is inside amux's trust boundary. tmux
+offers no per-session authentication: a same-server actor can read every
+`@amux_*` tag, forge them on sessions it creates, squat on amux's predictable
+session names, and drive amux's sessions directly. Sharing one tmux server
+across trust domains is therefore unsupported — give each domain its own
+server name (`-L`) and socket.
+
+amux's defenses are namespace hygiene, not authentication:
+
+- Attach paths verify ownership tags before binding (`ptyio.SessionOwned`):
+  a live session under an amux name must carry `@amux=1` and, when present,
+  a matching `@amux_workspace`. This stops *untagged* squatters and plain
+  name collisions — it does not stop a squatter who forges the tags, which is
+  always possible on a shared server.
+- Discovery paths (`FindRunSessions`, workspace/session tag queries) filter
+  on the same tags, so untagged foreign sessions are invisible to amux's own
+  bookkeeping.
+- Sessions carrying `@amux=1` with no `@amux_workspace`/`@amux_instance` are
+  accepted as pre-tagging-era amux sessions for backward compatibility — the
+  same acceptance a forger can trivially satisfy. Compatibility, not a check.
+- Name-prefix kills (`KillSessionsWithPrefix`) deliberately reclaim anything
+  holding an amux-prefixed name; on a shared server this is the only
+  meaningful reclamation mechanism.
+
+Residual race: between the ownership check and the tmux client command's own
+`has-session || new-session` sequence, a squatter could still claim the name;
+closing that window needs the ownership test inside the generated tmux shell
+script and is documented rather than implemented.
 
 ## Option B: a minimal CLI (recorded, not recommended)
 

@@ -25,7 +25,12 @@ as clipboard writes and file-picker filesystem reads in `internal/ui/common`,
 per-tab PTY tracing in `internal/ui/center`, and shell plumbing in the sidebar
 terminal. Shared process, persistence, git, tmux, and PTY behavior — including the
 shared PTY/tmux read-loop and session plumbing in `internal/ui/ptyio` — belongs in
-the lower layers.
+the lower layers. The test for where a read belongs is *who else consumes the
+data*: a leaf model may self-fetch data only it renders inside its own async
+Cmd (diff hunks in `internal/ui/diff`, branch changes/ahead-behind in the
+sidebar's branch mode), but shared data — git status is the example, owned by
+the app's cache and refresh dedup — must be requested via a message
+(`messages.GitStatusRequest`) so the app's single-writer path serves it.
 
 ```
             cmd/amux            cmd/amux-harness
@@ -65,8 +70,9 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 |---------|----------------|--------------|
 | `cmd/amux` | App entrypoint: flag parsing, terminal setup, tmux socket janitor | `main.go` |
 | `cmd/amux-harness` | Headless render/perf harness (no TTY) for CI and local profiling | `main.go` |
-| `internal/app` | Bubble Tea root: message pump, services, layout, tmux-activity leader lease | `app_core.go`, `app_init.go` |
+| `internal/app` | Bubble Tea root: message pump, orchestration, layout, tmux-activity leader lease | `app_core.go`, `app_init.go` |
 | `internal/app/activity` | Agent-activity detection logic and per-session lease state | `logic.go`, `types.go` |
+| `internal/app/workspacesvc` | Workspace service: create/delete/shelve workspaces, project load/prune, persistence + script state, path helpers. App-specific seams (mutation-in-flight checks, tmux cleanup) arrive via `Deps` callbacks — no import back into `internal/app` | `workspace_service.go`, `services.go` |
 | `internal/ui/center` | Center pane: agent tab strip, per-tab PTY I/O, diff viewer, selection | `model.go`, `tab_actor.go` |
 | `internal/ui/sidebar` | Sidebar pane: workspace file tree + embedded tmux terminal | `terminal.go` |
 | `internal/ui/dashboard` | Dashboard pane: project/workspace tree and toolbar | `model.go` |
@@ -80,12 +86,12 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/tmux` | tmux CLI wrapper: sessions, capture, resize, activity tags | `tmux.go` |
 | `internal/pty` | Pseudo-terminals backing hosted agents (Agent, Terminal) | `agent.go` |
 | `internal/git` | git worktree-per-workspace model: worktrees, branches, diff, watcher | `operations.go`, `workspace.go` |
-| `internal/data` | Workspace record persistence (atomic JSON via WorkspaceStore) | `workspace_store.go` |
+| `internal/data` | Persistence + shared records: workspace records via WorkspaceStore, project registry (lockfile, recovery), AgentState enum, canonical path helpers | `workspace_store.go`, `registry.go` |
 | `internal/fsatomic` | Crash-safe single-file writes: temp-write, fsync, atomic rename-over (with .bak restore on Windows) | `fsatomic.go` |
 | `internal/update` | Self-update: version check, download, verify, install | `updater.go` |
 | `internal/config` | Configuration: assistants, UI settings, resolved paths | `config.go` |
 | `internal/supervisor` | Named background workers with restart/backoff and error surfacing | `supervisor.go` |
-| `internal/process` | Cross-platform process-group teardown (kill agent process trees) | `treekill_unix.go` |
+| `internal/process` | Agent process lifecycle: process-group teardown, `AMUX_*` env injection, per-workspace port allocation, project run-script model + trust hashing | `treekill_unix.go`, `env.go`, `scripts.go` |
 | `internal/safego` | Panic-safe goroutine helpers with a pluggable panic handler | `safego.go` |
 | `internal/pprofhttp` | Opt-in pprof HTTP server wiring with explicit mux and timeouts | `server.go` |
 | `internal/perf` | Opt-in counters/timers for the harness and perf baselines | `perf.go` |

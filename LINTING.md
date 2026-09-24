@@ -108,6 +108,11 @@ Focus areas:
 - dependency and output discipline (`depguard`, `forbidigo`)
 - hygiene (`nolintlint`, `misspell`, `unconvert`, `ineffassign`, `whitespace`) — the simplification checks formerly provided by a standalone S-series linter are folded into `staticcheck` under the pinned golangci-lint (see `.golangci-version`), not a separate linter
 - test helper quality (`thelper`)
+- test timing hygiene: new tests must not `time.Sleep` before assertions —
+  poll the condition (`eventually`-style helpers exist in `internal/tmux`,
+  `internal/e2e`, and `internal/app` watcher tests). Legitimate exceptions
+  are sleeps that ARE the subject (TTL/backoff/debounce) or unobservable
+  ordering heuristics — mark those with a comment saying why.
 
 ## `nolint` Policy
 
@@ -152,5 +157,12 @@ For formatting-only maintenance or before large refactors:
 ```bash
 make fmt
 ```
+
+`make fmt` is pinned to the exact formatter versions CI's
+`golangci-lint fmt --diff` bundles (versions noted at the `GOFUMPT`/
+`GOIMPORTS` vars in the `Makefile`), including the `local-prefixes` import
+grouping from `.golangci.yml` — when `.golangci-version` bumps, re-check the
+bundled versions in that golangci-lint release's `go.mod` and bump the pins
+together so `make fmt-check` stays equivalent to the CI format gate.
 
 For pull requests, agents should include validation commands run in the PR summary.

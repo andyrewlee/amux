@@ -9,7 +9,6 @@ on:
 
 env:
   TERM: xterm-256color
-  GOVULNCHECK_VERSION: v1.1.4
 
 jobs:
   test:
@@ -44,9 +43,19 @@ jobs:
         run: golangci-lint fmt --diff
 
       - name: File length guard (max 500 lines)
-        run: |
-          set -euo pipefail
-          find . -name '*.go' -exec wc -l {} + | awk '!/total$/ && $1 > 500 { print "ERROR: " $2 " has " $1 " lines (max 500)"; found=1 } END { if(found) exit 1 }'
+        run: ./scripts/check_file_length.sh
+
+      # Baseline-drift guard: .golangci.strict.yml must contain every line of
+      # .golangci.yml (local devcheck already runs this; CI must too or strict
+      # config drift merges green).
+      - name: Lint config drift
+        run: make lint-config-drift
+
+      # local-prefixes ↔ LOCAL_PREFIXES parity guard — sibling of
+      # lint-config-drift; local devcheck runs it, CI must too or fmt config
+      # drift merges green.
+      - name: Fmt config drift
+        run: make check-fmt-config
 
       - name: Vet
         run: go vet ./...
@@ -60,10 +69,17 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
 
+      # internal/update's TestVerifyMinisignCLIParity skips without the CLI;
+      # it's the only check that the Go verifier accepts what the release
+      # pipeline's minisign invocation actually produces. Pinned sha256-verified
+      # install (plan 066) — same script release.yml uses.
+      - name: Install minisign
+        run: ./scripts/install_minisign.sh
+
       - name: Test
         run: |
           set -euo pipefail
-          pkgs=$(go list ./... | grep -v '/internal/e2e$' | grep -v '/internal/tmux$')
+          pkgs=$(./scripts/test_pkgs.sh)
           if [ -z "$pkgs" ]; then
             echo "no packages selected for unit tests"
             exit 1
@@ -73,15 +89,17 @@ jobs:
       - name: Test (race)
         run: |
           set -euo pipefail
-          pkgs=$(go list ./... | grep -v '/internal/e2e$' | grep -v '/internal/tmux$')
+          pkgs=$(./scripts/test_pkgs.sh)
           if [ -z "$pkgs" ]; then
             echo "no packages selected for race tests"
             exit 1
           fi
           go test -race $pkgs
 
+      # Delegates to the Makefile target so the GOVULNCHECK_VERSION pin has a
+      # single source (Makefile) instead of a duplicated env var.
       - name: Govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+        run: make govulncheck
 
       - name: Harness (center)
         run: go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4 -assert-min-visible 100
@@ -123,7 +141,15 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y build-essential libevent-dev libncurses-dev bison pkg-config
             ver="${{ matrix.tmux }}"
+            # sha256-pinned per matrix version (plan 066): the tarball is
+            # fetched unauthenticated otherwise. Add a case entry for any new
+            # matrix version — `shasum -a 256 tmux-${ver}.tar.gz`.
+            case "$ver" in
+              3.6a) expected="b6d8d9c76585db8ef5fa00d4931902fa4b8cbe8166f528f44fc403961a3f3759" ;;
+              *) echo "no pinned sha256 for tmux ${ver}" >&2; exit 1 ;;
+            esac
             curl -fsSL "https://github.com/tmux/tmux/releases/download/${ver}/tmux-${ver}.tar.gz" -o /tmp/tmux.tar.gz
+            echo "${expected}  /tmp/tmux.tar.gz" | sha256sum -c -
             tar -xzf /tmp/tmux.tar.gz -C /tmp
             cd "/tmp/tmux-${ver}"
             ./configure
@@ -141,23 +167,23 @@ jobs:
           fi
 
       - name: Test (tmux)
-        run: go test ./internal/tmux -count=1
+        run: go test -race ./internal/tmux -count=1
 
       - name: Test (e2e)
-        run: go test ./internal/e2e -count=1
+        run: go test -race ./internal/e2e -count=1
 
       # internal/app has real-tmux integration tests (dead-session GC, activity
       # leases, shared-attach) that t.Skip in the tmux-less `test` job and were
       # never run here, so app-layer tmux orchestration only got coverage in the
       # off-PR nightly run. Run them here, where tmux is installed.
       - name: Test (app, real tmux)
-        run: go test ./internal/app -count=1
+        run: go test -race ./internal/app -count=1
 
       # internal/pty's agent/viewer create path short-circuits at
       # tmux.EnsureAvailable() in the tmux-less `test` job, so its tmux-gated
       # create tests only run here, where tmux is installed.
       - name: Test (pty, real tmux)
-        run: go test ./internal/pty -count=1
+        run: go test -race ./internal/pty -count=1
 
       - name: Assert no real-tmux tests skipped
         run: STRICT_TMUX=1 make tmux-skip-check
@@ -220,5 +246,5 @@ jobs:
       - name: Test
         run: |
           set -euo pipefail
-          pkgs=$(go list ./... | grep -v '/internal/e2e$' | grep -v '/internal/tmux$')
+          pkgs=$(./scripts/test_pkgs.sh)
           go test $pkgs

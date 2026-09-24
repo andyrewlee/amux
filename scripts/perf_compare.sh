@@ -36,19 +36,19 @@ run_preset() {
   fi
 
   local measured_ms
-  measured_ms=$(python3 - "$p95" <<'PY'
-import sys
-s = sys.argv[1]
-units = [("ns", 1e-6), ("us", 1e-3), ("µs", 1e-3), ("ms", 1), ("s", 1000)]
-for unit, factor in units:
-    if s.endswith(unit):
-        v = float(s[: -len(unit)])
-        print(v * factor)
-        break
-else:
-    raise SystemExit(f"unrecognized duration: {s}")
-PY
-)
+  # µs is matched via a byte-safe pattern, not a literal: BSD awk on macOS
+  # miscompares multibyte string literals ("s" == "µs" comes out true there).
+  measured_ms=$(awk -v s="$p95" 'BEGIN {
+    if (!match(s, /[0-9.]+/)) {
+      print "unrecognized duration: " s > "/dev/stderr"; exit 1
+    }
+    v = substr(s, RSTART, RLENGTH); u = substr(s, RSTART + RLENGTH)
+    if (u == "ns") print v * 1e-6;
+    else if (u == "us" || u ~ /^[^a-zA-Z]+s$/) print v * 1e-3;
+    else if (u == "ms") print v;
+    else if (u == "s") print v * 1000;
+    else { print "unrecognized duration: " s > "/dev/stderr"; exit 1 }
+  }')
 
   local baseline_var="${prefix}_${name}_P95_MS"
   local baseline="${!baseline_var:-}"
@@ -63,24 +63,12 @@ PY
   fi
 
   local threshold
-  threshold=$(python3 - "$baseline" "$TOLERANCE" <<'PY'
-import sys
-baseline = float(sys.argv[1])
-tol = float(sys.argv[2])
-print(baseline * (1.0 + tol))
-PY
-)
+  threshold=$(awk -v b="$baseline" -v t="$TOLERANCE" 'BEGIN { print b * (1.0 + t) }')
 
   echo "${name} p95: measured=${measured_ms}ms baseline=${baseline}ms threshold=${threshold}ms"
 
   local exceeds
-  exceeds=$(python3 - "$measured_ms" "$threshold" <<'PY'
-import sys
-measured = float(sys.argv[1])
-threshold = float(sys.argv[2])
-print("1" if measured > threshold else "0")
-PY
-)
+  exceeds=$(awk -v m="$measured_ms" -v t="$threshold" 'BEGIN { print (m > t) ? 1 : 0 }')
   if [[ "$exceeds" == "1" ]]; then
     echo "${name} p95 exceeded threshold" >&2
     failures=$((failures + 1))
