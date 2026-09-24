@@ -218,6 +218,12 @@ func containsASCIIFold(haystack []byte, needle string) bool {
 			return false
 		}
 		i += hit
+		// The seed search scans to the buffer's end, so a first-byte hit can
+		// land past the last viable start — there a full match is impossible
+		// and haystack[i+j] would read out of range.
+		if i > len(haystack)-n {
+			return false
+		}
 		matched := true
 		for j := 1; j < n; j++ {
 			if toLowerASCII(haystack[i+j]) != needle[j] {
