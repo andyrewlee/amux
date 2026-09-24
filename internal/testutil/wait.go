@@ -1,6 +1,16 @@
 // Package testutil provides small polling helpers shared across test packages,
 // so individual tests don't re-derive deadline/poll loops (which tend to drift
 // in interval and failure messaging).
+//
+// It also holds the shared hook-driven fakes:
+//   - FakeGitOps, FakeWorkspaceStore, FakeProjectRegistry satisfy the
+//     workspacesvc collaborator interfaces (fakes.go).
+//   - FakeTmuxOps satisfies app.TmuxOps and lives in internal/testutil/tmuxops
+//     because it references internal/tmux types (tmux imports process, and
+//     process tests import this package — importing tmux here would cycle).
+//
+// Each fake runs its Func hook when set and otherwise returns the same zero
+// value the hand-rolled stubs returned; recorders are always on.
 package testutil
 
 import (

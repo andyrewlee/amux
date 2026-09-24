@@ -290,8 +290,11 @@ func parseWorktreeList(output, repoPath string) []data.Workspace {
 	}
 
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		// Payloads after "worktree "/"branch " are literal bytes — a path may
+		// legally begin or end with spaces — so only the line terminator is
+		// stripped, never the line itself.
+		line = strings.TrimSuffix(line, "\r")
+		if strings.TrimSpace(line) == "" {
 			// End of entry, save if we have a path and it's not bare
 			if current.path != "" && !current.bare {
 				ws := data.Workspace{

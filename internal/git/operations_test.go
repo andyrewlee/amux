@@ -134,7 +134,7 @@ func TestRunGitCtxTimeoutError(t *testing.T) {
 	repo := initRepo(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
-	time.Sleep(2 * time.Millisecond)
+	<-ctx.Done()
 
 	_, err := RunGitCtx(ctx, repo, "status")
 	if err == nil {
@@ -352,7 +352,7 @@ func TestGitAllowFailureCommandContextErrorForWindowsMapsTimeoutWhenKilled(t *te
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
-	time.Sleep(2 * time.Millisecond)
+	<-ctx.Done()
 
 	ctxErr := gitAllowFailureCommandContextErrorWithKillForGOOS(
 		ctx,
@@ -388,7 +388,7 @@ func TestGitAllowFailureCommandContextErrorForWindowsDoesNotMapLateDeadlineWitho
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
-	time.Sleep(2 * time.Millisecond)
+	<-ctx.Done()
 
 	ctxErr := gitAllowFailureCommandContextErrorWithKillForGOOS(
 		ctx,
@@ -424,7 +424,7 @@ func TestGitCommandContextErrorForWindowsWithoutKillDoesNotMapTimeout(t *testing
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
-	time.Sleep(2 * time.Millisecond)
+	<-ctx.Done()
 
 	ctxErr := gitCommandContextErrorWithKillForGOOS(
 		ctx,
@@ -459,7 +459,7 @@ func TestGitCommandContextErrorForWindowsMapsKilledExitOne(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
-	time.Sleep(2 * time.Millisecond)
+	<-ctx.Done()
 
 	ctxErr := gitCommandContextErrorWithKillForGOOS(
 		ctx,

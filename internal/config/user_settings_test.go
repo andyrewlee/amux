@@ -45,6 +45,7 @@ func TestSaveUISettingsWritesAllFields(t *testing.T) {
 				TmuxConfigPath:   "/tmp/tmux.conf",
 				TmuxSyncInterval: "5s",
 				NotifyOnDone:     true,
+				ViewerCommand:    "nvim -u NONE",
 			},
 		},
 		{
@@ -55,6 +56,7 @@ func TestSaveUISettingsWritesAllFields(t *testing.T) {
 				TmuxServer:       "",
 				TmuxConfigPath:   "",
 				TmuxSyncInterval: "",
+				ViewerCommand:    "vim",
 			},
 		},
 		{
@@ -62,6 +64,7 @@ func TestSaveUISettingsWritesAllFields(t *testing.T) {
 			settings: UISettings{
 				ShowKeymapHints: true,
 				Theme:           "",
+				ViewerCommand:   "vim",
 			},
 		},
 	}
@@ -92,6 +95,9 @@ func TestSaveUISettingsWritesAllFields(t *testing.T) {
 			}
 			if got := ui["notify_on_done"]; got != tt.settings.NotifyOnDone {
 				t.Errorf("notify_on_done = %#v, want %#v", got, tt.settings.NotifyOnDone)
+			}
+			if got := ui["viewer_command"]; got != tt.settings.ViewerCommand {
+				t.Errorf("viewer_command = %#v, want %#v", got, tt.settings.ViewerCommand)
 			}
 
 			// What we wrote must round-trip back through the read path.
@@ -344,4 +350,16 @@ func TestConfigSaveUISettings(t *testing.T) {
 			t.Errorf("PersistedUISettings() = %+v, want %+v", got, c.UI)
 		}
 	})
+}
+
+func TestViewerCommandDefault(t *testing.T) {
+	// Absent from the file → "vim".
+	if got := applyUISettings(defaultUISettings(), uiSettingsRaw{}); got.ViewerCommand != "vim" {
+		t.Errorf("ViewerCommand default = %q, want %q", got.ViewerCommand, "vim")
+	}
+	// Present → loaded verbatim.
+	v := "less -R"
+	if got := applyUISettings(defaultUISettings(), uiSettingsRaw{ViewerCommand: &v}); got.ViewerCommand != "less -R" {
+		t.Errorf("ViewerCommand = %q, want %q", got.ViewerCommand, "less -R")
+	}
 }

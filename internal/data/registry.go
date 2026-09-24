@@ -18,8 +18,13 @@ type Registry struct {
 	mu   sync.RWMutex
 }
 
+// registryFileVersion is the newest projects.json schema written and
+// readable. v0 = the pre-versioning shape (no "version" key).
+const registryFileVersion = 1
+
 // registryFile represents the JSON structure of projects.json
 type registryFile struct {
+	Version  int               `json:"version"`
 	Projects []registryProject `json:"projects"`
 }
 
@@ -131,6 +136,7 @@ func (r *Registry) saveUnlocked(paths []string) error {
 
 	// Build registry structure
 	registry := registryFile{
+		Version:  registryFileVersion,
 		Projects: make([]registryProject, len(paths)),
 	}
 	for i, path := range paths {
@@ -233,6 +239,9 @@ func parseRegistryData(data []byte, path string) ([]string, error) {
 	if err := json.Unmarshal(data, &registry); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	if registry.Version > registryFileVersion {
+		return nil, fmt.Errorf("parse %s: unsupported schema version %d (newest known: %d)", path, registry.Version, registryFileVersion)
+	}
 	paths := make([]string, len(registry.Projects))
 	for i, p := range registry.Projects {
 		paths[i] = p.Path
@@ -240,6 +249,12 @@ func parseRegistryData(data []byte, path string) ([]string, error) {
 	return paths, nil
 }
 
+// canonicalProjectPath canonicalizes a registry path for dedupe and lookup:
+// trim + clean + absolutize, but deliberately NO symlink resolution — the
+// registry dedupes by the literal spelling the user registered, so two
+// spellings that resolve to the same directory stay distinct entries. For
+// resolve-aware matching (e.g. is this stored path the same place as that
+// live path) use CanonicalPath instead.
 func canonicalProjectPath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {

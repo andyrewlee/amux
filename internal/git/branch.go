@@ -63,7 +63,7 @@ func GetBranchFileDiff(repoPath, path string) (*DiffResult, error) {
 	}
 	mergeBase := resolveMergeBase(repoPath, base)
 
-	args := []string{"diff", "--no-color", "--no-ext-diff", "-U3", mergeBase + "...HEAD", "--", path}
+	args := []string{"diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U3", mergeBase + "...HEAD", "--", path}
 	ctx, cancel := context.WithTimeout(context.Background(), branchDiffTimeout)
 	defer cancel()
 	output, err := RunGitCtx(ctx, repoPath, args...)
@@ -105,7 +105,7 @@ func BranchChangesVsBase(repoPath string) ([]Change, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), branchDiffTimeout)
 	defer cancel()
-	output, err := RunGitCtx(ctx, repoPath, "diff", "--no-color", "--name-status", mergeBase+"...HEAD")
+	output, err := RunGitRawCtx(ctx, repoPath, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--name-status", "-z", mergeBase+"...HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -113,29 +113,39 @@ func BranchChangesVsBase(repoPath string) ([]Change, error) {
 	return parseNameStatus(output), nil
 }
 
-// parseNameStatus parses `git diff --name-status` output (one "CODE\tpath" or
-// "CODE\toldpath\tnewpath" line per change) into Changes, reusing the same
-// status-code mapping as working-tree status parsing.
-func parseNameStatus(output string) []Change {
-	if output == "" {
+// parseNameStatus parses `git diff --name-status -z` output into Changes. With
+// -z, records are NUL-terminated and fields are NUL-separated: "M\0path\0" for
+// single-path statuses and "R100\0old\0new\0" for renames/copies. Paths are raw
+// bytes — no C-quoting — so non-ASCII and whitespace-containing names survive.
+// The same status-code mapping as working-tree status parsing is reused.
+func parseNameStatus(output []byte) []Change {
+	if len(output) == 0 {
 		return nil
 	}
+	tokens := strings.Split(string(output), "\x00")
 	var changes []Change
-	for _, line := range strings.Split(output, "\n") {
-		if line == "" {
+	for i := 0; i < len(tokens); i++ {
+		code := tokens[i]
+		if code == "" {
 			continue
 		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 2 {
-			continue
-		}
-		code := parts[0]
 		change := Change{Kind: statusCodeToKind(code[0])}
-		if (code[0] == 'R' || code[0] == 'C') && len(parts) >= 3 {
-			change.OldPath = parts[1]
-			change.Path = parts[2]
+		paths := 1
+		if code[0] == 'R' || code[0] == 'C' {
+			paths = 2
+		}
+		if i+paths >= len(tokens) {
+			break // truncated final record
+		}
+		if paths == 2 {
+			change.OldPath = tokens[i+1]
+			change.Path = tokens[i+2]
 		} else {
-			change.Path = parts[1]
+			change.Path = tokens[i+1]
+		}
+		i += paths
+		if change.Path == "" {
+			continue
 		}
 		changes = append(changes, change)
 	}

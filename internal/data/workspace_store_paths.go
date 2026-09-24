@@ -3,6 +3,7 @@ package data
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -75,6 +76,38 @@ func canonicalLookupPath(path string) string {
 		return ""
 	}
 	return NormalizePath(value)
+}
+
+// sameStoredWorkspaceIdentity reports whether id is merely a drift variant of
+// ws's identity: the stored record carries the same repo+root, and id is a
+// path-derived hash of those same paths in some symlink-resolution state —
+// either the unresolved form (the record was saved before its root existed)
+// or the existing-ancestor form (the root vanished after the record was
+// saved with a resolved key). It guards Save's key-migration path against
+// deleting the live metadata dir on a pure normalization flip. A legacy key
+// that is no path-hash at all, or a real Repo/Root change, still migrates.
+func (s *WorkspaceStore) sameStoredWorkspaceIdentity(id WorkspaceID, ws *Workspace) bool {
+	stored, err := s.load(id, false)
+	if err != nil || stored == nil {
+		return false
+	}
+	if strings.TrimSpace(stored.Repo) != strings.TrimSpace(ws.Repo) ||
+		strings.TrimSpace(stored.Root) != strings.TrimSpace(ws.Root) {
+		return false
+	}
+	// Each of repo and root normalizes independently (each resolves symlinks
+	// only when its own path exists), so a drift-born key can be any
+	// combination of the two per-path forms — fully unresolved or resolved
+	// through the deepest existing ancestor (which equals full resolution
+	// whenever the path exists).
+	for _, repoForm := range []string{filepath.Clean(stored.Repo), resolveExistingAncestor(stored.Repo)} {
+		for _, rootForm := range []string{filepath.Clean(stored.Root), resolveExistingAncestor(stored.Root)} {
+			if id == workspaceIDFromIdentity(repoForm+"\n"+rootForm) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func shouldPreferWorkspace(candidate, existing *Workspace) bool {

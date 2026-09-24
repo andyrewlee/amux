@@ -178,9 +178,8 @@ func AbortMerge(ctx context.Context, repoPath string) error {
 // a merge needs cleaning up, since an interrupted merge can have MERGE_HEAD
 // without having marked anything unmerged yet.
 //
-// Paths are only stripped of the line terminator, never trimmed: a filename may
-// legitimately begin or end with a space, and git already quotes names
-// containing control characters, so a line is the path exactly as git reports it.
+// -z output is NUL-terminated, so paths are raw bytes — no C-quoting — and
+// whitespace/newline-containing names survive intact.
 func conflictedFiles(ctx context.Context, repoPath string) ([]string, bool) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -188,13 +187,13 @@ func conflictedFiles(ctx context.Context, repoPath string) ([]string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, mergeInspectTimeout)
 	defer cancel()
 
-	out, err := RunGitCtx(ctx, repoPath, "diff", "--name-only", "--diff-filter=U")
+	out, err := RunGitRawCtx(ctx, repoPath, "diff", "--name-only", "--diff-filter=U", "-z", "--no-ext-diff", "--no-textconv")
 	if err != nil {
 		return nil, false
 	}
 	var files []string
-	for _, line := range strings.Split(out, "\n") {
-		if path := strings.TrimSuffix(line, "\r"); path != "" {
+	for _, path := range strings.Split(string(out), "\x00") {
+		if path != "" {
 			files = append(files, path)
 		}
 	}

@@ -341,13 +341,14 @@ func TestWorkspaceStore_UpsertFromDiscovery_StoreWinsAndClearsArchived(t *testin
 	}
 }
 
-func TestWorkspaceStore_UpsertFromDiscovery_RebindDeletesOldID(t *testing.T) {
+func TestWorkspaceStore_UpsertFromDiscovery_LegacyKeySurvivesRebind(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)
 
 	// Plant stored metadata under a legacy directory whose name is NOT the
-	// canonical Repo+Root hash, so discovery is found via the fallback scan and
-	// the recomputed ID differs (forcing the rebind-delete branch).
+	// canonical Repo+Root hash, so discovery is found via the fallback scan.
+	// Plan 042: the persisted store key IS the identity — discovery merges in
+	// place rather than rebinding the record to the path-derived key.
 	legacyID := WorkspaceID("legacy_rebind_id")
 	dir := filepath.Join(root, string(legacyID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -375,14 +376,14 @@ func TestWorkspaceStore_UpsertFromDiscovery_RebindDeletesOldID(t *testing.T) {
 		t.Fatalf("UpsertFromDiscovery() error = %v", err)
 	}
 
-	// The recomputed canonical ID differs from the legacy one.
-	newID := (Workspace{Repo: "/repo", Root: "/root"}).ID()
-	if newID == legacyID {
-		t.Fatalf("test setup: legacy and canonical IDs must differ")
+	// The computed path-hash ID differs from the legacy key.
+	computedID := (Workspace{Repo: "/repo", Root: "/root"}).ComputedID()
+	if computedID == legacyID {
+		t.Fatalf("test setup: legacy and computed IDs must differ")
 	}
 
-	// Exactly one workspace remains — the rebound canonical record. The old
-	// legacy dir must be gone (no orphan).
+	// Exactly one workspace remains — still under its persisted legacy key;
+	// no canonical-keyed record is created.
 	ids, err := store.List()
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
@@ -390,17 +391,17 @@ func TestWorkspaceStore_UpsertFromDiscovery_RebindDeletesOldID(t *testing.T) {
 	if len(ids) != 1 {
 		t.Fatalf("List() = %v, want exactly one workspace after rebind", ids)
 	}
-	if ids[0] != newID {
-		t.Fatalf("remaining id = %s, want canonical %s", ids[0], newID)
+	if ids[0] != legacyID {
+		t.Fatalf("remaining id = %s, want persisted key %s", ids[0], legacyID)
 	}
 
-	// Store-owned metadata survives the rebind; Branch is discovery-updated.
-	loaded, err := store.Load(newID)
+	// Store-owned metadata survives the merge; Branch is discovery-updated.
+	loaded, err := store.Load(legacyID)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if loaded.Env["API_KEY"] != "secret123" {
-		t.Errorf("Env[API_KEY] = %q, want secret123 preserved across rebind", loaded.Env["API_KEY"])
+		t.Errorf("Env[API_KEY] = %q, want secret123 preserved across merge", loaded.Env["API_KEY"])
 	}
 	if loaded.Branch != "new-branch" {
 		t.Errorf("Branch = %q, want new-branch", loaded.Branch)

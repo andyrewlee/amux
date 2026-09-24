@@ -95,9 +95,9 @@ func GetStatus(repoPath string) (*StatusResult, error) {
 
 // getDiffNumstat runs git diff --numstat and returns total added/deleted lines.
 func getDiffNumstat(repoPath string, staged bool) (added, deleted int, err error) {
-	args := []string{"--no-optional-locks", "diff", "--numstat"}
+	args := []string{"--no-optional-locks", "diff", "--no-ext-diff", "--no-textconv", "--numstat"}
 	if staged {
-		args = []string{"--no-optional-locks", "diff", "--cached", "--numstat"}
+		args = []string{"--no-optional-locks", "diff", "--cached", "--no-ext-diff", "--no-textconv", "--numstat"}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), diffNumstatTimeout)
 	defer cancel()

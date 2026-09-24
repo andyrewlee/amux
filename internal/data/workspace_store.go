@@ -124,6 +124,11 @@ func (s *WorkspaceStore) Load(id WorkspaceID) (*Workspace, error) {
 	return s.load(id, true)
 }
 
+// workspaceFileVersion is the newest workspace.json schema the store
+// writes and can read. v0 = the pre-versioning shape (no "version" key).
+// Bumping means adding a read branch for the older shapes below.
+const workspaceFileVersion = 1
+
 func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, error) {
 	if err := validateWorkspaceID(id); err != nil {
 		return nil, err
@@ -138,6 +143,9 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("decode workspace %s: %w", id, err)
 	}
+	if raw.Version > workspaceFileVersion {
+		return nil, fmt.Errorf("workspace %s has unsupported schema version %d (newest known: %d)", id, raw.Version, workspaceFileVersion)
+	}
 
 	ws := &Workspace{
 		Name:           raw.Name,
@@ -146,7 +154,7 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 		Repo:           raw.Repo,
 		Root:           raw.Root,
 		Created:        parseCreated(raw.Created),
-		Runtime:        NormalizeRuntime(raw.Runtime),
+		Runtime:        normalizeRuntime(raw.Runtime),
 		Assistant:      raw.Assistant,
 		Scripts:        raw.Scripts,
 		ScriptMode:     raw.ScriptMode,
@@ -155,6 +163,8 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 		ActiveTabIndex: raw.ActiveTabIndex,
 		Archived:       raw.Archived,
 		ArchivedAt:     parseCreated(raw.ArchivedAt),
+		Shelved:        raw.Shelved,
+		Version:        raw.Version,
 	}
 	ws.storeID = id
 
@@ -196,6 +206,16 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 			oldID = ""
 		}
 	}
+	// ws.ID() runs through NormalizePath, which only resolves symlinks for
+	// path components that exist — so the worktree dir appearing or
+	// disappearing can flip the computed ID without the workspace moving.
+	// When the record under oldID still describes the same repo+root, keep
+	// the persisted key instead of migrating (and deleting) the metadata dir;
+	// a real Repo/Root change still takes the rename path below.
+	if oldID != "" && s.sameStoredWorkspaceIdentity(oldID, ws) {
+		id = oldID
+		oldID = ""
+	}
 	path := s.workspacePath(id)
 	dir := filepath.Dir(path)
 
@@ -211,6 +231,7 @@ func (s *WorkspaceStore) Save(ws *Workspace) error {
 
 	// Atomic replace (temp + fsync + rename) so a crash mid-save can never
 	// leave a truncated workspace.json behind.
+	ws.Version = workspaceFileVersion
 	if err := fsatomic.WriteJSON(path, ws); err != nil {
 		return fmt.Errorf("save workspace %s: %w", id, err)
 	}
@@ -269,6 +290,7 @@ func (s *WorkspaceStore) saveWorkspaceLocked(id WorkspaceID, ws *Workspace) erro
 	// Atomic replace (temp + fsync + rename, with backup recovery on platforms
 	// that need it), matching Save. The caller already holds the workspace lock.
 	// A crash mid-save can never leave a truncated workspace.json behind.
+	ws.Version = workspaceFileVersion
 	if err := fsatomic.WriteJSON(path, ws); err != nil {
 		return err
 	}
@@ -410,68 +432,11 @@ func (s *WorkspaceStore) ListByRepoIncludingArchived(repoPath string) ([]*Worksp
 }
 
 func (s *WorkspaceStore) listByRepo(repoPath string, includeArchived bool) ([]*Workspace, error) {
-	ids, err := s.List()
+	// One List+Load round shared with every other ByRepo consumer of the
+	// snapshot; filtering semantics live in WorkspaceRecordSet.ByRepo.
+	set, err := s.ListAll()
 	if err != nil {
 		return nil, err
 	}
-
-	targetRepo := canonicalLookupPath(repoPath)
-	var workspaces []*Workspace
-	seen := make(map[string]int)
-	var loadErrors int
-	var targetLoadErrors int
-	var unknownLoadErrors int
-	var loadErrs []error
-	for _, id := range ids {
-		ws, err := s.Load(id)
-		if err != nil {
-			logging.Warn("Failed to load workspace %s: %v", id, err)
-			loadErrors++
-			loadErrs = append(loadErrs, err)
-			if repo, ok := s.repoHintForWorkspaceID(id); ok {
-				if canonicalLookupPath(repo) == targetRepo {
-					targetLoadErrors++
-				}
-			} else {
-				unknownLoadErrors++
-			}
-			continue
-		}
-		if ws.Root == "" {
-			logging.Warn("Skipping workspace %s with empty Root", id)
-			continue
-		}
-		if !includeArchived && ws.Archived {
-			continue
-		}
-		if canonicalLookupPath(ws.Repo) != targetRepo {
-			continue
-		}
-		repoKey := canonicalLookupPath(ws.Repo)
-		rootKey := canonicalLookupPath(ws.Root)
-		key := workspaceIdentity(ws.Repo, ws.Root)
-		if repoKey != "" && rootKey != "" {
-			key = repoKey + "\n" + rootKey
-		}
-		if idx, ok := seen[key]; ok {
-			if shouldPreferWorkspace(ws, workspaces[idx]) {
-				workspaces[idx] = ws
-			}
-			continue
-		}
-		seen[key] = len(workspaces)
-		workspaces = append(workspaces, ws)
-	}
-
-	if targetLoadErrors > 0 && len(workspaces) == 0 {
-		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s: %w", targetLoadErrors, repoPath, errors.Join(loadErrs...))
-	}
-	if unknownLoadErrors > 0 && len(workspaces) == 0 {
-		return nil, fmt.Errorf("failed to load %d workspace(s) with unreadable repo for %s: %w", unknownLoadErrors, repoPath, errors.Join(loadErrs...))
-	}
-	if loadErrors > 0 && len(workspaces) == 0 && loadErrors == len(ids) {
-		return nil, fmt.Errorf("failed to load %d workspace(s) for repo %s: %w", loadErrors, repoPath, errors.Join(loadErrs...))
-	}
-
-	return workspaces, nil
+	return set.ByRepo(repoPath, includeArchived)
 }

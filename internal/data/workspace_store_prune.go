@@ -79,9 +79,10 @@ func (s *WorkspaceStore) DeleteByRepo(repoPath string) ([]WorkspaceID, error) {
 		}
 		removed = append(removed, id)
 		// A loaded record can live under a legacy metadata directory while its
-		// canonical repo/root identity produces a newer ID. Sessions may carry
-		// either value during migration, so return both for best-effort cleanup.
-		if canonicalID := ws.ID(); canonicalID != id {
+		// canonical repo/root identity produces a different hash. Sessions may
+		// carry either value during migration, so return both for best-effort
+		// cleanup. (ComputedID, not ID: ID() returns the persisted key itself.)
+		if canonicalID := ws.ComputedID(); canonicalID != id {
 			removed = append(removed, canonicalID)
 		}
 	}
@@ -177,11 +178,15 @@ func (s *WorkspaceStore) pruneWorkspaceIfStale(
 	switch {
 	case repo != "" && !repoRegistered && oldEnough(modTime, now, options.OrphanGracePeriod):
 		reason = "unregistered"
-	case ws.Archived && oldEnough(archiveReferenceTime(ws, modTime), now, options.ArchivedRetention):
+	case ws.Archived && !ws.Shelved && oldEnough(archiveReferenceTime(ws, modTime), now, options.ArchivedRetention):
+		// Intentional shelves never expire — only accidental archives (a
+		// worktree that vanished under us) are bounded by ArchivedRetention.
 		reason = "archived"
-	case repoRegistered && !ws.IsPrimaryCheckout() &&
+	case repoRegistered && !ws.Shelved && !ws.IsPrimaryCheckout() &&
 		withinManagedRoot(options.ManagedRoot, ws.Root) &&
 		pathMissing(ws.Root) && oldEnough(modTime, now, options.OrphanGracePeriod):
+		// A shelved workspace's root is missing by design; without the
+		// !ws.Shelved gate it would be reaped here before the archive check.
 		reason = "missing_root"
 	}
 	if reason == "" {
@@ -286,11 +291,7 @@ func withinManagedRoot(managedRoot, root string) bool {
 		if managed == "" || managed == "." || target == "" || target == "." {
 			continue
 		}
-		rel, err := filepath.Rel(managed, target)
-		if err != nil || rel == "." || rel == ".." {
-			continue
-		}
-		if !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if PathStrictlyWithin(managed, target) {
 			return true
 		}
 	}

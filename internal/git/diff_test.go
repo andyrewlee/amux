@@ -339,3 +339,125 @@ func TestGetFileDiff_NoTextconv(t *testing.T) {
 		assertNoTextconv(t, result, err, "BOTH_MODE_CONTENT")
 	})
 }
+
+// TestDiffCallSitesSuppressRepoDrivers proves every git-diff read path passes
+// --no-ext-diff/--no-textconv (not just that the flags appear in source): the
+// repo is configured with a hostile diff.external whose stdout would replace
+// the patch text, and a textconv driver that would silently blank binary .dat
+// diffs. Neither may fire for any entry point.
+func TestDiffCallSitesSuppressRepoDrivers(t *testing.T) {
+	skipIfNoGit(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("sh driver scripts are unix-specific")
+	}
+	repo := initRepo(t)
+
+	extScript := filepath.Join(repo, "fake-extdiff.sh")
+	if err := os.WriteFile(extScript, []byte("#!/bin/sh\necho EXTDIFF_RAN\n"), 0o755); err != nil {
+		t.Fatalf("write fake-extdiff.sh: %v", err)
+	}
+	runGit(t, repo, "config", "diff.external", extScript)
+
+	tcScript := filepath.Join(repo, "fake-textconv.sh")
+	if err := os.WriteFile(tcScript, []byte("#!/bin/sh\necho TEXTCONV_RAN\n"), 0o755); err != nil {
+		t.Fatalf("write fake-textconv.sh: %v", err)
+	}
+	runGit(t, repo, "config", "diff.tc.textconv", tcScript)
+
+	// Binary .dat so the textconv driver would fire automatically (for text
+	// files it only runs with --textconv, which we never pass).
+	if err := os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("*.dat diff=tc\n"), 0o600); err != nil {
+		t.Fatalf("write .gitattributes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "f.dat"), []byte{'A', 0x00, 'B', 'I', 'N', '\n'}, 0o600); err != nil {
+		t.Fatalf("write f.dat: %v", err)
+	}
+	runGit(t, repo, "add", ".gitattributes", "f.dat", "fake-extdiff.sh", "fake-textconv.sh")
+	runGit(t, repo, "commit", "-m", "add binary dat + drivers")
+
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "f.dat"), []byte{'B', 0x00, 'B', 'I', 'N', '\n'}, 0o600); err != nil {
+		t.Fatalf("modify f.dat: %v", err)
+	}
+	runGit(t, repo, "add", "f.dat")
+	runGit(t, repo, "commit", "-m", "change binary dat")
+
+	assertClean := func(t *testing.T, where, content string) {
+		t.Helper()
+		for _, sentinel := range []string{"EXTDIFF_RAN", "TEXTCONV_RAN"} {
+			if strings.Contains(content, sentinel) {
+				t.Fatalf("%s: diff content contains %s — repo driver was not suppressed", where, sentinel)
+			}
+		}
+	}
+
+	t.Run("GetUntrackedFileContent (--no-index)", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("brand new\n"), 0o600); err != nil {
+			t.Fatalf("write new.txt: %v", err)
+		}
+		result, err := GetUntrackedFileContent(repo, "new.txt")
+		if err != nil {
+			t.Fatalf("GetUntrackedFileContent() error = %v", err)
+		}
+		assertClean(t, "GetUntrackedFileContent", result.Content)
+		if !strings.Contains(result.Content, "brand new") {
+			t.Fatalf("GetUntrackedFileContent() missing real content: %q", result.Content)
+		}
+	})
+
+	t.Run("GetFileDiff", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("init\nchanged\n"), 0o600); err != nil {
+			t.Fatalf("write README.md: %v", err)
+		}
+		result, err := GetFileDiff(repo, "README.md", DiffModeUnstaged)
+		if err != nil {
+			t.Fatalf("GetFileDiff() error = %v", err)
+		}
+		assertClean(t, "GetFileDiff", result.Content)
+		if !strings.Contains(result.Content, "+changed") {
+			t.Fatalf("GetFileDiff() missing real change: %q", result.Content)
+		}
+	})
+
+	t.Run("GetBranchFileDiff binary textconv", func(t *testing.T) {
+		result, err := GetBranchFileDiff(repo, "f.dat")
+		if err != nil {
+			t.Fatalf("GetBranchFileDiff() error = %v", err)
+		}
+		assertClean(t, "GetBranchFileDiff", result.Content)
+		// textconv would replace both sides with identical output → empty diff.
+		// Suppressed, we must see the real binary diff marker.
+		if !result.Binary {
+			t.Fatalf("GetBranchFileDiff() Binary = false — textconv likely ran; content=%q", result.Content)
+		}
+	})
+
+	t.Run("BranchChangesVsBase name-status", func(t *testing.T) {
+		changes, err := BranchChangesVsBase(repo)
+		if err != nil {
+			t.Fatalf("BranchChangesVsBase() error = %v", err)
+		}
+		found := false
+		for _, c := range changes {
+			if c.Path == "f.dat" && c.Kind == ChangeModified {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("BranchChangesVsBase() = %+v, want M f.dat", changes)
+		}
+	})
+
+	t.Run("GetStatus numstat", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("init\nmore\n"), 0o600); err != nil {
+			t.Fatalf("write README.md: %v", err)
+		}
+		status, err := GetStatus(repo)
+		if err != nil {
+			t.Fatalf("GetStatus() error = %v", err)
+		}
+		if status.TotalAdded == 0 {
+			t.Fatal("GetStatus() TotalAdded = 0, want >0 for modified README")
+		}
+	})
+}

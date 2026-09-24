@@ -279,3 +279,26 @@ func TestVerifyMinisignCLIParity(t *testing.T) {
 		t.Fatal("VerifyMinisign accepted CLI signature over tampered message")
 	}
 }
+
+// TestGoReleaserSignsBlockKeepsLegacyFlag guards the parity assumption from
+// the other direction: if the release pipeline drops -l, produced signatures
+// switch to the prehashed "ED" format the Go verifier rejects — while the
+// CLI-parity test above (which hard-codes -l) would keep passing. Assert the
+// checked-in signs block still carries the flag.
+func TestGoReleaserSignsBlockKeepsLegacyFlag(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".goreleaser.yml"))
+	if err != nil {
+		t.Fatalf("read .goreleaser.yml: %v", err)
+	}
+	idx := bytes.Index(data, []byte("\nsigns:"))
+	if idx < 0 {
+		t.Fatal(".goreleaser.yml has no signs block")
+	}
+	block := data[idx:]
+	if end := bytes.Index(block[1:], []byte("\n\n")); end >= 0 {
+		block = block[:end+1]
+	}
+	if !bytes.Contains(block, []byte(`"-l"`)) {
+		t.Fatal(".goreleaser.yml signs block lost the -l flag; the Go verifier requires the legacy signature format")
+	}
+}

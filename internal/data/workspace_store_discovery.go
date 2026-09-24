@@ -91,6 +91,9 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 	}
 	merged.Archived = false
 	merged.ArchivedAt = time.Time{}
+	// A discovered worktree also ends any shelf: the path exists again, so the
+	// record is live regardless of how it was archived.
+	merged.Shelved = false
 	s.applyWorkspaceDefaults(&merged)
 
 	newID := merged.ID()
@@ -111,7 +114,11 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 	if err := s.Save(&merged); err != nil {
 		return err
 	}
-	if storedID != "" && storedID != newID {
+	// Save may keep storedID when the "new" key is only normalization drift
+	// (the worktree dir's existence flipping NormalizePath's symlink
+	// resolution) — the old dir is the live record then, so only delete it
+	// when the record actually migrated to a different key.
+	if storedID != "" && merged.MetadataID() != storedID {
 		if err := s.Delete(storedID); err != nil {
 			logging.Warn("Failed to remove old workspace metadata %s: %v", storedID, err)
 		}
