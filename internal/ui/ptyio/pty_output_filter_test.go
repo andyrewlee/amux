@@ -173,6 +173,14 @@ func TestContainsASCIIFold_IndexSeededEquivalence(t *testing.T) {
 		{"uppercase needle never matches", []byte("MALLOC"), "MALLOC", false},
 		{"single char needle", []byte("xMyx"), "m", true},
 		{"needle past end", []byte("mallo"), "malloc", false},
+		// First-byte hit past the last viable start: the seed IndexByte must
+		// not drive i beyond len(haystack)-n before the match loop reads
+		// haystack[i+j] — chunks ending in 'm'/'M' (e.g. an SGR sequence's
+		// final byte) used to panic here.
+		{"first byte at tail", []byte("abcdefm"), "malloc", false},
+		{"first byte at tail upper", []byte("abcdefM"), "malloc", false},
+		{"partial needle at tail", []byte("xxmalloy"), "malloc", false},
+		{"first byte at tail, longer", []byte("some output ending m"), "malloc", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
