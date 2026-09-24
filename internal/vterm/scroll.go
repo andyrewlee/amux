@@ -44,7 +44,7 @@ func (v *VTerm) scrollUp(n int) {
 		}
 		added := 0
 		for _, line := range displaced {
-			v.Scrollback = append(v.Scrollback, line)
+			v.Scrollback = append(v.Scrollback, copyLineTrimmed(line))
 			added++
 		}
 		if added > 0 {

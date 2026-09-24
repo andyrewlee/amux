@@ -334,8 +334,9 @@ func TestParseSessionStates(t *testing.T) {
 		},
 		{
 			name:  "session name containing a tab keeps only the first segment as name",
-			lines: []string{"sess-a\t0\textra"},
-			// SplitN(_, 2) keeps "0\textra" as the dead field, which is != "0".
+			lines: []string{"sess-a\t1\textra\tjunk"},
+			// pane_dead="1" (not live); "extra"/"junk" land in the
+			// pane_active/window_active columns and are ignored.
 			want: map[string]SessionState{"sess-a": {Exists: true, HasLivePane: false}},
 		},
 	}

@@ -86,6 +86,7 @@ func (p *Parser) parseCSIIgnore(b byte) {
 
 func (p *Parser) resetCSI() {
 	p.params = p.params[:0]
+	p.subParams = p.subParams[:0]
 	p.paramBuf.Reset()
 	p.intermediate = 0
 	p.csiIntermediate = 0
@@ -111,27 +112,31 @@ func (p *Parser) appendParam(v int) bool {
 		return false
 	}
 	p.params = append(p.params, v)
+	p.subParams = append(p.subParams, nil)
 	return true
 }
 
 func (p *Parser) pushParam() bool {
 	if p.paramBuf.Len() > 0 {
 		s := p.paramBuf.String()
-		// Handle sub-parameters (colon-separated values like "38:2:255:128:0")
+		// Sub-parameters (colon-separated values like "38:2:255:128:0") keep
+		// their grouping: params records only the leading value, subParams the
+		// whole group — flattening made grouped SGR sequences execute each
+		// subparameter as an independent code (e.g. "4:3" → underline+italic).
 		if strings.Contains(s, ":") {
 			parts := strings.Split(s, ":")
-			for _, part := range parts {
+			subs := make([]int, len(parts))
+			for i, part := range parts {
 				if part == "" {
-					if !p.appendParam(0) {
-						return false
-					}
+					subs[i] = 0
 				} else {
-					val, _ := strconv.Atoi(part)
-					if !p.appendParam(val) {
-						return false
-					}
+					subs[i], _ = strconv.Atoi(part)
 				}
 			}
+			if !p.appendParam(subs[0]) {
+				return false
+			}
+			p.subParams[len(p.subParams)-1] = subs
 		} else {
 			val, _ := strconv.Atoi(s)
 			if !p.appendParam(val) {
@@ -179,6 +184,7 @@ func (p *Parser) executeCSI(final byte) {
 		p.vt.bumpVersionIfCursorMoved(oldX, oldY)
 	case 'G': // CHA - cursor horizontal absolute
 		oldX, oldY := p.vt.CursorX, p.vt.CursorY
+		p.vt.PendingWrap = false
 		p.vt.CursorX = p.getParam(0, 1) - 1
 		if p.vt.CursorX < 0 {
 			p.vt.CursorX = 0

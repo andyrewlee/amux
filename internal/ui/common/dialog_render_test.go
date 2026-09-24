@@ -3,6 +3,8 @@ package common
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestDialogViewHiddenReturnsEmpty verifies View renders nothing while the
@@ -215,5 +217,46 @@ func TestDialogHelpText(t *testing.T) {
 				t.Fatalf("helpText() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestDialog_MessageSanitized proves a message/warning/option composed from
+// repo- or filesystem-derived text cannot inject escapes into the frame or
+// fabricate lines beyond its own newline structure.
+func TestDialog_MessageSanitized(t *testing.T) {
+	d := NewConfirmDialog("x", "Delete \x1b[8msecret\x1b[0m?", "Delete 'ws\x1b[2J' — sure?\nsecond line")
+	d.SetWarning("warn \x1b[31mred\x1b[0m text")
+	d.SetSize(80, 24)
+	d.Show()
+
+	// renderLines returns post-sanitize lines: message/warning rows carry no
+	// SGR of their own (they're styled by the frame later), so any raw ESC
+	// there came straight from caller text.
+	for _, line := range d.renderLines() {
+		if strings.Contains(line, "\x1b[8m") || strings.Contains(line, "\x1b[2J") || strings.Contains(line, "\x1b[31m") {
+			t.Fatalf("caller escape reached render lines: %q", line)
+		}
+	}
+	plain := ansi.Strip(d.View())
+	for _, want := range []string{"Delete 'ws' — sure?", "second line", "warn red text", "Delete secret?"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected sanitized text %q in view, got:\n%s", want, plain)
+		}
+	}
+}
+
+// TestDialog_OptionLabelSanitized covers the select-options sink (the
+// agent picker is the only DialogSelect producer).
+func TestDialog_OptionLabelSanitized(t *testing.T) {
+	d := NewAgentPicker([]string{"ok", "bad\x1b[8mopt"})
+	d.SetSize(80, 24)
+	d.Show()
+	for _, line := range d.renderLines() {
+		if strings.Contains(line, "\x1b[8m") {
+			t.Fatalf("option escape reached render lines: %q", line)
+		}
+	}
+	if plain := ansi.Strip(d.View()); !strings.Contains(plain, "badopt") {
+		t.Fatalf("sanitized option label missing, got:\n%s", plain)
 	}
 }

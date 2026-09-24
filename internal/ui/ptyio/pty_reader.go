@@ -168,7 +168,14 @@ func RunPTYReader(
 				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
 				return
 			}
-			pending = append(pending, data...)
+			// Adopt the read chunk when the coalescing buffer is empty: the read
+			// goroutine drops its reference after sending, so ownership transfers
+			// here and the append-copy is only needed when merging.
+			if len(pending) == 0 {
+				pending = data
+			} else {
+				pending = append(pending, data...)
+			}
 			startFlushTicker()
 			if len(pending) >= cfg.MaxPendingBytes {
 				if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
@@ -250,8 +257,12 @@ func ForwardPTYMsgs(msgCh <-chan tea.Msg, sink func(tea.Msg), merger OutputMerge
 			continue
 		}
 
-		merged := make([]byte, len(data))
-		copy(merged, data)
+		// Adopt the first message's data as the merge buffer: the upstream
+		// reader drops its reference when the message is sent, and Build
+		// replaces .Data with the merged slice, so this goroutine holds the
+		// only reference. Appends may grow into the slice's spare capacity;
+		// nothing reads the consumed message's data past its original length.
+		merged := data
 		first := msg
 		for {
 			select {

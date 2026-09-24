@@ -250,3 +250,152 @@ func TestEnvDialogViewNoRowsShowsPlaceholder(t *testing.T) {
 		t.Fatalf("expected empty-roster placeholder, got:\n%s", view)
 	}
 }
+
+// TestEnvDialogAddFirstEntry covers the unreachable-today case: an empty map
+// gets its first pair entirely through the ctrl+a add flow.
+func TestEnvDialogAddFirstEntry(t *testing.T) {
+	d := NewEnvDialog(nil)
+	d.Show()
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	if !d.adding {
+		t.Fatal("ctrl+a did not enter add mode")
+	}
+	typeIntoEnvDialog(d, "API_URL")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.addField != 1 {
+		t.Fatalf("enter on a valid name did not advance to the value field (addField=%d)", d.addField)
+	}
+	typeIntoEnvDialog(d, "http://x")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if d.adding {
+		t.Fatal("commit did not exit add mode")
+	}
+	if got := d.Env()["API_URL"]; got != "http://x" {
+		t.Fatalf("Env()[API_URL] = %q, want %q", got, "http://x")
+	}
+	if len(d.keys) != 1 || d.keys[0] != "API_URL" || d.cursor != 0 {
+		t.Fatalf("keys=%#v cursor=%d — new row must be focused", d.keys, d.cursor)
+	}
+}
+
+// TestEnvDialogAddSortedInsertAndDuplicate pins the add ordering (new key
+// lands at its sorted position, existing rows don't reshuffle) and the
+// duplicate contract (add cancels, cursor focuses the existing row, value
+// untouched).
+func TestEnvDialogAddSortedInsertAndDuplicate(t *testing.T) {
+	d := NewEnvDialog(map[string]string{"AAA": "1", "CCC": "3", "ZZZ": "9"})
+	d.Show()
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	typeIntoEnvDialog(d, "BBB")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	typeIntoEnvDialog(d, "2")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	want := []string{"AAA", "BBB", "CCC", "ZZZ"}
+	if len(d.keys) != len(want) {
+		t.Fatalf("keys = %#v, want %#v", d.keys, want)
+	}
+	for i, k := range want {
+		if d.keys[i] != k {
+			t.Fatalf("keys[%d] = %q, want %q (full list %#v)", i, d.keys[i], k, d.keys)
+		}
+	}
+	if d.cursor != 1 {
+		t.Fatalf("cursor = %d, want 1 (the inserted BBB row)", d.cursor)
+	}
+
+	// Duplicate: add the same name again — must not overwrite, must focus
+	// the existing row.
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	typeIntoEnvDialog(d, "CCC")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	typeIntoEnvDialog(d, "OVERWRITE")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if d.adding {
+		t.Fatal("duplicate add should cancel add mode")
+	}
+	if d.values["CCC"] != "3" {
+		t.Fatalf("duplicate add overwrote the existing value: CCC = %q, want %q", d.values["CCC"], "3")
+	}
+	if d.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2 (the existing CCC row)", d.cursor)
+	}
+	if d.notice == "" {
+		t.Fatal("duplicate add should leave a notice explaining the outcome")
+	}
+}
+
+// TestEnvDialogAddValidation covers the name rules and the SetKeyValidator
+// domain hook (reserved-name rejection).
+func TestEnvDialogAddValidation(t *testing.T) {
+	d := NewEnvDialog(nil)
+	d.SetKeyValidator(func(name string) string {
+		if name == "AMUX_SESSION" {
+			return name + " is reserved"
+		}
+		return ""
+	})
+	d.Show()
+
+	// Empty name: Enter on the name field stays put with an error.
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.addField != 0 || d.addError == "" {
+		t.Fatalf("empty name should stay on the name field with an error (field=%d err=%q)", d.addField, d.addError)
+	}
+
+	// Invalid characters ('=' inside the name) are rejected.
+	d.addName = "BAD=NAME"
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.addField != 0 || d.addError == "" {
+		t.Fatalf("'=' in name should stay on the name field with an error (field=%d err=%q)", d.addField, d.addError)
+	}
+
+	// Reserved name rejected via the wired validator.
+	d.addName = "AMUX_SESSION"
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.addField != 0 || !strings.Contains(d.addError, "reserved") {
+		t.Fatalf("reserved name should be rejected via SetKeyValidator (field=%d err=%q)", d.addField, d.addError)
+	}
+
+	// Valid name advances.
+	d.addName = "GOOD_NAME"
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.addField != 1 || d.addError != "" {
+		t.Fatalf("valid name should advance to the value field (field=%d err=%q)", d.addField, d.addError)
+	}
+}
+
+// TestEnvDialogAddCancel covers the Esc-cancels-just-the-add contract: list
+// edits survive, no pair is created, and the dialog stays open.
+func TestEnvDialogAddCancel(t *testing.T) {
+	d := NewEnvDialog(map[string]string{"KEEP": "1"})
+	d.Show()
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	typeIntoEnvDialog(d, "PARTIAL")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if d.adding {
+		t.Fatal("esc did not cancel add mode")
+	}
+	if !d.visible {
+		t.Fatal("esc inside add mode must not close the dialog")
+	}
+	if _, ok := d.values["PARTIAL"]; ok {
+		t.Fatal("canceled add must not create a pair")
+	}
+	if len(d.Env()) != 1 {
+		t.Fatalf("Env() = %#v — existing pairs must survive an add cancel", d.Env())
+	}
+
+	// A real Esc on the list still cancels the whole dialog.
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if d.visible {
+		t.Fatal("esc on the list should close the dialog")
+	}
+}

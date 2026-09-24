@@ -86,3 +86,29 @@ func CopyLine(src []Cell) []Cell {
 	copy(dst, src)
 	return dst
 }
+
+// copyLineTrimmed copies a line for scrollback storage, dropping trailing
+// default cells. Scrollback rows are immutable history, so the blank tail is
+// dead weight: a 160-col row holding 40 cells of content would otherwise pay
+// full terminal width forever. The copy (not a reslice) is required — a
+// subslice keeps the full-width backing array alive. Readers bound by
+// len(row) or pad short rows via copyLine, and a Width==0 continuation cell
+// is never a DefaultCell, so wide-glyph tails are never cut.
+func copyLineTrimmed(src []Cell) []Cell {
+	last := len(src)
+	def := DefaultCell()
+	for last > 0 && src[last-1] == def {
+		last--
+	}
+	dst := make([]Cell, last)
+	copy(dst, src[:last])
+	return dst
+}
+
+// appendTrimmedRows appends copyLineTrimmed copies of each row to dst.
+func appendTrimmedRows(dst, src [][]Cell) [][]Cell {
+	for _, row := range src {
+		dst = append(dst, copyLineTrimmed(row))
+	}
+	return dst
+}

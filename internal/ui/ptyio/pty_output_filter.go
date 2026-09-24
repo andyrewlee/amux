@@ -203,9 +203,23 @@ func containsASCIIFold(haystack []byte, needle string) bool {
 	if len(haystack) < n {
 		return false
 	}
-	for i := 0; i <= len(haystack)-n; i++ {
+	// Seed the search with vectorized byte lookups on the needle's first byte
+	// (both case variants for letters) instead of folding every position: PTY
+	// chunks rarely contain the needle, so most calls are a single memchr pass.
+	lo, hi := foldCasePair(needle[0])
+	for i := 0; i <= len(haystack)-n; {
+		hit := bytes.IndexByte(haystack[i:], lo)
+		if hi != lo {
+			if alt := bytes.IndexByte(haystack[i:], hi); alt >= 0 && (hit < 0 || alt < hit) {
+				hit = alt
+			}
+		}
+		if hit < 0 {
+			return false
+		}
+		i += hit
 		matched := true
-		for j := 0; j < n; j++ {
+		for j := 1; j < n; j++ {
 			if toLowerASCII(haystack[i+j]) != needle[j] {
 				matched = false
 				break
@@ -214,8 +228,21 @@ func containsASCIIFold(haystack []byte, needle string) bool {
 		if matched {
 			return true
 		}
+		i++
 	}
 	return false
+}
+
+// foldCasePair returns the haystack bytes that can satisfy a fold-compare
+// against needle byte b: for a lowercase ASCII letter both case variants can
+// (folding collapses them), but an uppercase letter only matches itself —
+// toLowerASCII maps toward lowercase, never up. Non-letters likewise match
+// only themselves, collapsing the seed search to a single IndexByte.
+func foldCasePair(b byte) (lo, hi byte) {
+	if b >= 'a' && b <= 'z' {
+		return b, b - ('a' - 'A')
+	}
+	return b, b
 }
 
 func toLowerASCII(b byte) byte {

@@ -121,7 +121,9 @@ func (m *ToastModel) View() string {
 		icon = "i "
 	}
 
-	return style.Render(icon + m.current.Message)
+	// Toast messages embed repo command strings and script stderr — strip
+	// terminal control bytes at render so callers can keep logging them raw.
+	return style.Render(icon + SanitizeDisplayText(m.current.Message, 512))
 }
 
 // Visible returns whether the toast is currently visible

@@ -183,6 +183,10 @@ func TestVTermSnapshotHonorsCursorHideOutsideAltScreen(t *testing.T) {
 	}
 }
 
+// TestVTermSnapshotPendingWrapCursorRenders pins the plan-132 cursor fix:
+// filling the last column leaves CursorX == Width (pending wrap), and the
+// cursor block must still render ON that last cell rather than vanish.
+
 func TestAnsiColorRGBA(t *testing.T) {
 	tests := []struct {
 		name                   string

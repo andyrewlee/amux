@@ -132,14 +132,18 @@ func (v *VTerm) putChar(r rune) {
 	v.markDirtyLine(lineY)
 	v.markDirtyLine(v.CursorY)
 
-	// Advance cursor by character width
+	// Advance cursor by character width. Landing exactly on Width leaves the
+	// cursor in the pending-wrap state — the deferred wrap fires on the next
+	// putChar (the CursorX >= Width check above), not now.
 	v.CursorX += width
+	v.PendingWrap = v.CursorX == v.Width
 }
 
 // advanceLineFeed moves the cursor down one row for LF/auto-wrap.
 // At the bottom margin it scrolls the region; below the region it moves
 // toward the last screen row without scrolling (DEC/xterm semantics).
 func (v *VTerm) advanceLineFeed() {
+	v.PendingWrap = false
 	if v.CursorY >= v.ScrollBottom {
 		// Cursor is below the scroll region: never scroll from here.
 		if v.CursorY < v.Height-1 {
@@ -164,6 +168,7 @@ func (v *VTerm) newline() {
 // carriageReturn moves cursor to beginning of line
 func (v *VTerm) carriageReturn() {
 	prevX, prevY := v.CursorX, v.CursorY
+	v.PendingWrap = false
 	v.CursorX = 0
 	v.bumpVersionIfCursorMoved(prevX, prevY)
 }
@@ -171,6 +176,7 @@ func (v *VTerm) carriageReturn() {
 // tab moves cursor to next tab stop (every 8 columns)
 func (v *VTerm) tab() {
 	prevX, prevY := v.CursorX, v.CursorY
+	v.PendingWrap = false
 	v.CursorX = ((v.CursorX / 8) + 1) * 8
 	if v.CursorX >= v.Width {
 		v.CursorX = v.Width - 1
@@ -215,7 +221,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 		}
 		// Clear from cursor to end of line
 		if v.CursorY < len(v.Screen) {
-			for x := v.CursorX; x < v.Width; x++ {
+			for x := v.eraseStartX(); x < v.Width; x++ {
 				if x < len(v.Screen[v.CursorY]) {
 					v.Screen[v.CursorY][x] = eraseC
 				}
@@ -279,6 +285,17 @@ func (v *VTerm) shouldCaptureScreenOnClear() bool {
 		(!v.AltScreen && v.CaptureNormalScreenOnClear)
 }
 
+// eraseStartX returns the effective start column for "cursor to end" erases.
+// During pending wrap CursorX == Width, which an x<Width loop would treat as
+// an empty range — but the pending cursor sits ON the last cell, so the erase
+// starts one column earlier.
+func (v *VTerm) eraseStartX() int {
+	if v.PendingWrap && v.CursorX == v.Width {
+		return v.Width - 1
+	}
+	return v.CursorX
+}
+
 // eraseLine clears parts of the current line
 func (v *VTerm) eraseLine(mode int) {
 	if v.CursorY >= len(v.Screen) {
@@ -291,7 +308,7 @@ func (v *VTerm) eraseLine(mode int) {
 	// replaces the whole line with blanks, so it needs no normalization.
 	switch mode {
 	case 0: // Cursor to end
-		for x := v.CursorX; x < v.Width; x++ {
+		for x := v.eraseStartX(); x < v.Width; x++ {
 			if x < len(v.Screen[v.CursorY]) {
 				v.Screen[v.CursorY][x] = eraseC
 			}

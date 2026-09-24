@@ -120,79 +120,15 @@ func TestRunTmux_OtherErrorPropagates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SessionNamesWithClients (CombinedOutput): exit 1 + no-client/empty stderr ->
-// empty set, exit 1 + other stderr -> error, success -> parsed.
+// SetSessionTagValues (CombinedOutput): the has-session guard is chained into
+// the same invocation as the set-option writes, so only runTmuxCmdCombined is
+// exercised. Driving the seam reaches the session-not-found-stderr -> nil and
+// other-stderr -> wrapped branches without a live server; the one-invocation
+// contract itself is pinned in subprocess_fanout_test.go.
 // ---------------------------------------------------------------------------
-
-func TestSessionNamesWithClients_NoClientStderrIsEmpty(t *testing.T) {
-	skipIfNoTmux(t)
-	fakeRunTmuxCmdCombined(t, []byte("no client found"), exitCode1Err(t))
-	got, err := SessionNamesWithClients(testOpts())
-	if err != nil {
-		t.Fatalf("no-client stderr must be swallowed, got %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("expected empty attached set, got %#v", got)
-	}
-}
-
-func TestSessionNamesWithClients_EmptyStderrIsEmpty(t *testing.T) {
-	skipIfNoTmux(t)
-	fakeRunTmuxCmdCombined(t, nil, exitCode1Err(t))
-	got, err := SessionNamesWithClients(testOpts())
-	if err != nil {
-		t.Fatalf("exit 1 with empty stderr must be swallowed, got %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("expected empty attached set, got %#v", got)
-	}
-}
-
-func TestSessionNamesWithClients_OtherStderrIsError(t *testing.T) {
-	skipIfNoTmux(t)
-	exitErr := exitCode1Err(t)
-	fakeRunTmuxCmdCombined(t, []byte("lost server"), exitErr)
-	got, err := SessionNamesWithClients(testOpts())
-	if err == nil {
-		t.Fatalf("exit 1 with unrelated stderr must surface as error, got set=%#v", got)
-	}
-	if len(got) != 0 {
-		t.Fatalf("error path should not populate the set, got %#v", got)
-	}
-}
-
-func TestSessionNamesWithClients_SuccessParsesNames(t *testing.T) {
-	skipIfNoTmux(t)
-	fakeRunTmuxCmdCombined(t, []byte("amux-a\namux-b\n"), nil)
-	got, err := SessionNamesWithClients(testOpts())
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if !got["amux-a"] || !got["amux-b"] || len(got) != 2 {
-		t.Fatalf("expected {amux-a, amux-b}, got %#v", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// SetSessionTagValues (CombinedOutput): the has-session pre-check runs through
-// runTmuxCmd, then the set-option runs through runTmuxCmdCombined. We drive both
-// seams to reach the session-not-found-stderr -> nil and other-stderr -> wrapped
-// branches without a live server.
-// ---------------------------------------------------------------------------
-
-// withExistingSession makes hasSession (which goes through runTmuxCmd) report
-// the session exists, so SetSessionTagValues proceeds to the set-option call.
-func withExistingSession(t *testing.T) {
-	t.Helper()
-	orig := runTmuxCmd
-	// has-session success: zero exit, no output needed.
-	runTmuxCmd = func(*exec.Cmd) ([]byte, error) { return nil, nil }
-	t.Cleanup(func() { runTmuxCmd = orig })
-}
 
 func TestSetSessionTagValues_SessionNotFoundStderrReturnsNil(t *testing.T) {
 	skipIfNoTmux(t)
-	withExistingSession(t)
 	fakeRunTmuxCmdCombined(t, []byte("no such session: amux-x"), exitCode1Err(t))
 	err := SetSessionTagValues("amux-x", []OptionValue{{Key: "@amux_k", Value: "v"}}, testOpts())
 	if err != nil {
@@ -202,7 +138,6 @@ func TestSetSessionTagValues_SessionNotFoundStderrReturnsNil(t *testing.T) {
 
 func TestSetSessionTagValues_OtherStderrIsWrappedError(t *testing.T) {
 	skipIfNoTmux(t)
-	withExistingSession(t)
 	fakeRunTmuxCmdCombined(t, []byte("server exited unexpectedly"), exitCode1Err(t))
 	err := SetSessionTagValues("amux-x", []OptionValue{{Key: "@amux_k", Value: "v"}}, testOpts())
 	if err == nil {
@@ -215,7 +150,6 @@ func TestSetSessionTagValues_OtherStderrIsWrappedError(t *testing.T) {
 
 func TestSetSessionTagValues_SuccessReturnsNil(t *testing.T) {
 	skipIfNoTmux(t)
-	withExistingSession(t)
 	fakeRunTmuxCmdCombined(t, nil, nil)
 	err := SetSessionTagValues("amux-x", []OptionValue{{Key: "@amux_k", Value: "v"}}, testOpts())
 	if err != nil {

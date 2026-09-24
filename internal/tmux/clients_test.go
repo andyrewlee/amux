@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 // These tests cover clients.go. The exec-free early-return guards (the
 // sessionName == "" short-circuits in SessionClientCount / SessionHasClients /
 // SessionCreatedAt) are asserted directly without a live tmux server. The
-// subprocess-backed paths — SessionNamesWithClients, the non-empty-session
+// subprocess-backed paths — the non-empty-session
 // branches of SessionClientCount / SessionHasClients, and SessionCreatedAt —
 // are exercised behind skipIfNoTmux against an isolated test server, matching
 // the convention in tags_test.go and the *_integration_test.go siblings.
@@ -59,53 +60,6 @@ func TestSessionCreatedAt_EmptySessionName(t *testing.T) {
 // Subprocess-backed behavior against an isolated tmux server.
 // ---------------------------------------------------------------------------
 
-// TestSessionNamesWithClients_NoneAttached verifies that with only detached
-// sessions present, SessionNamesWithClients returns a non-nil, empty set and no
-// error (the "no attached clients must not fail GC" path).
-func TestSessionNamesWithClients_NoneAttached(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := testServer(t)
-
-	createSession(t, opts, "snwc-a", "sleep 300")
-	createSession(t, opts, "snwc-b", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
-
-	attached, err := SessionNamesWithClients(opts)
-	if err != nil {
-		t.Fatalf("SessionNamesWithClients: %v", err)
-	}
-	if attached == nil {
-		t.Fatal("expected non-nil map even with no clients")
-	}
-	if len(attached) != 0 {
-		t.Fatalf("expected no attached sessions, got %v", attached)
-	}
-}
-
-// TestSessionNamesWithClients_ReportsAttached attaches a real client to one
-// session and confirms only that session is reported as having a client.
-func TestSessionNamesWithClients_ReportsAttached(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := testServer(t)
-
-	createSession(t, opts, "att-yes", "sleep 300")
-	createSession(t, opts, "att-no", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
-
-	attachClient(t, opts, "att-yes")
-
-	attached, err := SessionNamesWithClients(opts)
-	if err != nil {
-		t.Fatalf("SessionNamesWithClients: %v", err)
-	}
-	if !attached["att-yes"] {
-		t.Fatalf("expected att-yes to be reported as attached, got %v", attached)
-	}
-	if attached["att-no"] {
-		t.Fatalf("expected att-no to be detached, got %v", attached)
-	}
-}
-
 // TestSessionClientCount_Detached confirms a detached session reports zero
 // clients without error.
 func TestSessionClientCount_Detached(t *testing.T) {
@@ -113,7 +67,6 @@ func TestSessionClientCount_Detached(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "scc-detached", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	count, err := SessionClientCount("scc-detached", opts)
 	if err != nil {
@@ -146,7 +99,6 @@ func TestSessionClientCount_Attached(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "scc-attached", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	attachClient(t, opts, "scc-attached")
 
@@ -176,7 +128,6 @@ func TestSessionCreatedAt_PositiveAndMonotonic(t *testing.T) {
 	createSession(t, opts, "ca-first", "sleep 300")
 	time.Sleep(1100 * time.Millisecond) // tmux session_created has second resolution
 	createSession(t, opts, "ca-second", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	first, err := SessionCreatedAt("ca-first", opts)
 	if err != nil {
@@ -218,10 +169,18 @@ func attachClient(t *testing.T, opts Options, session string) {
 	})
 
 	// Poll until tmux registers the attached client (attach is asynchronous).
+	// The probe must NOT go through SessionClientCount/SessionHasClients —
+	// those are the functions under test: a regression there returning (0, nil)
+	// would make this poll time out and t.Skipf instead of failing. Use
+	// display-message's #{session_attached}, a different tmux command path.
+	// (display-message's -t is a client target that falls back to the named
+	// session; the "=" exact-match prefix returns empty output.)
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		count, err := SessionClientCount(session, opts)
-		if err == nil && count > 0 {
+		cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", session, "#{session_attached}")
+		out, err := runTmuxCmdCombined(cmd)
+		cancel()
+		if attached := strings.TrimSpace(string(out)); err == nil && attached != "" && attached != "0" {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)

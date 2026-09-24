@@ -10,7 +10,6 @@ func TestSetSessionTagValues_SetsSessionOptions(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "tag-write-batch", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	timestamp := "1700000000123"
 	if err := SetSessionTagValues("tag-write-batch", []OptionValue{
@@ -67,7 +66,6 @@ func TestSetSessionTagValueForSessions_DoesNotPrefixMatchMissingSession(t *testi
 	opts := testServer(t)
 
 	createSession(t, opts, "heartbeat-target-10", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	if err := SetSessionTagValueForSessions(
 		[]string{"heartbeat-target-1"},

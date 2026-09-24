@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 // scriptExtensions are file suffixes that make a bare token (one without a path
@@ -115,11 +117,8 @@ func looksLikePath(token string) bool {
 // path uses the OS separator (filepath, not slash-normalized).
 func resolveWithinRepo(token, repoRoot string) (string, bool) {
 	joined := filepath.Join(repoRoot, token)
-	rel, err := filepath.Rel(repoRoot, joined)
-	if err != nil {
-		return "", false
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	rel, inside := data.PathWithin(repoRoot, joined)
+	if !inside {
 		return "", false
 	}
 	info, err := os.Stat(joined)

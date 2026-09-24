@@ -316,8 +316,12 @@ func TestAltScreenEraseDropsWideRuneClippedAtEdge(t *testing.T) {
 	if len(vt.Scrollback) != 1 {
 		t.Fatalf("expected one captured row, got %d", len(vt.Scrollback))
 	}
-	if got := vt.Scrollback[0][2]; got.Rune != ' ' || got.Width != 1 {
-		t.Fatalf("expected clipped wide rune to be dropped, got rune=%q width=%d", got.Rune, got.Width)
+	// Scrollback rows are stored trimmed of their blank tail, so the clipped
+	// wide rune's cell is either absent or an explicit blank.
+	if row := vt.Scrollback[0]; len(row) > 2 {
+		if got := row[2]; got.Rune != ' ' || got.Width != 1 {
+			t.Fatalf("expected clipped wide rune to be dropped, got rune=%q width=%d", got.Rune, got.Width)
+		}
 	}
 }
 

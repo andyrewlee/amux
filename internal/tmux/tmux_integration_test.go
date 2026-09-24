@@ -107,7 +107,6 @@ func TestSetSessionTagValue_SetsSessionOption(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "tag-write", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	want := "1700000000000"
 	if err := SetSessionTagValue("tag-write", TagLastOutputAt, want, opts); err != nil {
@@ -138,7 +137,6 @@ func TestSetSessionTagValue_AgentIDResolutionRoundtrip(t *testing.T) {
 
 	sessionName := "amux-ws123-tab456"
 	createSession(t, opts, sessionName, "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	// Simulate what cmd_agent_run_write does: set all tags.
 	tags := []struct{ key, value string }{
@@ -227,7 +225,6 @@ func TestPanePids_SingleWindow(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "single", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	pids, err := panePIDs("single", opts)
 	if err != nil {
@@ -248,7 +245,6 @@ func TestPanePids_MultipleWindows(t *testing.T) {
 	createSession(t, opts, "multi", "sleep 300")
 	addWindow(t, opts, "multi", "sleep 300")
 	addWindow(t, opts, "multi", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	pids, err := panePIDs("multi", opts)
 	if err != nil {
@@ -295,7 +291,6 @@ func TestKillSession_KillsSession(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "doomed", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	exists, err := hasSession("doomed", opts)
 	if err != nil {
@@ -353,7 +348,6 @@ func TestSessionCreatedAt_ReturnsTimestamp(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "ts-test", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	ts, err := SessionCreatedAt("ts-test", opts)
 	if err != nil {
@@ -369,7 +363,6 @@ func TestSessionHasClients_NoClients(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "detached", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	has, err := SessionHasClients("detached", opts)
 	if err != nil {
@@ -386,7 +379,6 @@ func TestPanePids_PrefixCollisionSafety(t *testing.T) {
 
 	createSession(t, opts, "sess-1", "sleep 300")
 	createSession(t, opts, "sess-10", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	pids, err := panePIDs("sess-1", opts)
 	if err != nil {

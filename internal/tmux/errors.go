@@ -30,19 +30,14 @@ func IsNoServerError(err error) bool {
 }
 
 // isSessionNotFoundStderr reports whether tmux stderr indicates the target
-// session does not exist.
+// session does not exist. "no current target" is what has-session reports on
+// a server with zero sessions (e.g. kept alive by exit-empty off).
 func isSessionNotFoundStderr(stderr string) bool {
 	s := strings.ToLower(strings.TrimSpace(stderr))
 	return strings.Contains(s, "session not found") ||
 		strings.Contains(s, "no such session") ||
-		strings.Contains(s, "can't find session")
-}
-
-// isNoClientStderr reports whether tmux stderr indicates there are no matching
-// clients attached to the session.
-func isNoClientStderr(stderr string) bool {
-	s := strings.ToLower(strings.TrimSpace(stderr))
-	return strings.Contains(s, "no client") || strings.Contains(s, "can't find client")
+		strings.Contains(s, "can't find session") ||
+		strings.Contains(s, "no current target")
 }
 
 // isOptionMissingStderr reports whether tmux stderr indicates an unknown or

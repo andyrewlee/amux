@@ -28,6 +28,13 @@ type VTerm struct {
 	// Cursor position (0-indexed)
 	CursorX, CursorY int
 
+	// PendingWrap is true when the last putChar filled the final column and
+	// no cursor operation has run since — the wrap is deferred until the
+	// next write (tmux-style wrap-on-next-write). CursorX stays == Width in
+	// this state; the flag distinguishes it so erase/CPR/cursor consumers
+	// can treat the cursor as logically ON the last cell.
+	PendingWrap bool
+
 	// Dimensions
 	Width, Height int
 
@@ -240,7 +247,7 @@ func (v *VTerm) resize(width, height int, revealHistoryOnGrow bool) {
 			added := 0
 			for i := 0; i < overflow; i++ {
 				if len(v.Screen) > 0 {
-					v.Scrollback = append(v.Scrollback, v.Screen[0])
+					v.Scrollback = append(v.Scrollback, copyLineTrimmed(v.Screen[0]))
 					v.Screen = v.Screen[1:]
 					added++
 				}

@@ -1,6 +1,13 @@
 // Package common re-exports the internal/ui/theme symbols so existing
 // common.* references keep working after theme was split into its own
 // package. New code should import internal/ui/theme directly.
+//
+// DECISION (2026-09-22, plans/021): this shim is permanent API surface, not
+// a migration waypoint. Wholesale migration of the ~35 files using common.*
+// theme symbols was evaluated and rejected: aliases are free at runtime,
+// internal/ui/theme is actively evolving (agent-roster commits), and the
+// churn-vs-value trade favors keeping both paths. Convention for new code:
+// prefer importing internal/ui/theme directly, but common.* remains stable.
 package common
 
 import "github.com/andyrewlee/amux/internal/ui/theme"

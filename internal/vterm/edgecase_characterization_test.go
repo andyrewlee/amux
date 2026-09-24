@@ -9,7 +9,7 @@ import (
 // visual-corruption consequences. These pin CURRENT behavior so refactors
 // (notably the epoch-based render cache) cannot silently regress them. Where a
 // test documents a known limitation rather than correct behavior, that is
-// called out inline. See plans/012-vterm-characterization-tests.md.
+// called out inline.
 
 // TestCombiningCharacterIsDropped pins the combining-mark drop in
 // ops.go putChar's width==0 branch.

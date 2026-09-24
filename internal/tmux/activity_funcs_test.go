@@ -203,7 +203,6 @@ func TestSessionLatestActivitySeconds_LiveSession(t *testing.T) {
 
 	before := time.Now().Unix()
 	createSession(t, opts, "act-latest", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	latest, err := sessionLatestActivitySeconds("act-latest", opts)
 	if err != nil {
@@ -238,7 +237,6 @@ func TestSessionActiveWithin_LiveSession(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "act-within", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	// A freshly created session is active within a generous window.
 	active, err := SessionActiveWithin("act-within", time.Hour, opts)
@@ -265,7 +263,6 @@ func TestSessionLatestActivity_LiveSession(t *testing.T) {
 
 	created := time.Now()
 	createSession(t, opts, "act-time", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	ts, ok, err := SessionLatestActivity("act-time", opts)
 	if err != nil {
@@ -304,7 +301,6 @@ func TestActiveAgentSessionsByActivity_ReturnsTaggedSessions(t *testing.T) {
 
 	// Plain session with no tag and no amux- prefix: must be ignored.
 	createSession(t, opts, "irrelevant", "sleep 300")
-	time.Sleep(100 * time.Millisecond)
 
 	sessions, err := ActiveAgentSessionsByActivity(time.Hour, opts)
 	if err != nil {
@@ -348,7 +344,6 @@ func TestActiveAgentSessionsByActivity_WindowFiltersOldActivity(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "amux-recent", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	// A 1ns window enables the applyWindow branch (window>0); since tmux
 	// window_activity is whole-second-truncated, now.Sub(activityTime) always

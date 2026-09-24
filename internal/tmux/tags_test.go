@@ -3,7 +3,6 @@ package tmux
 import (
 	"sort"
 	"testing"
-	"time"
 )
 
 // These tests cover tags.go. The pure, exec-free logic — matchesTags and the
@@ -220,7 +219,6 @@ func TestSessionsWithTags_FiltersAndReportsKeys(t *testing.T) {
 	createSession(t, opts, "swt-match", "sleep 300")
 	createSession(t, opts, "swt-other", "sleep 300")
 	createSession(t, opts, "swt-nomatch", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	setTag(t, opts, "swt-match", "@amux", "1")
 	setTag(t, opts, "swt-match", "@amux_workspace", "ws-1")
@@ -258,7 +256,6 @@ func TestSessionsWithTags_KeysOnlyReturnsAllWithValues(t *testing.T) {
 
 	createSession(t, opts, "ko-a", "sleep 300")
 	createSession(t, opts, "ko-b", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	setTag(t, opts, "ko-a", "@amux_owner", "owner-a")
 	// ko-b deliberately left without the tag → must read back as empty string.
@@ -293,7 +290,6 @@ func TestSessionsWithTags_NoMatchingSessions(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "nm-a", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	rows, err := SessionsWithTags(
 		map[string]string{"@amux": "definitely-not-set"},
@@ -315,7 +311,6 @@ func TestListSessionsWithTags_ReturnsSortedKeys(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "lst-a", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 	setTag(t, opts, "lst-a", "@amux_b", "bb")
 	setTag(t, opts, "lst-a", "@amux_a", "aa")
 
@@ -352,7 +347,6 @@ func TestSetSessionTagValue_Roundtrip(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "sstv-a", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	if err := SetSessionTagValue("sstv-a", TagSessionOwner, "owner-x", opts); err != nil {
 		t.Fatalf("SetSessionTagValue: %v", err)
@@ -386,7 +380,6 @@ func TestSetSessionTagValue_AgentStateRoundtrip(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "sstv-agentstate", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	for _, want := range []string{"idle", "working", "done"} {
 		if err := SetSessionTagValue("sstv-agentstate", TagAgentState, want, opts); err != nil {
@@ -425,7 +418,6 @@ func TestSetSessionTagValues_AllBlankKeysNoOps(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "blank-keys", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	err := SetSessionTagValues("blank-keys", []OptionValue{
 		{Key: "", Value: "a"},

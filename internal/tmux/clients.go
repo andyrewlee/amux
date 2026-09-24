@@ -5,32 +5,6 @@ import (
 	"strings"
 )
 
-// SessionNamesWithClients returns the set of session names that currently have
-// at least one attached client.
-func SessionNamesWithClients(opts Options) (map[string]bool, error) {
-	attached := make(map[string]bool)
-	if err := EnsureAvailable(); err != nil {
-		return attached, err
-	}
-	cmd, cancel := tmuxCommand(opts, "list-clients", "-F", "#{session_name}")
-	defer cancel()
-	output, err := runTmuxCmdCombined(cmd)
-	if err != nil {
-		if isExitCode1(err) {
-			stderr := strings.TrimSpace(string(output))
-			// No attached clients should not fail detached-session GC.
-			if stderr == "" || isNoClientStderr(stderr) {
-				return attached, nil
-			}
-		}
-		return attached, err
-	}
-	for _, name := range parseOutputLines(output) {
-		attached[name] = true
-	}
-	return attached, nil
-}
-
 // SessionHasClients reports whether the tmux session has any attached clients.
 func SessionHasClients(sessionName string, opts Options) (bool, error) {
 	count, err := SessionClientCount(sessionName, opts)
@@ -81,4 +55,71 @@ func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
 		return strconv.ParseInt(raw, 10, 64)
 	}
 	return 0, nil
+}
+
+// SessionMeta bundles the per-session facts scan loops need alongside pane
+// state, so per-session probes collapse into one batched list-sessions call.
+type SessionMeta struct {
+	// Attached is the number of clients currently attached (session_attached).
+	Attached int
+	// CreatedAt is the session creation time in unix seconds (session_created).
+	CreatedAt int64
+}
+
+// AllSessionMeta returns SessionMeta for every tmux session in a single
+// subprocess call. Sessions absent from the map do not exist (or the listing
+// raced their teardown) — treat a miss like a per-session probe failure.
+func AllSessionMeta(opts Options) (map[string]SessionMeta, error) {
+	if err := EnsureAvailable(); err != nil {
+		return nil, err
+	}
+	lines, err := listTmux(opts, "list-sessions", "-F", "#{session_name}\t#{session_attached}\t#{session_created}")
+	if err != nil {
+		return nil, err
+	}
+	return parseSessionMeta(lines), nil
+}
+
+func parseSessionMeta(lines []string) map[string]SessionMeta {
+	out := make(map[string]SessionMeta, len(lines))
+	for _, line := range lines {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		attached, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+		created, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
+		out[parts[0]] = SessionMeta{Attached: attached, CreatedAt: created}
+	}
+	return out
+}
+
+// SessionNamesWithClients returns the set of session names that currently have
+// attached clients.
+//
+// Note: retained for stack-staging compatibility with the pre-refactor app
+// layer; the app commit removes it. New code should use SessionsWithTags or
+// SessionStateFor.
+func SessionNamesWithClients(opts Options) (map[string]bool, error) {
+	attached := make(map[string]bool)
+	if err := EnsureAvailable(); err != nil {
+		return attached, err
+	}
+	cmd, cancel := tmuxCommand(opts, "list-clients", "-F", "#{session_name}")
+	defer cancel()
+	output, err := runTmuxCmdCombined(cmd)
+	if err != nil {
+		if isExitCode1(err) {
+			stderr := strings.ToLower(strings.TrimSpace(string(output)))
+			// No attached clients should not fail detached-session GC.
+			if stderr == "" || strings.Contains(stderr, "no client") || strings.Contains(stderr, "can't find client") {
+				return attached, nil
+			}
+		}
+		return attached, err
+	}
+	for _, name := range parseOutputLines(output) {
+		attached[name] = true
+	}
+	return attached, nil
 }

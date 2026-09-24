@@ -248,9 +248,22 @@ func (st *State) TakeFlushChunkLocked(maxChunk int) []byte {
 	if chunkSize == 0 {
 		return nil
 	}
+	// Taking the whole buffer transfers ownership of the backing array to the
+	// returned chunk outright — no copy at all. Callers only read the chunk
+	// (terminal write, rebuffer copy) and the state drops its reference.
+	if chunkSize == len(st.PendingOutput) {
+		chunk := st.PendingOutput
+		st.PendingOutput = nil
+		return chunk
+	}
+	// A partial take still copies the chunk out: the PendingOutput[:0] reuse in
+	// RearmFlush would overwrite a borrowed subslice while it is still queued.
+	// The remainder advances by reslicing instead of copy-shifting — the dead
+	// prefix stays in the backing array until the next append reallocates or a
+	// trim/reset drops it, so a large backlog no longer pays an O(remaining)
+	// memmove per take.
 	chunk := append([]byte(nil), st.PendingOutput[:chunkSize]...)
-	copy(st.PendingOutput, st.PendingOutput[chunkSize:])
-	st.PendingOutput = st.PendingOutput[:len(st.PendingOutput)-chunkSize]
+	st.PendingOutput = st.PendingOutput[chunkSize:]
 	return chunk
 }
 
@@ -272,4 +285,23 @@ func (st *State) WriteFilteredChunkLocked(write func([]byte), chunk []byte) []by
 		perf.Count("pty_flush_bytes", int64(len(filtered)))
 	}
 	return filtered
+}
+
+// FlushNoiseTrailingLocked releases any trailing fragment the noise filter is
+// holding in NoiseTrailing — call it when the flush has drained PendingOutput
+// and no more bytes are arriving this tick. The hold exists to catch a
+// diagnostic line split mid-arrival; once the stream pauses, a `name(N)`
+// tail is far more likely a real prompt ("Retry(2)") than the head of a
+// malloc diagnostic, and withholding it leaves the prompt invisible until
+// unrelated output arrives. Returns the released byte count for activity
+// accounting; the released bytes are the stream's tail, so ordering is
+// preserved by writing them after the filtered chunk.
+func (st *State) FlushNoiseTrailingLocked(write func([]byte)) int {
+	released := DrainKnownPTYNoiseTrailing(&st.NoiseTrailing)
+	if len(released) == 0 {
+		return 0
+	}
+	write(released)
+	perf.Count("pty_flush_bytes", int64(len(released)))
+	return len(released)
 }

@@ -15,26 +15,20 @@ type KillOptions struct {
 	GracePeriod time.Duration
 }
 
-// KillProcessGroup sends SIGTERM to a process group, waits for the grace period,
-// then sends SIGKILL if processes are still running.
-// The leaderPID parameter is the process ID of the group leader.
+// KillProcessGroup sends SIGTERM to the process group led by leaderPID, waits
+// for the grace period, then sends SIGKILL if processes are still running.
+// leaderPID must be a process-group leader (pgid == pid); every caller
+// guarantees this via Setpgid/Setsid or tmux pane semantics. Signaling
+// -leaderPID directly is deliberate: a Getpgid(leaderPID) lookup silently
+// returns ESRCH when the leader has exited while its group lives on, which
+// leaked orphaned agent trees, and it never protected against PID reuse.
 func KillProcessGroup(leaderPID int, opts KillOptions) error {
 	if opts.GracePeriod == 0 {
 		opts.GracePeriod = 200 * time.Millisecond
 	}
 
-	// Get the actual process group ID
-	pgid, err := syscall.Getpgid(leaderPID)
-	if err != nil {
-		// ESRCH means process already exited
-		if err == syscall.ESRCH {
-			return nil
-		}
-		return err
-	}
-
 	// Send SIGTERM to the entire process group (negative pgid)
-	err = syscall.Kill(-pgid, syscall.SIGTERM)
+	err := syscall.Kill(-leaderPID, syscall.SIGTERM)
 	if err != nil {
 		// ESRCH means process already exited
 		if err == syscall.ESRCH {
@@ -47,7 +41,7 @@ func KillProcessGroup(leaderPID int, opts KillOptions) error {
 	deadline := time.Now().Add(opts.GracePeriod)
 	for time.Now().Before(deadline) {
 		// Check if any process in the group is still running
-		err := syscall.Kill(-pgid, 0)
+		err := syscall.Kill(-leaderPID, 0)
 		if err == syscall.ESRCH {
 			// Process group exited
 			return nil
@@ -57,7 +51,7 @@ func KillProcessGroup(leaderPID int, opts KillOptions) error {
 
 	// Process still running, send SIGKILL
 	// EPERM can occur if the process group emptied during grace period
-	err = syscall.Kill(-pgid, syscall.SIGKILL)
+	err = syscall.Kill(-leaderPID, syscall.SIGKILL)
 	if err != nil && err != syscall.ESRCH && err != syscall.EPERM {
 		return err
 	}

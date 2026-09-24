@@ -368,11 +368,22 @@ func CapturePaneTail(sessionName string, lines int, opts Options) (string, bool)
 	if sessionName == "" || lines <= 0 {
 		return "", false
 	}
+	return CapturePaneTailChecked(sessionName, lines, sessionActivePaneLive(sessionName, opts), opts)
+}
+
+// CapturePaneTailChecked is CapturePaneTail with the active-pane liveness
+// probe answered by the caller — typically from a batched AllSessionStates —
+// saving one tmux subprocess per session per scan. Callers without batched
+// state should use CapturePaneTail, which probes.
+func CapturePaneTailChecked(sessionName string, lines int, activePaneLive bool, opts Options) (string, bool) {
+	if sessionName == "" || lines <= 0 {
+		return "", false
+	}
 	startLine := -lines
-	// Fast path: target the session's active pane directly after confirming it is
-	// live. If the active pane is dead (remain-on-exit or a dead split), fall back
-	// to sessionPaneID so we preserve the old first-live-pane behavior.
-	if sessionActivePaneLive(sessionName, opts) {
+	// Fast path: target the session's active pane directly when it is known to
+	// be live. If the active pane is dead (remain-on-exit or a dead split), fall
+	// back to sessionPaneID so we preserve the old first-live-pane behavior.
+	if activePaneLive {
 		cmd, cancel := tmuxCommand(opts, "capture-pane", "-p", "-t", sessionTarget(sessionName), "-S", strconv.Itoa(startLine))
 		output, err := runTmuxCmd(cmd)
 		cancel()

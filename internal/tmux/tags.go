@@ -160,21 +160,17 @@ func SetSessionTagValues(sessionName string, tags []OptionValue, opts Options) e
 	if err := EnsureAvailable(); err != nil {
 		return err
 	}
-	// Pre-check with has-session (which supports "=" exact matching) to avoid
-	// set-option prefix-matching a different session if this one was killed.
-	exists, err := hasSession(sessionName, opts)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
 
 	target := exactSessionOptionTarget(sessionName)
 	args, added := buildMultiSetOptionArgs([]string{"-t", target}, tags)
 	if added == 0 {
 		return nil
 	}
+	// Guard travels inside the same invocation: has-session supports "=" exact
+	// matching, and tmux aborts a ";"-chained command list when has-session
+	// fails — so a dead session can't let set-option prefix-match a stranger,
+	// and a live session costs one subprocess instead of two.
+	args = append([]string{"has-session", "-t", sessionTarget(sessionName), ";"}, args...)
 
 	cmd, cancel := tmuxCommand(opts, args...)
 	defer cancel()

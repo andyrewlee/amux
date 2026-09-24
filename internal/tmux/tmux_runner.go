@@ -13,7 +13,7 @@ var runTmuxCmd = func(cmd *exec.Cmd) ([]byte, error) { return cmd.Output() }
 
 // runTmuxCmdCombined executes a tmux command and returns its combined
 // stdout+stderr. It is the choke point for sites that classify tmux stderr
-// (SessionNamesWithClients, SetSessionTagValues, the global-option setters):
+// (SetSessionTagValues, the global-option setters, detached-session status):
 // stderr text decides whether an exit-code-1 failure is "treat as empty" or a
 // real error, so the combined output must be captured. Swappable in tests for
 // the same reason as runTmuxCmd.

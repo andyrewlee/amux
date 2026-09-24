@@ -50,7 +50,7 @@ func TestHysteresisWorkspaceExtraction(t *testing.T) {
 	captureFn := func(string, int, tmux.Options) (string, bool) { return "", false }
 	hashFn := func(string) [16]byte { return [16]byte{} }
 
-	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, nil, tmux.Options{}, captureFn, hashFn)
 
 	// Workspace ID from session.WorkspaceID
 	if !active["ws-direct"] {
@@ -103,7 +103,7 @@ func TestHysteresisNewSessionImmediatelyActive(t *testing.T) {
 	captureFn := func(string, int, tmux.Options) (string, bool) { return "some output", true }
 	hashFn := func(content string) [16]byte { return [16]byte{1} }
 
-	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, tmux.Options{}, captureFn, hashFn)
+	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, nil, tmux.Options{}, captureFn, hashFn)
 
 	if !active["ws-abc"] {
 		t.Fatal("newly discovered session with successful capture should be immediately active")

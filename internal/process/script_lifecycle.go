@@ -1,11 +1,10 @@
 package process
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -17,6 +16,14 @@ import (
 // itself because it is part of workspace creation; these are the post-creation
 // lifecycle hooks: `run` (started on demand, long-lived) and `archive` (run to
 // completion at teardown).
+
+// ErrNoScriptConfigured is returned (wrapped) when neither the repo's
+// .amux/workspaces.json nor the workspace's own Scripts field defines a command
+// for the requested script type. It is a sentinel rather than a bare error so
+// callers can treat "nothing to run" as benign — the archive-on-delete path
+// skips silently, while a user-triggered run reports it — instead of surfacing
+// it as a failure.
+var ErrNoScriptConfigured = errors.New("no script configured")
 
 // resolveScriptCommand picks the command to run for scriptType and applies the
 // trust gate, returning the resolved shell command string. It is the shared
@@ -58,6 +65,12 @@ func (r *ScriptRunner) resolveScriptCommand(ws *data.Workspace, scriptType Scrip
 		} else {
 			cmdStr = ws.Scripts.Archive
 		}
+	case ScriptOnDone:
+		if config.OnDoneScript != "" {
+			cmdStr, fromRepoConfig = config.OnDoneScript, true
+		} else {
+			cmdStr = ws.Scripts.OnDone
+		}
 	}
 
 	if cmdStr == "" {
@@ -93,7 +106,17 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		}
 	}
 
-	env := r.envBuilder.BuildEnv(ws)
+	// Hosted path: the run rides a detached tmux session (scrollback,
+	// remain-on-exit forensics) instead of a naked subprocess. Returns a nil
+	// *exec.Cmd — callers must not touch it when RunHosted() is true.
+	if r.runHost != nil {
+		return nil, r.runScriptHosted(ws, cmdStr)
+	}
+
+	env, err := r.buildScriptEnv(ws)
+	if err != nil {
+		return nil, err
+	}
 
 	cmd := exec.Command("sh", "-c", cmdStr)
 	cmd.Dir = ws.Root
@@ -152,13 +175,22 @@ func (r *ScriptRunner) RunArchive(ws *data.Workspace) error {
 		return err
 	}
 
+	env, err := r.buildScriptEnv(ws)
+	if err != nil {
+		return err
+	}
+
 	cmd := exec.Command("sh", "-c", cmdStr)
 	cmd.Dir = ws.Root
-	cmd.Env = r.envBuilder.BuildEnv(ws)
+	cmd.Env = env
 	SetProcessGroup(cmd)
 
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	// Bounded combined tail: stdout was previously dropped entirely and
+	// stderr only reached the error string. The recorded transcript is what
+	// the "script output" viewer shows; the error folds in the same tail.
+	tail := &tailWriter{max: scriptOutputTailBytes}
+	cmd.Stdout = tail
+	cmd.Stderr = tail
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting archive script: %s: %w", cmdStr, err)
@@ -197,12 +229,78 @@ func (r *ScriptRunner) RunArchive(ws *data.Workspace) error {
 	close(running.done)
 	r.finishRunningEntry(key, running)
 
+	// The tail is only safe to read once cmd.Wait joined its copier — see
+	// the reaped flag's race note above.
+	tailText := ""
+	if reaped {
+		tailText = tail.String()
+	}
+	r.recordScriptOutput(ws, ScriptArchive, tailText, runErr)
+
 	if runErr != nil {
-		if msg := stderrForError(&stderr, reaped); msg != "" {
-			return fmt.Errorf("archive script failed: %s: %s: %w", cmdStr, msg, runErr)
+		if tailText != "" {
+			return fmt.Errorf("archive script failed: %s: %s: %w", cmdStr, tailText, runErr)
 		}
 		return fmt.Errorf("archive script failed: %s: %w", cmdStr, runErr)
 	}
+	return nil
+}
+
+// RunOnDone spawns the workspace's `on-done` hook — a fire-and-forget command
+// invoked by the activity loop when one of the workspace's agent sessions
+// crosses the working→done edge.
+//
+// Unlike RunArchive it never blocks the caller (the edge fires inside the
+// scan pipeline) and it is deliberately untracked: the hook is a one-shot
+// notification, not the workspace's `run` process, so it must not occupy the
+// running slot that Stop/IsRunning/concurrent-mode manage. It shares the
+// resolve+trust front half with every other script type: a repo-supplied
+// on-done is gated identically to run/archive (it executes on a lifecycle
+// edge with no user keystroke), while ws.Scripts.OnDone is user input and
+// always runs.
+//
+// env is BuildEnv plus AMUX_SESSION naming the session that finished. Errors
+// resolve as: ErrNoScriptConfigured → nil (most workspaces have no hook);
+// untrusted or spawn failures → returned for the caller to surface. The
+// spawned process's own exit is logged, never propagated — a hook crash must
+// not perturb the scan loop.
+func (r *ScriptRunner) RunOnDone(ws *data.Workspace, sessionName string) error {
+	cmdStr, err := r.resolveScriptCommand(ws, ScriptOnDone)
+	if err != nil {
+		if errors.Is(err, ErrNoScriptConfigured) {
+			return nil
+		}
+		return err
+	}
+
+	env, err := r.buildScriptEnv(ws)
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command("sh", "-c", cmdStr)
+	cmd.Dir = ws.Root
+	cmd.Env = append(env, "AMUX_SESSION="+sessionName)
+	SetProcessGroup(cmd)
+
+	// Bounded combined tail: the hook is fire-and-forget, so the transcript
+	// and the exit listener are the only ways a failing hook is visible —
+	// a non-zero exit must reach the UI, not just a Debug log.
+	tail := &tailWriter{max: scriptOutputTailBytes}
+	cmd.Stdout = tail
+	cmd.Stderr = tail
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("starting on-done hook: %s: %w", cmdStr, err)
+	}
+	safego.Go("process.on_done_wait", func() {
+		err := cmd.Wait()
+		r.recordScriptOutput(ws, ScriptOnDone, tail.String(), err)
+		if err != nil {
+			slog.Debug("on-done hook exited non-zero", "command", cmdStr, "error", err)
+			r.notifyScriptExit(ws, ScriptOnDone, err)
+		}
+	})
 	return nil
 }
 
@@ -235,15 +333,6 @@ func (r *ScriptRunner) reapAfterTimeout(cmd *exec.Cmd, waitErr <-chan error) boo
 		slog.Warn("archive script could not be reaped; abandoning it so the delete can proceed")
 		return false
 	}
-}
-
-// stderrForError renders the captured stderr for an error message, but only
-// when the process was reaped — see the race note on RunArchive's reaped flag.
-func stderrForError(buf *bytes.Buffer, reaped bool) string {
-	if !reaped {
-		return ""
-	}
-	return strings.TrimSpace(buf.String())
 }
 
 // killScriptProcessGroup tears down cmd's whole process group via the injected

@@ -28,46 +28,51 @@ func NewPortAllocator(start, rangeSize int) *PortAllocator {
 	}
 }
 
-// AllocatePort allocates a port range for a workspace
-func (p *PortAllocator) AllocatePort(workspaceRoot string) int {
+// AllocatePort allocates a port range for a workspace. It returns
+// ErrPortRangeExhausted when no valid, non-overlapping range remains —
+// callers surface it as a typed spawn failure rather than crashing a Cmd.
+func (p *PortAllocator) AllocatePort(workspaceRoot string) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	// Check if already allocated
 	if port, ok := p.allocated[workspaceRoot]; ok {
-		return port
+		return port, nil
 	}
 
-	port := p.nextAvailablePortLocked()
+	port, err := p.nextAvailablePortLocked()
+	if err != nil {
+		return 0, err
+	}
 	p.allocated[workspaceRoot] = port
 
-	return port
+	return port, nil
 }
 
-func (p *PortAllocator) nextAvailablePortLocked() int {
+func (p *PortAllocator) nextAvailablePortLocked() (int, error) {
 	used := p.usedRangesLocked()
 	for n := len(p.freeBases); n > 0; n = len(p.freeBases) {
 		port := p.freeBases[n-1]
 		p.freeBases = p.freeBases[:n-1]
 		if p.rangeAvailable(port, used) {
-			return port
+			return port, nil
 		}
 	}
 
 	if p.rangeFits(p.nextPort) {
 		port := p.nextPort
 		p.nextPort += p.rangeSize
-		return port
+		return port, nil
 	}
 
 	if p.rangeSize > 0 {
 		for base := p.portStart; p.rangeFits(base); base += p.rangeSize {
 			if p.rangeAvailable(base, used) {
-				return base
+				return base, nil
 			}
 		}
 	}
-	panic(ErrPortRangeExhausted)
+	return 0, ErrPortRangeExhausted
 }
 
 func (p *PortAllocator) rangeFits(base int) bool {
@@ -122,7 +127,10 @@ func (p *PortAllocator) ReleasePort(workspaceRoot string) {
 }
 
 // PortRange returns the port and range size for a workspace
-func (p *PortAllocator) PortRange(workspaceRoot string) (port, rangeEnd int) {
-	port = p.AllocatePort(workspaceRoot)
-	return port, port + p.rangeSize - 1
+func (p *PortAllocator) PortRange(workspaceRoot string) (port, rangeEnd int, err error) {
+	port, err = p.AllocatePort(workspaceRoot)
+	if err != nil {
+		return 0, 0, err
+	}
+	return port, port + p.rangeSize - 1, nil
 }

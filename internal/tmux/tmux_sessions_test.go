@@ -3,7 +3,6 @@ package tmux
 import (
 	"sort"
 	"testing"
-	"time"
 )
 
 // These tests cover the previously-untested functions in tmux_sessions.go:
@@ -64,7 +63,6 @@ func TestListSessions_ReportsCreatedSessions(t *testing.T) {
 
 	createSession(t, opts, "ls-alpha", "sleep 300")
 	createSession(t, opts, "ls-beta", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	got, err := ListSessions(opts)
 	if err != nil {
@@ -106,7 +104,6 @@ func TestKillSessionsWithPrefix_KillsOnlyMatching(t *testing.T) {
 	createSession(t, opts, "amux-keep-1", "sleep 300")
 	createSession(t, opts, "amux-keep-2", "sleep 300")
 	createSession(t, opts, "other-session", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	if err := KillSessionsWithPrefix("amux-keep-", opts); err != nil {
 		t.Fatalf("KillSessionsWithPrefix: %v", err)
@@ -129,7 +126,6 @@ func TestKillSessionsWithPrefix_NoMatchLeavesAll(t *testing.T) {
 
 	createSession(t, opts, "alpha", "sleep 300")
 	createSession(t, opts, "beta", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	if err := KillSessionsWithPrefix("no-such-prefix-", opts); err != nil {
 		t.Fatalf("KillSessionsWithPrefix: %v", err)
@@ -165,7 +161,6 @@ func TestKillSessionsWithPrefixMissingTag_KillsOnlyUntagged(t *testing.T) {
 	createSession(t, opts, "amux-modern-1", "sleep 300")
 	// Outside the prefix, no tag → must survive (prefix gate).
 	createSession(t, opts, "unrelated-1", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	setTag(t, opts, "amux-modern-1", tag, "instance-xyz")
 
@@ -194,7 +189,6 @@ func TestKillSessionsWithPrefixMissingTag_WhitespaceTagTreatedAsEmpty(t *testing
 	const tag = "@amux_instance"
 
 	createSession(t, opts, "amux-ws-1", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 	setTag(t, opts, "amux-ws-1", tag, "   ")
 
 	if err := KillSessionsWithPrefixMissingTag("amux-", tag, opts); err != nil {

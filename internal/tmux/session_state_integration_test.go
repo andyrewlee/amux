@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"testing"
-	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,7 +26,6 @@ func TestAllSessionStates_SingleLiveSession(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "live", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	states, err := AllSessionStates(opts)
 	if err != nil {
@@ -51,7 +49,6 @@ func TestAllSessionStates_MultipleSessions(t *testing.T) {
 
 	createSession(t, opts, "sess-a", "sleep 300")
 	createSession(t, opts, "sess-b", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	states, err := AllSessionStates(opts)
 	if err != nil {

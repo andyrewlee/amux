@@ -21,7 +21,7 @@ func (v *VTerm) transitionPendingRestoredAltScreenCapture(lines [][]Cell) int {
 	overlapTail := scrollbackTailOverlap(v.Scrollback, preserved)
 	added := 0
 	for _, line := range preserved[overlapTail:] {
-		v.Scrollback = append(v.Scrollback, CopyLine(line))
+		v.Scrollback = append(v.Scrollback, copyLineTrimmed(line))
 		added++
 	}
 	return added

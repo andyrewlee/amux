@@ -14,6 +14,11 @@ func (p *Parser) executeDSR() {
 		// Response: ESC [ row ; col R (1-indexed)
 		row := p.vt.CursorY + 1
 		col := p.vt.CursorX + 1
+		if p.vt.PendingWrap {
+			// Pending wrap leaves CursorX == Width — the cursor is logically
+			// on the last column, which reports as Width, not Width+1.
+			col = p.vt.Width
+		}
 		response := fmt.Sprintf("\x1b[%d;%dR", row, col)
 		p.vt.respond([]byte(response))
 	}
