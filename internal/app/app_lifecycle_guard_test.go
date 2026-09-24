@@ -178,7 +178,7 @@ func TestHandleWorkspaceDeleted_TombstoneAndCleanup(t *testing.T) {
 	}
 }
 
-// TestHandleWorkspaceShelved_TearsDownModels pins plan 031's UI forwarding:
+// TestHandleWorkspaceShelved_TearsDownModels pins the UI forwarding:
 // a confirmed shelve must reach center and sidebarTerminal so tabs keyed to
 // the killed tmux sessions don't resurface on restore.
 func TestHandleWorkspaceShelved_TearsDownModels(t *testing.T) {
@@ -243,7 +243,7 @@ func TestHandleWorkspaceRestored_Reloads(t *testing.T) {
 	}
 }
 
-// --- Plan 040: discovery results must not land mid-lifecycle ---------------
+// --- Discovery results must not land mid-lifecycle -------------------
 
 // TestDiscoveryResultDroppedWhileInFlight: a tmux discovery result arriving
 // between dispatch and teardown must be dropped — attaching or filing tabs

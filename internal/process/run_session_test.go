@@ -265,7 +265,7 @@ func TestHostedRunScriptOutputTailsLatestSession(t *testing.T) {
 	}
 }
 
-// TestHostedRunScriptOutputAndStatusSingleSweep pins the plan-131 dedupe:
+// TestHostedRunScriptOutputAndStatusSingleSweep pins the dedupe:
 // the combined fetch must spend ONE hosted sweep (one Find), not the two
 // the RunScriptOutput + RunScriptStatus pair costs.
 func TestHostedRunScriptOutputAndStatusSingleSweep(t *testing.T) {
@@ -375,7 +375,7 @@ func TestUnhostedStatusAndOutputFallback(t *testing.T) {
 	}
 }
 
-// TestFindRunSessions_DedupesIdentityForms pins plan 086: the per-poll Find
+// TestFindRunSessions_DedupesIdentityForms pins the identity dedup: the per-poll Find
 // sweep must issue one host call per *distinct* workspace identity form, not
 // per form in the list — a workspace whose MetadataID() == ID() used to pay
 // two identical tmux list-sessions subprocesses every 3s.
@@ -416,7 +416,7 @@ func TestFindRunSessions_DedupesIdentityForms(t *testing.T) {
 	}
 }
 
-// TestRunScriptStatus_SkipsSweepWhenNothingCanRun pins the plan-086 early-out:
+// TestRunScriptStatus_SkipsSweepWhenNothingCanRun pins the early-out:
 // a workspace with no configured run script and no previously observed session
 // must not pay the tmux Find sweep on every poll — while a workspace whose
 // script was removed mid-session keeps sweeping until the session is gone.

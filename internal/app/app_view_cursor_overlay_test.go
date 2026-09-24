@@ -196,7 +196,7 @@ func TestViewHidesOverlayCursorWhenToastCoversIt(t *testing.T) {
 	}
 }
 
-// TestOverlayCursor_UsesComposedGeometry pins the plan-088 contract for the
+// TestOverlayCursor_UsesComposedGeometry pins the contract for the
 // dialog/picker cursor path: a fresh compose snapshot supplies the overlay
 // dims (no second View() render); a stale or empty snapshot falls back to
 // measuring live.

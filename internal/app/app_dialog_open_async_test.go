@@ -48,7 +48,7 @@ func (g *gatedRunHost) Find(name string) ([]string, error) {
 	return g.stub.Find(name)
 }
 
-// TestShowRunScriptOutput_DoesNotBlockOnHost pins the plan-035 defect class
+// TestShowRunScriptOutput_DoesNotBlockOnHost pins the defect class
 // for the R-open path: no RunSessionHost method runs inside the handler —
 // the returned cmd does the reads off-loop.
 func TestShowRunScriptOutput_DoesNotBlockOnHost(t *testing.T) {

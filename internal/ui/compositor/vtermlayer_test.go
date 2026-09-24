@@ -183,7 +183,7 @@ func TestVTermSnapshotHonorsCursorHideOutsideAltScreen(t *testing.T) {
 	}
 }
 
-// TestVTermSnapshotPendingWrapCursorRenders pins the plan-132 cursor fix:
+// TestVTermSnapshotPendingWrapCursorRenders pins the pending-wrap cursor fix:
 // filling the last column leaves CursorX == Width (pending wrap), and the
 // cursor block must still render ON that last cell rather than vanish.
 

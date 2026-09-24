@@ -103,7 +103,7 @@ func CanonicalPath(path string) string {
 //
 // Alias expansion is deliberately the caller's job: which alias spellings to
 // compare (canonicalized, deepest-existing-prefix, dangling-link tolerant) is
-// a per-callsite contract — see plans/097 for the containment matrix.
+// a per-callsite contract.
 func PathWithin(root, candidate string) (rel string, inside bool) {
 	if root == "" || candidate == "" {
 		return "", false

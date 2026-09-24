@@ -34,7 +34,7 @@ func TestWorkspaceStore_RemovesLockFileOnDelete(t *testing.T) {
 }
 
 // TestWorkspaceStore_RootMutationKeepsPersistedKey proves that mutating Root
-// after the first save does not rebind the record: plan 042 made the store
+// after the first save does not rebind the record: the store
 // key the identity, so the record — and its lock file — stay under the
 // minted key while the moved path is saved into it.
 func TestWorkspaceStore_RootMutationKeepsPersistedKey(t *testing.T) {

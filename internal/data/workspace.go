@@ -112,7 +112,7 @@ type WorkspaceID string
 // persisted, the store key (minted at first save) is the identity — it does
 // not drift when NormalizePath's symlink resolution flips with worktree
 // existence. Unsaved workspaces fall back to the path-derived hash.
-// Decision (plan 042): a persisted stable ID beats recomputing the path hash
+// Decision: a persisted stable ID beats recomputing the path hash
 // because every durable consumer — session tags, session names, agent
 // buckets, lifecycle marks — keys on whatever ID() returned at stamp time;
 // letting it move invalidates all of them at once. The computed form remains

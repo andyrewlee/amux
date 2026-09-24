@@ -15,8 +15,7 @@ import (
 // through the real binary: create → S on the dashboard row → restore via
 // Enter → re-shelve → D (purge). It asserts the whole chain each step —
 // dashboard row state, tmux session teardown, worktree on disk, and branch
-// survival/deletion — which is the regression net for the lifecycle cluster
-// (plans 031/032/038).
+// survival/deletion — which is the regression net for the lifecycle cluster.
 //
 // Cursor mechanics worth knowing before editing:
 //   - createWorkspaceWithAgent leaves the dashboard cursor on the new

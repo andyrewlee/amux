@@ -28,7 +28,7 @@ func TestTerminalTagChecks(t *testing.T) {
 		want []tagCheck
 	}{
 		{
-			// The single-source mapping (tmux.SessionTagPairs, plan 127)
+			// The single-source mapping (tmux.SessionTagPairs)
 			// refuses a marker without identity — same rule session
 			// creation applies, so nothing is emitted for an empty set.
 			name: "empty tags emit nothing",
@@ -129,7 +129,7 @@ func TestTerminalTagChecks(t *testing.T) {
 			},
 		},
 		{
-			// Plan 127: display tags ride the same mapping — verify catches a
+			// Display tags ride the same mapping — verify catches a
 			// stale @amux_workspace_name/@amux_project and retag heals them.
 			name: "display tags emit alongside identity",
 			tags: tmux.SessionTags{

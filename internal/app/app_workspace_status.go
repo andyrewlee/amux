@@ -37,8 +37,8 @@ type workspaceStatus struct {
 	repoTrusted   bool
 
 	// envKeys are the merged custom-env key NAMES (repo + project +
-	// workspace layers), sorted — names only, never values (the plan-034
-	// rule: values can hold secrets).
+	// workspace layers), sorted — names only, never values —
+	// values can hold secrets).
 	envKeys          []string
 	envKeySource     map[string]string // key -> "repo"/"project"/"workspace"
 	lifecycleOutputs []process.ScriptType

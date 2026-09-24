@@ -323,7 +323,7 @@ func assertLogLine(t *testing.T, logPath, wantLevel string, wantSubstrs []string
 }
 
 // ---------------------------------------------------------------------------
-// Orphan GC cadence (plan 085): the sweep must run on its dedicated 60s ticker,
+// Orphan GC cadence: the sweep must run on its dedicated 60s ticker,
 // not piggyback on the 7s sync tick where it re-issued the session listings
 // the tick already ran (~8.6× the designed fork cost).
 // ---------------------------------------------------------------------------

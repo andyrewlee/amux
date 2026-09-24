@@ -2,7 +2,7 @@
 // common.* references keep working after theme was split into its own
 // package. New code should import internal/ui/theme directly.
 //
-// DECISION (2026-09-22, plans/021): this shim is permanent API surface, not
+// DECISION (2026-09-22): this shim is permanent API surface, not
 // a migration waypoint. Wholesale migration of the ~35 files using common.*
 // theme symbols was evaluated and rejected: aliases are free at runtime,
 // internal/ui/theme is actively evolving (agent-roster commits), and the

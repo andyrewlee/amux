@@ -10,7 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// TestActivityTagFlush_BatchesAllMarkedSessions is the plan-044 invariant:
+// TestActivityTagFlush_BatchesAllMarkedSessions is the batching invariant:
 // N tabs marking activity in the same window produce ONE batched tag write,
 // not N subprocesses.
 func TestActivityTagFlush_BatchesAllMarkedSessions(t *testing.T) {

@@ -147,7 +147,7 @@ func TestIsCriticalExternalMsgPinsTypes(t *testing.T) {
 	}
 }
 
-// TestSidebarTerminalLifecycleMsgsSurviveFullQueue pins plan 128: the
+// TestSidebarTerminalLifecycleMsgsSurviveFullQueue pins the lifecycle contract: the
 // sidebar terminal create/reattach result messages are the only releasers
 // of the sidebar's pendingCreation mark — under a saturated normal queue
 // they must land on the critical channel, not drop.

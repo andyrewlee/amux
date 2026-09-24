@@ -64,7 +64,7 @@ type App struct {
 	tmuxService      TmuxOps
 	updateService    UpdateService
 
-	// Git-status request dedup (plan 043): at most one refresh subprocess per
+	// Git-status request dedup: at most one refresh subprocess per
 	// root in flight; requests arriving during one coalesce into a single
 	// follow-up. All three maps are touched only on the Update goroutine —
 	// the worker Cmds never read them.

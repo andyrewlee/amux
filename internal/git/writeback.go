@@ -10,8 +10,7 @@ import (
 
 // commitTimeout bounds the stage+commit pass. The 5s defaultGitTimeout is fine
 // for a small tree but too tight for a large staging pass; this follows the
-// worktreeTimeout precedent of overriding for multi-file ops. See Action 1 of
-// the write-back design (plans/design/026-git-writeback-design.md).
+// worktreeTimeout precedent of overriding for multi-file ops.
 const commitTimeout = 15 * time.Second
 
 // ErrEmptyCommitMessage is returned by CommitAll when the message is blank.

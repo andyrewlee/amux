@@ -452,7 +452,7 @@ help:
 # that would fail CI, plus the three harness smoke runs (the one CI-test-job
 # piece `ci` doesn't mirror) and a .goreleaser.yml validation so a broken
 # release config fails pre-tag rather than in release.yml. goreleaser is
-# optional locally (warn-not-fail) until plan 066 pins it.
+# optional locally (warn-not-fail) until a later change pins it.
 release-check: ci
 	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
 	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1

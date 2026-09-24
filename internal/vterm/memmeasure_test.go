@@ -15,7 +15,7 @@ import (
 //	go test ./internal/vterm/ -bench BenchmarkScrollbackAlloc -benchmem
 //
 // These tests are cheap (a few hundred ms) and are kept so the numbers behind
-// the plan-010 recommendation stay reproducible.
+// the allocation recommendation stay reproducible.
 
 func heapInUse() uint64 {
 	runtime.GC()

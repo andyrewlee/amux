@@ -23,7 +23,7 @@ func newSizedModel() *Model {
 	}
 }
 
-// TestViewMemoized pins the plan-135 render gate: repeated View() calls with
+// TestViewMemoized pins the render gate: repeated View() calls with
 // no state change reuse the cached string, and any render input change
 // rebuilds. The memo exists because the center compose path calls View()
 // every frame while a diff tab is active.

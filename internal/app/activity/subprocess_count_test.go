@@ -7,7 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// These tests pin the capture-subprocess count per activity scan (plan 045):
+// These tests pin the capture-subprocess count per activity scan:
 // the scan must cost exactly one capture per fallback-routed session — never a
 // second capture for a baseline that was already seeded in the same scan's
 // classification pass. List-call fan-out lives behind SessionsWithTags /

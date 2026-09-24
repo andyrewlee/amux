@@ -2,7 +2,7 @@ package center
 
 import "testing"
 
-// Plan 046 measurement: truncateDisplayName runs at tab-creation time only
+// Measurement: truncateDisplayName runs at tab-creation time only
 // (DisplayName is stored on the Tab), so this benchmark exists to put a number
 // on the per-call cost — not to drive a rewrite.
 func BenchmarkTruncateDisplayName(b *testing.B) {

@@ -127,7 +127,7 @@ func (a *App) handleShowRunScriptOutput(msg messages.ShowRunScriptOutput) tea.Cm
 	}
 	// The reads are tmux subprocess calls — never run them on the Update
 	// loop (a wedged tmux would freeze the whole TUI for ~2 timeouts, the
-	// defect class plan 035 fixed for the status indicator). Bump the token
+	// defect class the status-indicator fix addressed). Bump the token
 	// at request time so a second R press invalidates an in-flight open.
 	a.overlays.runOutputToken++
 	token, ws, svc := a.overlays.runOutputToken, msg.Workspace, a.workspaceService

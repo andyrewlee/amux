@@ -121,7 +121,7 @@ type Model struct {
 	activeWorkspaceIDs map[string]bool            // Workspace IDs with active agents (synced from center)
 	agentStates        map[string]data.AgentState // Per-workspace semantic agent states
 	doneAcked          map[string]bool            // Workspace IDs whose "done" indicator has been seen by the user
-	donePending        map[string]bool            // Unacked done latch — survives ClassifyState's Done→Idle decay (plan 117)
+	donePending        map[string]bool            // Unacked done latch — survives ClassifyState's Done→Idle decay
 	notifyOnDone       bool                       // Ring a terminal bell on the unacked Working→Done edge
 
 	// Styles

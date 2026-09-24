@@ -347,7 +347,7 @@ func TestWorkspaceStore_UpsertFromDiscovery_LegacyKeySurvivesRebind(t *testing.T
 
 	// Plant stored metadata under a legacy directory whose name is NOT the
 	// canonical Repo+Root hash, so discovery is found via the fallback scan.
-	// Plan 042: the persisted store key IS the identity — discovery merges in
+	// The persisted store key IS the identity — discovery merges in
 	// place rather than rebinding the record to the path-derived key.
 	legacyID := WorkspaceID("legacy_rebind_id")
 	dir := filepath.Join(root, string(legacyID))
