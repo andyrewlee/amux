@@ -354,7 +354,7 @@ func TestWorkspaceStore_DeleteRejectsInvalidWorkspaceID(t *testing.T) {
 	}
 }
 
-// TestWorkspaceStore_ListAll_ByRepoMatchesListByRepo pins plan 041's snapshot
+// TestWorkspaceStore_ListAll_ByRepoMatchesListByRepo pins the snapshot
 // contract: one ListAll round serves every repo filter with results identical
 // to the per-repo path for a mixed store (live + archived + other-repo).
 func TestWorkspaceStore_ListAll_ByRepoMatchesListByRepo(t *testing.T) {

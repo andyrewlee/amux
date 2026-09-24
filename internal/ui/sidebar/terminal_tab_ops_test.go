@@ -489,7 +489,7 @@ func TestWriteToTerminal(t *testing.T) {
 	})
 }
 
-// TestPendingCreationExpiresAfterTimeout pins the plan-128 stall recovery:
+// TestPendingCreationExpiresAfterTimeout pins the stall recovery:
 // a pendingCreation mark older than pendingCreationTimeout (a create result
 // that never arrived — e.g. dropped under queue pressure before the
 // critical marking, or a producer that died mid-flight) must expire so the

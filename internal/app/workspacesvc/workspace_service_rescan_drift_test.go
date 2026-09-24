@@ -115,7 +115,7 @@ func TestLoadProjectsRescanDoesNotFlapArchiveDriftedKey(t *testing.T) {
 	}
 }
 
-// TestLoadProjectsRescanSkipsTombstonedDiscovery pins the plan-129 tombstone
+// TestLoadProjectsRescanSkipsTombstonedDiscovery pins the tombstone
 // guard: a discovered worktree carrying a durable .deleting tombstone must
 // not be re-imported — the delete flow still owns it (worktree present,
 // recovery unfinished). Without the check, UpsertFromDiscovery resurrects

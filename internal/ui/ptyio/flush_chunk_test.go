@@ -188,7 +188,7 @@ func TestWriteFilteredChunkLocked(t *testing.T) {
 	})
 }
 
-// TestFlushNoiseTrailingLocked pins the plan-133 flush-boundary release: a
+// TestFlushNoiseTrailingLocked pins the flush-boundary release: a
 // `name(N)`-shaped tail held by the noise filter is released when the flush
 // drains — a no-newline prompt like "Retry(2)" must render without waiting
 // for the next chunk or a reader drain.

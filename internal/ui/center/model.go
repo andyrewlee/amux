@@ -72,7 +72,7 @@ type Model struct {
 	flushLoadSampleAt  time.Time
 	cachedBusyTabCount int
 
-	// Batched @amux_last_output_at writes (plan 044): output-path tag writes
+	// Batched @amux_last_output_at writes: output-path tag writes
 	// accumulate as a pending set and flush as ONE
 	// SetSessionTagValueForSessions call per throttle window, instead of a
 	// goroutine + tmux fork per tab per second. activityTagsMu guards the set

@@ -11,8 +11,7 @@ import (
 // Timeouts for the merge write path. The 5s defaultGitTimeout is sized for
 // single-file reads; a merge can touch the whole tree and invoke merge drivers,
 // so it gets the worktreeTimeout-style override. Abort and the read-only
-// precondition/conflict queries are fast. See Action 2 of the write-back design
-// (plans/design/026-git-writeback-design.md).
+// precondition/conflict queries are fast.
 const (
 	mergeTimeout        = 30 * time.Second
 	mergeAbortTimeout   = 10 * time.Second

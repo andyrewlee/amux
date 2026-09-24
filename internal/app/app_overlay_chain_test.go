@@ -28,7 +28,7 @@ func TestOverlayChainConsumeOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The overlay arbiter (plan 126) makes "both live" unreachable through
+	// The overlay arbiter makes "both live" unreachable through
 	// the open handlers — the second open defers until the first closes. The
 	// consume-order invariant is still worth pinning as a defensive property,
 	// so the fixture constructs the stacked state directly.

@@ -68,7 +68,7 @@ func flattenArgs(args [][]string) string {
 	return b.String()
 }
 
-// TestSessionTagPairs pins the single-source mapping (plan 127): every
+// TestSessionTagPairs pins the single-source mapping: every
 // consumer — sessionTagArgs emission and the sidebar's verify/retag checks —
 // resolves the identical ordered pairs, so a new SessionTags field cannot
 // drift between writers. Asserts order, normalization, and the guard.

@@ -99,7 +99,7 @@ func TestSameStoredWorkspaceIdentity_DriftedCandidate(t *testing.T) {
 	}
 	resolvedID := f.ws.MetadataID()
 	f.removeRoot()
-	// Plan 042: ID() is the persisted store key — stable across path-existence
+	// ID() is the persisted store key — stable across path-existence
 	// flips. The drift the guard exists for now lives in ComputedID.
 	if f.ws.ID() != resolvedID {
 		t.Fatal("ID() must stay pinned to the persisted key after root removal")

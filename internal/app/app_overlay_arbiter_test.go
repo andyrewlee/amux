@@ -184,7 +184,7 @@ func TestRunOutputOpenDefersBehindOtherOverlay(t *testing.T) {
 	}
 }
 
-// TestDialogVsDialogStillRejects pins the plan-082 contract: a synchronous
+// TestDialogVsDialogStillRejects pins the contract: a synchronous
 // Show* while a dialog is already open returns early — it is rejected, not
 // queued (queueing is only for dialog-vs-bespoke-overlay).
 func TestDialogVsDialogStillRejects(t *testing.T) {

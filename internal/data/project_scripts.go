@@ -15,7 +15,7 @@ import (
 // ProjectScriptStore persists user-level per-project script defaults — the
 // layer that sits beneath each workspace's own Scripts and beneath the
 // repo's trust-gated .amux/workspaces.json (precedence: repo → workspace →
-// project; see plans/120). It is user-owned state: no trust gate, and a
+// project). It is user-owned state: no trust gate, and a
 // repo can never read into it — same contract as ProjectEnvStore.
 //
 // The backing file is a single versioned JSON envelope keyed by normalized
@@ -54,8 +54,7 @@ func (s *ProjectScriptStore) ForRepo(repoPath string) ScriptsConfig {
 
 // Set replaces the project's script defaults and persists them atomically.
 // An all-empty ScriptsConfig removes the entry rather than storing a
-// useless empty object — an empty layer means absence, not override-to-empty
-// (see plan 120's empty-layer semantics).
+// useless empty object — an empty layer means absence, not override-to-empty.
 func (s *ProjectScriptStore) Set(repoPath string, scripts ScriptsConfig) error {
 	key := NormalizePath(repoPath)
 	if key == "" {

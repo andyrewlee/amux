@@ -6,8 +6,8 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 )
 
-// TestRunUnlessMutatingWorkspaceIDsRootBridge covers the rescan race from
-// plan 129: a mutation marked under one ID form must still block a callback
+// TestRunUnlessMutatingWorkspaceIDsRootBridge covers the rescan race where
+// a mutation marked under one ID form must still block a callback
 // for a workspace whose current ComputedID/ID differ (the worktree dir
 // vanished or appeared mid-mutation, flipping path-dependent forms). The
 // root bridge is what connects the marked key to the drifted value.

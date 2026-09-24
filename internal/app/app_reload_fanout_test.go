@@ -12,7 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
-// TestProjectsLoaded_SingleGitStatusBatch pins plan 041's reload contract:
+// TestProjectsLoaded_SingleGitStatusBatch pins the reload contract:
 // one status-refresh Cmd per reload emitting ONE GitStatusBatchResult for
 // all workspaces — never N per-workspace messages/frame invalidations.
 func TestProjectsLoaded_SingleGitStatusBatch(t *testing.T) {

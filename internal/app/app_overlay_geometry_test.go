@@ -7,7 +7,7 @@ import (
 )
 
 // TestPrefixPaletteGeometry_ReusesComposeAndInvalidatesOnResize pins the
-// plan-088 cache contract: once a compose has measured the palette, the
+// cache contract: once a compose has measured the palette, the
 // hit-test consumes that measurement instead of re-rendering; a size change
 // (or no compose yet) falls back to measuring live.
 func TestPrefixPaletteGeometry_ReusesComposeAndInvalidatesOnResize(t *testing.T) {

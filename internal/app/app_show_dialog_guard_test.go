@@ -8,7 +8,7 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// TestShowDialog_RejectsWhileVisible pins the plan-082 displacement guard:
+// TestShowDialog_RejectsWhileVisible pins the displacement guard:
 // an async Show* (trust prompt racing a user-opened confirm) must not
 // replace the visible dialog or overwrite its context.
 func TestShowDialog_RejectsWhileVisible(t *testing.T) {

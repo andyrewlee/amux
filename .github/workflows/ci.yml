@@ -72,7 +72,7 @@ jobs:
       # internal/update's TestVerifyMinisignCLIParity skips without the CLI;
       # it's the only check that the Go verifier accepts what the release
       # pipeline's minisign invocation actually produces. Pinned sha256-verified
-      # install (plan 066) — same script release.yml uses.
+      # install — same script release.yml uses.
       - name: Install minisign
         run: ./scripts/install_minisign.sh
 
@@ -141,7 +141,7 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y build-essential libevent-dev libncurses-dev bison pkg-config
             ver="${{ matrix.tmux }}"
-            # sha256-pinned per matrix version (plan 066): the tarball is
+            # sha256-pinned per matrix version: the tarball is
             # fetched unauthenticated otherwise. Add a case entry for any new
             # matrix version — `shasum -a 256 tmux-${ver}.tar.gz`.
             case "$ver" in
