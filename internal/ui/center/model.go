@@ -8,6 +8,7 @@
 package center
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,10 +29,21 @@ type Model struct {
 	workspaceIDCached string
 	workspaceIDRepo   string
 	workspaceIDRoot   string
-	tabs              common.TabSet[*Tab] // tabs + active index per workspace ID
-	focused           bool
-	canFocusRight     bool
-	tabsRevision      uint64
+	// deletedWorkspaceIDs tombstones workspaces seen through WorkspaceDeleted so
+	// an async create result dispatched before the delete can't resurrect a
+	// dead bucket when it lands. Entries clear when the workspace becomes
+	// current again (setWorkspace) or is rebound to (RebindWorkspaceID).
+	//
+	// The sidebar's TerminalModel has no equivalent tombstone — deliberately.
+	// Its result gate accepts a workspace key only when a bucket exists or
+	// pendingCreation marks a create in flight, so a torn-down workspace is
+	// rejected without one. Center accepts results for any non-tombstoned key
+	// (a first tab creates the bucket), so it needs the explicit tombstone.
+	deletedWorkspaceIDs map[string]struct{}
+	tabs                common.TabSet[*Tab] // tabs + active index per workspace ID
+	focused             bool
+	canFocusRight       bool
+	tabsRevision        uint64
 	// helpVersion is a monotonic version of every input that shapes HelpLines
 	// output (tab count, workspace presence, keymap-hint visibility, styles,
 	// pane size). INVARIANT: every update path that changes what HelpLines
@@ -40,7 +52,13 @@ type Model struct {
 	helpVersion uint64
 	// helpBuilds counts HelpLines invocations; test instrumentation for the
 	// compose-time skip gate in internal/app.
-	helpBuilds            uint64
+	helpBuilds uint64
+	// stylesRev bumps on every SetStyles so the TabBarVersion/StatusLineVersion
+	// fingerprints change with the theme; the fingerprints fold it in because
+	// their other inputs are per-tab state that knows nothing about styles.
+	stylesRev             uint64
+	tabBarBuilds          uint64 // TabBarView invocations; test instrumentation
+	statusLineBuilds      uint64 // ActiveTerminalStatusLine invocations
 	agentManager          *appPty.AgentManager
 	msgSink               func(tea.Msg)
 	msgSinkTry            func(tea.Msg) bool
@@ -54,11 +72,23 @@ type Model struct {
 	flushLoadSampleAt  time.Time
 	cachedBusyTabCount int
 
+	// Batched @amux_last_output_at writes (plan 044): output-path tag writes
+	// accumulate as a pending set and flush as ONE
+	// SetSessionTagValueForSessions call per throttle window, instead of a
+	// goroutine + tmux fork per tab per second. activityTagsMu guards the set
+	// — marks arrive on the tab-actor goroutine while drains run on Update.
+	activityTagsMu          sync.Mutex
+	pendingActivityTags     map[string]struct{}
+	activityTagFlushPending bool
+
 	// Layout
 	width           int
 	height          int
 	offsetX         int // X offset from screen left (dashboard width)
 	showKeymapHints bool
+	// viewerCommand is the shell fragment the file-viewer tab runs as
+	// `<command> -- <file>`; "vim" when unset (normalized in the setter).
+	viewerCommand string
 
 	// Animation
 	spinnerFrame int // Current frame for activity spinner animation
@@ -82,6 +112,15 @@ func (m *Model) SetTmuxOptions(opts tmux.Options) {
 	m.tmuxOpts = opts
 	if m.agentManager != nil {
 		m.agentManager.SetTmuxOptions(opts)
+	}
+}
+
+// SetSessionEnvProvider forwards the layered session env composer to the
+// agent manager — the same contract ScriptRunner gives script spawns minus
+// the trust-gated repo layer (see process.BuildSessionEnv).
+func (m *Model) SetSessionEnvProvider(fn func(ws *data.Workspace) ([]string, error)) {
+	if m.agentManager != nil {
+		m.agentManager.SetSessionEnvProvider(fn)
 	}
 }
 
@@ -256,6 +295,9 @@ func (m *Model) setWorkspace(ws *data.Workspace) {
 	m.workspaceIDRepo = ws.Repo
 	m.workspaceIDRoot = ws.Root
 	m.workspaceIDCached = string(ws.ID())
+	// Becoming current proves the workspace is alive — clear any delete
+	// tombstone so future creates for it aren't dropped.
+	delete(m.deletedWorkspaceIDs, m.workspaceIDCached)
 }
 
 // workspaceID returns the ID of the current workspace, or empty string

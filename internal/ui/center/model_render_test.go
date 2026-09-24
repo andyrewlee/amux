@@ -382,3 +382,33 @@ func TestViewChromeOnlyPadsToTargetWidth(t *testing.T) {
 		}
 	}
 }
+
+// TestTabBarSanitizesTabNames proves a persisted/session-derived tab name
+// can't carry escapes or fabricate text into the always-on tab bar.
+func TestTabBarSanitizesTabNames(t *testing.T) {
+	m := newTestModel()
+	m.SetSize(80, 24)
+	addWorkspaceWithTabs(t, m,
+		"ws",
+		&Tab{ID: TabID("a"), Assistant: "claude", Name: "x\x1b[8m\nspoof", Running: true},
+	)
+
+	raw := m.TabBarView()
+	if strings.Contains(raw, "\x1b[8m") {
+		t.Fatalf("tab name escape reached the frame: %q", raw)
+	}
+	plain := ansi.Strip(raw)
+	if !strings.Contains(plain, "xspoof") {
+		t.Fatalf("sanitized tab name missing, got %q", plain)
+	}
+	// Hit regions still compute for the tab.
+	var tabHitCount int
+	for _, h := range m.tabHits {
+		if h.kind == tabHitTab {
+			tabHitCount++
+		}
+	}
+	if tabHitCount != 1 {
+		t.Fatalf("expected 1 tab hit region, got %d", tabHitCount)
+	}
+}

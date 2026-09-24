@@ -370,7 +370,7 @@ func TestReattachActiveTabIfDetached_ReattachInFlightIsNil(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := chatTab(ws, "tab-0")
 	tab.Detached = true
-	tab.reattachInFlight = true
+	tab.Reattach.InFlight = true
 	m, _, _ := newActionsModel(t, tab)
 
 	if cmd := m.reattachActiveTabIfDetached(); cmd != nil {

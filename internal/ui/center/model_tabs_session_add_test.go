@@ -111,7 +111,7 @@ func TestAddTabsFromWorkspace_AddsDetachedTabWithoutCommand(t *testing.T) {
 	if tab.SessionName != "sess-detached" {
 		t.Fatalf("session name = %q, want sess-detached", tab.SessionName)
 	}
-	if tab.reattachInFlight {
+	if tab.Reattach.InFlight {
 		t.Fatal("expected detached tab not to be flagged reattachInFlight")
 	}
 }
@@ -137,7 +137,7 @@ func TestAddTabsFromWorkspace_AddsRunningPlaceholderWithCommand(t *testing.T) {
 	if !tab.Detached {
 		t.Fatal("expected the placeholder to start detached before reattach")
 	}
-	if !tab.reattachInFlight {
+	if !tab.Reattach.InFlight {
 		t.Fatal("expected the running placeholder to be flagged reattachInFlight")
 	}
 	if tab.SessionName != "sess-running" {
@@ -251,7 +251,7 @@ func TestAddTabsFromWorkspace_MixedBatchAddsAllAndBatchesRunning(t *testing.T) {
 	for _, tab := range tabs {
 		bySession[tab.SessionName] = tab
 	}
-	if d1, ok := bySession["d1"]; !ok || !d1.Detached || d1.reattachInFlight {
+	if d1, ok := bySession["d1"]; !ok || !d1.Detached || d1.Reattach.InFlight {
 		t.Fatalf("d1 should be a plain detached tab, got %+v", d1)
 	}
 	for _, sess := range []string{"r1", "r2"} {
@@ -259,7 +259,7 @@ func TestAddTabsFromWorkspace_MixedBatchAddsAllAndBatchesRunning(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected running session %q to produce a placeholder tab", sess)
 		}
-		if !tab.reattachInFlight {
+		if !tab.Reattach.InFlight {
 			t.Fatalf("expected running placeholder %q to be reattachInFlight", sess)
 		}
 	}

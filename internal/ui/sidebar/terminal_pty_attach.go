@@ -2,7 +2,6 @@ package sidebar
 
 import (
 	"errors"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -15,54 +14,17 @@ import (
 )
 
 // These package-level indirections are test seams for terminal attach/bootstrap
-// paths. Tests that override them must not use t.Parallel within this package.
+// paths. The bootstrap seams themselves live in ptyio (ptyio.ProbeSessionFn
+// et al.); tests that override any of them must not use t.Parallel within
+// this package.
 var (
 	ensureTmuxAvailableFn       = tmux.EnsureAvailable
 	sessionStateForFn           = tmux.SessionStateFor
-	probeSessionFn              = tmux.ProbeSession
+	sessionOwnedFn              = ptyio.SessionOwned
 	newPTYWithSizeFn            = pty.NewTmuxClientWithSize
-	resizePaneToSizeFn          = tmux.ResizePaneToSize
-	capturePaneFullDataFn       = tmux.CapturePaneFullData
-	capturePaneHistoryDataFn    = tmux.CapturePaneHistoryData
 	capturePaneFn               = tmux.CapturePane
 	verifyTerminalSessionTagsFn = verifyTerminalSessionTags
 )
-
-type sessionBootstrapCapture = ptyio.SessionBootstrapCapture
-
-// sessionBootstrap builds a ptyio.SessionBootstrap from this package's seam
-// vars. It is rebuilt per call (reading the seam vars each time) so a test that
-// overrides a seam var still flows through the next bootstrap operation.
-func sessionBootstrap() ptyio.SessionBootstrap {
-	return ptyio.SessionBootstrap{
-		Fns: ptyio.SessionBootstrapFns{
-			ProbeSession:           probeSessionFn,
-			ResizePaneToSize:       resizePaneToSizeFn,
-			CapturePaneFullData:    capturePaneFullDataFn,
-			CapturePaneHistoryData: capturePaneHistoryDataFn,
-		},
-	}
-}
-
-func captureExistingSessionBootstrap(sessionName string, cols, rows int, opts tmux.Options) sessionBootstrapCapture {
-	return sessionBootstrap().CaptureExisting(sessionName, cols, rows, opts)
-}
-
-func bootstrapSnapshotStillMatchesSession(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) bool {
-	return sessionBootstrap().SnapshotStillMatches(sessionName, bootstrap, opts)
-}
-
-func rollbackExistingSessionBootstrap(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) {
-	sessionBootstrap().Rollback(sessionName, bootstrap, opts)
-}
-
-func sessionHistoryCaptureSize(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) (int, int) {
-	return sessionBootstrap().HistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts)
-}
-
-func captureSessionHistory(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) ([]byte, int, int) {
-	return sessionBootstrap().CaptureHistory(sessionName, fallbackCols, fallbackRows, opts)
-}
 
 func (m *TerminalModel) sessionBootstrapViewportSize() (int, int) {
 	if m.width <= 0 || m.height <= 0 {
@@ -80,6 +42,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 	opts := m.tmuxOpts
 	instanceID := m.instanceID
 	root := ws.Root
+	envFn := m.sessionEnvProvider
 
 	return func() tea.Msg {
 		loginShellCommand, err := pty.LoginShellCommandFromEnv()
@@ -93,36 +56,45 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		var scrollback []byte
 		var postAttachScrollback []byte
 		var snapshot tmux.PaneSnapshot
-		var bootstrap sessionBootstrapCapture
+		var bootstrap ptyio.SessionBootstrapCapture
 		captureFullPane := false
 		captureCols := attachWidth
 		captureRows := attachHeight
 		reuseExistingSession := false
-		env := []string{"COLORTERM=truecolor"}
+		var env []string
+		if envFn != nil {
+			env, err = envFn(ws)
+			if err != nil {
+				return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
+			}
+		}
+		env = append(env, "COLORTERM=truecolor")
 		if path := pty.AugmentedPath(); path != "" {
 			env = append(env, "PATH="+path)
 		}
 		sessionName := tmux.SessionName("amux", wsID, string(tabID))
 		// Reuse scrollback if a prior tmux session with the same name exists
-		// (e.g., app restart with persisted tmux session).
-		if state, err := sessionStateForFn(sessionName, opts); err == nil && state.Exists && state.HasLivePane {
+		// (e.g., app restart with persisted tmux session). The reuse check also
+		// verifies ownership tags: a live session under our name that isn't
+		// amux-tagged is a foreign squatter, and attaching would both hand it a
+		// client and launder it by re-tagging it as ours.
+		if state, err := sessionStateForFn(sessionName, opts); err == nil && ptyio.SessionAttachable(state) {
+			owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
+			if ownErr != nil {
+				return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: ownErr}
+			}
+			if !owned {
+				return SidebarTerminalCreateFailed{
+					WorkspaceID: wsID,
+					Err:         errors.New("tmux session name already in use by a non-amux session"),
+				}
+			}
 			reuseExistingSession = true
 		}
 		if reuseExistingSession {
-			bootstrap = captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
-			snapshot = bootstrap.Snapshot
-			captureFullPane = bootstrap.CaptureFullPane
+			bootstrap = ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
 		}
-		tags := tmux.SessionTags{
-			WorkspaceID:  wsID,
-			TabID:        string(tabID),
-			Type:         "terminal",
-			Assistant:    "terminal",
-			CreatedAt:    time.Now().Unix(),
-			InstanceID:   instanceID,
-			SessionOwner: instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
-		}
+		tags := ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, true)
 		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
 			Command:        loginShellCommand,
@@ -135,21 +107,12 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		term, err := newPTYWithSizeFn(command, root, env, ptyRows, ptyCols)
 		if err != nil {
 			if reuseExistingSession {
-				rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
+				ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
 			}
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
 		if reuseExistingSession {
-			if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
-				scrollback = snapshot.Data
-				postAttachScrollback, _ = capturePaneFn(sessionName, opts)
-			} else {
-				if captureFullPane {
-					captureFullPane = false
-					snapshot = tmux.PaneSnapshot{}
-				}
-				scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
-			}
+			scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows = ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
 		}
 		if err := verifyTerminalSessionTagsFn(sessionName, tags, opts); err != nil {
 			logging.Warn("sidebar terminal create: session tag verification failed for %s: %v", sessionName, err)
@@ -247,6 +210,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	wsID := string(ws.ID())
 	root := ws.Root
 	instanceID := m.instanceID
+	envFn := m.sessionEnvProvider
 	return func() tea.Msg {
 		if shellErr != nil {
 			return SidebarTerminalReattachFailed{
@@ -274,7 +238,9 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 					Action:      action,
 				}
 			}
-			if !state.Exists || !state.HasLivePane {
+			// Dead-session policy is ptyio.SessionAttachable, shared with
+			// center: reattach only attaches to a live session.
+			if !ptyio.SessionAttachable(state) {
 				return SidebarTerminalReattachFailed{
 					WorkspaceID: wsID,
 					TabID:       tabID,
@@ -283,19 +249,30 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 					Action:      action,
 				}
 			}
+			// Ownership policy is ptyio.SessionOwned, also shared: the live
+			// session must carry our tags. A foreign session squatting the
+			// name reports Stopped so the user restarts explicitly — restart
+			// kills the squatter by name before recreating.
+			owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
+			if ownErr != nil {
+				return SidebarTerminalReattachFailed{
+					WorkspaceID: wsID,
+					TabID:       tabID,
+					Err:         ownErr,
+					Action:      action,
+				}
+			}
+			if !owned {
+				return SidebarTerminalReattachFailed{
+					WorkspaceID: wsID,
+					TabID:       tabID,
+					Err:         errors.New("tmux session is not owned by this workspace"),
+					Stopped:     true,
+					Action:      action,
+				}
+			}
 		}
-		tags := tmux.SessionTags{
-			WorkspaceID:  wsID,
-			TabID:        string(tabID),
-			Type:         "terminal",
-			Assistant:    "terminal",
-			InstanceID:   instanceID,
-			SessionOwner: instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
-		}
-		if action == "restart" {
-			tags.CreatedAt = time.Now().Unix()
-		}
+		tags := ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, action != "reattach")
 		var err error
 		var scrollback []byte
 		var postAttachScrollback []byte
@@ -303,13 +280,23 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		captureCols := attachWidth
 		captureRows := attachHeight
 		var snapshot tmux.PaneSnapshot
-		var bootstrap sessionBootstrapCapture
+		var bootstrap ptyio.SessionBootstrapCapture
 		if action == "reattach" {
-			bootstrap = captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
-			snapshot = bootstrap.Snapshot
-			captureFullPane = bootstrap.CaptureFullPane
+			bootstrap = ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
 		}
-		env := []string{"COLORTERM=truecolor"}
+		var env []string
+		if envFn != nil {
+			env, err = envFn(ws)
+			if err != nil {
+				return SidebarTerminalReattachFailed{
+					WorkspaceID: wsID,
+					TabID:       tabID,
+					Err:         err,
+					Action:      action,
+				}
+			}
+		}
+		env = append(env, "COLORTERM=truecolor")
 		if path := pty.AugmentedPath(); path != "" {
 			env = append(env, "PATH="+path)
 		}
@@ -325,7 +312,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		term, err := newPTYWithSizeFn(command, root, env, ptyRows, ptyCols)
 		if err != nil {
 			if action == "reattach" {
-				rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
+				ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
 			}
 			return SidebarTerminalReattachFailed{
 				WorkspaceID: wsID,
@@ -335,22 +322,13 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			}
 		}
 		if action == "reattach" {
-			if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
-				scrollback = snapshot.Data
-				postAttachScrollback, _ = capturePaneFn(sessionName, opts)
-			} else {
-				if captureFullPane {
-					captureFullPane = false
-					snapshot = tmux.PaneSnapshot{}
-				}
-				scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
-			}
+			scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows = ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
 		}
 		if err := verifyTerminalSessionTagsFn(sessionName, tags, opts); err != nil {
 			logging.Warn("sidebar terminal %s: session tag verification failed for %s: %v", action, sessionName, err)
 		}
 		if action != "reattach" {
-			captureCols, captureRows = sessionHistoryCaptureSize(sessionName, attachWidth, attachHeight, opts)
+			captureCols, captureRows = ptyio.DefaultBootstrap().HistoryCaptureSize(sessionName, attachWidth, attachHeight, opts)
 			scrollback, _ = capturePaneFn(sessionName, opts)
 		}
 		return SidebarTerminalReattachResult{

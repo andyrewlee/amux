@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -80,27 +81,27 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				// timing after the PTY write actually happens. Doing it here at
 				// enqueue time would make queue latency look like local echo.
 				if !queued {
-					if _, sent, cmd := m.directSendToTerminal(tab, "\x1b[200~"+msg.Content+"\x1b[201~", "Direct paste"); cmd != nil {
+					if _, sent, cmd := m.directSendToTerminal(tab, ansi.BracketedPasteStart+msg.Content+ansi.BracketedPasteEnd, "Direct paste"); cmd != nil {
 						return m, cmd
 					} else if !sent {
 						return m, nil
 					}
 					now := time.Now()
-					payload := "\x1b[200~" + msg.Content + "\x1b[201~"
+					payload := ansi.BracketedPasteStart + msg.Content + ansi.BracketedPasteEnd
 					cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), payload, now))
 				}
 				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
 				cmds = append(cmds, m.userInputActivityTagCmd(tab))
 				return m, common.SafeBatch(cmds...)
 			}
-			if _, sent, cmd := m.directSendToTerminal(tab, "\x1b[200~"+msg.Content+"\x1b[201~", "Direct paste"); cmd != nil {
+			if _, sent, cmd := m.directSendToTerminal(tab, ansi.BracketedPasteStart+msg.Content+ansi.BracketedPasteEnd, "Direct paste"); cmd != nil {
 				return m, cmd
 			} else if !sent {
 				return m, nil
 			}
 			logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
 			now := time.Now()
-			payload := "\x1b[200~" + msg.Content + "\x1b[201~"
+			payload := ansi.BracketedPasteStart + msg.Content + ansi.BracketedPasteEnd
 			cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), payload, now))
 			cmds = append(cmds, m.userInputActivityTagCmd(tab))
 			return m, common.SafeBatch(cmds...)
@@ -115,6 +116,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case messages.OpenFileInVim:
 		return m.updateOpenFileInVim(msg)
+
+	case messages.AttachRunSession:
+		return m, m.CreateRunViewerTab(msg.Workspace, msg.SessionName)
 
 	case ptyTabCreateResult:
 		return m.updatePtyTabCreateResult(msg)
@@ -133,6 +137,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 	case messages.WorkspaceDeleted:
 		return m.updateWorkspaceDeleted(msg)
+
+	case messages.WorkspaceShelved:
+		return m.updateWorkspaceShelved(msg)
 
 	case tabSelectionResult:
 		return m.updateTabSelectionResult(msg)
@@ -167,9 +174,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		cmd := m.updatePTYRestart(msg)
 		cmds = append(cmds, cmd)
 
+	case activityTagFlushDue:
+		m.handleActivityTagFlushDue()
+
 	case selectionScrollTick:
 		cmd := m.updateSelectionScrollTick(msg)
 		cmds = append(cmds, cmd)
+
+	case diffResultMsg:
+		// An async diff-load result addressed to the tab that issued it.
+		tab, _ := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "diff result")
+		if tab == nil {
+			break // tab closed mid-load — nothing to deliver to
+		}
+		if handled, cmd := m.dispatchDiffInput(tab, msg.Inner); handled && cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	default:
 		// Forward unknown messages to active viewer if one exists

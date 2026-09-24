@@ -12,6 +12,7 @@ import (
 
 // View renders the sidebar
 func (m *Model) View() string {
+	m.contentBuilds++
 	var b strings.Builder
 
 	// Render changes directly
@@ -225,17 +226,12 @@ func (m *Model) renderDisplayItemRows() string {
 			maxPathWidth = 5
 		}
 
-		// Truncate path from left to fit, showing end of path (most relevant part)
-		displayPath := item.change.Path
-		pathWidth := lipgloss.Width(displayPath)
-		if pathWidth > maxPathWidth {
-			// Remove characters from start until it fits
-			runes := []rune(displayPath)
-			for len(runes) > 4 && lipgloss.Width(string(runes)) > maxPathWidth-3 {
-				runes = runes[1:]
-			}
-			displayPath = "..." + string(runes)
-		}
+		// Truncate path from left to fit, showing end of path (most relevant part).
+		// Sanitize BEFORE measuring — the path comes from git porcelain -z raw
+		// bytes, and control bytes would both distort width and inject terminal
+		// sequences into the rendered frame.
+		displayPath := common.SanitizeDisplayText(item.change.Path, maxPathWidth*2)
+		displayPath = common.TruncateLeftCells(displayPath, maxPathWidth, "...", 4)
 
 		line := prefix + m.styles.FilePath.Render(displayPath)
 		b.WriteString(line + "\n")
@@ -256,7 +252,12 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("c", "commit"),
 		m.helpItem("b", "vs base"),
 		m.helpItem("e", "env"),
+		m.helpItem("E", "project env"),
+		m.helpItem("s", "scripts"),
 		m.helpItem("r", "run script"),
+		m.helpItem("R", "run output"),
+		m.helpItem("O", "script output"),
+		m.helpItem("i", "status"),
 		m.helpItem("/", "filter"),
 		m.helpItem("g", "refresh"),
 	}

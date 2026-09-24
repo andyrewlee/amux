@@ -8,6 +8,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // findMsg returns the first message of type T in msgs, reporting whether one was
@@ -215,12 +216,12 @@ func TestUpdatePtyTabReattachFailed_MarksTabAndToasts(t *testing.T) {
 			ws := newTestWorkspace("ws", "/repo/ws")
 			wsID := string(ws.ID())
 			tab := &Tab{
-				ID:               TabID("tab-reattach"),
-				Assistant:        "claude",
-				Workspace:        ws,
-				Running:          true,
-				Detached:         tc.startDetach,
-				reattachInFlight: true,
+				ID:        TabID("tab-reattach"),
+				Assistant: "claude",
+				Workspace: ws,
+				Running:   true,
+				Detached:  tc.startDetach,
+				Reattach:  ptyio.ReattachGuard{InFlight: true},
 			}
 			m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
@@ -236,7 +237,7 @@ func TestUpdatePtyTabReattachFailed_MarksTabAndToasts(t *testing.T) {
 			}
 
 			tab.mu.Lock()
-			running, inFlight, detached := tab.Running, tab.reattachInFlight, tab.Detached
+			running, inFlight, detached := tab.Running, tab.Reattach.InFlight, tab.Detached
 			tab.mu.Unlock()
 			if running {
 				t.Fatal("expected Running=false after reattach failure")

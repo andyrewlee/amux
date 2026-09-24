@@ -293,7 +293,7 @@ func TestAgentManager_CloseWorkspaceAgents(t *testing.T) {
 	m.mu.Unlock()
 
 	// Close only ws1's agents
-	m.CloseWorkspaceAgents(ws1)
+	m.CloseWorkspaceAgents(ws1, nil)
 
 	if !term1.IsClosed() {
 		t.Error("term1 should be closed")
@@ -319,7 +319,7 @@ func TestAgentManager_CloseWorkspaceAgents_NilWorkspace(t *testing.T) {
 	m := NewAgentManager(testConfig())
 
 	// Should not panic
-	m.CloseWorkspaceAgents(nil)
+	m.CloseWorkspaceAgents(nil, nil)
 }
 
 func TestAgentManager_CloseWorkspaceAgents_UnknownWorkspace(t *testing.T) {
@@ -327,7 +327,7 @@ func TestAgentManager_CloseWorkspaceAgents_UnknownWorkspace(t *testing.T) {
 	ws := testWorkspace()
 
 	// Should not panic when workspace has no agents
-	m.CloseWorkspaceAgents(ws)
+	m.CloseWorkspaceAgents(ws, nil)
 }
 
 func TestAgentManager_MultipleAgentsPerWorkspace(t *testing.T) {

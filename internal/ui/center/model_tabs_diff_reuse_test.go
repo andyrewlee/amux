@@ -67,6 +67,10 @@ func TestCreateDiffTab_ReusesExistingTabForSamePathAndMode(t *testing.T) {
 				if submsg.WorkspaceID != wsID || submsg.ActiveIndex != 1 {
 					t.Fatalf("unexpected selection payload: %+v", submsg)
 				}
+			case diffResultMsg:
+				if strings.HasSuffix(fmt.Sprintf("%T", submsg.Inner), ".diffLoaded") {
+					sawReload = true
+				}
 			default:
 				if strings.HasSuffix(fmt.Sprintf("%T", submsg), ".diffLoaded") {
 					sawReload = true
@@ -125,6 +129,10 @@ func TestReuseDiffTab_RefreshesChangeKindBeforeReload(t *testing.T) {
 	}
 
 	msg := cmd()
+	// Production routing unwraps diffResultMsg before the viewer sees it.
+	if w, ok := msg.(diffResultMsg); ok {
+		msg = w.Inner
+	}
 	switch typed := msg.(type) {
 	case tea.BatchMsg:
 		for _, subcmd := range typed {
@@ -132,6 +140,9 @@ func TestReuseDiffTab_RefreshesChangeKindBeforeReload(t *testing.T) {
 				continue
 			}
 			submsg := subcmd()
+			if w, ok := submsg.(diffResultMsg); ok {
+				submsg = w.Inner
+			}
 			updatedDV, _ := dv.Update(submsg)
 			dv = updatedDV
 		}

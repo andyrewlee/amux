@@ -10,25 +10,26 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// ProjectTreeNode represents a file or directory in the tree
-type ProjectTreeNode struct {
+// projectTreeNode represents a file or directory in the tree
+type projectTreeNode struct {
 	Name     string
 	Path     string
 	IsDir    bool
 	Expanded bool
 	Depth    int
-	Children []*ProjectTreeNode
-	Parent   *ProjectTreeNode
+	Children []*projectTreeNode
+	Parent   *projectTreeNode
 }
 
 // ProjectTree is a nerdtree-like file browser
 type ProjectTree struct {
 	workspace    *data.Workspace
-	root         *ProjectTreeNode
-	flatNodes    []*ProjectTreeNode // flattened visible nodes for rendering
+	root         *projectTreeNode
+	flatNodes    []*projectTreeNode // flattened visible nodes for rendering
 	cursor       int
 	scrollOffset int
 	focused      bool
@@ -39,7 +40,28 @@ type ProjectTree struct {
 	showHidden      bool
 
 	styles common.Styles
+
+	// contentVersion is a monotonic version of every input that shapes View
+	// output. INVARIANT: every update path that changes what View renders
+	// MUST call markContentDirty (Update marks at the funnel), or the
+	// compose-time gate in internal/app will keep reusing a stale drawable.
+	contentVersion uint64
+	// contentBuilds counts View invocations; test instrumentation for the
+	// compose-time skip gate in internal/app.
+	contentBuilds uint64
 }
+
+// markContentDirty bumps contentVersion; see the field's invariant.
+func (m *ProjectTree) markContentDirty() { m.contentVersion++ }
+
+// ContentVersion returns the monotonic version of the inputs to View. The
+// compose layer in internal/app skips rebuilding the content string while
+// this version and the compose geometry are unchanged.
+func (m *ProjectTree) ContentVersion() uint64 { return m.contentVersion }
+
+// ContentBuildCount reports how many times View has been invoked. Test
+// instrumentation for the compose-time skip gate; not for production use.
+func (m *ProjectTree) ContentBuildCount() uint64 { return m.contentBuilds }
 
 // NewProjectTree creates a new project tree model
 func NewProjectTree() *ProjectTree {
@@ -52,11 +74,13 @@ func NewProjectTree() *ProjectTree {
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *ProjectTree) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
+	m.markContentDirty()
 }
 
 // SetStyles updates the component's styles (for theme changes).
 func (m *ProjectTree) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.markContentDirty()
 }
 
 // Init initializes the project tree
@@ -66,6 +90,11 @@ func (m *ProjectTree) Init() tea.Cmd {
 
 // Update handles messages
 func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
+	// Handled messages below mutate cursor/scroll/tree state that View
+	// renders — marking at the funnel guarantees coverage; a message that
+	// early-returns untouched still bumps, which only costs one extra
+	// build. (See the contentVersion invariant.)
+	defer m.markContentDirty()
 	if !m.focused {
 		return m, nil
 	}
@@ -161,21 +190,15 @@ func (m *ProjectTree) handleEnter() tea.Cmd {
 	ws := m.workspace
 	path := node.Path
 	return func() tea.Msg {
-		return OpenFileInEditor{
+		return messages.OpenFileInVim{
 			Path:      path,
 			Workspace: ws,
 		}
 	}
 }
 
-// OpenFileInEditor is a message to open a file in the editor
-type OpenFileInEditor struct {
-	Path      string
-	Workspace *data.Workspace
-}
-
 // expandNode loads children for a directory node
-func (m *ProjectTree) expandNode(node *ProjectTreeNode) {
+func (m *ProjectTree) expandNode(node *projectTreeNode) {
 	if !node.IsDir || node.Expanded {
 		return
 	}
@@ -186,7 +209,7 @@ func (m *ProjectTree) expandNode(node *ProjectTreeNode) {
 	}
 
 	node.Children = nil
-	var dirs, files []*ProjectTreeNode
+	var dirs, files []*projectTreeNode
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -194,7 +217,7 @@ func (m *ProjectTree) expandNode(node *ProjectTreeNode) {
 			continue
 		}
 
-		child := &ProjectTreeNode{
+		child := &projectTreeNode{
 			Name:   name,
 			Path:   filepath.Join(node.Path, name),
 			IsDir:  entry.IsDir(),
@@ -229,8 +252,8 @@ func (m *ProjectTree) rebuildFlatList() {
 		return
 	}
 
-	var walk func(node *ProjectTreeNode)
-	walk = func(node *ProjectTreeNode) {
+	var walk func(node *projectTreeNode)
+	walk = func(node *projectTreeNode) {
 		m.flatNodes = append(m.flatNodes, node)
 		if node.IsDir && node.Expanded {
 			for _, child := range node.Children {
@@ -271,7 +294,7 @@ func (m *ProjectTree) reloadTree() {
 		selectedPath = m.flatNodes[m.cursor].Path
 	}
 
-	m.root = &ProjectTreeNode{
+	m.root = &projectTreeNode{
 		Name:   filepath.Base(m.workspace.Root),
 		Path:   m.workspace.Root,
 		IsDir:  true,
@@ -299,8 +322,8 @@ func (m *ProjectTree) collectExpandedPaths() map[string]bool {
 	if m.root == nil {
 		return expanded
 	}
-	var collect func(n *ProjectTreeNode)
-	collect = func(n *ProjectTreeNode) {
+	var collect func(n *projectTreeNode)
+	collect = func(n *projectTreeNode) {
 		if n.IsDir && n.Expanded {
 			expanded[n.Path] = true
 		}
@@ -314,7 +337,7 @@ func (m *ProjectTree) collectExpandedPaths() map[string]bool {
 
 // restoreExpansion re-expands directories (by path) that were expanded before a
 // reload and still exist on disk.
-func (m *ProjectTree) restoreExpansion(node *ProjectTreeNode, expanded map[string]bool) {
+func (m *ProjectTree) restoreExpansion(node *projectTreeNode, expanded map[string]bool) {
 	for _, child := range node.Children {
 		if child.IsDir && expanded[child.Path] {
 			m.expandNode(child)
@@ -365,18 +388,30 @@ func (m *ProjectTree) moveCursor(delta int) {
 
 // SetSize sets the project tree size
 func (m *ProjectTree) SetSize(width, height int) {
+	if m.width == width && m.height == height {
+		return
+	}
 	m.width = width
 	m.height = height
+	m.markContentDirty()
 }
 
 // Focus sets the focus state
 func (m *ProjectTree) Focus() {
+	if m.focused {
+		return
+	}
 	m.focused = true
+	m.markContentDirty()
 }
 
 // Blur removes focus
 func (m *ProjectTree) Blur() {
+	if !m.focused {
+		return
+	}
 	m.focused = false
+	m.markContentDirty()
 }
 
 // Focused returns whether the tree is focused
@@ -386,6 +421,7 @@ func (m *ProjectTree) Focused() bool {
 
 // SetWorkspace sets the active workspace
 func (m *ProjectTree) SetWorkspace(ws *data.Workspace) {
+	m.markContentDirty()
 	if sameWorkspaceByCanonicalPaths(m.workspace, ws) {
 		// Rebind pointer for metadata freshness without resetting navigation state.
 		oldRoot := ""
@@ -405,69 +441,4 @@ func (m *ProjectTree) SetWorkspace(ws *data.Workspace) {
 	m.cursor = 0
 	m.scrollOffset = 0
 	m.reloadTree()
-}
-
-func (m *ProjectTree) rebaseTreePaths(oldRoot, newRoot string) bool {
-	if m.root == nil {
-		return false
-	}
-	oldClean := filepath.Clean(strings.TrimSpace(oldRoot))
-	newClean := filepath.Clean(strings.TrimSpace(newRoot))
-	if oldClean == "" || newClean == "" {
-		return false
-	}
-
-	var walk func(*ProjectTreeNode) bool
-	walk = func(node *ProjectTreeNode) bool {
-		if node == nil {
-			return true
-		}
-		rebased, ok := rebasePathFromRoot(node.Path, oldClean, newClean)
-		if !ok {
-			return false
-		}
-		node.Path = rebased
-		for _, child := range node.Children {
-			if !walk(child) {
-				return false
-			}
-		}
-		return true
-	}
-
-	if !walk(m.root) {
-		return false
-	}
-	m.root.Name = filepath.Base(newClean)
-	return true
-}
-
-func rebasePathFromRoot(path, oldRoot, newRoot string) (string, bool) {
-	candidate := filepath.Clean(strings.TrimSpace(path))
-	if candidate == "" {
-		return "", false
-	}
-
-	if rebased, ok := rebasePathWithBase(candidate, oldRoot, newRoot); ok {
-		return rebased, true
-	}
-
-	oldCanonical := canonicalWorkspacePath(oldRoot)
-	newCanonical := canonicalWorkspacePath(newRoot)
-	pathCanonical := canonicalWorkspacePath(candidate)
-	if oldCanonical == "" || newCanonical == "" || pathCanonical == "" {
-		return "", false
-	}
-	return rebasePathWithBase(pathCanonical, oldCanonical, newCanonical)
-}
-
-func rebasePathWithBase(path, oldBase, newBase string) (string, bool) {
-	rel, err := filepath.Rel(oldBase, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	if rel == "." {
-		return newBase, true
-	}
-	return filepath.Join(newBase, rel), true
 }

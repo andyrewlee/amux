@@ -283,7 +283,7 @@ func TestCleanupWorkspace(t *testing.T) {
 		m.tabs.ByWorkspace[wsID] = []*Tab{newTabWithID("a", "claude", ws)}
 
 		revBefore := m.tabsRevision
-		m.CleanupWorkspace(nil)
+		m.CleanupWorkspace(nil, nil)
 
 		if _, ok := m.tabs.ByWorkspace[wsID]; !ok {
 			t.Fatalf("expected existing workspace tabs to be untouched for nil input")
@@ -306,7 +306,7 @@ func TestCleanupWorkspace(t *testing.T) {
 		m.tabs.ActiveByWorkspace[wsID] = 0
 
 		revBefore := m.tabsRevision
-		m.CleanupWorkspace(ws)
+		m.CleanupWorkspace(ws, nil)
 
 		if _, ok := m.tabs.ByWorkspace[wsID]; ok {
 			t.Fatalf("expected workspace tab slice to be deleted")
@@ -335,7 +335,7 @@ func TestCleanupWorkspace(t *testing.T) {
 		tab.DiffViewer = &diff.Model{}
 		m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
-		m.CleanupWorkspace(ws)
+		m.CleanupWorkspace(ws, nil)
 
 		if !tab.isClosed() {
 			t.Fatalf("expected tab to be marked closed after cleanup")
@@ -378,7 +378,7 @@ func TestCleanupWorkspace(t *testing.T) {
 		tab.ptyTraceFile = trace
 		m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
-		m.CleanupWorkspace(ws)
+		m.CleanupWorkspace(ws, nil)
 
 		if tab.ptyTraceFile != nil {
 			t.Fatalf("expected trace file handle to be cleared")
@@ -405,7 +405,7 @@ func TestCleanupWorkspace(t *testing.T) {
 		m.tabs.ActiveByWorkspace[otherID] = 0
 		m.setWorkspace(target)
 
-		m.CleanupWorkspace(target)
+		m.CleanupWorkspace(target, nil)
 
 		if _, ok := m.tabs.ByWorkspace[targetID]; ok {
 			t.Fatalf("expected target workspace tabs to be removed")

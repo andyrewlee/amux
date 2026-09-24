@@ -40,6 +40,10 @@ func (m *Model) renderTabBar() string {
 		if name == "" {
 			name = tab.Assistant
 		}
+		// Tab names are persisted/session-derived — sanitize before any
+		// Render/Width use so prefixWidth hit regions measure the same
+		// string that's drawn.
+		name = common.SanitizeDisplayText(name, 256)
 
 		// Check if tab is disconnected (detached or stopped)
 		tab.mu.Lock()

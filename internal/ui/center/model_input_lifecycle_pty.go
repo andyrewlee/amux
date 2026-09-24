@@ -1,14 +1,12 @@
 package center
 
 import (
-	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
-	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -17,8 +15,12 @@ import (
 // updatePTYOutput handles PTYOutput.
 func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 	var cmds []tea.Cmd
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	// Output read before a workspace rebind but delivered after it carries the
+	// old ID; the exact-key lookup would miss and silently drop the payload —
+	// a hole in the byte stream. Resolve like PTYFlush does.
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYOutput")
 	if tab != nil && !tab.isClosed() {
+		msg.WorkspaceID = wsID
 		m.tracePTYOutput(tab, msg.Data)
 		if detachCmd, consumed := m.handleBackgroundPTYPressure(msg, tab); consumed {
 			return detachCmd
@@ -228,8 +230,11 @@ func (m *Model) handleBackgroundPTYPressure(msg PTYOutput, tab *Tab) (detachCmd 
 // updatePTYFlush handles PTYFlush.
 func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 	var cmds []tea.Cmd
-	tab := m.getTabByID(msg.WorkspaceID, msg.TabID)
+	// A flush tick stamped before a workspace rebind carries the old ID; the
+	// exact-key lookup would miss and leave FlushScheduled latched forever.
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYFlush")
 	if tab != nil && !tab.isClosed() {
+		msg.WorkspaceID = wsID
 		isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
 		tab.mu.Lock()
 		if !isActive {
@@ -343,24 +348,17 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 func (m *Model) dispatchFlushChunk(tab *Tab, msg PTYFlush, chunk []byte, hasMoreBuffered bool, visibleSeq uint64, catchUp bool) []tea.Cmd {
 	var cmds []tea.Cmd
 	tagSessionName := ""
-	var tagTimestamp int64
 	if m.isTabActorReady() {
-		cmds, tagSessionName, tagTimestamp = m.dispatchFlushChunkViaActor(tab, msg, chunk, hasMoreBuffered, visibleSeq, catchUp)
+		cmds, tagSessionName, _ = m.dispatchFlushChunkViaActor(tab, msg, chunk, hasMoreBuffered, visibleSeq, catchUp)
 	} else {
 		var cmd tea.Cmd
-		cmd, tagSessionName, tagTimestamp = m.applyFlushChunkSync(tab, msg.WorkspaceID, chunk, hasMoreBuffered, visibleSeq, false)
+		cmd, tagSessionName, _ = m.applyFlushChunkSync(tab, msg.WorkspaceID, chunk, hasMoreBuffered, visibleSeq, false)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
 	if tagSessionName != "" {
-		opts := m.tmuxOpts
-		sessionName := tagSessionName
-		timestamp := strconv.FormatInt(tagTimestamp, 10)
-		cmds = append(cmds, func() tea.Msg {
-			_ = tmux.SetSessionTagValue(sessionName, tmux.TagLastOutputAt, timestamp, opts)
-			return nil
-		})
+		m.markActivityTagForFlush(tagSessionName)
 	}
 	return cmds
 }
@@ -371,13 +369,15 @@ func (m *Model) dispatchFlushChunk(tab *Tab, msg PTYFlush, chunk []byte, hasMore
 // applied synchronously here. Returns any cursor-refresh command and the activity
 // tag to publish.
 func (m *Model) dispatchFlushChunkViaActor(tab *Tab, msg PTYFlush, chunk []byte, hasMoreBuffered bool, visibleSeq uint64, catchUp bool) (cmds []tea.Cmd, tagSessionName string, tagTimestamp int64) {
-	prevEpoch, prevCarry, prevNoiseTrailing := enqueueActorWrite(tab, chunk)
+	prevEpoch, prevCarry, prevNoiseTrailing, filtered, noiseAfter := enqueueActorWrite(tab, chunk)
 	if m.sendTabEvent(tabEvent{
 		tab:             tab,
 		workspaceID:     msg.WorkspaceID,
 		tabID:           msg.TabID,
 		kind:            tabEventWriteOutput,
 		output:          chunk,
+		filteredOutput:  filtered,
+		noiseAfter:      noiseAfter,
 		writeEpoch:      prevEpoch,
 		catchUp:         catchUp,
 		hasMoreBuffered: hasMoreBuffered,
@@ -431,6 +431,11 @@ func (m *Model) applyFlushChunkSync(tab *Tab, workspaceID string, chunk []byte, 
 func (m *Model) applyPTYChunkLocked(tab *Tab, chunk []byte, hasMoreBuffered bool, visibleSeq uint64) (filteredLen int, suppressRedraw bool, tagSessionName string, tagTimestamp int64) {
 	filtered := tab.State.WriteFilteredChunkLocked(tab.Terminal.Write, chunk)
 	filteredLen = len(filtered)
+	if !hasMoreBuffered {
+		// Stream paused at the flush boundary: release a held `name(N)`
+		// tail — far more likely a real prompt than a split diagnostic.
+		filteredLen += tab.State.FlushNoiseTrailingLocked(tab.Terminal.Write)
+	}
 	// Activity state intentionally tracks visible terminal mutations only.
 	// Noise-only chunks are filtered above and must not update activity tags.
 	// We still run this to clear pending visible state when no mutation occurred.

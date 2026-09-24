@@ -32,11 +32,11 @@ func TestRenderTabBarHighlightsActiveTab(t *testing.T) {
 			if len(s.tabHits) != 2 {
 				t.Fatalf("expected 2 tab hits, got %d", len(s.tabHits))
 			}
-			if s.tabHits[0].kind != tabHitChanges {
-				t.Fatalf("first hit kind = %d, want tabHitChanges", s.tabHits[0].kind)
+			if s.tabHits[0].tab != TabChanges {
+				t.Fatalf("first hit tab = %d, want TabChanges", s.tabHits[0].tab)
 			}
-			if s.tabHits[1].kind != tabHitProject {
-				t.Fatalf("second hit kind = %d, want tabHitProject", s.tabHits[1].kind)
+			if s.tabHits[1].tab != TabProject {
+				t.Fatalf("second hit tab = %d, want TabProject", s.tabHits[1].tab)
 			}
 			// Hit regions must be laid out left-to-right without gaps that
 			// would make the Project tab unclickable.

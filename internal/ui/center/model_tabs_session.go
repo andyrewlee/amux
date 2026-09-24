@@ -178,7 +178,7 @@ func (m *Model) autoReattachActiveTabOnSelection() tea.Cmd {
 	}
 	tab.mu.Lock()
 	detached := tab.Detached
-	reattachInFlight := tab.reattachInFlight
+	reattachInFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	// Automatic flows stay silent: ReattachActiveTab reports an in-flight
 	// reattach to the user, which is right for a keypress and noise for a tab

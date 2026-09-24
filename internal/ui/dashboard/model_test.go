@@ -299,22 +299,22 @@ func TestSpinnerOnlyForCreateDelete(t *testing.T) {
 
 	t.Run("spinner activates on workspace deletion", func(t *testing.T) {
 		m.spinnerActive = false
-		cmd := m.SetWorkspaceDeleting("/some/root", true)
+		cmd := m.SetWorkspaceBusy("/some/root", WorkspaceOpDelete, true)
 		if cmd == nil {
 			t.Fatal("expected command to start spinner")
 		}
 		if !m.spinnerActive {
 			t.Fatal("spinner should be active during deletion")
 		}
-		if len(m.deletingWorkspaces) != 1 {
-			t.Fatalf("expected 1 deleting workspace, got %d", len(m.deletingWorkspaces))
+		if len(m.busyWorkspaces) != 1 {
+			t.Fatalf("expected 1 mutating workspace, got %d", len(m.busyWorkspaces))
 		}
 	})
 
 	t.Run("spinner deactivates when deletion completes", func(t *testing.T) {
-		m.SetWorkspaceDeleting("/some/root", false)
-		if len(m.deletingWorkspaces) != 0 {
-			t.Fatalf("expected 0 deleting workspaces, got %d", len(m.deletingWorkspaces))
+		m.SetWorkspaceBusy("/some/root", WorkspaceOpDelete, false)
+		if len(m.busyWorkspaces) != 0 {
+			t.Fatalf("expected 0 mutating workspaces, got %d", len(m.busyWorkspaces))
 		}
 	})
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // TestUpdatePtyTabReattachResult_RejectsResultForDetachedTab proves a reattach
@@ -21,7 +22,7 @@ func TestUpdatePtyTabReattachResult_RejectsResultForDetachedTab(t *testing.T) {
 		Detached:    true,  // user detached...
 		Running:     false, // ...
 		// ...which cleared the in-flight flag (detachTab does this).
-		reattachInFlight: false,
+		Reattach: ptyio.ReattachGuard{InFlight: false},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -53,13 +54,13 @@ func TestUpdatePtyTabReattachResult_AppliesForLiveReattach(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:               TabID("tab-live-reattach"),
-		Assistant:        "claude",
-		Workspace:        ws,
-		SessionName:      "amux-ws-sess",
-		Detached:         true,
-		Running:          false,
-		reattachInFlight: true, // a reattach IS in flight
+		ID:          TabID("tab-live-reattach"),
+		Assistant:   "claude",
+		Workspace:   ws,
+		SessionName: "amux-ws-sess",
+		Detached:    true,
+		Running:     false,
+		Reattach:    ptyio.ReattachGuard{InFlight: true}, // a reattach IS in flight
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -86,13 +87,13 @@ func TestUpdatePtyTabReattachResult_AppliesForDetachedRestart(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:               TabID("tab-detached-restart"),
-		Assistant:        "claude",
-		Workspace:        ws,
-		SessionName:      "amux-ws-sess",
-		Detached:         true,
-		Running:          false,
-		reattachInFlight: true,
+		ID:          TabID("tab-detached-restart"),
+		Assistant:   "claude",
+		Workspace:   ws,
+		SessionName: "amux-ws-sess",
+		Detached:    true,
+		Running:     false,
+		Reattach:    ptyio.ReattachGuard{InFlight: true},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -138,7 +139,7 @@ func TestRestartActiveTabMarksRestartInFlight(t *testing.T) {
 	}
 
 	tab.mu.Lock()
-	inFlight := tab.reattachInFlight
+	inFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if !inFlight {
 		t.Fatal("expected restart to mark reattachInFlight")

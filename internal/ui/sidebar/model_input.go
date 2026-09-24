@@ -4,13 +4,17 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
+	// Handled messages below mutate cursor/scroll/filter/branch state that
+	// View renders — marking at the funnel guarantees coverage; a message
+	// that early-returns untouched still bumps, which only costs one extra
+	// build. (See the contentVersion invariant.)
+	defer m.markContentDirty()
 	var cmds []tea.Cmd
 
 	// Handle filter input when in filter mode
@@ -40,11 +44,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case BranchChangesLoaded:
+	case messages.BranchChangesLoaded:
 		m.handleBranchChangesLoaded(msg)
 		return m, nil
 
-	case AheadBehindLoaded:
+	case messages.AheadBehindLoaded:
 		m.handleAheadBehindLoaded(msg)
 		return m, nil
 
@@ -101,8 +105,18 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			cmds = append(cmds, m.toggleBranchMode())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("e"))):
 			cmds = append(cmds, m.openEnvDialog())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("E"))):
+			cmds = append(cmds, m.openProjectEnvDialog())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
+			cmds = append(cmds, m.openScriptsDialog())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			cmds = append(cmds, m.toggleRunScript())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("R"))):
+			cmds = append(cmds, m.openRunOutput())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("O"))):
+			cmds = append(cmds, m.openScriptOutput())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("i"))):
+			cmds = append(cmds, m.openWorkspaceStatus())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
 			// Enter filter mode
 			m.filterMode = true
@@ -234,6 +248,32 @@ func (m *Model) openEnvDialog() tea.Cmd {
 	}
 }
 
+// openScriptsDialog opens the workspace scripts editor (user-entered
+// setup/run/archive commands + run mode) for the focused workspace — the
+// sibling of openEnvDialog, with the same no-precondition shape.
+func (m *Model) openScriptsDialog() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ShowWorkspaceScriptsDialog{Workspace: ws}
+	}
+}
+
+// openProjectEnvDialog opens the per-project env editor keyed on the
+// focused workspace's repo — same no-precondition shape as openEnvDialog;
+// the app derives the project identity from ws.Repo.
+func (m *Model) openProjectEnvDialog() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ShowProjectEnvDialog{Workspace: ws}
+	}
+}
+
 // toggleRunScript asks the app to start the workspace's `run` script, or stop
 // it when it is already running. The sidebar does not decide which: it has no
 // ScriptRunner, and the mirrored scriptRunning flag is a display hint that can
@@ -249,7 +289,48 @@ func (m *Model) toggleRunScript() tea.Cmd {
 	}
 }
 
-// refreshStatus refreshes the git status.
+// openRunOutput asks the app to show the workspace's captured run-script
+// output — the live pane tail while running, the post-exit tail after —
+// mirroring the same fire-and-forget shape as the other dialog openers.
+func (m *Model) openRunOutput() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ShowRunScriptOutput{Workspace: ws}
+	}
+}
+
+// openScriptOutput asks the app to show the workspace's recorded lifecycle
+// script transcripts (setup/archive/on-done) — the sibling surface to run
+// output for the scripts that otherwise have no visible output.
+func (m *Model) openScriptOutput() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ShowScriptOutput{Workspace: ws}
+	}
+}
+
+// openWorkspaceStatus asks the app to show the workspace's operational
+// snapshot — port allocation, run state, script config + trust, env key
+// names, lifecycle state — in a read-only dialog.
+func (m *Model) openWorkspaceStatus() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.ShowWorkspaceStatus{Workspace: ws}
+	}
+}
+
+// refreshStatus asks the app for a git status refresh. Status is shared
+// data — the app owns the cache and dedups concurrent refreshes — so the
+// request travels as a message and the result returns as GitStatusResult.
 func (m *Model) refreshStatus() tea.Cmd {
 	if m.workspace == nil {
 		return nil
@@ -257,7 +338,6 @@ func (m *Model) refreshStatus() tea.Cmd {
 
 	root := m.workspace.Root
 	return func() tea.Msg {
-		status, err := git.GetStatus(root)
-		return messages.GitStatusResult{Root: root, Status: status, Err: err}
+		return messages.GitStatusRequest{Root: root}
 	}
 }

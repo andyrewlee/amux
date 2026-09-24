@@ -34,8 +34,38 @@ type Model struct {
 	width  int
 	height int
 
+	// wrapResult, when set, wraps every async load result so the caller can
+	// route it back to the owning tab (load results otherwise carry no
+	// destination and land on whichever tab is active).
+	wrapResult func(tea.Msg) tea.Msg
+
 	// Styles
 	styles common.Styles
+	// stylesRev bumps on SetStyles so the view memo key captures style
+	// changes without making common.Styles comparable.
+	stylesRev uint64
+
+	// viewKey/viewCache memoize View()'s string build — the center compose
+	// path calls it every frame while a diff tab is active, and a static
+	// diff re-renders identically until an input field moves.
+	viewKey   diffViewKey
+	viewCache string
+	viewValid bool
+}
+
+// diffViewKey captures every input View() reads: the loaded data pointers,
+// scroll/hunk position, wrap/focus flags, dimensions, and styles revision.
+type diffViewKey struct {
+	diff      *git.DiffResult
+	errStr    string
+	loading   bool
+	scroll    int
+	hunkIdx   int
+	wrap      bool
+	focused   bool
+	width     int
+	height    int
+	stylesRev uint64
 }
 
 // diffLoaded is sent when the diff has been loaded
@@ -97,10 +127,16 @@ func (m *Model) loadDiff() tea.Cmd {
 	mode := m.mode
 	m.loadID++
 	loadID := m.loadID
+	// Snapshot the wrapper now — the closure runs off the update goroutine and
+	// must not read model fields.
+	wrap := m.wrapResult
+	if wrap == nil {
+		wrap = func(msg tea.Msg) tea.Msg { return msg }
+	}
 
 	return func() tea.Msg {
 		if ws == nil || change == nil {
-			return diffLoaded{err: nil, diff: &git.DiffResult{Empty: true}, loadID: loadID}
+			return wrap(diffLoaded{err: nil, diff: &git.DiffResult{Empty: true}, loadID: loadID})
 		}
 
 		var diff *git.DiffResult
@@ -115,7 +151,7 @@ func (m *Model) loadDiff() tea.Cmd {
 			diff, err = git.GetFileDiff(ws.Root, change.Path, mode)
 		}
 
-		return diffLoaded{diff: diff, err: err, loadID: loadID}
+		return wrap(diffLoaded{diff: diff, err: err, loadID: loadID})
 	}
 }
 
@@ -282,6 +318,15 @@ func (m *Model) prevHunk() {
 	}
 }
 
+// SetResultWrapper installs a function applied to every async load result
+// before it is emitted, so the owner can tag results with routing identity.
+func (m *Model) SetResultWrapper(fn func(tea.Msg) tea.Msg) {
+	if m == nil {
+		return
+	}
+	m.wrapResult = fn
+}
+
 // SetFocused sets the focused state
 func (m *Model) SetFocused(focused bool) {
 	m.focused = focused
@@ -311,6 +356,7 @@ func (m *Model) SetSize(width, height int) {
 // SetStyles updates the component's styles
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.stylesRev++
 }
 
 // GetPath returns the file path being viewed

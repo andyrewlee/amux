@@ -38,17 +38,16 @@ type TerminalTab struct {
 
 // TerminalState holds the terminal state for a workspace
 type TerminalState struct {
-	Terminal         *pty.Terminal
-	VTerm            *vterm.VTerm
-	Running          bool
-	Detached         bool
-	UserDetached     bool
-	reattachInFlight bool
-	// reattachStartedAt is when reattachInFlight was last acquired, used by the
-	// stalled-reattach sweep to release a lock whose outcome never arrived.
-	reattachStartedAt time.Time
-	SessionName       string
-	mu                sync.Mutex
+	Terminal     *pty.Terminal
+	VTerm        *vterm.VTerm
+	Running      bool
+	Detached     bool
+	UserDetached bool
+	// Reattach is the reattach lock+stamp shared with center agent tabs;
+	// see ptyio.ReattachGuard for the sweep contract.
+	Reattach    ptyio.ReattachGuard
+	SessionName string
+	mu          sync.Mutex
 
 	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
 	// bookkeeping (locking owned by mu, as documented on the type).
@@ -80,21 +79,20 @@ type terminalTabHit struct {
 	region common.HitRegion
 }
 
-// SidebarSelectionScrollTick is sent by the tick loop to continue
-// auto-scrolling during mouse-drag selection past viewport edges.
-type SidebarSelectionScrollTick struct {
-	WorkspaceID string
-	TabID       TerminalTabID
-	Gen         uint64
-	Seq         uint64
-}
-
 // TerminalModel is the Bubbletea model for the sidebar terminal section
 type TerminalModel struct {
 	// State per workspace - multiple tabs per workspace
-	tabs            common.TabSet[*TerminalTab]
-	tabHits         []terminalTabHit // for mouse click handling
-	pendingCreation map[string]bool  // tracks workspaces with tab creation in progress
+	tabs    common.TabSet[*TerminalTab]
+	tabHits []terminalTabHit // for mouse click handling
+	// pendingCreation marks workspaces with a tab creation in flight. Terminal
+	// creation is async, so the mark both rejects duplicate creates and serves
+	// as the resurrection guard: the result gate accepts a key only when a
+	// bucket exists or this mark is set, so a torn-down workspace drops late
+	// results without needing a tombstone like center's deletedWorkspaceIDs.
+	// The value is the create's start time — a mark older than
+	// pendingCreationTimeout means its result was lost (see
+	// pendingCreationActive) and must expire rather than wedge.
+	pendingCreation map[string]time.Time
 
 	// Current workspace
 	workspace *data.Workspace
@@ -119,13 +117,29 @@ type TerminalModel struct {
 	// tmux config
 	tmuxOpts   tmux.Options
 	instanceID string
+
+	// sessionEnvProvider composes the layered workspace env for a spawn (the
+	// app's process.ScriptRunner.BuildSessionEnv): os.Environ + AMUX_*
+	// injected + project env + ws.Env — every user-controlled layer, never
+	// repo env. COLORTERM/PATH spawn specifics are appended after it so they
+	// always win. Nil keeps the historical minimal env.
+	sessionEnvProvider func(ws *data.Workspace) ([]string, error)
+
+	// stylesRev bumps on every SetStyles so the chrome fingerprints
+	// (TabBarVersion/StatusLineVersion/HelpVersion) change with the theme.
+	stylesRev uint64
+	// Build counters; test instrumentation for the compose-time skip gates in
+	// internal/app.
+	tabBarBuilds uint64
+	statusBuilds uint64
+	helpBuilds   uint64
 }
 
 // NewTerminalModel creates a new sidebar terminal model
 func NewTerminalModel() *TerminalModel {
 	return &TerminalModel{
 		tabs:            common.NewTabSet[*TerminalTab](),
-		pendingCreation: make(map[string]bool),
+		pendingCreation: make(map[string]time.Time),
 		lastActiveAt:    make(map[string]time.Time),
 		styles:          common.DefaultStyles(),
 		tmuxOpts:        tmux.DefaultOptions(),
@@ -142,6 +156,15 @@ func (m *TerminalModel) SetInstanceID(id string) {
 	m.instanceID = id
 }
 
+// SetSessionEnvProvider installs the layered session env composer — the
+// same contract ScriptRunner gives script spawns minus the trust-gated repo
+// layer (see process.BuildSessionEnv for the trust-scope decision). A
+// provider error (port-range exhaustion) propagates to the create/reattach
+// result rather than silently spawning without the reservation.
+func (m *TerminalModel) SetSessionEnvProvider(fn func(ws *data.Workspace) ([]string, error)) {
+	m.sessionEnvProvider = fn
+}
+
 // SetShowKeymapHints controls whether helper text is rendered.
 func (m *TerminalModel) SetShowKeymapHints(show bool) {
 	if m.showKeymapHints == show {
@@ -154,6 +177,7 @@ func (m *TerminalModel) SetShowKeymapHints(show bool) {
 // SetStyles updates the component's styles (for theme changes).
 func (m *TerminalModel) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.stylesRev++
 }
 
 // SetMsgSink sets a callback for PTY messages.
@@ -167,6 +191,34 @@ func (m *TerminalModel) workspaceID() string {
 		return ""
 	}
 	return string(m.workspace.ID())
+}
+
+// pendingCreationTimeout bounds how long a pending-creation mark can gate
+// creates before it is treated as lost. A terminal create is subsecond; the
+// creation result messages are critical-marked (non-evicting), so a mark
+// this old means its result was dropped under queue pressure before the
+// critical marking existed, or the producer died mid-flight — either way the
+// next ensure must be allowed to retry rather than wedge forever.
+const pendingCreationTimeout = 60 * time.Second
+
+// markPendingCreation stamps the create's start time under wsID.
+func (m *TerminalModel) markPendingCreation(wsID string) {
+	m.pendingCreation[wsID] = time.Now()
+}
+
+// pendingCreationActive reports whether wsID has a fresh in-flight create.
+// A stale mark is expired in place — lost results must not wedge creation.
+func (m *TerminalModel) pendingCreationActive(wsID string) bool {
+	at, ok := m.pendingCreation[wsID]
+	if !ok {
+		return false
+	}
+	if time.Since(at) > pendingCreationTimeout {
+		delete(m.pendingCreation, wsID)
+		logging.Warn("sidebar terminal create: pending mark for %s exceeded %s; expiring for retry", wsID, pendingCreationTimeout)
+		return false
+	}
+	return true
 }
 
 // setWorkspace sets the current workspace reference.
@@ -211,6 +263,46 @@ func (m *TerminalModel) getTerminal() *TerminalState {
 	return nil
 }
 
+// HasActiveTerminal reports whether the active tab has a terminal — the
+// cheap gate for transcript export visibility (ActiveTranscript does the
+// full-buffer extraction; this only checks presence).
+func (m *TerminalModel) HasActiveTerminal() bool {
+	ts := m.getTerminal()
+	if ts == nil {
+		return false
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.VTerm != nil
+}
+
+// ActiveTranscript returns the active terminal tab's full transcript — the
+// combined scrollback+screen buffer as plain text — or "" when no terminal
+// is active. The text is captured under the terminal lock and returned;
+// callers that copy it to the clipboard must do so after this returns.
+func (m *TerminalModel) ActiveTranscript() string {
+	ts := m.getTerminal()
+	if ts == nil {
+		return ""
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	term := ts.VTerm
+	if term == nil {
+		return ""
+	}
+	screen, scrollbackLen := term.RenderBuffers()
+	total := scrollbackLen + len(screen)
+	if total == 0 {
+		return ""
+	}
+	width := term.Width
+	if width < 1 {
+		width = 1
+	}
+	return term.GetTextRange(0, 0, width-1, total-1)
+}
+
 // getTabByID returns the tab with the given ID, or nil if not found
 func (m *TerminalModel) getTabByID(wsID string, tabID TerminalTabID) *TerminalTab {
 	for _, tab := range m.tabs.ByWorkspace[wsID] {
@@ -226,25 +318,13 @@ func (m *TerminalModel) getTabByID(wsID string, tabID TerminalTabID) *TerminalTa
 // ID-only scan. It returns the key the tab is actually filed under, which is
 // the one follow-up work must use.
 //
-// TerminalTabIDs are process-unique, so the ID alone identifies a tab; the
-// workspace key is only a routing hint and can go stale between dispatch and
-// delivery. Missing on the pair used to drop the result, and because the
-// attach gate refuses to retry while reattachInFlight is set, a dropped result
-// left the terminal permanently unable to reattach.
+// Unlike the center resolver there is no closed-tab filter: TerminalTab has
+// no closed state — closed terminals leave the map entirely.
 func (m *TerminalModel) resolveTabForResult(wsID string, tabID TerminalTabID, context string) (*TerminalTab, string) {
-	if tab := m.getTabByID(wsID, tabID); tab != nil {
-		return tab, wsID
-	}
-	for actualWsID, tabs := range m.tabs.ByWorkspace {
-		for _, tab := range tabs {
-			if tab == nil || tab.ID != tabID {
-				continue
-			}
-			logging.Warn("%s: terminal tab %s routed with workspace %s but filed under %s", context, tabID, wsID, actualWsID)
-			return tab, actualWsID
-		}
-	}
-	return nil, ""
+	return ptyio.ResolveKeyedTab(m.tabs.ByWorkspace, wsID, tabID,
+		func(t *TerminalTab) TerminalTabID { return t.ID },
+		func(t *TerminalTab) bool { return t != nil },
+		context, "terminal tab")
 }
 
 // nextTerminalName returns the next available terminal name

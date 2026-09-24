@@ -72,7 +72,7 @@ func TestSetWorkspaceCreatesTabs(t *testing.T) {
 			}
 			if tt.preMarkBusy {
 				m.setWorkspace(tt.ws)
-				m.pendingCreation[m.workspaceID()] = true
+				m.markPendingCreation(m.workspaceID())
 				m.setWorkspace(nil)
 			}
 
@@ -89,7 +89,7 @@ func TestSetWorkspaceCreatesTabs(t *testing.T) {
 				t.Fatalf("SetWorkspace returned cmd!=nil=%v, want %v", cmd != nil, tt.wantCmd)
 			}
 			if tt.ws != nil {
-				got := m.pendingCreation[m.workspaceID()]
+				_, got := m.pendingCreation[m.workspaceID()]
 				if got != tt.wantPending {
 					t.Fatalf("pendingCreation = %v, want %v", got, tt.wantPending)
 				}
@@ -110,7 +110,7 @@ func TestSetWorkspacePreviewDoesNotCreateTabs(t *testing.T) {
 	if got := len(m.getTabs()); got != 0 {
 		t.Fatalf("expected no tabs created by preview, got %d", got)
 	}
-	if m.pendingCreation[m.workspaceID()] {
+	if _, ok := m.pendingCreation[m.workspaceID()]; ok {
 		t.Fatal("SetWorkspacePreview must not schedule tab creation")
 	}
 }
@@ -173,7 +173,7 @@ func TestEnsureTerminalTab(t *testing.T) {
 				seedTabs(t, m, newWorkspaceTab(t, "Terminal 1"))
 			}
 			if tt.preMarkBusy {
-				m.pendingCreation[m.workspaceID()] = true
+				m.markPendingCreation(m.workspaceID())
 			}
 
 			cmd := m.EnsureTerminalTab()
@@ -182,7 +182,7 @@ func TestEnsureTerminalTab(t *testing.T) {
 				t.Fatalf("EnsureTerminalTab cmd!=nil=%v, want %v", cmd != nil, tt.wantCmd)
 			}
 			if tt.setWs {
-				if got := m.pendingCreation[m.workspaceID()]; got != tt.wantPending {
+				if _, got := m.pendingCreation[m.workspaceID()]; got != tt.wantPending {
 					t.Fatalf("pendingCreation = %v, want %v", got, tt.wantPending)
 				}
 			}
@@ -208,7 +208,7 @@ func TestCreateNewTab(t *testing.T) {
 		}
 		// CreateNewTab is the explicit "+" path; unlike SetWorkspace/
 		// EnsureTerminalTab it does not flip pendingCreation.
-		if m.pendingCreation[m.workspaceID()] {
+		if _, ok := m.pendingCreation[m.workspaceID()]; ok {
 			t.Fatal("CreateNewTab must not set pendingCreation")
 		}
 	})
@@ -488,3 +488,9 @@ func TestWriteToTerminal(t *testing.T) {
 		}
 	})
 }
+
+// TestPendingCreationExpiresAfterTimeout pins the plan-128 stall recovery:
+// a pendingCreation mark older than pendingCreationTimeout (a create result
+// that never arrived — e.g. dropped under queue pressure before the
+// critical marking, or a producer that died mid-flight) must expire so the
+// next ensure retries instead of wedging the workspace forever.

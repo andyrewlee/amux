@@ -50,12 +50,12 @@ func TestDetachTab_ClearsReattachInFlight(t *testing.T) {
 	m := newTestModel()
 	ws := newTestWorkspace("ws", "/repo/ws")
 	tab := &Tab{
-		ID:               TabID("tab-2"),
-		Assistant:        "claude",
-		Workspace:        ws,
-		Running:          true,
-		reattachInFlight: true,
-		Agent:            &appPty.Agent{Workspace: ws},
+		ID:        TabID("tab-2"),
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+		Reattach:  ptyio.ReattachGuard{InFlight: true},
+		Agent:     &appPty.Agent{Workspace: ws},
 	}
 
 	cmd := m.detachTab(tab, 0)
@@ -65,7 +65,7 @@ func TestDetachTab_ClearsReattachInFlight(t *testing.T) {
 	_ = cmd()
 
 	tab.mu.Lock()
-	inFlight := tab.reattachInFlight
+	inFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if inFlight {
 		t.Fatal("expected reattachInFlight=false after detach")

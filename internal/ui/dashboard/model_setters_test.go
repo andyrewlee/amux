@@ -6,7 +6,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -80,7 +79,7 @@ func TestDashboardSetActiveWorkspaces(t *testing.T) {
 		}
 
 		// A deleting main workspace supersedes active styling.
-		m.deletingWorkspaces[main.Root] = true
+		m.busyWorkspaces[main.Root] = WorkspaceOpDelete
 		if m.projectRowActive("ws-id", main) {
 			t.Fatalf("expected projectRowActive to be false while main workspace is deleting")
 		}
@@ -172,40 +171,40 @@ func TestDashboardSetShowKeymapHints(t *testing.T) {
 func TestDashboardSetAgentStates(t *testing.T) {
 	t.Run("stores provided map", func(t *testing.T) {
 		m := New()
-		states := map[string]activity.AgentState{"ws-a": activity.StateWorking, "ws-b": activity.StateDone}
+		states := map[string]data.AgentState{"ws-a": data.StateWorking, "ws-b": data.StateDone}
 		m.SetAgentStates(states)
 		if len(m.agentStates) != 2 {
 			t.Fatalf("expected 2 agent state entries, got %d", len(m.agentStates))
 		}
-		if m.agentStates["ws-a"] != activity.StateWorking {
+		if m.agentStates["ws-a"] != data.StateWorking {
 			t.Fatalf("expected ws-a to be StateWorking")
 		}
-		if m.agentStates["ws-b"] != activity.StateDone {
+		if m.agentStates["ws-b"] != data.StateDone {
 			t.Fatalf("expected ws-b to be StateDone")
 		}
 	})
 
 	t.Run("nil map clears states without panic", func(t *testing.T) {
 		m := New()
-		m.SetAgentStates(map[string]activity.AgentState{"ws-a": activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{"ws-a": data.StateDone})
 		m.SetAgentStates(nil)
 		if m.agentStates != nil {
 			t.Fatalf("expected agentStates to be nil after clearing")
 		}
 		// Reading a nil map must not panic.
-		if m.agentStates["ws-a"] != activity.StateIdle {
+		if m.agentStates["ws-a"] != data.StateIdle {
 			t.Fatalf("expected nil map to return zero value (StateIdle) for any key")
 		}
 	})
 
 	t.Run("replaces previous states", func(t *testing.T) {
 		m := New()
-		m.SetAgentStates(map[string]activity.AgentState{"old": activity.StateWorking})
-		m.SetAgentStates(map[string]activity.AgentState{"new": activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{"old": data.StateWorking})
+		m.SetAgentStates(map[string]data.AgentState{"new": data.StateDone})
 		if _, ok := m.agentStates["old"]; ok {
 			t.Fatalf("expected previous states to be replaced, 'old' still present")
 		}
-		if m.agentStates["new"] != activity.StateDone {
+		if m.agentStates["new"] != data.StateDone {
 			t.Fatalf("expected 'new' to be StateDone after replacement")
 		}
 	})
@@ -234,7 +233,7 @@ func TestDashboardDoneRender(t *testing.T) {
 
 	t.Run("done state renders done text", func(t *testing.T) {
 		m.SetActiveWorkspaces(map[string]bool{})
-		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateDone})
 		rendered := m.renderRow(*wsRow, false)
 		if !strings.Contains(rendered, "done") {
 			t.Fatalf("expected rendered row to contain 'done', got %q", rendered)
@@ -243,7 +242,7 @@ func TestDashboardDoneRender(t *testing.T) {
 
 	t.Run("working state does not render done text", func(t *testing.T) {
 		m.SetActiveWorkspaces(map[string]bool{wsID: true})
-		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateDone})
 		rendered := m.renderRow(*wsRow, false)
 		// When working, the "done" status text should not appear.
 		if strings.Contains(rendered, " done") {
@@ -253,7 +252,7 @@ func TestDashboardDoneRender(t *testing.T) {
 
 	t.Run("idle state does not render done text", func(t *testing.T) {
 		m.SetActiveWorkspaces(map[string]bool{})
-		m.SetAgentStates(map[string]activity.AgentState{})
+		m.SetAgentStates(map[string]data.AgentState{})
 		rendered := m.renderRow(*wsRow, false)
 		if strings.Contains(rendered, " done") {
 			t.Fatalf("idle workspace must not render 'done' text, got %q", rendered)
@@ -280,7 +279,7 @@ func TestDashboardDoneRenderForProjectMainWorkspace(t *testing.T) {
 	wsID := projectRow.ActivityWorkspaceID
 
 	m.SetActiveWorkspaces(map[string]bool{})
-	m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+	m.SetAgentStates(map[string]data.AgentState{wsID: data.StateDone})
 	rendered := m.renderRow(*projectRow, false)
 	if !strings.Contains(rendered, "done") {
 		t.Fatalf("expected project row to contain 'done', got %q", rendered)
@@ -353,7 +352,7 @@ func TestDashboardDoneAck(t *testing.T) {
 		}
 
 		m.SetActiveWorkspaces(map[string]bool{})
-		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateDone})
 
 		rendered := m.renderRow(m.rows[idx], false)
 		if !strings.Contains(rendered, "done") {
@@ -372,7 +371,7 @@ func TestDashboardDoneAck(t *testing.T) {
 		}
 
 		m.SetActiveWorkspaces(map[string]bool{})
-		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateDone})
 
 		// Simulate user navigating to the workspace row — this is the "seen" event.
 		m.cursor = idx
@@ -397,7 +396,7 @@ func TestDashboardDoneAck(t *testing.T) {
 		m.SetActiveWorkspaces(map[string]bool{})
 
 		// Mark done and ack it.
-		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateDone})
 		m.cursor = idx
 		_ = m.activateCurrentRow()
 
@@ -407,14 +406,14 @@ func TestDashboardDoneAck(t *testing.T) {
 		}
 
 		// A new work cycle starts — SetAgentStates with StateWorking must clear the ack.
-		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateWorking})
+		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateWorking})
 		if m.doneAcked[wsID] {
 			t.Fatalf("expected doneAcked to be cleared when workspace transitions to StateWorking")
 		}
 
 		// Workspace finishes again — back to StateDone (not active).
 		m.SetActiveWorkspaces(map[string]bool{})
-		m.SetAgentStates(map[string]activity.AgentState{wsID: activity.StateDone})
+		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateDone})
 
 		rendered := m.renderRow(m.rows[idx], false)
 		if !strings.Contains(rendered, "done") {

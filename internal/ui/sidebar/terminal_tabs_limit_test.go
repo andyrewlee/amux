@@ -105,7 +105,7 @@ func TestEnforceAttachedTerminalTabLimit_SkipsReattachInFlight(t *testing.T) {
 	m := NewTerminalModel()
 	inFlightWs := limitTestWorkspace("inflight")
 	inFlight := seedAttachedTerminal(m, string(inFlightWs.ID()), "inflight-tab")
-	inFlight.reattachInFlight = true
+	inFlight.Reattach.InFlight = true
 	idleWs := limitTestWorkspace("idle")
 	idle := seedAttachedTerminal(m, string(idleWs.ID()), "idle-tab")
 	m.setWorkspace(limitTestWorkspace("active"))

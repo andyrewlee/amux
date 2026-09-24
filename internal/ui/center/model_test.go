@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -148,6 +149,22 @@ func TestSetTmuxOptions_DoesNotPanicWithAgentManagerWired(t *testing.T) {
 	if m.tmuxOpts != opts {
 		t.Fatalf("model copy of options = %+v, want %+v", m.tmuxOpts, opts)
 	}
+}
+
+// TestSetSessionEnvProvider exercises the forwarding branches: no panic with
+// or without an agent manager. The provider's effect on spawned env is
+// asserted in the pty package (TestAgentManager_*SessionEnv*), where the
+// manager's internals are visible.
+func TestSetSessionEnvProvider(t *testing.T) {
+	m := newTestModel()
+	if m.agentManager == nil {
+		t.Fatal("expected constructor to wire an agent manager for forwarding")
+	}
+	m.SetSessionEnvProvider(func(*data.Workspace) ([]string, error) {
+		return []string{"AMUX_PORT=6200"}, nil
+	})
+	m.agentManager = nil
+	m.SetSessionEnvProvider(nil) // nil-manager branch: must not panic
 }
 
 // TestContentWidth verifies the pane-content width accounting: it subtracts the

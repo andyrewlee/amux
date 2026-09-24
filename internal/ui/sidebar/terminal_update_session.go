@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -21,10 +23,35 @@ func (m *TerminalModel) sessionRestoreLiveSize(captureFullPane bool, snapshotCol
 
 // handleTerminalCreated wires up a newly created terminal and its scrollback.
 func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cmd {
+	// The result is stamped with the workspace ID computed at dispatch time; a
+	// rebind or delete can invalidate that key while the create is in flight.
+	// A live bucket or pending flag under the stamped ID means the key is
+	// still good; otherwise decide by current-workspace state.
+	wsID := msg.WorkspaceID
+	if _, known := m.tabs.ByWorkspace[wsID]; !known && !m.pendingCreationActive(wsID) {
+		switch cur := m.workspaceID(); {
+		case cur == wsID:
+			// Manual create (CreateNewTab doesn't set the pending flag) for
+			// the workspace still current — file under the stamped key.
+		case cur != "" && m.pendingCreationActive(cur):
+			// A rebind migrated the pending flag to the new ID — file under
+			// the live key so the flag clears and the tab is visible.
+			logging.Warn("sidebar terminal create: result stamped with workspace %s but create pending under %s; filing under current", wsID, cur)
+			wsID = cur
+		default:
+			// Workspace deleted mid-flight — drop rather than resurrect a
+			// dead bucket with an invisible running terminal.
+			logging.Warn("sidebar terminal create: dropping result for stale workspace %s", wsID)
+			closeTerminalForSidebar(msg.Terminal, "stale create result")
+			return nil
+		}
+	}
+	delete(m.pendingCreation, msg.WorkspaceID) // belt-and-braces: stale flag can't linger
+
 	currentWidth, currentHeight := m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
 	initialWidth, initialHeight := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, currentWidth, currentHeight)
 	ts := m.createTerminalStateForTabWithSizeAndRefresh(
-		msg.WorkspaceID,
+		wsID,
 		msg.TabID,
 		msg.Terminal,
 		msg.SessionName,
@@ -62,7 +89,7 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 			_ = setTerminalSizeFn(msg.Terminal, ptyRows, ptyCols)
 		}
 	}
-	return m.startPTYReader(msg.WorkspaceID, msg.TabID)
+	return m.startPTYReader(wsID, msg.TabID)
 }
 
 // handleReattachResult applies the result of a terminal reattach operation.
@@ -106,7 +133,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.Running = true
 	ts.Detached = false
 	ts.UserDetached = false
-	ts.reattachInFlight = false
+	ts.Reattach.InFlight = false
 	ts.SessionName = msg.SessionName
 	ts.PendingOutput = nil
 	ts.NoiseTrailing = nil
@@ -135,7 +162,7 @@ func (m *TerminalModel) handleReattachFailed(msg SidebarTerminalReattachFailed) 
 		ts := tab.State
 		ts.mu.Lock()
 		ts.Running = false
-		ts.reattachInFlight = false
+		ts.Reattach.InFlight = false
 		if msg.Stopped {
 			ts.Detached = false
 		}
@@ -157,30 +184,50 @@ func (m *TerminalModel) handleReattachFailed(msg SidebarTerminalReattachFailed) 
 // handleCreateFailed clears the pending-creation flag so the user can retry.
 func (m *TerminalModel) handleCreateFailed(msg SidebarTerminalCreateFailed) tea.Cmd {
 	delete(m.pendingCreation, msg.WorkspaceID)
+	if _, known := m.tabs.ByWorkspace[msg.WorkspaceID]; !known {
+		// The stamped key is dead (rebind or delete mid-flight); the pending
+		// flag may have been migrated to the current workspace ID — clear it
+		// too or auto-create wedges forever.
+		if cur := m.workspaceID(); cur != "" {
+			delete(m.pendingCreation, cur)
+		}
+	}
 	return common.ReportError("creating sidebar terminal", msg.Err, "")
 }
 
 // handleWorkspaceDeleted tears down all terminal tabs for a deleted workspace.
 func (m *TerminalModel) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) tea.Cmd {
-	if msg.Workspace == nil {
-		return nil
-	}
-	wsID := string(msg.Workspace.ID())
-	tabs := m.tabs.ByWorkspace[wsID]
-	for _, tab := range tabs {
-		if tab.State != nil {
-			m.stopPTYReader(tab.State)
-			tab.State.mu.Lock()
-			if tab.State.Terminal != nil {
-				closeTerminalForSidebar(tab.State.Terminal, "workspace deletion")
-			}
-			tab.State.Running = false
-			tab.State.RestartBackoff = 0
-			tab.State.mu.Unlock()
-		}
-	}
-	m.tabs.DeleteWorkspace(wsID)
-	delete(m.pendingCreation, wsID)
-	delete(m.lastActiveAt, wsID)
+	m.teardownWorkspaceTabs(msg.Workspace, msg.WorkspaceIDs, "workspace deletion")
 	return nil
+}
+
+// handleWorkspaceShelved tears down all terminal tabs for a shelved workspace.
+// Shelve removes the worktree and kills its tmux sessions just like delete, so
+// keeping tabs keyed to it would resurface dead-session state on restore.
+func (m *TerminalModel) handleWorkspaceShelved(msg messages.WorkspaceShelved) tea.Cmd {
+	m.teardownWorkspaceTabs(msg.Workspace, msg.WorkspaceIDs, "workspace shelve")
+	return nil
+}
+
+// teardownWorkspaceTabs drops every tab keyed to the workspace. stampedIDs is
+// the pre-removal identity set from the message; when empty it falls back to
+// both computed forms — ws.ID() drifts once the worktree is gone, while
+// MetadataID() stays stable, and tabs may have been filed under either.
+func (m *TerminalModel) teardownWorkspaceTabs(ws *data.Workspace, stampedIDs []string, reason string) {
+	if ws == nil {
+		return
+	}
+	wsIDs := stampedIDs
+	if len(wsIDs) == 0 {
+		wsIDs = data.WorkspaceIdentityStrings(ws)
+	}
+	for _, wsID := range wsIDs {
+		tabs := m.tabs.ByWorkspace[wsID]
+		for _, tab := range tabs {
+			m.teardownTabState(tab.State, reason)
+		}
+		m.tabs.DeleteWorkspace(wsID)
+		delete(m.pendingCreation, wsID)
+		delete(m.lastActiveAt, wsID)
+	}
 }

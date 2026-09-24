@@ -7,9 +7,9 @@ func TestTabPTYPhaseTransitions(t *testing.T) {
 
 	assertPhase := func(label string, wantRunning, wantDetached, wantReattaching bool) {
 		t.Helper()
-		if tab.Running != wantRunning || tab.Detached != wantDetached || tab.reattachInFlight != wantReattaching {
+		if tab.Running != wantRunning || tab.Detached != wantDetached || tab.Reattach.InFlight != wantReattaching {
 			t.Fatalf("%s: Running=%v Detached=%v reattachInFlight=%v, want Running=%v Detached=%v reattachInFlight=%v",
-				label, tab.Running, tab.Detached, tab.reattachInFlight, wantRunning, wantDetached, wantReattaching)
+				label, tab.Running, tab.Detached, tab.Reattach.InFlight, wantRunning, wantDetached, wantReattaching)
 		}
 	}
 

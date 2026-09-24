@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func TestReattachActiveTab_SnapshotIneligibleFallsBackWithoutResize(t *testing.T) {
@@ -51,11 +52,11 @@ func TestReattachActiveTab_AttachFailureRollsBackBootstrapResize(t *testing.T) {
 	// Still unattached and unchanged at the rollback probe, so the rollback is
 	// safe to perform.
 	probeSeq(&calls, eligibleReattachProbe())
-	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		calls = append(calls, "resize")
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		calls = append(calls, "snapshot")
 		return []byte("resized"), nil
 	}

@@ -1,6 +1,8 @@
 package center
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -13,12 +15,13 @@ import (
 // New creates a new center pane model.
 func New(cfg *config.Config) *Model {
 	return &Model{
-		tabs:         common.NewTabSet[*Tab](),
-		config:       cfg,
-		agentManager: appPty.NewAgentManager(cfg),
-		styles:       common.DefaultStyles(),
-		tabEvents:    make(chan tabEvent, 4096),
-		tmuxOpts:     tmux.DefaultOptions(),
+		tabs:          common.NewTabSet[*Tab](),
+		config:        cfg,
+		agentManager:  appPty.NewAgentManager(cfg),
+		styles:        common.DefaultStyles(),
+		tabEvents:     make(chan tabEvent, 4096),
+		tmuxOpts:      tmux.DefaultOptions(),
+		viewerCommand: "vim",
 	}
 }
 
@@ -78,9 +81,20 @@ func (m *Model) SetShowKeymapHints(show bool) {
 	m.markHelpDirty()
 }
 
+// SetViewerCommand sets the shell fragment the file-viewer tab runs as
+// `<command> -- <file>` (ui.viewer_command). Empty normalizes to "vim".
+func (m *Model) SetViewerCommand(cmd string) {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		cmd = "vim"
+	}
+	m.viewerCommand = cmd
+}
+
 // SetStyles updates the component's styles (for theme changes).
 func (m *Model) SetStyles(styles common.Styles) {
 	m.styles = styles
+	m.stylesRev++
 	m.markHelpDirty()
 	// Propagate to all viewers in tabs
 	for _, tabs := range m.tabs.ByWorkspace {

@@ -10,6 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // registerActiveTab installs a single terminal tab for the workspace and makes
@@ -102,7 +103,7 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 
 			var gotSession string
 			var gotOpts tmux.Options
-			probeSessionFn = func(sessionName string, opts tmux.Options) (tmux.SessionProbe, error) {
+			ptyio.ProbeSessionFn = func(sessionName string, opts tmux.Options) (tmux.SessionProbe, error) {
 				gotSession = sessionName
 				gotOpts = opts
 				return tmux.SessionProbe{
@@ -115,7 +116,7 @@ func TestSessionHistoryCaptureSize(t *testing.T) {
 			}
 
 			opts := tmux.DefaultOptions()
-			cols, rows := sessionHistoryCaptureSize("session-xyz", tt.fallbackCols, tt.fallbackRows, opts)
+			cols, rows := ptyio.DefaultBootstrap().HistoryCaptureSize("session-xyz", tt.fallbackCols, tt.fallbackRows, opts)
 			if cols != tt.wantCols || rows != tt.wantRows {
 				t.Fatalf("expected %dx%d, got %dx%d", tt.wantCols, tt.wantRows, cols, rows)
 			}
@@ -367,15 +368,15 @@ func withReattachSeams(t *testing.T, scrollback string) {
 		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
 	}
 	probeSeq(nil, ineligible)
-	resizePaneToSizeFn = func(string, int, int, tmux.Options) error {
+	ptyio.ResizePaneToSizeFn = func(string, int, int, tmux.Options) error {
 		t.Fatal("did not expect a resize on the history-only path")
 		return nil
 	}
-	capturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneFullDataFn = func(string, tmux.Options) ([]byte, error) {
 		t.Fatal("did not expect a full-pane capture on the history-only path")
 		return nil, nil
 	}
-	capturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
+	ptyio.CapturePaneHistoryDataFn = func(string, tmux.Options) ([]byte, error) {
 		return []byte(scrollback), nil
 	}
 	capturePaneFn = func(string, tmux.Options) ([]byte, error) {

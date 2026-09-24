@@ -1,7 +1,7 @@
 package center
 
 import (
-	"time"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -13,16 +13,15 @@ import (
 )
 
 // These package-level indirections are test seams for reattach/bootstrap
-// paths. Tests that override them must not use t.Parallel within this package.
+// paths. The bootstrap seams themselves live in ptyio (ptyio.ProbeSessionFn
+// et al.); tests that override any of them must not use t.Parallel within
+// this package.
 var (
-	sessionStateForFn        = tmux.SessionStateFor
-	probeSessionFn           = tmux.ProbeSession
-	killSessionFn            = tmux.KillSession
-	resizePaneToSizeFn       = tmux.ResizePaneToSize
-	capturePaneFullDataFn    = tmux.CapturePaneFullData
-	capturePaneHistoryDataFn = tmux.CapturePaneHistoryData
-	capturePaneFn            = tmux.CapturePane
-	createAgentWithTagsFn    = func(
+	sessionStateForFn     = tmux.SessionStateFor
+	sessionOwnedFn        = ptyio.SessionOwned
+	killSessionFn         = tmux.KillSession
+	capturePaneFn         = tmux.CapturePane
+	createAgentWithTagsFn = func(
 		manager *appPty.AgentManager,
 		ws *data.Workspace,
 		agentType appPty.AgentType,
@@ -33,42 +32,6 @@ var (
 		return manager.CreateAgentWithTags(ws, agentType, sessionName, rows, cols, tags)
 	}
 )
-
-type sessionBootstrapCapture = ptyio.SessionBootstrapCapture
-
-// sessionBootstrap builds a ptyio.SessionBootstrap from this package's seam
-// vars. It is rebuilt per call (reading the seam vars each time) so a test that
-// overrides a seam var still flows through the next bootstrap operation.
-func sessionBootstrap() ptyio.SessionBootstrap {
-	return ptyio.SessionBootstrap{
-		Fns: ptyio.SessionBootstrapFns{
-			ProbeSession:           probeSessionFn,
-			ResizePaneToSize:       resizePaneToSizeFn,
-			CapturePaneFullData:    capturePaneFullDataFn,
-			CapturePaneHistoryData: capturePaneHistoryDataFn,
-		},
-	}
-}
-
-func captureExistingSessionBootstrap(sessionName string, cols, rows int, opts tmux.Options) sessionBootstrapCapture {
-	return sessionBootstrap().CaptureExisting(sessionName, cols, rows, opts)
-}
-
-func bootstrapSnapshotStillMatchesSession(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) bool {
-	return sessionBootstrap().SnapshotStillMatches(sessionName, bootstrap, opts)
-}
-
-func rollbackExistingSessionBootstrap(sessionName string, bootstrap sessionBootstrapCapture, opts tmux.Options) {
-	sessionBootstrap().Rollback(sessionName, bootstrap, opts)
-}
-
-func sessionHistoryCaptureSize(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) (int, int) {
-	return sessionBootstrap().HistoryCaptureSize(sessionName, fallbackCols, fallbackRows, opts)
-}
-
-func captureSessionHistory(sessionName string, fallbackCols, fallbackRows int, opts tmux.Options) ([]byte, int, int) {
-	return sessionBootstrap().CaptureHistory(sessionName, fallbackCols, fallbackRows, opts)
-}
 
 func (m *Model) sessionBootstrapViewportSize() (int, int) {
 	if m.width <= 0 || m.height <= 0 {
@@ -92,7 +55,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	tab.mu.Lock()
 	running := tab.Running
 	detached := tab.Detached
-	reattachInFlight := tab.reattachInFlight
+	reattachInFlight := tab.Reattach.InFlight
 	sessionName := tab.SessionName
 	canReattach := detached || !running
 	if canReattach && !reattachInFlight {
@@ -158,73 +121,46 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 				Action:      "reattach",
 			}
 		}
-		if !state.Exists || !state.HasLivePane {
-			if state.Exists && !state.HasLivePane {
-				_ = killSessionFn(sessionName, opts)
-			}
-			tags := tmux.SessionTags{
-				WorkspaceID:  string(ws.ID()),
-				TabID:        string(tabID),
-				Type:         "agent",
-				Assistant:    assistant,
-				CreatedAt:    time.Now().Unix(),
-				InstanceID:   m.instanceID,
-				SessionOwner: m.instanceID,
-				LeaseAtMS:    time.Now().UnixMilli(),
-			}
-			ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
-			agent, err := createAgentWithTagsFn(
-				m.agentManager,
-				ws,
-				appPty.AgentType(assistant),
-				sessionName,
-				ptyRows,
-				ptyCols,
-				tags,
-			)
-			if err != nil {
-				return ptyTabReattachFailed{
-					WorkspaceID: string(ws.ID()),
-					TabID:       tabID,
-					Epoch:       epoch,
-					Err:         err,
-					Stopped:     true,
-					Action:      "reattach",
-				}
-			}
-			captureCols, captureRows := sessionHistoryCaptureSize(sessionName, attachWidth, attachHeight, opts)
-			scrollback, _ := capturePaneFn(sessionName, opts)
-			return ptyTabReattachResult{
+		// Dead-session policy is ptyio.SessionAttachable, shared with sidebar:
+		// reattach only attaches to a live session — a missing or dead session
+		// reports Stopped so the user chooses restart explicitly. (This used to
+		// kill the dead session and silently recreate, losing the distinction.)
+		if !ptyio.SessionAttachable(state) {
+			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
 				Epoch:       epoch,
-				Agent:       agent,
-				Rows:        captureRows,
-				Cols:        captureCols,
-				SessionRestoreCapture: ptyio.SessionRestoreCapture{
-					ScrollbackCapture: scrollback,
-					CaptureFullPane:   false,
-					SnapshotCols:      attachWidth,
-					SnapshotRows:      attachHeight,
-				},
+				Err:         errors.New("tmux session ended"),
+				Stopped:     true,
+				Action:      "reattach",
 			}
 		}
-		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "agent",
-			Assistant:    assistant,
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
+		// Ownership policy is ptyio.SessionOwned, shared with sidebar: the
+		// live session must carry our tags. A foreign session squatting the
+		// name reports Stopped so the user restarts explicitly — restart
+		// kills the squatter by name before recreating.
+		owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
+		if ownErr != nil {
+			return ptyTabReattachFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Epoch:       epoch,
+				Err:         ownErr,
+				Action:      "reattach",
+			}
 		}
-		bootstrap := captureExistingSessionBootstrap(sessionName, termWidth, termHeight, opts)
-		snapshot := bootstrap.Snapshot
-		captureFullPane := bootstrap.CaptureFullPane
-		var scrollback []byte
-		captureCols := termWidth
-		captureRows := termHeight
-		var postAttachScrollback []byte
+		if !owned {
+			return ptyTabReattachFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Epoch:       epoch,
+				Err:         errors.New("tmux session is not owned by this workspace"),
+				Stopped:     true,
+				Action:      "reattach",
+			}
+		}
+		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, false)
+		bootstrap := ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
 		agent, err := createAgentWithTagsFn(
 			m.agentManager,
@@ -236,7 +172,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			tags,
 		)
 		if err != nil {
-			rollbackExistingSessionBootstrap(sessionName, bootstrap, opts)
+			ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
 			return ptyTabReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
@@ -245,16 +181,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 				Action:      "reattach",
 			}
 		}
-		if captureFullPane && bootstrapSnapshotStillMatchesSession(sessionName, bootstrap, opts) {
-			scrollback = snapshot.Data
-			postAttachScrollback, _ = capturePaneFn(sessionName, opts)
-		} else {
-			if captureFullPane {
-				captureFullPane = false
-				snapshot = tmux.PaneSnapshot{}
-			}
-			scrollback, captureCols, captureRows = captureSessionHistory(sessionName, attachWidth, attachHeight, opts)
-		}
+		scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows := ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
 		return ptyTabReattachResult{
 			WorkspaceID: string(ws.ID()),
 			TabID:       tabID,
@@ -296,7 +223,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	}
 	tab.mu.Lock()
 	running := tab.Running
-	reattachInFlight := tab.reattachInFlight
+	reattachInFlight := tab.Reattach.InFlight
 	sessionName := tab.SessionName
 	if sessionName == "" && tab.Agent != nil {
 		sessionName = tab.Agent.Session
@@ -347,16 +274,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		// safety net in the unlikely event of cleanup lag.
 		_ = killSessionFn(sessionName, tmuxOpts)
 
-		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "agent",
-			Assistant:    assistant,
-			CreatedAt:    time.Now().Unix(),
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
-		}
+		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, true)
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
 		agent, err := createAgentWithTagsFn(
 			m.agentManager,
@@ -379,7 +297,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		}
 		// Fresh restarts must avoid seeding the visible screen before the PTY
 		// reader drains unread startup bytes from the newly attached client.
-		captureCols, captureRows := sessionHistoryCaptureSize(sessionName, termWidth, termHeight, tmuxOpts)
+		captureCols, captureRows := ptyio.DefaultBootstrap().HistoryCaptureSize(sessionName, termWidth, termHeight, tmuxOpts)
 		scrollback, _ := capturePaneFn(sessionName, tmuxOpts)
 		return ptyTabReattachResult{
 			WorkspaceID: string(ws.ID()),

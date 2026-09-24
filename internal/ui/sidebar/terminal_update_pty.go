@@ -16,9 +16,11 @@ import (
 
 // handlePTYOutput buffers incoming PTY data and schedules a flush.
 func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
-	wsID := msg.WorkspaceID
 	tabID := TerminalTabID(msg.TabID)
-	tab := m.getTabByID(wsID, tabID)
+	// Output read before a workspace rebind but delivered after it carries the
+	// old ID; the exact-key lookup would miss and silently drop the payload —
+	// a hole in the byte stream. Resolve like the flush handler does.
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, tabID, "sidebar PTY output")
 	if tab == nil || tab.State == nil {
 		return nil
 	}
@@ -64,9 +66,10 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 
 // handlePTYFlush writes buffered PTY data to the vterm when the quiet period expires.
 func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
-	wsID := msg.WorkspaceID
 	tabID := TerminalTabID(msg.TabID)
-	tab := m.getTabByID(wsID, tabID)
+	// A flush tick stamped before a workspace rebind carries the old ID; the
+	// exact-key lookup would miss and leave FlushScheduled latched forever.
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, tabID, "sidebar PTY flush")
 	if tab == nil || tab.State == nil {
 		return nil
 	}
@@ -86,6 +89,11 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	if ts.VTerm != nil {
 		chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
 		_ = ts.State.WriteFilteredChunkLocked(ts.VTerm.Write, chunk)
+		if len(ts.PendingOutput) == 0 {
+			// Stream paused at the flush boundary: a held `name(N)` tail is
+			// more likely a real prompt than a split diagnostic — release it.
+			ts.State.FlushNoiseTrailingLocked(ts.VTerm.Write)
+		}
 		pendingClip = ts.VTerm.TakePendingClipboard()
 		consumed = true
 	}
@@ -112,9 +120,8 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 
 // handlePTYStopped handles PTY reader exit, restarting with backoff or marking detached.
 func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd {
-	wsID := msg.WorkspaceID
 	tabID := TerminalTabID(msg.TabID)
-	tab := m.getTabByID(wsID, tabID)
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, tabID, "sidebar PTY stopped")
 	if tab == nil || tab.State == nil {
 		return nil
 	}
@@ -141,7 +148,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	ts.mu.Unlock()
 	if shouldRestart {
 		restartTab := msg.TabID
-		restartWt := msg.WorkspaceID
+		restartWt := wsID
 		logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restarting in %s: %v", wsID, tabID, backoff, msg.Err)
 		return common.SafeTick(backoff, func(time.Time) tea.Msg {
 			return messages.SidebarPTYRestart{WorkspaceID: restartWt, TabID: restartTab}
@@ -157,7 +164,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 
 // handlePTYRestart re-starts the PTY reader after a backoff delay.
 func (m *TerminalModel) handlePTYRestart(msg messages.SidebarPTYRestart) tea.Cmd {
-	tab := m.getTabByID(msg.WorkspaceID, TerminalTabID(msg.TabID))
+	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, TerminalTabID(msg.TabID), "sidebar PTY restart")
 	if tab == nil || tab.State == nil {
 		return nil
 	}
@@ -168,5 +175,5 @@ func (m *TerminalModel) handlePTYRestart(msg messages.SidebarPTYRestart) tea.Cmd
 		ts.mu.Unlock()
 		return nil
 	}
-	return m.startPTYReader(msg.WorkspaceID, tab.ID)
+	return m.startPTYReader(wsID, tab.ID)
 }

@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -94,7 +95,7 @@ func TestSelectionScrollTick_DragAboveViewport(t *testing.T) {
 	ts.mu.Unlock()
 
 	// Process the tick message
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+	tickMsg := messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
 	_, cmd = m.Update(tickMsg)
 
 	if cmd == nil {
@@ -151,7 +152,7 @@ func TestSelectionScrollTick_DragBelowViewport(t *testing.T) {
 	ts.mu.Unlock()
 
 	// Process tick
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+	tickMsg := messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
 	_, cmd = m.Update(tickMsg)
 
 	if cmd == nil {
@@ -189,7 +190,7 @@ func TestSelectionScrollTick_StopsOnRelease(t *testing.T) {
 	m, _ = m.Update(release)
 
 	// Process tick with old gen → should be rejected
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+	tickMsg := messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
 	_, cmd := m.Update(tickMsg)
 
 	if cmd != nil {
@@ -219,7 +220,7 @@ func TestSelectionScrollTick_StopsOnNewClick(t *testing.T) {
 	m, _ = m.Update(click2)
 
 	// Old tick should be rejected
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+	tickMsg := messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
 	_, cmd := m.Update(tickMsg)
 
 	if cmd != nil {
@@ -246,7 +247,7 @@ func TestSelectionScrollTick_ContinuousScrolling(t *testing.T) {
 
 	// Simulate 5 consecutive ticks (mouse held still)
 	for i := 0; i < 5; i++ {
-		tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+		tickMsg := messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
 		var cmd tea.Cmd
 		m, cmd = m.Update(tickMsg)
 		if cmd == nil {
@@ -297,7 +298,7 @@ func TestSelectionScrollTick_EndpointTracksLastX(t *testing.T) {
 	ts.mu.Unlock()
 
 	// Process tick
-	tickMsg := SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+	tickMsg := messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
 	_, _ = m.Update(tickMsg)
 
 	// Verify endpoint X matches the last motion X

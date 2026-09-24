@@ -22,10 +22,11 @@ func (m *Model) startSpinnerIfNeeded() tea.Cmd {
 	if m.spinnerActive {
 		return nil
 	}
-	if len(m.creatingWorkspaces) == 0 && len(m.deletingWorkspaces) == 0 {
+	if len(m.creatingWorkspaces) == 0 && len(m.busyWorkspaces) == 0 {
 		return nil
 	}
 	m.spinnerActive = true
+	m.markContentDirty()
 	return m.tickSpinner()
 }
 
@@ -49,13 +50,26 @@ func (m *Model) SetWorkspaceCreating(ws *data.Workspace, creating bool) tea.Cmd 
 	return nil
 }
 
-// SetWorkspaceDeleting marks a workspace as deleting (or clears it).
-func (m *Model) SetWorkspaceDeleting(root string, deleting bool) tea.Cmd {
-	if deleting {
-		m.deletingWorkspaces[root] = true
+// WorkspaceOp labels the lifecycle mutation a workspace row is busy with —
+// it is the verb shown next to the row spinner, so shelve/restore no longer
+// render as "deleting".
+type WorkspaceOp string
+
+const (
+	WorkspaceOpDelete  WorkspaceOp = "deleting"
+	WorkspaceOpShelve  WorkspaceOp = "shelving"
+	WorkspaceOpRestore WorkspaceOp = "restoring"
+)
+
+// SetWorkspaceBusy marks a workspace as mid-mutation under op (or clears it).
+func (m *Model) SetWorkspaceBusy(root string, op WorkspaceOp, on bool) tea.Cmd {
+	if on {
+		m.busyWorkspaces[root] = op
+		m.markContentDirty()
 		return m.startSpinnerIfNeeded()
 	}
-	delete(m.deletingWorkspaces, root)
+	delete(m.busyWorkspaces, root)
+	m.markContentDirty()
 	return nil
 }
 
@@ -95,6 +109,15 @@ func (m *Model) rebuildRows() {
 			})
 		}
 
+		for i := range project.ShelvedWorkspaces {
+			ws := &project.ShelvedWorkspaces[i]
+			m.rows = append(m.rows, Row{
+				Type:      RowShelved,
+				Project:   project,
+				Workspace: ws,
+			})
+		}
+
 		m.rows = append(m.rows, Row{
 			Type:    RowCreate,
 			Project: project,
@@ -120,6 +143,7 @@ func (m *Model) rebuildRows() {
 	}
 
 	m.clampScrollOffset()
+	m.markContentDirty()
 }
 
 // clampScrollOffset ensures scrollOffset stays within valid bounds.
@@ -172,12 +196,12 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 // projectRowActive reports whether a project header row should render as active.
 // A project being deleted is never active even if its main workspace still has
 // an active agent — the delete supersedes the active styling, otherwise a
-// deleting project would render with active color (a status desync).
+// busy project would render with active color (a status desync).
 func (m *Model) projectRowActive(activityWorkspaceID string, main *data.Workspace) bool {
 	if activityWorkspaceID == "" || !m.activeWorkspaceIDs[activityWorkspaceID] {
 		return false
 	}
-	if main != nil && m.deletingWorkspaces[main.Root] {
+	if main != nil && m.busyWorkspaces[main.Root] != "" {
 		return false
 	}
 	return true
@@ -213,4 +237,5 @@ func (m *Model) Projects() []data.Project {
 // ClearActiveRoot resets the active workspace selection to "Home".
 func (m *Model) ClearActiveRoot() {
 	m.activeRoot = ""
+	m.markContentDirty()
 }

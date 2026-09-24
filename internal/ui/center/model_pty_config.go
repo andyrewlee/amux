@@ -96,6 +96,10 @@ type PTYStopped struct {
 	Err         error
 }
 
+// MarkCriticalExternalMsg marks PTYStopped as a critical external message:
+// a stopped PTY must never be evicted from the lossy queue.
+func (PTYStopped) MarkCriticalExternalMsg() {}
+
 // PTYRestart requests restarting a PTY reader for a tab.
 type PTYRestart struct {
 	WorkspaceID string

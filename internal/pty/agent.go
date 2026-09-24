@@ -36,6 +36,13 @@ type AgentManager struct {
 	mu          sync.Mutex
 	agents      map[data.WorkspaceID][]*Agent
 	tmuxOptions tmux.Options
+	// sessionEnv composes the layered workspace env for a spawn (the app's
+	// process.ScriptRunner.BuildSessionEnv): os.Environ + AMUX_* injected +
+	// project env + ws.Env — every user-controlled layer, never repo env.
+	// Spawn-specific vars (WORKSPACE_*, LINES/COLUMNS, COLORTERM, PATH) are
+	// appended after it so they always win over user layers. Nil keeps the
+	// historical minimal env (tests and standalone manager use).
+	sessionEnv func(ws *data.Workspace) ([]string, error)
 }
 
 const (
@@ -57,6 +64,29 @@ func (m *AgentManager) SetTmuxOptions(opts tmux.Options) {
 	m.mu.Lock()
 	m.tmuxOptions = opts
 	m.mu.Unlock()
+}
+
+// SetSessionEnvProvider installs the layered session env composer — the
+// same contract ScriptRunner gives script spawns minus the trust-gated repo
+// layer (see process.BuildSessionEnv for the trust-scope decision). A
+// provider error (port-range exhaustion) propagates to the create call
+// rather than silently spawning a session without its reservation.
+func (m *AgentManager) SetSessionEnvProvider(fn func(ws *data.Workspace) ([]string, error)) {
+	m.mu.Lock()
+	m.sessionEnv = fn
+	m.mu.Unlock()
+}
+
+// sessionEnvLayers resolves the provider's env for ws (nil provider = no
+// layers — the caller then gets only its spawn-specific vars).
+func (m *AgentManager) sessionEnvLayers(ws *data.Workspace) ([]string, error) {
+	m.mu.Lock()
+	fn := m.sessionEnv
+	m.mu.Unlock()
+	if fn == nil {
+		return nil, nil
+	}
+	return fn(ws)
 }
 
 func (m *AgentManager) getTmuxOptions() tmux.Options {
@@ -87,14 +117,19 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 		return nil, err
 	}
 
-	// Build environment
-	env := []string{
-		"WORKSPACE_ROOT=" + ws.Root,
-		"WORKSPACE_NAME=" + ws.Name,
+	// Build environment: layered workspace env (when a provider is wired),
+	// then spawn-specific vars last so they always win over user layers.
+	env, err := m.sessionEnvLayers(ws)
+	if err != nil {
+		return nil, err
+	}
+	env = append(env,
+		"WORKSPACE_ROOT="+ws.Root,
+		"WORKSPACE_NAME="+ws.Name,
 		"LINES=",   // Unset to force ioctl usage
 		"COLUMNS=", // Unset to force ioctl usage
 		"COLORTERM=truecolor",
-	}
+	)
 	if path := AugmentedPath(); path != "" {
 		env = append(env, "PATH="+path)
 	}
@@ -154,13 +189,18 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 	if err := tmux.EnsureAvailable(); err != nil {
 		return nil, err
 	}
-	// Build environment
-	env := []string{
-		"WORKSPACE_ROOT=" + ws.Root,
-		"WORKSPACE_NAME=" + ws.Name,
+	// Build environment: layered workspace env (when a provider is wired),
+	// then spawn-specific vars last so they always win over user layers.
+	env, err := m.sessionEnvLayers(ws)
+	if err != nil {
+		return nil, err
+	}
+	env = append(env,
+		"WORKSPACE_ROOT="+ws.Root,
+		"WORKSPACE_NAME="+ws.Name,
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
-	}
+	)
 	if path := AugmentedPath(); path != "" {
 		env = append(env, "PATH="+path)
 	}
@@ -254,23 +294,31 @@ func (m *AgentManager) CloseAll() {
 	}
 }
 
-// CloseWorkspaceAgents closes and removes all agents for a specific workspace
-func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace) {
+// CloseWorkspaceAgents closes and removes all agents for a specific workspace.
+// ids is the stamped pre-removal identity set; when empty it falls back to the
+// canonical identity set — ws.ID() drifts once the worktree is gone, while
+// MetadataID() stays stable — so agents keyed under any form are collected.
+func (m *AgentManager) CloseWorkspaceAgents(ws *data.Workspace, ids []string) {
 	if ws == nil {
 		return
 	}
-	wsID := ws.ID()
+	if len(ids) == 0 {
+		ids = data.WorkspaceIdentityStrings(ws)
+	}
 	m.mu.Lock()
-	agents := m.agents[wsID]
-	delete(m.agents, wsID)
+	var agents []*Agent
+	for _, id := range ids {
+		agents = append(agents, m.agents[data.WorkspaceID(id)]...)
+		delete(m.agents, data.WorkspaceID(id))
+	}
 	m.mu.Unlock()
 	if len(agents) > 0 {
-		logging.Info("closing %d agents for workspace %s", len(agents), wsID)
+		logging.Info("closing %d agents for workspace %s", len(agents), ws.ID())
 	}
 	for _, agent := range agents {
 		if agent != nil && agent.Terminal != nil {
 			if err := agent.Terminal.Close(); err != nil {
-				logging.Warn("closing workspace agent terminal failed: workspace=%s error=%v", wsID, err)
+				logging.Warn("closing workspace agent terminal failed: workspace=%s error=%v", ws.ID(), err)
 			}
 		}
 	}
@@ -320,4 +368,57 @@ func interruptSettings(cfg config.AssistantConfig) (int, time.Duration) {
 		delayMs = maxDelayMs
 	}
 	return count, time.Duration(delayMs) * time.Millisecond
+}
+
+// CreateRunAttach attaches a terminal client to an existing run session —
+// the read-write counterpart of the run-output overlay. The client owns
+// nothing: the command is attach-only (no session creation, no session
+// options, no tags), so the run session's detached lifecycle and
+// `@amux_type=run` identity are untouched, and this client exiting simply
+// detaches while the script keeps running.
+func (m *AgentManager) CreateRunAttach(ws *data.Workspace, sessionName string, rows, cols uint16) (*Agent, error) {
+	if ws == nil {
+		return nil, errors.New("workspace is required")
+	}
+	if sessionName == "" {
+		return nil, errors.New("session name is required")
+	}
+	if err := tmux.EnsureAvailable(); err != nil {
+		return nil, err
+	}
+	env, err := m.sessionEnvLayers(ws)
+	if err != nil {
+		return nil, err
+	}
+	env = append(env,
+		"WORKSPACE_ROOT="+ws.Root,
+		"WORKSPACE_NAME="+ws.Name,
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+	)
+	if path := AugmentedPath(); path != "" {
+		env = append(env, "PATH="+path)
+	}
+
+	term, err := NewTmuxClientWithSize(
+		tmux.AttachOnlyClientCommand(sessionName, m.getTmuxOptions()),
+		ws.Root, env, rows, cols,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create terminal: %w", err)
+	}
+
+	agent := &Agent{
+		Type:      AgentType("run"),
+		Terminal:  term,
+		Workspace: ws,
+		Config:    config.AssistantConfig{},
+		Session:   sessionName,
+	}
+
+	m.mu.Lock()
+	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
+	m.mu.Unlock()
+
+	return agent, nil
 }

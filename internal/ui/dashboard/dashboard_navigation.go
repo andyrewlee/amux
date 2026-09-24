@@ -33,7 +33,7 @@ func (m *Model) selectedWorkspaceIDAt(idx int) string {
 		return ""
 	}
 	row := m.rows[idx]
-	if row.Type == RowWorkspace && row.Workspace != nil {
+	if (row.Type == RowWorkspace || row.Type == RowShelved) && row.Workspace != nil {
 		return string(row.Workspace.ID())
 	}
 	return ""
@@ -44,7 +44,10 @@ func (m *Model) selectedWorkspaceIDAt(idx int) string {
 func (m *Model) workspaceRowIndex(wsID string) int {
 	for i := range m.rows {
 		row := m.rows[i]
-		if row.Type == RowWorkspace && row.Workspace != nil && string(row.Workspace.ID()) == wsID {
+		// RowShelved counts too: it is still the workspace's row — shelve
+		// keeps the record and re-renders it in place — so cursor re-anchoring
+		// after a shelve lands on it instead of walking up to the predecessor.
+		if (row.Type == RowWorkspace || row.Type == RowShelved) && row.Workspace != nil && string(row.Workspace.ID()) == wsID {
 			return i
 		}
 	}
@@ -64,6 +67,7 @@ func (m *Model) SelectWorkspace(wsID string) {
 	if wsID == "" {
 		return
 	}
+	m.markContentDirty()
 	m.pendingSelectID = wsID
 	m.pendingSelectLoads = pendingSelectMaxLoads
 	m.applyPendingSelection()
@@ -116,7 +120,14 @@ func (m *Model) resolveCursorAfterRebuild(prevCursor int, selectedID string) {
 		m.cursor = idx
 		return
 	}
-	// The selected workspace is gone. Land on the nearest selectable row strictly
+	// The selected workspace is gone. Remember its ID for the next few loads:
+	// shelve removes the live row immediately but only re-renders it as a
+	// shelved row once the projects reload lands — pending lets that row
+	// re-take the cursor instead of stranding it on the predecessor. Deletes
+	// never reappear, so the pending ID simply expires within the bound.
+	m.pendingSelectID = selectedID
+	m.pendingSelectLoads = pendingSelectMaxLoads
+	// Land on the nearest selectable row strictly
 	// ABOVE its old slot (the predecessor) — not the successor that shifted up into
 	// that slot — so repeated deletes walk upward instead of chewing downward.
 	start := prevCursor - 1
@@ -212,7 +223,8 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	return -1, false
 }
 
-// ackDone marks a workspace's "done" indicator as seen so it stops rendering.
+// ackDone marks a workspace's "done" indicator as seen so it stops rendering —
+// both the live Done state and the latched donePending badge.
 func (m *Model) ackDone(wsID string) {
 	if wsID == "" {
 		return
@@ -221,6 +233,40 @@ func (m *Model) ackDone(wsID string) {
 		m.doneAcked = make(map[string]bool)
 	}
 	m.doneAcked[wsID] = true
+	delete(m.donePending, wsID)
+}
+
+// doneBadgeVisible reports whether the done badge renders for a workspace: the
+// live Done state or the unacked latch, suppressed once the user has seen it.
+func (m *Model) doneBadgeVisible(wsID string) bool {
+	return (m.agentStates[wsID] == data.StateDone || m.donePending[wsID]) &&
+		!m.doneAcked[wsID]
+}
+
+// JumpToNextAttention moves the cursor to the next row whose done badge is
+// visible — the same predicate the renderer uses (row.ActivityWorkspaceID is
+// the precomputed key, covering project main workspaces and shelved rows
+// alike). The scan wraps once around the row list; landing reuses
+// activateCurrentRow, so the jump also previews and acks the row. Returns nil
+// when nothing needs attention (cursor unchanged).
+func (m *Model) JumpToNextAttention() tea.Cmd {
+	n := len(m.rows)
+	if n == 0 {
+		return nil
+	}
+	for step := 1; step <= n; step++ {
+		i := (m.cursor + step) % n
+		row := m.rows[i]
+		if !isSelectable(row.Type) {
+			continue
+		}
+		if m.doneBadgeVisible(row.ActivityWorkspaceID) {
+			m.cursor = i
+			m.syncScrollToCursor()
+			return m.activateCurrentRow()
+		}
+	}
+	return nil
 }
 
 // activateCurrentRow returns a command to activate the currently selected row.
@@ -307,6 +353,20 @@ func (m *Model) handleEnter() tea.Cmd {
 				Workspace: row.Workspace,
 			}
 		}
+	case RowShelved:
+		// Marked shelved rows upgrade Enter to the bulk restore — the same
+		// marks-take-precedence pattern S uses for live rows.
+		if items := m.markedShelvedItems(); len(items) > 0 {
+			return func() tea.Msg {
+				return messages.ShowBulkRestoreWorkspaceDialog{Items: items}
+			}
+		}
+		return func() tea.Msg {
+			return messages.RestoreWorkspace{
+				Project:   row.Project,
+				Workspace: row.Workspace,
+			}
+		}
 	case RowCreate:
 		return func() tea.Msg {
 			return messages.ShowCreateWorkspaceDialog{Project: row.Project}
@@ -323,6 +383,23 @@ func (m *Model) handleDelete() tea.Cmd {
 	}
 
 	row := m.rows[m.cursor]
+	if row.Type == RowShelved && row.Workspace != nil {
+		// Marked shelved rows upgrade D to the bulk purge — a typed confirm
+		// guards the destructive batch, unlike the single-row dialog.
+		if items := m.markedShelvedItems(); len(items) > 0 {
+			return func() tea.Msg {
+				return messages.ShowBulkPurgeWorkspaceDialog{Items: items}
+			}
+		}
+		// On a shelved row this is the purge: the same delete flow, which
+		// already tolerates the absent worktree and removes branch+metadata.
+		return func() tea.Msg {
+			return messages.ShowDeleteWorkspaceDialog{
+				Project:   row.Project,
+				Workspace: row.Workspace,
+			}
+		}
+	}
 	if row.Type == RowWorkspace && row.Workspace != nil {
 		return func() tea.Msg {
 			return messages.ShowDeleteWorkspaceDialog{
@@ -339,6 +416,32 @@ func (m *Model) handleDelete() tea.Cmd {
 		}
 	}
 
+	return nil
+}
+
+// handleShelve handles the shelve key — the worktree goes away but the
+// branch and metadata survive for a later restore. Live workspace rows only;
+// the shelved row's own lifecycle keys are Enter (restore) and D (purge).
+// When live workspace rows are marked, the key applies to the marked set:
+// one confirm dialog covers all of them instead of N per-row confirms.
+func (m *Model) handleShelve() tea.Cmd {
+	if m.cursor >= len(m.rows) {
+		return nil
+	}
+	if items := m.markedShelveItems(); len(items) > 0 {
+		return func() tea.Msg {
+			return messages.ShowBulkShelveWorkspaceDialog{Items: items}
+		}
+	}
+	row := m.rows[m.cursor]
+	if row.Type == RowWorkspace && row.Workspace != nil {
+		return func() tea.Msg {
+			return messages.ShowShelveWorkspaceDialog{
+				Project:   row.Project,
+				Workspace: row.Workspace,
+			}
+		}
+	}
 	return nil
 }
 

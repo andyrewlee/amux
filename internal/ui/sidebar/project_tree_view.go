@@ -10,6 +10,7 @@ import (
 
 // View renders the project tree
 func (m *ProjectTree) View() string {
+	m.contentBuilds++
 	if m.workspace == nil {
 		return m.renderWithHelp(m.styles.Muted.Render("No workspace selected"))
 	}
@@ -58,19 +59,14 @@ func (m *ProjectTree) View() string {
 			icon = common.Icons.File + " "
 		}
 
-		// Name with styling
-		name := node.Name
 		maxNameWidth := m.width - lipgloss.Width(cursor+indent+icon) - 1
 		if maxNameWidth < 5 {
 			maxNameWidth = 5
 		}
-		if lipgloss.Width(name) > maxNameWidth {
-			runes := []rune(name)
-			for len(runes) > 4 && lipgloss.Width(string(runes)) > maxNameWidth-3 {
-				runes = runes[:len(runes)-1]
-			}
-			name = string(runes) + "..."
-		}
+		// Name with styling — filesystem names are repo-controlled bytes, so
+		// strip terminal control sequences before measuring or rendering.
+		name := common.SanitizeDisplayText(node.Name, maxNameWidth*2)
+		name = common.TruncateRightCells(name, maxNameWidth, "...", 4)
 
 		var nameStyled string
 		if node.IsDir {

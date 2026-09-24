@@ -8,6 +8,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/testutil"
 )
 
@@ -47,7 +48,7 @@ func TestToggleBranchModeFetchesAndPopulatesDisplayItems(t *testing.T) {
 	}
 
 	msg := cmd()
-	loaded, ok := msg.(BranchChangesLoaded)
+	loaded, ok := msg.(messages.BranchChangesLoaded)
 	if !ok {
 		t.Fatalf("fetch command produced %T, want BranchChangesLoaded", msg)
 	}
@@ -61,7 +62,7 @@ func TestToggleBranchModeFetchesAndPopulatesDisplayItems(t *testing.T) {
 	newModel, followUpCmd := m.Update(loaded)
 	m = newModel
 	if followUpCmd != nil {
-		t.Errorf("Update(BranchChangesLoaded) returned a command, want nil")
+		t.Errorf("Update(messages.BranchChangesLoaded) returned a command, want nil")
 	}
 	if m.branchLoading {
 		t.Error("branchLoading should be false once the result lands")
@@ -158,7 +159,7 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 	m.branchLoading = true
 	m.branchLoadID = 2 // a newer toggle already bumped this past the in-flight fetch's ID
 
-	m.handleBranchChangesLoaded(BranchChangesLoaded{
+	m.handleBranchChangesLoaded(messages.BranchChangesLoaded{
 		Root:    "/tmp/repo",
 		LoadID:  1, // stale
 		Changes: []git.Change{{Path: "stale.go", Kind: git.ChangeModified}},
@@ -167,7 +168,7 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 		t.Fatalf("stale LoadID result should be dropped, got loading=%v changes=%+v", m.branchLoading, m.branchChanges)
 	}
 
-	m.handleBranchChangesLoaded(BranchChangesLoaded{
+	m.handleBranchChangesLoaded(messages.BranchChangesLoaded{
 		Root:    "/some/other/repo",
 		LoadID:  2,
 		Changes: []git.Change{{Path: "other.go", Kind: git.ChangeModified}},
@@ -176,7 +177,7 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 		t.Fatalf("result for a different workspace root should be dropped, got loading=%v changes=%+v", m.branchLoading, m.branchChanges)
 	}
 
-	m.handleBranchChangesLoaded(BranchChangesLoaded{
+	m.handleBranchChangesLoaded(messages.BranchChangesLoaded{
 		Root:    "/tmp/repo",
 		LoadID:  2,
 		Changes: []git.Change{{Path: "current.go", Kind: git.ChangeModified}},
@@ -194,19 +195,19 @@ func TestHandleAheadBehindLoadedUpdatesAndDropsStale(t *testing.T) {
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
 	m.aheadBehindLoadID = 3
 
-	m.handleAheadBehindLoaded(AheadBehindLoaded{Root: "/tmp/repo", LoadID: 2, Ahead: 5, Behind: 5})
+	m.handleAheadBehindLoaded(messages.AheadBehindLoaded{Root: "/tmp/repo", LoadID: 2, Ahead: 5, Behind: 5})
 	if m.ahead != 0 || m.behind != 0 {
 		t.Fatalf("stale LoadID should be dropped, got ahead=%d behind=%d", m.ahead, m.behind)
 	}
 
-	m.handleAheadBehindLoaded(AheadBehindLoaded{Root: "/tmp/repo", LoadID: 3, Ahead: 2, Behind: 1})
+	m.handleAheadBehindLoaded(messages.AheadBehindLoaded{Root: "/tmp/repo", LoadID: 3, Ahead: 2, Behind: 1})
 	if m.ahead != 2 || m.behind != 1 {
 		t.Fatalf("ahead, behind = %d, %d, want 2, 1", m.ahead, m.behind)
 	}
 
 	wantErr := errors.New("boom")
 	m.aheadBehindLoadID = 4
-	m.handleAheadBehindLoaded(AheadBehindLoaded{Root: "/tmp/repo", LoadID: 4, Err: wantErr})
+	m.handleAheadBehindLoaded(messages.AheadBehindLoaded{Root: "/tmp/repo", LoadID: 4, Err: wantErr})
 	if m.aheadBehindErr == nil {
 		t.Fatal("expected aheadBehindErr to be set")
 	}
@@ -240,7 +241,7 @@ func TestSetWorkspaceResetsBranchStateAndFetchesAheadBehind(t *testing.T) {
 	}
 
 	msg := cmd()
-	loaded, ok := msg.(AheadBehindLoaded)
+	loaded, ok := msg.(messages.AheadBehindLoaded)
 	if !ok {
 		t.Fatalf("fetch command produced %T, want AheadBehindLoaded", msg)
 	}

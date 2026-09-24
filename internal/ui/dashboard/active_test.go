@@ -48,7 +48,7 @@ func TestDashboardHomeActive(t *testing.T) {
 	}
 }
 
-func TestDashboardProjectRowActive_DeletingSupersedesActive(t *testing.T) {
+func TestDashboardProjectRowActive_BusySupersedesActive(t *testing.T) {
 	t.Parallel()
 	main := &data.Workspace{Name: "p", Branch: "main", Repo: "/p", Root: "/p"}
 	mainID := string(main.ID())
@@ -62,8 +62,8 @@ func TestDashboardProjectRowActive_DeletingSupersedesActive(t *testing.T) {
 
 	// Mark the project deleting: the row must no longer render active even though
 	// the workspace is still in the active set.
-	m.deletingWorkspaces = map[string]bool{main.Root: true}
+	m.busyWorkspaces = map[string]WorkspaceOp{main.Root: WorkspaceOpDelete}
 	if m.projectRowActive(mainID, main) {
-		t.Fatal("a deleting project must not render active")
+		t.Fatal("a busy project must not render active")
 	}
 }

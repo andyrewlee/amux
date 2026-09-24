@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -195,7 +196,7 @@ func (t *Terminal) SendString(s string) error {
 // without recording any literal bytes.
 func controlByteHint(s string) string {
 	var hints []string
-	if strings.Contains(s, "\x1b[200~") || strings.Contains(s, "\x1b[201~") {
+	if strings.Contains(s, ansi.BracketedPasteStart) || strings.Contains(s, ansi.BracketedPasteEnd) {
 		hints = append(hints, "paste")
 	}
 	if strings.ContainsRune(s, 0x0d) {

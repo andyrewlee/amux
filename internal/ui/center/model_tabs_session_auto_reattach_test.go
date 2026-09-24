@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 func TestAutoReattachActiveTabOnSelection_SkipsAttachedTab(t *testing.T) {
@@ -52,7 +53,7 @@ func TestAutoReattachActiveTabOnSelection_ReattachesDetachedTab(t *testing.T) {
 
 	// The cmd should have set reattachInFlight
 	tab.mu.Lock()
-	inFlight := tab.reattachInFlight
+	inFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if !inFlight {
 		t.Fatalf("expected reattachInFlight=true after autoReattachActiveTabOnSelection")
@@ -87,13 +88,13 @@ func TestReattachActiveTab_DeduplicatesInFlight(t *testing.T) {
 	wsID := string(ws.ID())
 
 	tab := &Tab{
-		ID:               TabID("tab-inflight"),
-		Assistant:        "claude",
-		Workspace:        ws,
-		Running:          false,
-		Detached:         true,
-		reattachInFlight: true,
-		SessionName:      "sess-inflight",
+		ID:          TabID("tab-inflight"),
+		Assistant:   "claude",
+		Workspace:   ws,
+		Running:     false,
+		Detached:    true,
+		Reattach:    ptyio.ReattachGuard{InFlight: true},
+		SessionName: "sess-inflight",
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -113,7 +114,7 @@ func TestReattachActiveTab_DeduplicatesInFlight(t *testing.T) {
 		t.Fatalf("unexpected toast message: %q", toast.Message)
 	}
 	tab.mu.Lock()
-	stillInFlight := tab.reattachInFlight
+	stillInFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if !stillInFlight {
 		t.Fatalf("expected the in-flight reattach lock to be left untouched")
@@ -126,13 +127,13 @@ func TestAutoReattachOnSelection_SilentWhileReattachInFlight(t *testing.T) {
 	wsID := string(ws.ID())
 
 	tab := &Tab{
-		ID:               TabID("tab-inflight"),
-		Assistant:        "claude",
-		Workspace:        ws,
-		Running:          false,
-		Detached:         true,
-		reattachInFlight: true,
-		SessionName:      "sess-inflight",
+		ID:          TabID("tab-inflight"),
+		Assistant:   "claude",
+		Workspace:   ws,
+		Running:     false,
+		Detached:    true,
+		Reattach:    ptyio.ReattachGuard{InFlight: true},
+		SessionName: "sess-inflight",
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -168,7 +169,7 @@ func TestReattachActiveTab_AllowsStoppedTab(t *testing.T) {
 	}
 
 	tab.mu.Lock()
-	inFlight := tab.reattachInFlight
+	inFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if !inFlight {
 		t.Fatalf("expected reattachInFlight=true for stopped tab reattach")
@@ -200,7 +201,7 @@ func TestReattachActiveTab_ClearsInFlightOnFailureAndSuccess(t *testing.T) {
 
 	// Verify reattachInFlight was cleared
 	tab.mu.Lock()
-	inFlight := tab.reattachInFlight
+	inFlight := tab.Reattach.InFlight
 	tab.mu.Unlock()
 	if inFlight {
 		t.Fatalf("expected reattachInFlight=false after config validation failure")

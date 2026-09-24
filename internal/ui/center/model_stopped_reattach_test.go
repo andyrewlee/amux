@@ -5,6 +5,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // TestUpdateTabSessionStatus_StoppedClearsReattachInFlight proves a stopped
@@ -16,13 +17,13 @@ func TestUpdateTabSessionStatus_StoppedClearsReattachInFlight(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 	tab := &Tab{
-		ID:               TabID("tab-stopped-reattach"),
-		Assistant:        "claude",
-		Workspace:        ws,
-		SessionName:      "amux-ws-sess",
-		Running:          true,
-		reattachInFlight: true,
-		Agent:            &appPty.Agent{Workspace: ws, Session: "amux-ws-sess"},
+		ID:          TabID("tab-stopped-reattach"),
+		Assistant:   "claude",
+		Workspace:   ws,
+		SessionName: "amux-ws-sess",
+		Running:     true,
+		Reattach:    ptyio.ReattachGuard{InFlight: true},
+		Agent:       &appPty.Agent{Workspace: ws, Session: "amux-ws-sess"},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -34,7 +35,7 @@ func TestUpdateTabSessionStatus_StoppedClearsReattachInFlight(t *testing.T) {
 	})
 
 	tab.mu.Lock()
-	inFlight, running, detached := tab.reattachInFlight, tab.Running, tab.Detached
+	inFlight, running, detached := tab.Reattach.InFlight, tab.Running, tab.Detached
 	tab.mu.Unlock()
 	if inFlight {
 		t.Fatal("expected reattachInFlight=false after a stopped reconcile")

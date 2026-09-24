@@ -32,20 +32,21 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 	sessionName := tmux.SessionName("amux", string(ws.ID()), string(tabID))
 
 	return func() tea.Msg {
-		logging.Info("Creating vim tab: file=%s workspace=%s", filePath, ws.Name)
+		logging.Info("Creating viewer tab: file=%s workspace=%s", filePath, ws.Name)
 
-		escapedFile := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
-		cmd := "vim -- " + escapedFile
+		cmd, label := m.viewerLaunch(filePath)
 
 		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "viewer",
-			Assistant:    "viewer",
-			CreatedAt:    time.Now().Unix(),
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    time.Now().UnixMilli(),
+			WorkspaceID:   string(ws.ID()),
+			TabID:         string(tabID),
+			Type:          "viewer",
+			Assistant:     "viewer",
+			CreatedAt:     time.Now().Unix(),
+			InstanceID:    m.instanceID,
+			SessionOwner:  m.instanceID,
+			LeaseAtMS:     time.Now().UnixMilli(),
+			WorkspaceName: ws.Name,
+			ProjectName:   data.ProjectNameForRepo(ws.Repo),
 		}
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
 		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, ptyRows, ptyCols, tags)
@@ -64,7 +65,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 
 		return ptyTabCreateResult{
 			Workspace:   ws,
-			Assistant:   "vim",
+			Assistant:   label,
 			DisplayName: displayName,
 			Agent:       agent,
 			TabID:       tabID,
@@ -94,6 +95,22 @@ func (m *Model) findOpenDiffTab(ws *data.Workspace, changePath string, mode git.
 	return -1, nil
 }
 
+// diffResultMsg wraps an async diff-viewer result with the identity of the tab
+// that issued the load, so the result routes back to it instead of whichever
+// tab happens to be active on arrival.
+type diffResultMsg struct {
+	WorkspaceID string
+	TabID       TabID
+	Inner       tea.Msg
+}
+
+// wrapDiffResults points a diff viewer's async results at a specific tab.
+func wrapDiffResults(dv *diff.Model, wsID string, tabID TabID) {
+	dv.SetResultWrapper(func(msg tea.Msg) tea.Msg {
+		return diffResultMsg{WorkspaceID: wsID, TabID: tabID, Inner: msg}
+	})
+}
+
 func (m *Model) reuseDiffTab(ws *data.Workspace, idx int, tab *Tab, change *git.Change, mode git.DiffMode) tea.Cmd {
 	if ws == nil || tab == nil {
 		return nil
@@ -107,6 +124,7 @@ func (m *Model) reuseDiffTab(ws *data.Workspace, idx int, tab *Tab, change *git.
 	dv := tab.DiffViewer
 	tab.mu.Unlock()
 	if dv != nil {
+		wrapDiffResults(dv, wsID, tab.ID)
 		dv.ResetSource(ws, change, mode)
 		cmds = append(cmds, dv.Init())
 	}
@@ -139,7 +157,7 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 	dv.SetFocused(true)
 
 	wsID := string(ws.ID())
-	displayName := truncateDisplayName("Diff: " + change.Path)
+	displayName := truncateDisplayName("Diff: " + common.SanitizeDisplayText(change.Path, 256))
 
 	tab := &Tab{
 		ID:            generateTabID(),
@@ -149,6 +167,7 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 		DiffViewer:    dv,
 		lastFocusedAt: time.Now(),
 	}
+	wrapDiffResults(dv, wsID, tab.ID)
 
 	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
 	m.setActiveTabIdxForWorkspace(wsID, len(m.tabs.ByWorkspace[wsID])-1)
@@ -158,4 +177,17 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 		dv.Init(),
 		func() tea.Msg { return messages.TabCreated{Index: m.tabs.ActiveByWorkspace[wsID], Name: displayName} },
 	)
+}
+
+// viewerLaunch builds the viewer shell line `<command> -- '<file>'` and the
+// tab label. The configured command is a user-provided shell fragment (e.g.
+// "vim", "nvim", "less -R") and is deliberately NOT quoted — only the file
+// path is. The label is the fragment's first token so "less -R" labels "less".
+func (m *Model) viewerLaunch(filePath string) (cmd, label string) {
+	viewer := m.viewerCommand
+	if viewer == "" {
+		viewer = "vim"
+	}
+	escaped := "'" + strings.ReplaceAll(filePath, "'", "'\\''") + "'"
+	return viewer + " -- " + escaped, strings.Fields(viewer)[0]
 }

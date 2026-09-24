@@ -7,13 +7,13 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/clipperhouse/displaywidth"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -55,8 +55,11 @@ type ptyTabCreateResult struct {
 	Agent       *appPty.Agent
 	TabID       TabID
 	Activate    bool
-	Rows        int
-	Cols        int
+	// DetachOnly marks a tab whose tmux session it does not own (run-session
+	// attach): close detaches the client but never kills the session.
+	DetachOnly bool
+	Rows       int
+	Cols       int
 	ptyio.SessionRestoreCapture
 }
 
@@ -82,33 +85,8 @@ type ptyTabReattachFailed struct {
 }
 
 func truncateDisplayName(name string) string {
-	const (
-		maxWidth     = 20
-		prefix       = "..."
-		suffixBudget = maxWidth - len(prefix)
-	)
-	if displaywidth.String(name) <= maxWidth {
-		return name
-	}
-
-	clusters := make([]string, 0, len(name))
-	widths := make([]int, 0, len(name))
-	graphemes := displaywidth.StringGraphemes(name)
-	for graphemes.Next() {
-		clusters = append(clusters, graphemes.Value())
-		widths = append(widths, graphemes.Width())
-	}
-
-	width := 0
-	start := len(clusters)
-	for i := len(clusters) - 1; i >= 0; i-- {
-		if width+widths[i] > suffixBudget {
-			break
-		}
-		width += widths[i]
-		start = i
-	}
-	return prefix + strings.Join(clusters[start:], "")
+	const maxWidth = 20
+	return common.TruncateLeftCells(name, maxWidth, "...", 0)
 }
 
 // createAgentTab creates a new agent tab
@@ -137,14 +115,16 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 		now := time.Now()
 
 		tags := tmux.SessionTags{
-			WorkspaceID:  string(ws.ID()),
-			TabID:        string(tabID),
-			Type:         "agent",
-			Assistant:    assistant,
-			CreatedAt:    now.Unix(),
-			InstanceID:   m.instanceID,
-			SessionOwner: m.instanceID,
-			LeaseAtMS:    now.UnixMilli(),
+			WorkspaceID:   string(ws.ID()),
+			TabID:         string(tabID),
+			Type:          "agent",
+			Assistant:     assistant,
+			CreatedAt:     now.Unix(),
+			InstanceID:    m.instanceID,
+			SessionOwner:  m.instanceID,
+			LeaseAtMS:     now.UnixMilli(),
+			WorkspaceName: ws.Name,
+			ProjectName:   data.ProjectNameForRepo(ws.Repo),
 		}
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
 		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, ptyRows, ptyCols, tags)
@@ -158,7 +138,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 		// Fresh tabs must only seed history. The attached PTY still has unread
 		// startup bytes queued, so preloading the visible screen would replay the
 		// same banner/prompt a second time when the reader drains.
-		captureCols, captureRows := sessionHistoryCaptureSize(sessionName, termWidth, termHeight, m.tmuxOpts)
+		captureCols, captureRows := ptyio.DefaultBootstrap().HistoryCaptureSize(sessionName, termWidth, termHeight, m.tmuxOpts)
 		scrollback, _ := tmux.CapturePane(sessionName, m.tmuxOpts)
 
 		return ptyTabCreateResult{
@@ -199,6 +179,31 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	initialCols, initialRows := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
 
 	wsID := string(msg.Workspace.ID())
+	if _, known := m.tabs.ByWorkspace[wsID]; !known {
+		// The workspace object was captured at dispatch; a rebind or delete
+		// may have invalidated the stamped key since.
+		sameWorkspace := m.workspace != nil &&
+			data.SamePath(m.workspace.Root, msg.Workspace.Root) &&
+			data.SamePath(m.workspace.Repo, msg.Workspace.Repo)
+		_, deleted := m.deletedWorkspaceIDs[wsID]
+		switch {
+		case deleted:
+			// Deleted while the create was in flight — drop rather than
+			// resurrect a dead bucket with an invisible running agent.
+			logging.Warn("dropping pty tab create result for deleted workspace %s", wsID)
+			_ = m.agentManager.CloseAgent(msg.Agent)
+			return nil
+		case sameWorkspace:
+			// A rebind moved the same physical workspace to a new ID — file
+			// under the live key.
+			if resolved := m.workspaceID(); resolved != "" && resolved != wsID {
+				logging.Warn("pty tab create result stamped with stale workspace %s; filing under %s", wsID, resolved)
+				wsID = resolved
+			}
+		}
+		// Otherwise the workspace exists but isn't current (create-then-switch):
+		// file under the stamped key as before.
+	}
 	tabs := m.tabs.ByWorkspace[wsID]
 	var existing *Tab
 	existingIdx := -1
@@ -331,6 +336,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		SessionName:   msg.Agent.Session,
 		Terminal:      term,
 		Running:       true, // Agent/viewer starts running
+		DetachOnly:    msg.DetachOnly,
 		createdAt:     now.Unix(),
 		lastFocusedAt: now,
 	}

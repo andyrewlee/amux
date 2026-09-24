@@ -41,7 +41,7 @@ func TestStartSpinnerIfNeeded(t *testing.T) {
 		{
 			name: "pending deletion starts the spinner",
 			setup: func(m *Model) {
-				m.deletingWorkspaces["/repo/.amux/workspaces/old"] = true
+				m.busyWorkspaces["/repo/.amux/workspaces/old"] = WorkspaceOpDelete
 			},
 			wantCmd:    true,
 			wantActive: true,
@@ -52,7 +52,7 @@ func TestStartSpinnerIfNeeded(t *testing.T) {
 				m.creatingWorkspaces["/repo/.amux/workspaces/new"] = &data.Workspace{
 					Root: "/repo/.amux/workspaces/new",
 				}
-				m.deletingWorkspaces["/repo/.amux/workspaces/old"] = true
+				m.busyWorkspaces["/repo/.amux/workspaces/old"] = WorkspaceOpDelete
 			},
 			wantCmd:    true,
 			wantActive: true,
@@ -104,7 +104,7 @@ func TestStartSpinnerIfNeededEmittedCommandTicks(t *testing.T) {
 	t.Parallel()
 
 	m := New()
-	m.deletingWorkspaces["/repo/.amux/workspaces/old"] = true
+	m.busyWorkspaces["/repo/.amux/workspaces/old"] = WorkspaceOpDelete
 
 	cmd := m.StartSpinnerIfNeeded()
 	if cmd == nil {

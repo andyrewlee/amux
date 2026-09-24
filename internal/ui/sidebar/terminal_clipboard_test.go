@@ -1,9 +1,11 @@
 package sidebar
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -84,5 +86,34 @@ func TestHandlePTYFlush_NilClipboardWhenNoOSC52(t *testing.T) {
 
 	if clip := ts.VTerm.TakePendingClipboard(); clip != nil {
 		t.Fatalf("expected nil clipboard after plain text flush, got %q", string(clip))
+	}
+}
+
+// TestActiveTranscriptReturnsFullBuffer proves the sidebar export covers
+// scrollback+screen: a tall write on a short screen must surface both the
+// scrolled-off lines and the visible ones.
+func TestActiveTranscriptReturnsFullBuffer(t *testing.T) {
+	m := NewTerminalModel()
+	ws := &data.Workspace{Name: "ws", Repo: "/repo", Root: "/repo/ws"}
+	m.setWorkspace(ws)
+	wsID := m.workspaceID()
+
+	ts := &TerminalState{VTerm: vterm.New(40, 3), Running: true}
+	ts.VTerm.Write([]byte("scrollback-line\r\nmid\r\nrecent-line\r\nscreen-line"))
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: "t1", State: ts}}
+	m.tabs.ActiveByWorkspace[wsID] = 0
+
+	got := m.ActiveTranscript()
+	for _, want := range []string{"scrollback-line", "screen-line"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("transcript missing %q — got %q", want, got)
+		}
+	}
+}
+
+func TestActiveTranscriptNoTerminal(t *testing.T) {
+	m := NewTerminalModel()
+	if got := m.ActiveTranscript(); got != "" {
+		t.Fatalf("no workspace/tabs: expected empty transcript, got %q", got)
 	}
 }

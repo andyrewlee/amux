@@ -6,7 +6,6 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 // closeCurrentTab closes the current tab
@@ -78,10 +77,12 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 		return messages.TabClosed{Index: index}
 	}
 
-	// Kill tmux session asynchronously to avoid blocking the UI
-	if sessionName != "" {
+	// Kill tmux session asynchronously to avoid blocking the UI.
+	// DetachOnly tabs (run-session viewers) borrow the session — closing
+	// detaches the client while the script keeps running.
+	if sessionName != "" && !tab.DetachOnly {
 		killCmd := func() tea.Msg {
-			_ = tmux.KillSession(sessionName, tmuxOpts)
+			_ = killSessionFn(sessionName, tmuxOpts)
 			return nil
 		}
 		return tea.Batch(closedCmd, killCmd)
@@ -125,7 +126,7 @@ func (m *Model) reattachActiveTabIfDetached() tea.Cmd {
 
 	tab.mu.Lock()
 	detached := tab.Detached
-	reattachInFlight := tab.reattachInFlight
+	reattachInFlight := tab.Reattach.InFlight
 	hasDiffViewer := tab.DiffViewer != nil
 	tab.mu.Unlock()
 	if !detached || reattachInFlight || hasDiffViewer {
@@ -320,4 +321,37 @@ func (m *Model) HasActiveTerminal() bool {
 	tab.mu.Lock()
 	defer tab.mu.Unlock()
 	return tab.Terminal != nil
+}
+
+// ActiveTranscript returns the active tab's full transcript — the combined
+// scrollback+screen buffer as plain text — or "" when no terminal is active.
+// The text is captured under the tab lock and returned; callers that copy it
+// to the clipboard must do so after this returns (the clipboard write must
+// not run under the lock).
+func (m *Model) ActiveTranscript() string {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return ""
+	}
+	tab := tabs[activeIdx]
+	if tab.isClosed() {
+		return ""
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	term := tab.Terminal
+	if term == nil {
+		return ""
+	}
+	screen, scrollbackLen := term.RenderBuffers()
+	total := scrollbackLen + len(screen)
+	if total == 0 {
+		return ""
+	}
+	width := term.Width
+	if width < 1 {
+		width = 1
+	}
+	return term.GetTextRange(0, 0, width-1, total-1)
 }
