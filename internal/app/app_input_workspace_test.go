@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -150,13 +151,12 @@ func TestHandleDialogResultTrustScriptsTrustsAndRetriesSetup(t *testing.T) {
 		t.Fatalf("expected initial setup to be blocked by trust gate, got %v", err)
 	}
 	app := &App{
-		workspaceService:       newWorkspaceService(nil, nil, scripts, ""),
-		dialog:                 common.NewConfirmDialog(DialogTrustScripts, "Trust", "Trust scripts?"),
-		dialogWorkspace:        ws,
-		dialogTrustScriptsHash: trustErr.ConfigHash,
+		workspaceService: workspacesvc.New(nil, nil, scripts, ""),
+		dialog:           common.NewConfirmDialog(DialogTrustScripts, "Trust", "Trust scripts?"),
+		dlg:              dialogContext{workspace: ws, trustScriptsHash: trustErr.ConfigHash},
 	}
 
-	cmd := app.handleDialogResult(common.DialogResult{ID: DialogTrustScripts, Confirmed: true})
+	cmd := app.handleDialogResult(common.DialogResult{ID: DialogTrustScripts, Confirmed: true}, app.dlg)
 	if cmd == nil {
 		t.Fatal("expected trust confirmation to return a setup retry command")
 	}
@@ -195,7 +195,7 @@ func TestTrustScriptsRetryRejectsChangedConfig(t *testing.T) {
 	}
 
 	workspaceSetupConfig(t, repo, `{"setup-workspace":["touch `+changedMarker+`"]}`)
-	service := newWorkspaceService(nil, nil, scripts, "")
+	service := workspacesvc.New(nil, nil, scripts, "")
 	msg, ok := service.TrustRepoScriptsAndRunSetupAsync(ws, trustErr.ConfigHash)().(messages.WorkspaceSetupComplete)
 	if !ok {
 		t.Fatalf("expected WorkspaceSetupComplete, got %T", msg)
@@ -223,7 +223,7 @@ func newTrustDialogApp() *App {
 		config:           &config.Config{},
 		width:            120,
 		height:           40,
-		workspaceService: newWorkspaceService(nil, nil, process.NewScriptRunner(6200, 10), ""),
+		workspaceService: workspacesvc.New(nil, nil, process.NewScriptRunner(6200, 10), ""),
 	}
 }
 
@@ -306,14 +306,14 @@ func TestHandleWorkspaceDeletedClearsDirtyWorkspaceMarker(t *testing.T) {
 		sidebarTerminal: sidebar.NewTerminalModel(),
 		lifecycle: workspaceLifecycleState{
 			dirty:  map[string]bool{wsID: true},
-			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
+			phases: map[string]lifecyclePhase{wsID: lifecycleMutating},
 		},
 	}
 
 	app.handleWorkspaceDeleted(messages.WorkspaceDeleted{Workspace: ws})
 
-	if app.isWorkspaceDeleteInFlight(wsID) {
-		t.Fatal("expected delete-in-flight marker to be cleared on delete success")
+	if app.isWorkspaceMutationInFlight(wsID) {
+		t.Fatal("expected mutation-in-flight marker to be cleared on delete success")
 	}
 	if app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty workspace marker to be cleared on delete success")
@@ -343,7 +343,7 @@ func TestHandleWorkspaceDeleted_ReleasesPortAllocation(t *testing.T) {
 		center:           center.New(nil),
 		sidebar:          sidebar.NewTabbedSidebar(),
 		sidebarTerminal:  sidebar.NewTerminalModel(),
-		workspaceService: newWorkspaceService(nil, nil, scripts, ""),
+		workspaceService: workspacesvc.New(nil, nil, scripts, ""),
 		lifecycle: workspaceLifecycleState{
 			dirty:  map[string]bool{},
 			phases: map[string]lifecyclePhase{},
@@ -357,7 +357,7 @@ func TestHandleWorkspaceDeleted_ReleasesPortAllocation(t *testing.T) {
 	}
 }
 
-func TestSyncActiveWorkspacesToDashboard_SkipsDeleteInFlight(t *testing.T) {
+func TestSyncActiveWorkspacesToDashboard_SkipsMutationInFlight(t *testing.T) {
 	wsA := &data.Workspace{Repo: "/repo", Root: "/repo/a"}
 	wsB := &data.Workspace{Repo: "/repo", Root: "/repo/b"}
 	idA, idB := string(wsA.ID()), string(wsB.ID())
@@ -369,11 +369,11 @@ func TestSyncActiveWorkspacesToDashboard_SkipsDeleteInFlight(t *testing.T) {
 		},
 		dashboard: dashboard.New(),
 	}
-	app.markWorkspaceDeleteInFlight(wsA, true)
+	app.markWorkspaceMutationInFlight(wsA, true)
 	app.syncActiveWorkspacesToDashboard()
 
 	if got := dashboardActiveWorkspaceCount(app.dashboard); got != 1 {
-		t.Fatalf("expected 1 active workspace (delete-in-flight wsA excluded), got %d", got)
+		t.Fatalf("expected 1 active workspace (mutation-in-flight wsA excluded), got %d", got)
 	}
 }
 
@@ -389,7 +389,7 @@ func TestHandleWorkspaceDeleteFailedRequestsFreshActivityScan(t *testing.T) {
 		dashboard:     dashboard.New(),
 	}
 
-	app.markWorkspaceDeleteInFlight(ws, true)
+	app.markWorkspaceMutationInFlight(ws, true)
 	app.syncActiveWorkspacesToDashboard()
 	if got := dashboardActiveWorkspaceCount(app.dashboard); got != 0 {
 		t.Fatalf("expected active workspace to be filtered during delete, got %d", got)
@@ -422,7 +422,7 @@ func TestHandleWorkspaceDeleted_ClearsActiveWorkspace(t *testing.T) {
 			activeWorkspaceIDs: map[string]bool{idDel: true, idKeep: true},
 		},
 		lifecycle: workspaceLifecycleState{
-			phases: map[string]lifecyclePhase{idDel: lifecycleDeleting},
+			phases: map[string]lifecyclePhase{idDel: lifecycleMutating},
 		},
 	}
 
@@ -449,7 +449,7 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 		center:          center.New(nil),
 		sidebar:         sidebar.NewTabbedSidebar(),
 		sidebarTerminal: sidebar.NewTerminalModel(),
-		workspaceService: newWorkspaceService(
+		workspaceService: workspacesvc.New(
 			nil,
 			nil,
 			nil,
@@ -458,7 +458,7 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 		activeWorkspace: wsDel,
 		lifecycle: workspaceLifecycleState{
 			dirty:  map[string]bool{wsID: true},
-			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
+			phases: map[string]lifecyclePhase{wsID: lifecycleMutating},
 		},
 	}
 	app.dashboard.SetProjects(app.projects)
@@ -477,8 +477,8 @@ func TestHandleWorkspaceDeleted_WithMetadataErrorRemovesLoadedWorkspace(t *testi
 	if app.activeWorkspace != nil {
 		t.Fatal("expected metadata-error delete to still navigate away from deleted workspace")
 	}
-	if app.isWorkspaceDeleteInFlight(wsID) {
-		t.Fatal("expected delete-in-flight marker cleared")
+	if app.isWorkspaceMutationInFlight(wsID) {
+		t.Fatal("expected mutation-in-flight marker cleared")
 	}
 	if app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty marker cleared")

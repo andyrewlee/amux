@@ -8,37 +8,21 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil/tmuxops"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// cleanupRecordingTmuxOps records the kill calls cleanupAllTmuxSessions makes and
-// lets each test inject the (bool, error) / error results that drive the toast
-// branches. It embeds stubTmuxOps so only the two kill methods under test need
-// overriding.
-type cleanupRecordingTmuxOps struct {
-	stubTmuxOps
-
-	tagCleaned  bool
-	tagErr      error
-	prefixErr   error
-	tagCalls    int
-	prefixCalls int
-	lastTags    map[string]string
-	lastPrefix  string
-	lastTagOpts tmux.Options
-}
-
-func (c *cleanupRecordingTmuxOps) KillSessionsMatchingTags(tags map[string]string, opts tmux.Options) (bool, error) {
-	c.tagCalls++
-	c.lastTags = tags
-	c.lastTagOpts = opts
-	return c.tagCleaned, c.tagErr
-}
-
-func (c *cleanupRecordingTmuxOps) KillSessionsWithPrefix(prefix string, _ tmux.Options) error {
-	c.prefixCalls++
-	c.lastPrefix = prefix
-	return c.prefixErr
+// newCleanupOps builds a FakeTmuxOps whose two kill methods under test return
+// the injected results; the fake records every call.
+func newCleanupOps(tagCleaned bool, tagErr, prefixErr error) *tmuxops.FakeTmuxOps {
+	return &tmuxops.FakeTmuxOps{
+		KillSessionsMatchingTagsFunc: func(map[string]string, tmux.Options) (bool, error) {
+			return tagCleaned, tagErr
+		},
+		KillSessionsWithPrefixFunc: func(string, tmux.Options) error {
+			return prefixErr
+		},
+	}
 }
 
 // runCleanupCmd executes the command returned by cleanupAllTmuxSessions and
@@ -77,20 +61,20 @@ func TestCleanupAllTmuxSessions(t *testing.T) {
 		// service attached after building the cmd must not be used.
 		app := &App{tmuxService: nil}
 		cmd := app.cleanupAllTmuxSessions()
-		ops := &cleanupRecordingTmuxOps{}
+		ops := newCleanupOps(false, nil, nil)
 		app.tmuxService = ops
 
 		toast := runCleanupCmd(t, cmd)
 		if toast.Level != messages.ToastWarning {
 			t.Fatalf("expected warning toast, got %q", toast.Level)
 		}
-		if ops.tagCalls != 0 || ops.prefixCalls != 0 {
-			t.Fatalf("service attached after build must not be called; tags=%d prefix=%d", ops.tagCalls, ops.prefixCalls)
+		if len(ops.KillTagMatches()) != 0 || len(ops.KilledPrefixes()) != 0 {
+			t.Fatalf("service attached after build must not be called; tags=%d prefix=%d", len(ops.KillTagMatches()), len(ops.KilledPrefixes()))
 		}
 	})
 
 	t.Run("only prefix sessions cleaned reports prefix-only success", func(t *testing.T) {
-		ops := &cleanupRecordingTmuxOps{tagCleaned: false}
+		ops := newCleanupOps(false, nil, nil)
 		app := &App{tmuxService: ops, tmuxOptions: tmux.Options{ServerName: "srv"}}
 
 		toast := runCleanupCmd(t, app.cleanupAllTmuxSessions())
@@ -102,22 +86,22 @@ func TestCleanupAllTmuxSessions(t *testing.T) {
 		if toast.Message != want {
 			t.Fatalf("expected prefix-only message %q, got %q", want, toast.Message)
 		}
-		if ops.tagCalls != 1 || ops.prefixCalls != 1 {
-			t.Fatalf("expected one tag and one prefix kill, got tags=%d prefix=%d", ops.tagCalls, ops.prefixCalls)
+		if len(ops.KillTagMatches()) != 1 || len(ops.KilledPrefixes()) != 1 {
+			t.Fatalf("expected one tag and one prefix kill, got tags=%d prefix=%d", len(ops.KillTagMatches()), len(ops.KilledPrefixes()))
 		}
-		if ops.lastTags["@amux"] != "1" || len(ops.lastTags) != 1 {
-			t.Fatalf("expected only the @amux=1 tag match, got %v", ops.lastTags)
+		if ops.LastKillTagMatch()["@amux"] != "1" || len(ops.LastKillTagMatch()) != 1 {
+			t.Fatalf("expected only the @amux=1 tag match, got %v", ops.LastKillTagMatch())
 		}
-		if ops.lastPrefix != prefix {
-			t.Fatalf("expected prefix %q, got %q", prefix, ops.lastPrefix)
+		if ops.KilledPrefixes()[0] != prefix {
+			t.Fatalf("expected prefix %q, got %q", prefix, ops.KilledPrefixes()[0])
 		}
-		if ops.lastTagOpts.ServerName != "srv" {
-			t.Fatalf("expected captured tmuxOptions to flow through, got %+v", ops.lastTagOpts)
+		if ops.LastKillTagOpts().ServerName != "srv" {
+			t.Fatalf("expected captured tmuxOptions to flow through, got %+v", ops.LastKillTagOpts())
 		}
 	})
 
 	t.Run("tagged and prefix cleaned reports combined success", func(t *testing.T) {
-		ops := &cleanupRecordingTmuxOps{tagCleaned: true}
+		ops := newCleanupOps(true, nil, nil)
 		app := &App{tmuxService: ops}
 
 		toast := runCleanupCmd(t, app.cleanupAllTmuxSessions())
@@ -134,7 +118,7 @@ func TestCleanupAllTmuxSessions(t *testing.T) {
 	t.Run("tag kill error is non-fatal and prefix success still reported", func(t *testing.T) {
 		// A tag-match failure is only logged; the prefix sweep still runs and, on
 		// success, drives the prefix-only success toast (cleanedTagged stays false).
-		ops := &cleanupRecordingTmuxOps{tagCleaned: false, tagErr: errors.New("boom")}
+		ops := newCleanupOps(false, errors.New("boom"), nil)
 		app := &App{tmuxService: ops}
 
 		toast := runCleanupCmd(t, app.cleanupAllTmuxSessions())
@@ -142,8 +126,8 @@ func TestCleanupAllTmuxSessions(t *testing.T) {
 		if toast.Level != messages.ToastSuccess {
 			t.Fatalf("expected success toast despite tag error, got %q level %q", toast.Message, toast.Level)
 		}
-		if ops.prefixCalls != 1 {
-			t.Fatalf("expected prefix kill to still run after tag error, got %d calls", ops.prefixCalls)
+		if len(ops.KilledPrefixes()) != 1 {
+			t.Fatalf("expected prefix kill to still run after tag error, got %d calls", len(ops.KilledPrefixes()))
 		}
 		if strings.Contains(toast.Message, "@amux and") {
 			t.Fatalf("a tag error must not claim @amux sessions were cleaned: %q", toast.Message)
@@ -151,7 +135,7 @@ func TestCleanupAllTmuxSessions(t *testing.T) {
 	})
 
 	t.Run("prefix kill error returns warning toast", func(t *testing.T) {
-		ops := &cleanupRecordingTmuxOps{tagCleaned: true, prefixErr: errors.New("prefix exploded")}
+		ops := newCleanupOps(true, nil, errors.New("prefix exploded"))
 		app := &App{tmuxService: ops}
 
 		toast := runCleanupCmd(t, app.cleanupAllTmuxSessions())
@@ -170,7 +154,7 @@ func TestCleanupAllTmuxSessions(t *testing.T) {
 	t.Run("prefix error wins even when tagged sessions were cleaned", func(t *testing.T) {
 		// cleanedTagged=true would otherwise produce a success toast; the prefix
 		// error path returns first, so the warning must take precedence.
-		ops := &cleanupRecordingTmuxOps{tagCleaned: true, prefixErr: errors.New("x")}
+		ops := newCleanupOps(true, nil, errors.New("x"))
 		app := &App{tmuxService: ops}
 
 		toast := runCleanupCmd(t, app.cleanupAllTmuxSessions())
@@ -190,13 +174,13 @@ func TestCleanupTmuxOnExit(t *testing.T) {
 	})
 
 	t.Run("never invokes any tmux kill", func(t *testing.T) {
-		ops := &cleanupRecordingTmuxOps{}
+		ops := newCleanupOps(false, nil, nil)
 		app := &App{tmuxService: ops, instanceID: "inst-A"}
 
 		app.CleanupTmuxOnExit()
 
-		if ops.tagCalls != 0 || ops.prefixCalls != 0 {
-			t.Fatalf("CleanupTmuxOnExit must be a no-op; tags=%d prefix=%d", ops.tagCalls, ops.prefixCalls)
+		if len(ops.KillTagMatches()) != 0 || len(ops.KilledPrefixes()) != 0 {
+			t.Fatalf("CleanupTmuxOnExit must be a no-op; tags=%d prefix=%d", len(ops.KillTagMatches()), len(ops.KilledPrefixes()))
 		}
 	})
 }

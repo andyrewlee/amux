@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
@@ -42,13 +44,15 @@ func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
 
 	workspacesRoot := "/tmp/workspaces"
 	store := data.NewWorkspaceStore(t.TempDir())
-	svc := newWorkspaceService(nil, store, nil, workspacesRoot)
-	svc.gitPathWaitTimeout = 50 * time.Millisecond
-	svc.gitOps = &mockGitOps{
-		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
-			return gitErr
+	svc := workspacesvc.New(nil, store, nil, workspacesRoot)
+	svc.Configure(workspacesvc.Deps{
+		GitPathWaitTimeout: 50 * time.Millisecond,
+		GitOps: &testutil.FakeGitOps{
+			CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+				return gitErr
+			},
 		},
-	}
+	})
 
 	app := &App{
 		dashboard: dashboard.New(),
@@ -80,7 +84,7 @@ func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
 
 	// Verify tracked ID matches expected path
 	expectedPath := filepath.Join(workspacesRoot, project.Name, "feature")
-	pending := svc.pendingWorkspace(project, "feature", "main")
+	pending := svc.PendingWorkspace(project, "feature", "main")
 	if pending == nil {
 		t.Fatal("expected non-nil pending workspace")
 	}
@@ -120,7 +124,7 @@ func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
 func TestHandleCreateWorkspaceClearsPendingIDOnValidationFailure(t *testing.T) {
 	workspacesRoot := "/tmp/workspaces"
 	store := data.NewWorkspaceStore(t.TempDir())
-	svc := newWorkspaceService(nil, store, nil, workspacesRoot)
+	svc := workspacesvc.New(nil, store, nil, workspacesRoot)
 
 	app := &App{
 		dashboard: dashboard.New(),

@@ -7,8 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
@@ -35,6 +37,7 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 		return nil
 	}
 	wsID := string(ws.ID())
+	wsIDForms := workspacesvc.WorkspaceIDStrings(ws)
 	assistant := strings.TrimSpace(ws.Assistant)
 	if assistant == "" {
 		assistant = a.defaultAssistantName()
@@ -52,16 +55,15 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 		if svc == nil {
 			return nil
 		}
-		match := map[string]string{
-			"@amux":           "1",
-			"@amux_workspace": wsID,
-			"@amux_type":      "agent",
-		}
-		rows, err := svc.SessionsWithTags(match, []string{"@amux_assistant", "@amux_created_at"}, opts)
+		rows, err := sessionsWithWorkspaceTag(svc, wsIDForms, "@amux_type", "agent",
+			[]string{"@amux_assistant", "@amux_created_at"}, opts)
 		if err != nil {
 			logging.Warn("tmux session discovery failed: %v", err)
 			return nil
 		}
+		// One batched metadata call replaces a per-session SessionCreatedAt
+		// probe per row.
+		meta, _ := svc.AllSessionMeta(opts)
 		var tabs []data.TabInfo
 		for _, row := range rows {
 			if row.Name == "" {
@@ -83,8 +85,8 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
 			}
 			if createdAt == 0 {
-				if fallback, err := svc.SessionCreatedAt(row.Name, opts); err == nil {
-					createdAt = fallback
+				if m, ok := meta[row.Name]; ok {
+					createdAt = m.CreatedAt
 				}
 			}
 			tabs = append(tabs, data.TabInfo{
@@ -121,6 +123,7 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		return nil
 	}
 	wsID := string(ws.ID())
+	wsIDForms := workspacesvc.WorkspaceIDStrings(ws)
 	if !a.tmuxAvailable {
 		// tmux is a required dependency; return an empty result so the sidebar
 		// can still attempt to initialize and surface a clear error if tmux is missing.
@@ -134,29 +137,37 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		if svc == nil {
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
-		match := map[string]string{
-			"@amux":           "1",
-			"@amux_workspace": wsID,
-			"@amux_type":      "terminal",
-		}
-		rows, err := svc.SessionsWithTags(match, []string{"@amux_instance", "@amux_created_at"}, opts)
+		rows, err := sessionsWithWorkspaceTag(svc, wsIDForms, "@amux_type", "terminal",
+			[]string{"@amux_instance", "@amux_created_at"}, opts)
 		if err != nil {
 			logging.Warn("tmux sidebar discovery failed: %v", err)
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
+		}
+		// Two batched calls replace per-row SessionStateFor / SessionHasClients /
+		// SessionCreatedAt probes. A failed batch yields empty maps; rows then hit
+		// the same conservative defaults their per-call error paths used.
+		allStates, stateErr := svc.AllSessionStates(opts)
+		if stateErr != nil {
+			logging.Warn("tmux sidebar discovery: session states unavailable: %v", stateErr)
+		}
+		meta, metaErr := svc.AllSessionMeta(opts)
+		if metaErr != nil {
+			logging.Warn("tmux sidebar discovery: session meta unavailable: %v", metaErr)
 		}
 		sessions := make([]sidebarSessionInfo, 0, len(rows))
 		for _, row := range rows {
 			if row.Name == "" {
 				continue
 			}
-			state, err := svc.SessionStateFor(row.Name, opts)
-			if err != nil || !state.Exists || !state.HasLivePane {
+			state, ok := allStates[row.Name]
+			if !ok || !state.Exists || !state.HasLivePane {
 				continue
 			}
-			// Assume clients exist on error to avoid detaching other sessions.
+			// Assume clients exist when the batched listing lacks the session —
+			// same fail-closed default the per-call error path used.
 			attached := true
-			if value, err := svc.SessionHasClients(row.Name, opts); err == nil {
-				attached = value
+			if m, ok := meta[row.Name]; ok {
+				attached = m.Attached > 0
 			}
 			rowInstanceID := strings.TrimSpace(row.Tags["@amux_instance"])
 			var createdAt int64
@@ -164,8 +175,8 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
 			}
 			if createdAt == 0 {
-				if fallback, err := svc.SessionCreatedAt(row.Name, opts); err == nil {
-					createdAt = fallback
+				if m, ok := meta[row.Name]; ok {
+					createdAt = m.CreatedAt
 				}
 			}
 			sessions = append(sessions, sidebarSessionInfo{
@@ -181,6 +192,38 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 		out := buildSidebarSessionAttachInfos(sessions)
 		return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Sessions: out}
 	}
+}
+
+// sessionsWithWorkspaceTag queries SessionsWithTags once per workspace
+// identity form and merges the rows by session name. Sessions spawned before
+// stable IDs carry whichever path-derived form ws.ID() returned at spawn —
+// matching only the persisted store key would orphan them on restart.
+// wsIDForms must be captured on the Update goroutine (ComputedID does
+// filesystem work).
+func sessionsWithWorkspaceTag(svc TmuxOps, wsIDForms []string, extraKey, extraValue string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
+	seen := make(map[string]struct{})
+	var out []tmux.SessionTagValues
+	for _, form := range wsIDForms {
+		match := map[string]string{
+			"@amux":           "1",
+			"@amux_workspace": form,
+		}
+		if extraKey != "" {
+			match[extraKey] = extraValue
+		}
+		rows, err := svc.SessionsWithTags(match, keys, opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if _, ok := seen[row.Name]; ok {
+				continue
+			}
+			seen[row.Name] = struct{}{}
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo) []sidebar.SessionAttachInfo {
@@ -212,12 +255,33 @@ func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo) []sidebar.Ses
 	return out
 }
 
+// discoveryResultBlocked reports whether a discovery result naming ws must be
+// dropped: the workspace entered a lifecycle phase (delete/shelve/restore)
+// between the async scan and the result landing, so attaching or filing tabs
+// now would race the teardown and resurrect state under a tombstoned key. The
+// check covers every identity form — in-flight marks, the root bridge, and
+// deleted-until-load tombstones — plus the store's Archived/Shelved flags.
+func (a *App) discoveryResultBlocked(ws *data.Workspace, wsID string) bool {
+	if ws == nil {
+		return true
+	}
+	if a.lifecycle.shouldFilterDeletedWorkspace(wsID, ws.Root, 0) {
+		logging.Debug("dropping tmux discovery result for workspace %s mid-lifecycle", wsID)
+		return true
+	}
+	if ws.Archived || ws.Shelved {
+		logging.Debug("dropping tmux discovery result for archived/shelved workspace %s", wsID)
+		return true
+	}
+	return false
+}
+
 func (a *App) handleTmuxTabsDiscoverResult(msg tmuxTabsDiscoverResult) []tea.Cmd {
 	if msg.WorkspaceID == "" || len(msg.Tabs) == 0 {
 		return nil
 	}
 	ws := a.findWorkspaceByID(msg.WorkspaceID)
-	if ws == nil {
+	if a.discoveryResultBlocked(ws, msg.WorkspaceID) {
 		return nil
 	}
 	existing := make(map[string]struct{}, len(ws.OpenTabs))
@@ -257,7 +321,7 @@ func (a *App) handleTmuxSidebarDiscoverResult(msg tmuxSidebarDiscoverResult) []t
 		return nil
 	}
 	ws := a.findWorkspaceByID(msg.WorkspaceID)
-	if ws == nil {
+	if a.discoveryResultBlocked(ws, msg.WorkspaceID) {
 		return nil
 	}
 	if a.activeWorkspace == nil || string(a.activeWorkspace.ID()) != msg.WorkspaceID {

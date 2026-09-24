@@ -8,9 +8,11 @@ import (
 func TestSanitizedWindowTitle_StripsTerminalControls(t *testing.T) {
 	title := "safe\x00\x1b[31m" + string(rune(0x9c)) + string([]byte{0x9b}) + "title"
 
+	// ansi.Strip consumes whole sequences including parameter bytes, and the
+	// C1 CSI opener 0x9b takes "t" as its final byte — so "itle" survives.
 	got := sanitizedWindowTitle(title)
-	if got != "safe[31mtitle" {
-		t.Fatalf("sanitizedWindowTitle() = %q, want %q", got, "safe[31mtitle")
+	if got != "safeitle" {
+		t.Fatalf("sanitizedWindowTitle() = %q, want %q", got, "safeitle")
 	}
 }
 

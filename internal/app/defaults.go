@@ -10,6 +10,11 @@ const (
 	// gitStatusTickInterval controls periodic git status refreshes.
 	gitStatusTickInterval = 3 * time.Second
 
+	// runOutputTickInterval controls how often the open run-output viewer
+	// re-captures the run session's tail while the session is alive (poll-
+	// follow, not streaming — a capture-pane subprocess per tick).
+	runOutputTickInterval = 2 * time.Second
+
 	// ptyWatchdogInterval controls how often we check PTY readers.
 	ptyWatchdogInterval = 5 * time.Second
 
@@ -19,9 +24,6 @@ const (
 	// tmuxSyncMinInterval bounds user-configured sync intervals so malformed
 	// env/config values cannot turn reconciliation into a hot loop.
 	tmuxSyncMinInterval = 500 * time.Millisecond
-
-	// gitPathWaitInterval is the polling interval when waiting for a new worktree to expose .git.
-	gitPathWaitInterval = 100 * time.Millisecond
 
 	// persistDebounce controls workspace metadata save debouncing.
 	persistDebounce = 500 * time.Millisecond
@@ -77,15 +79,6 @@ const (
 	// sessionOwnerStaleAfter allows two missed heartbeat intervals plus command
 	// scheduling jitter before a peer's detached sessions become collectible.
 	sessionOwnerStaleAfter = 2 * time.Minute
-
-	// metadataOrphanGracePeriod keeps a fresh record long enough for another
-	// amux process to finish registering its project/workspace before startup
-	// reconciliation considers the record unreachable.
-	metadataOrphanGracePeriod = time.Hour
-
-	// archivedMetadataRetention bounds how long metadata for a workspace that
-	// disappeared from git discovery is retained for possible rediscovery.
-	archivedMetadataRetention = 7 * 24 * time.Hour
 
 	// detachedAgentStaleAfter is the inactivity threshold for detached,
 	// clientless agent sessions before they are considered stale.

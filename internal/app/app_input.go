@@ -2,7 +2,9 @@ package app
 
 import (
 	"fmt"
+	"reflect"
 	"runtime/debug"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -28,7 +30,9 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 			cmd = nil
 		}
 	}()
-	return a.update(msg)
+	model, cmd = a.update(msg)
+	a.drainPendingOverlayOpens()
+	return model, cmd
 }
 
 // frameInvalidatedBy identifies messages whose Update work may change the
@@ -104,7 +108,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		// Sync active agents state to dashboard (show spinner only when actively outputting)
-		a.syncActiveWorkspacesToDashboard()
+		if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 			cmds = append(cmds, startCmd)
 		}
@@ -112,17 +118,17 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.Toast:
 		cmds = append(cmds, a.showToast(msg))
 
-	case messages.SidebarPTYOutput, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, sidebar.SidebarSelectionScrollTick:
+	case messages.SidebarPTYOutput, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, messages.SidebarSelectionScrollTick:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
-	case sidebar.OpenFileInEditor:
-		if cmd := a.handleOpenFileInEditor(msg); cmd != nil {
+	case messages.OpenFileInVim:
+		if cmd := a.handleOpenFileInVim(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
-	case sidebar.BranchChangesLoaded, sidebar.AheadBehindLoaded:
+	case messages.BranchChangesLoaded, messages.AheadBehindLoaded:
 		// Branch-vs-base list / ahead-behind badge fetch results: route back
 		// into the sidebar regardless of which of its tabs is active (see
 		// TabbedSidebar.Update's special-case for these two types).
@@ -134,13 +140,29 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case messages.TabSessionStatus:
+		// Produced by the tmux session sync, consumed only by the center
+		// model — routed explicitly so it does not hide in the default sink.
+		newCenter, cmd := a.center.Update(msg)
+		a.center = newCenter
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.Error:
 		if cmd := a.handleErrorMessage(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
 	default:
-		// Forward unknown messages to center pane (e.g., commit viewer internal messages)
+		// Center's internal result types (PTY tab lifecycle, tab-actor, and
+		// the embedded diff/commit viewer's) bubble up to the pump and
+		// legitimately re-enter through here. A type from any other package
+		// landing in this sink means a dispatch case is missing — make it
+		// visible instead of silently degrading into the center pane.
+		if unroutedMessageToCenter(msg) {
+			logging.Debug("unrouted message type %T forwarded to center", msg)
+		}
 		newCenter, cmd := a.center.Update(msg)
 		a.center = newCenter
 		if cmd != nil {
@@ -170,4 +192,23 @@ func (a *App) handleTabDetached(msg messages.TabDetached) tea.Cmd {
 		return a.persistWorkspaceTabs(msg.WorkspaceID)
 	}
 	return a.persistActiveWorkspaceTabs()
+}
+
+// unroutedMessageToCenter reports whether msg's type is declared outside the
+// packages whose internal messages legitimately round-trip through the
+// dispatch's default case: center's own result types and the embedded
+// diff/commit viewer's. Anything else reaching the sink is an unrouted
+// cross-boundary type — visible in the debug log instead of silently ignored.
+func unroutedMessageToCenter(msg tea.Msg) bool {
+	t := reflect.TypeOf(msg)
+	if t == nil {
+		return false
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	pkg := t.PkgPath()
+	return pkg != "" &&
+		!strings.HasSuffix(pkg, "/internal/ui/center") &&
+		!strings.HasSuffix(pkg, "/internal/ui/diff")
 }

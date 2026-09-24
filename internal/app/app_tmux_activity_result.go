@@ -8,6 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -21,9 +23,11 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 	}
 
 	a.tmuxActivity.scanInFlight = false
-	a.updateTmuxActivityOwnershipState(msg)
 
 	var cmds []tea.Cmd
+	if cmd := a.updateTmuxActivityOwnershipState(msg); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if stoppedTabsCmd := stoppedTabUpdatesCmd(msg.StoppedTabs); stoppedTabsCmd != nil {
 		cmds = append(cmds, stoppedTabsCmd)
 	}
@@ -45,9 +49,9 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 	return cmds
 }
 
-func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
+func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) tea.Cmd {
 	if !msg.RoleKnown {
-		return
+		return nil
 	}
 
 	previousRoleSet := a.tmuxActivity.ownershipSet
@@ -69,7 +73,7 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 	}
 
 	if !isTmuxActivityOwnerTransition(previousRoleSet, previousOwner, previousEpoch, msg) {
-		return
+		return nil
 	}
 
 	// Reset local hysteresis when entering owner mode so we never reuse state
@@ -88,7 +92,7 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) {
 	// Mirrors the tmux-availability reset in scanTmuxActivity.
 	a.tmuxActivity.settled = false
 	a.tmuxActivity.settledScans = 0
-	a.syncActiveWorkspacesToDashboard()
+	return a.syncActiveWorkspacesToDashboard()
 }
 
 func isTmuxActivityOwnerTransition(
@@ -149,25 +153,32 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	if a.tmuxActivity.settledScans >= tmuxActivitySettleScans {
 		a.tmuxActivity.settled = true
 	}
-	a.syncActiveWorkspacesToDashboard()
+	dashboardCmd := a.syncActiveWorkspacesToDashboard()
 	spinner := a.dashboard.StartSpinnerIfNeeded()
 	tagCmd := agentStateTagWriteCmd(agentStateChanges, a.tmuxOptions)
+	hookCmd := a.onDoneHookCmd(agentStateChanges)
+	if hookCmd != nil {
+		tagCmd = common.SafeBatch(tagCmd, hookCmd)
+	}
 	if doneCount > 0 && a.toast != nil {
 		msgText := "Agent finished"
 		if doneCount > 1 {
 			msgText = fmt.Sprintf("%d agents finished", doneCount)
 		}
-		return common.SafeBatch(a.toast.ShowInfo(msgText), spinner, tagCmd)
+		return common.SafeBatch(a.toast.ShowInfo(msgText), spinner, tagCmd, dashboardCmd)
 	}
-	return common.SafeBatch(spinner, tagCmd)
+	return common.SafeBatch(spinner, tagCmd, dashboardCmd)
 }
 
 // agentStateTagChange pairs a tmux session name with its newly classified
 // AgentState, used to coalesce @amux_agent_state tag writes to true state
-// transitions (see sessionAgentStateChanges).
+// transitions (see sessionAgentStateChanges). prev is the classification the
+// session had on the previous scan; the on-done hook fires only on a strict
+// working→done edge, so it needs both sides.
 type agentStateTagChange struct {
 	sessionName string
 	state       activity.AgentState
+	prev        activity.AgentState
 }
 
 // sessionAgentStateChanges classifies each session in updatedStates via
@@ -184,7 +195,7 @@ func sessionAgentStateChanges(prevStates, updatedStates map[string]*activity.Ses
 		prevState := activity.ClassifyState(prevStates[name], now)
 		nextState := activity.ClassifyState(next, now)
 		if nextState != prevState {
-			changes = append(changes, agentStateTagChange{sessionName: name, state: nextState})
+			changes = append(changes, agentStateTagChange{sessionName: name, state: nextState, prev: prevState})
 		}
 	}
 	return changes
@@ -209,6 +220,51 @@ func agentStateTagWriteCmd(changes []agentStateTagChange, opts tmux.Options) tea
 	return func() tea.Msg {
 		for _, change := range changes {
 			_ = setAgentStateTag(change.sessionName, tmux.TagAgentState, change.state.String(), opts)
+		}
+		return nil
+	}
+}
+
+// runOnDoneHook is a seam over ScriptRunner.RunOnDone so tests can observe
+// fires without spawning. Production always uses the runner.
+var runOnDoneHook = func(ws *data.Workspace, sessionName string, svc *workspacesvc.Service) error {
+	return svc.RunOnDoneScript(ws, sessionName)
+}
+
+// onDoneHookCmd turns strict working→done session edges into on-done hook
+// invocations. The workspace is resolved on the main thread (findWorkspaceByID
+// touches App state); the returned Cmd only does process work off-loop, the
+// same discipline as agentStateTagWriteCmd. Edges other than working→done —
+// including a first-scan idle→done for an agent that finished before amux
+// started — do not fire: a hook could carry side effects (git push, deploy)
+// and must only run for a completion the user actually watched happen.
+func (a *App) onDoneHookCmd(changes []agentStateTagChange) tea.Cmd {
+	var fires []struct {
+		ws          *data.Workspace
+		sessionName string
+	}
+	for _, change := range changes {
+		if change.state != activity.StateDone || change.prev != activity.StateWorking {
+			continue
+		}
+		ws := a.findWorkspaceByID(activity.WorkspaceIDFromSessionName(change.sessionName))
+		if ws == nil {
+			continue
+		}
+		fires = append(fires, struct {
+			ws          *data.Workspace
+			sessionName string
+		}{ws, change.sessionName})
+	}
+	if len(fires) == 0 {
+		return nil
+	}
+	svc := a.workspaceService
+	return func() tea.Msg {
+		for _, f := range fires {
+			if err := runOnDoneHook(f.ws, f.sessionName, svc); err != nil {
+				return messages.WorkspaceOnDoneResult{Workspace: f.ws, SessionName: f.sessionName, Err: err}
+			}
 		}
 		return nil
 	}

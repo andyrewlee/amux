@@ -2,12 +2,15 @@ package app
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -25,6 +28,8 @@ type prefixCommand struct {
 	Action   string
 }
 
+// prefixCommandTable is user-documented in README.md ("Controls") — add a
+// row there when adding a command.
 var prefixCommandTable = []prefixCommand{
 	{Sequence: []string{"a"}, Desc: "add project", Action: "add_project"},
 	{Sequence: []string{"d"}, Desc: "delete workspace", Action: "delete_workspace"},
@@ -33,6 +38,7 @@ var prefixCommandTable = []prefixCommand{
 	{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: "cleanup_tmux"},
 	{Sequence: []string{"h"}, Desc: "focus left", Action: "focus_left"},
 	{Sequence: []string{"l"}, Desc: "focus right", Action: "focus_right"},
+	{Sequence: []string{"n"}, Desc: "next attention", Action: "next_attention"},
 	{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: "new_agent_tab"},
 	{Sequence: []string{"t", "t"}, Desc: "new terminal tab", Action: "new_terminal_tab"},
 	{Sequence: []string{"t", "n"}, Desc: "next tab", Action: "next_tab"},
@@ -41,6 +47,8 @@ var prefixCommandTable = []prefixCommand{
 	{Sequence: []string{"t", "d"}, Desc: "detach tab", Action: "detach_tab"},
 	{Sequence: []string{"t", "r"}, Desc: "reattach tab", Action: "reattach_tab"},
 	{Sequence: []string{"t", "s"}, Desc: "restart tab", Action: "restart_tab"},
+	{Sequence: []string{"t", "y"}, Desc: "copy transcript", Action: "copy_transcript"},
+	{Sequence: []string{"t", "f"}, Desc: "save transcript to file", Action: "save_transcript"},
 }
 
 // Prefix mode helpers (leader key)
@@ -194,6 +202,19 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 		return a.focusPaneLeft()
 	case "focus_right":
 		return a.focusPaneRight()
+	case "next_attention":
+		// Works app-wide: jump the dashboard cursor to the next done-badge row
+		// and land on it (activation rides along, so the ack + preview happen
+		// exactly as if the user had cursor'd there). Focus follows the
+		// dashboard so the jumped row is visibly selected.
+		if a.dashboard == nil {
+			return nil
+		}
+		jump := a.dashboard.JumpToNextAttention()
+		if jump == nil {
+			return a.toast.ShowInfo("No workspaces need attention")
+		}
+		return common.SafeBatch(a.focusPane(messages.PaneDashboard), jump)
 	case "scroll_up":
 		if a.centerScrollPrefixActive() {
 			a.center.ScrollActiveTerminalPage(1)
@@ -250,9 +271,87 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 		return a.dispatchTabAction(a.center.ReattachActiveTab, a.sidebarTerminal.ReattachActiveTab)
 	case "restart_tab":
 		return a.dispatchTabAction(a.center.RestartActiveTab, a.sidebarTerminal.RestartActiveTab)
+	case "copy_transcript":
+		return a.copyTranscriptCommand()
+	case "save_transcript":
+		return a.saveTranscriptCommand()
 	default:
 		return nil
 	}
+}
+
+// activeTranscript returns the focused terminal pane's full transcript
+// (scrollback + screen), captured under the pane's lock by ActiveTranscript.
+// Empty when the focused pane has no transcript (dashboard, empty pane).
+func (a *App) activeTranscript() string {
+	switch a.focusedPane {
+	case messages.PaneCenter:
+		if a.center != nil {
+			return a.center.ActiveTranscript()
+		}
+	case messages.PaneSidebarTerminal:
+		if a.sidebarTerminal != nil {
+			return a.sidebarTerminal.ActiveTranscript()
+		}
+	}
+	return ""
+}
+
+// copyTranscriptCommand copies the focused terminal pane's transcript to the
+// clipboard. The clipboard write runs off-lock in a goroutine — the
+// CopyToClipboardWithLog contract. User-initiated, so the OSC52 env gate does
+// not apply.
+func (a *App) copyTranscriptCommand() tea.Cmd {
+	text := a.activeTranscript()
+	if text == "" {
+		return a.toast.ShowWarning("No transcript to copy")
+	}
+	text, truncated := common.TruncateTranscriptTail(text)
+	copyFn := a.copyToClipboardFn
+	if copyFn == nil {
+		copyFn = common.CopyToClipboardWithLog
+	}
+	safego.Go("app.transcript_clipboard", func() {
+		copyFn(text, "transcript")
+	})
+	if truncated {
+		return a.toast.ShowSuccess(fmt.Sprintf("Copied transcript — truncated to last %d chars", len(text)))
+	}
+	return a.toast.ShowSuccess(fmt.Sprintf("Copied transcript — %d chars", len(text)))
+}
+
+// saveTranscriptCommand opens an input dialog for a destination path and
+// snapshots the focused pane's transcript NOW — the terminal keeps scrolling
+// while the dialog is up, so the confirm handler writes the captured bytes,
+// not a re-read. Unlike the clipboard path there is no size cap: a file sink
+// can hold the full scrollback.
+func (a *App) saveTranscriptCommand() tea.Cmd {
+	text := a.activeTranscript()
+	if text == "" {
+		return a.toast.ShowWarning("No transcript to save")
+	}
+	a.requestOverlayOpen(func() {
+		a.dlg.transcript = text
+		name := "transcript"
+		if a.activeWorkspace != nil && a.activeWorkspace.Name != "" {
+			// ValidateWorkspaceName already restricts to [a-zA-Z0-9._-],
+			// so the name is filename-safe as-is.
+			name = a.activeWorkspace.Name
+		}
+		defaultPath := fmt.Sprintf("~/.amux/transcripts/%s-%s.txt",
+			name, time.Now().UTC().Format("20060102-150405"))
+		a.dialog = common.NewInputDialog(DialogSaveTranscript, "Save Transcript", "file path...")
+		a.dialog.SetInputValidate(func(s string) string {
+			if strings.TrimSpace(s) == "" {
+				return "path cannot be empty"
+			}
+			return ""
+		})
+		a.presentDialog(a.dialog)
+		// presentDialog → Show() resets the input; prefill after presenting.
+		a.dialog.SetInputValue(defaultPath)
+	})
+	return nil
 }
 
 func (a *App) centerScrollPrefixActive() bool {

@@ -144,8 +144,11 @@ func (a *App) routeMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 
 	if (a.dialog != nil && a.dialog.Visible()) ||
 		(a.filePicker != nil && a.filePicker.Visible()) ||
-		(a.settingsDialog != nil && a.settingsDialog.Visible()) ||
-		(a.envDialog != nil && a.envDialog.Visible()) ||
+		(a.overlays.settings != nil && a.overlays.settings.Visible()) ||
+		(a.overlays.env != nil && a.overlays.env.Visible()) ||
+		(a.overlays.projectEnv != nil && a.overlays.projectEnv.Visible()) ||
+		(a.overlays.scripts != nil && a.overlays.scripts.Visible()) ||
+		(a.overlays.runOutput != nil && a.overlays.runOutput.Visible()) ||
 		a.err != nil ||
 		a.toastCoversPoint(msg.X, msg.Y) {
 		// Modal, error, and toast overlays should block background scrolling.
@@ -288,11 +291,7 @@ func (a *App) prefixPaletteContainsPoint(x, y int) bool {
 	if !a.prefixActive || a.width <= 0 || a.height <= 0 {
 		return false
 	}
-	palette := a.renderPrefixPalette()
-	if palette == "" {
-		return false
-	}
-	_, paletteHeight := viewDimensions(palette)
+	paletteHeight := a.prefixPaletteHeight()
 	if paletteHeight <= 0 {
 		return false
 	}

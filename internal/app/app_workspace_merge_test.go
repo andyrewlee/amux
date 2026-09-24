@@ -245,7 +245,7 @@ func TestMergeConfirmDialog_RunsMergeWithVerifiedBase(t *testing.T) {
 	}
 
 	app.handleShowMergeWorkspaceDialog(messages.ShowMergeWorkspaceDialog{Workspace: ws, Base: "main"})
-	cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: true})
+	cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: true}, app.dlg)
 	if cmd == nil {
 		t.Fatal("confirming the merge dialog produced no command")
 	}
@@ -276,7 +276,7 @@ func TestMergeConfirmDialog_CancelDoesNotMerge(t *testing.T) {
 	}
 
 	app.handleShowMergeWorkspaceDialog(messages.ShowMergeWorkspaceDialog{Workspace: mergeWorkspace(), Base: "main"})
-	if cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: false}); cmd != nil {
+	if cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: false}, app.dlg); cmd != nil {
 		cmd()
 	}
 	if called {
@@ -395,7 +395,7 @@ func TestConflictDialog_ConfirmAborts(t *testing.T) {
 		Branch: "feature",
 		Files:  []string{"a.go"},
 	})
-	cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeConflict, Confirmed: true})
+	cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeConflict, Confirmed: true}, app.dlg)
 	if cmd == nil {
 		t.Fatal("confirming the conflict dialog produced no abort command")
 	}
@@ -418,7 +418,7 @@ func TestConflictDialog_DeclineLeavesMergeInProgress(t *testing.T) {
 	}
 
 	app.showMergeConflictDialog(mergeWorkspace(), &git.MergeConflictError{Branch: "feature", Files: []string{"a.go"}})
-	if cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeConflict, Confirmed: false}); cmd != nil {
+	if cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeConflict, Confirmed: false}, app.dlg); cmd != nil {
 		cmd()
 	}
 	if called {

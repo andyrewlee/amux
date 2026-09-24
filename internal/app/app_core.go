@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -32,14 +33,21 @@ const (
 	DialogMergeWorkspace  = "merge_workspace"
 	DialogMergeConflict   = "merge_conflict"
 	DialogTrustScripts    = "trust_scripts"
-	DialogRemoveProject   = "remove_project"
-	// DialogSelectAssistant is the legacy ID for the assistant-selection flow.
-	// The dialog itself is built by common.NewAgentPicker and carries
-	// common.AgentPickerDialogID at runtime; handleDialogResult still matches
-	// DialogSelectAssistant alongside it so older callers keep routing.
-	DialogSelectAssistant = "select_assistant"
-	DialogQuit            = "quit"
-	DialogCleanupTmux     = "cleanup_tmux"
+	DialogShelveWorkspace = "shelve_workspace"
+	// DialogBulkShelveWorkspace confirms shelving the dashboard's marked
+	// workspace set as one operation — replaces N per-row confirms, not the
+	// per-row op itself.
+	DialogBulkShelveWorkspace = "bulk_shelve_workspace"
+	// DialogBulkRestoreWorkspace confirms restoring the dashboard's marked
+	// shelved rows as one sequential drain.
+	DialogBulkRestoreWorkspace = "bulk_restore_workspace"
+	// DialogBulkPurgeWorkspace is the typed confirm for permanently deleting
+	// the dashboard's marked shelved rows — the input must equal the count.
+	DialogBulkPurgeWorkspace = "bulk_purge_workspace"
+	DialogRemoveProject      = "remove_project"
+	DialogQuit               = "quit"
+	DialogCleanupTmux        = "cleanup_tmux"
+	DialogSaveTranscript     = "save_transcript"
 )
 
 // prefixTimeoutMsg is sent when the prefix mode timer expires.
@@ -51,10 +59,18 @@ type prefixTimeoutMsg struct {
 type App struct {
 	// Configuration
 	config           *config.Config
-	workspaceService *workspaceService
+	workspaceService *workspacesvc.Service
 	gitStatus        GitStatusService
 	tmuxService      TmuxOps
 	updateService    UpdateService
+
+	// Git-status request dedup (plan 043): at most one refresh subprocess per
+	// root in flight; requests arriving during one coalesce into a single
+	// follow-up. All three maps are touched only on the Update goroutine —
+	// the worker Cmds never read them.
+	gitStatusInFlight    map[string]bool
+	gitStatusPending     map[string]bool
+	gitStatusPendingFull map[string]bool
 
 	// Limits
 	maxAttachedAgentTabs    int
@@ -79,43 +95,54 @@ type App struct {
 	centerBtnIndex   int
 
 	// UI Components
-	layout                *layout.Manager
-	dashboard             *dashboard.Model
-	center                *center.Model
-	sidebar               *sidebar.TabbedSidebar
-	sidebarTerminal       *sidebar.TerminalModel
-	dialog                *common.Dialog
-	filePicker            *common.FilePicker
-	settingsDialog        *common.SettingsDialog
-	settingsDialogSession int
-	// Theme persistence state for settings dialog exits.
-	settingsThemePersistedTheme common.ThemeID
-	settingsThemeDirty          bool
-	// Theme that was active when the settings dialog opened, restored on Esc.
-	settingsThemeOriginal common.ThemeID
-	// envDialog is the workspace environment-variable editor; envDialogWorkspace
-	// is the workspace it was opened for, read back in handleEnvDialogResult
-	// (mirroring dialogWorkspace's role for the generic Dialog, but tracked
-	// separately since a settings-style bespoke dialog isn't routed through
-	// a.dialogWorkspace).
-	envDialog          *common.EnvDialog
-	envDialogWorkspace *data.Workspace
+	layout          *layout.Manager
+	dashboard       *dashboard.Model
+	center          *center.Model
+	sidebar         *sidebar.TabbedSidebar
+	sidebarTerminal *sidebar.TerminalModel
+	dialog          *common.Dialog
+	filePicker      *common.FilePicker
+	// overlays holds the bespoke (non-registry) modal dialogs and their
+	// per-dialog context — see app_overlays.go for the struct and the
+	// table-driven input chain that replaced per-field wrappers.
+	overlays overlayState
+	// pendingOverlayOpens defers modal overlay opens that arrive while
+	// another overlay is visible — see app_overlay_arbiter.go.
+	pendingOverlayOpens []func()
+	projectEnvStore     *data.ProjectEnvStore
+	// lastRunScriptRoot/lastRunScriptAlive track the active workspace's run
+	// state across run-script status results so a running→stopped flip with
+	// a non-zero exit surfaces as a toast instead of a silent badge-off.
+	lastRunScriptRoot  string
+	lastRunScriptAlive bool
+	// runScriptStatusInFlight suppresses a second status check while one is
+	// still running — the check shells tmux, so a wedged server would
+	// otherwise pile up goroutines one per tick.
+	runScriptStatusInFlight bool
 
 	// Overlays
 	toast *common.ToastModel
+	// overlayGeom caches the overlay dimensions measured by the last
+	// composeOverlays pass; cursor placement and mouse hit-tests reuse it
+	// rather than re-rendering views the compose pass already produced.
+	overlayGeom overlayGeometry
 
-	// Dialog context
-	dialogProject          *data.Project
-	dialogWorkspace        *data.Workspace
-	dialogTrustScriptsHash string
-	// dialogMergeBase is the local base branch the pending merge confirmation
-	// resolved and verified, carried to the confirm handler so it reports the
-	// same branch the user was shown.
-	dialogMergeBase string
-	// Pending workspace creation context while selecting assistant.
-	pendingWorkspaceProject *data.Project
-	pendingWorkspaceName    string
-	pendingWorkspaceBase    string
+	// dlg holds per-dialog scratch set at dialog-open. A dialog result carries
+	// the dlg snapshot captured at emit time (boundDialogResultMsg), so the
+	// context applied is the producing instance's — never the context of a
+	// dialog that replaced it before the result landed.
+	dlg dialogContext
+	// dialogSeq is a monotonically increasing counter stamped by
+	// presentDialog on each shown app dialog; dialogOpenSeq records the seq of
+	// the currently-open instance. A bound result whose seq no longer matches
+	// dialogOpenSeq is stale (its dialog was replaced) and is dropped.
+	dialogSeq     int
+	dialogOpenSeq int
+	// pendingWorkspaceCreate carries the create-workspace→agent-picker
+	// handoff: it is written inside a dialog result and consumed by the NEXT
+	// dialog's result (or its cancel), so it cannot live in dlg — a blanket
+	// clear at each result would wipe it before consumption.
+	pendingWorkspaceCreate pendingWorkspaceCreateState
 	// Assistants chosen during workspace creation, keyed by workspace ID and
 	// launched once that workspace is activated, so creating a workspace lands
 	// the user in a live agent tab instead of making them re-pick the same
@@ -124,6 +151,11 @@ type App struct {
 	// would let the second overwrite the first, leaving it with no agent.
 	pendingLaunchAssistants map[string]string
 
+	// bulk drives a marked-set lifecycle op (shelve, restore, purge) one
+	// workspace at a time through the literal per-row handler — see
+	// app_bulk_shelve.go.
+	bulk bulkOpState
+
 	// Git write-back seams. All nil in production (each falls back to the real
 	// git.* function); tests install fakes to assert the dialog→git wiring
 	// without a real repo.
@@ -131,7 +163,11 @@ type App struct {
 	mergeBranchFn      func(context.Context, string, string) error
 	abortMergeFn       func(context.Context, string) error
 	checkedOutBranchFn func(string) (string, error)
-	localBaseBranchFn  func(repoPath, base string) string
+	// copyToClipboardFn is the transcript-export sink seam: nil in
+	// production (falls back to common.CopyToClipboardWithLog); tests stub
+	// it so the copy path never shells out to pbcopy mid-test.
+	copyToClipboardFn func(text, label string)
+	localBaseBranchFn func(repoPath, base string) string
 
 	// Git status management
 	fileWatcher     *git.FileWatcher
@@ -186,4 +222,33 @@ type App struct {
 	externalCritical chan tea.Msg
 	externalSender   func(tea.Msg)
 	externalOnce     sync.Once
+}
+
+// dialogContext is per-dialog scratch: written when a dialog is shown, read
+// in handleDialogResult, then cleared wholesale so nothing leaks into the
+// next dialog's lifecycle.
+type dialogContext struct {
+	project          *data.Project
+	workspace        *data.Workspace
+	trustScriptsHash string
+	// bulkTargets carries the confirmed bulk-op set from the dialog to
+	// its result handler.
+	bulkTargets []bulkTarget
+	// mergeBase is the local base branch the merge confirmation resolved and
+	// verified, carried to the confirm handler so it reports the same branch
+	// the user was shown.
+	mergeBase string
+	// transcript carries the pane transcript captured when the save-transcript
+	// dialog opened — the terminal keeps scrolling while the dialog is up, so
+	// the bytes must be snapshotted at open, not read again on confirm.
+	transcript string
+}
+
+// pendingWorkspaceCreateState is the create-workspace→agent-picker handoff:
+// written by the create-workspace result, consumed by the agent-picker
+// result or its cancel path. Crosses two dialogs by design — see App.dlg.
+type pendingWorkspaceCreateState struct {
+	project *data.Project
+	name    string
+	base    string
 }

@@ -109,12 +109,12 @@ func TestHandleWorkspaceActivatedSkipsDiscoveryWhileArmed(t *testing.T) {
 	// command at all; tmuxAvailable gates it.
 	unarmed := activationApp(t)
 	unarmed.tmuxAvailable = true
-	unarmed.tmuxService = stubTmuxOps{}
+	unarmed.tmuxService = newStubTmuxOps(nil, nil, nil)
 	withDiscovery := len(unarmed.handleWorkspaceActivated(activation))
 
 	armed := activationApp(t)
 	armed.tmuxAvailable = true
-	armed.tmuxService = stubTmuxOps{}
+	armed.tmuxService = newStubTmuxOps(nil, nil, nil)
 	armed.pendingLaunchAssistants = map[string]string{string(ws.ID()): "claude"}
 	withLaunch := len(armed.handleWorkspaceActivated(activation))
 

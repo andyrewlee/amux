@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -69,6 +70,9 @@ func newAppShell(cfg *config.Config) *App {
 	if cfg != nil {
 		app.setKeymapHintsEnabled(cfg.UI.ShowKeymapHints)
 		app.dashboard.SetNotifyOnDone(cfg.UI.NotifyOnDone)
+		if app.center != nil {
+			app.center.SetViewerCommand(cfg.UI.ViewerCommand)
+		}
 	}
 	return app
 }
@@ -117,7 +121,7 @@ func New(version, commit, date string) (*App, error) {
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
 	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
-	workspaceService := newWorkspaceService(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
+	workspaceService := workspacesvc.New(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
 
 	// Create status manager (used for synchronous status caching only).
 	statusManager := git.NewStatusManager()
@@ -189,6 +193,25 @@ func New(version, commit, date string) (*App, error) {
 	app.sidebarTerminal.SetMsgSink(app.enqueueExternalMsg)
 	app.center.SetInstanceID(app.instanceID)
 	app.sidebarTerminal.SetInstanceID(app.instanceID)
+	// Host workspace `run` scripts in detached tmux sessions (scrollback +
+	// remain-on-exit crash forensics) instead of naked subprocesses.
+	scripts.SetRunHost(newTmuxRunSessionHost(tmuxOpts, app.instanceID))
+	app.projectEnvStore = data.NewProjectEnvStore(cfg.Paths.Home)
+	scripts.SetProjectEnvResolver(app.projectEnvStore.ForRepo)
+	// Surface detached lifecycle-script failures (on-done — the only hook
+	// whose Wait has no synchronous caller): the runner records the bounded
+	// transcript, this enqueues the visible warning. tryEnqueue drops on a
+	// saturated pump; the transcript stays reachable via the O viewer.
+	scripts.SetScriptExitListener(func(ws *data.Workspace, st process.ScriptType, runErr error) {
+		app.tryEnqueueExternalMsg(lifecycleScriptExitedMsg{workspace: ws, scriptType: st, err: runErr})
+	})
+	// Interactive sessions (agents, viewers, sidebar terminals) get the same
+	// user-controlled env layers as script spawns — injected AMUX_* identity
+	// and port vars plus project/ws.Env, sharing this runner's PortAllocator
+	// so a session reports the workspace's real reservation — minus the
+	// trust-gated repo layer (see process.BuildSessionEnv).
+	app.center.SetSessionEnvProvider(scripts.BuildSessionEnv)
+	app.sidebarTerminal.SetSessionEnvProvider(scripts.BuildSessionEnv)
 	// Propagate tmux config to components
 	app.center.SetTmuxOptions(tmuxOpts)
 	app.sidebarTerminal.SetTmuxOptions(tmuxOpts)
@@ -200,14 +223,16 @@ func New(version, commit, date string) (*App, error) {
 		app.supervisor.Start("app.state_watcher", stateWatcher.Run, supervisor.WithBackoff(supervisorBackoff))
 	}
 
-	// Let the service's load/rescan path consult the App's delete-in-flight guard
-	// so it can skip workspaces that are being deleted (used by the rescan guard).
-	workspaceService.deleteInFlight = app.isWorkspaceDeleteInFlight
-	workspaceService.deleteInFlightGuard = app.runUnlessWorkspaceDeleteInFlight
-	// Let the delete path tear down workspace tmux sessions after worktree
+	// Let the service's load/rescan path consult the App's mutation-in-flight guard
+	// so it can skip workspaces that are being deleted (used by the rescan guard),
+	// and let the delete path tear down workspace tmux sessions after worktree
 	// removal succeeds, without killing live sessions for failed deletes.
-	workspaceService.killWorkspaceSessions = app.killWorkspaceSessionsSync
-	workspaceService.killWorkspaceSessionNames = app.killWorkspaceSessionNamesSync
+	workspaceService.Configure(workspacesvc.Deps{
+		MutationInFlight:          app.isWorkspaceMutationInFlightWS,
+		MutationInFlightGuard:     app.runUnlessWorkspaceMutationInFlightWS,
+		KillWorkspaceSessions:     app.killWorkspaceSessionsSync,
+		KillWorkspaceSessionNames: app.killWorkspaceSessionNamesSync,
+	})
 
 	return app, nil
 }

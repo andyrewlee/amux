@@ -33,16 +33,16 @@ func (tmuxOps) AllSessionStates(opts tmux.Options) (map[string]tmux.SessionState
 	return tmux.AllSessionStates(opts)
 }
 
+func (tmuxOps) AllSessionMeta(opts tmux.Options) (map[string]tmux.SessionMeta, error) {
+	return tmux.AllSessionMeta(opts)
+}
+
 func (tmuxOps) SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
 	return tmux.SessionStateFor(sessionName, opts)
 }
 
 func (tmuxOps) SessionHasClients(sessionName string, opts tmux.Options) (bool, error) {
 	return tmux.SessionHasClients(sessionName, opts)
-}
-
-func (tmuxOps) SessionNamesWithClients(opts tmux.Options) (map[string]bool, error) {
-	return tmux.SessionNamesWithClients(opts)
 }
 
 func (tmuxOps) SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error) {
@@ -79,6 +79,10 @@ func (tmuxOps) SetStatusOff(opts tmux.Options) error {
 
 func (tmuxOps) CapturePaneTail(sessionName string, lines int, opts tmux.Options) (string, bool) {
 	return tmux.CapturePaneTail(sessionName, lines, opts)
+}
+
+func (tmuxOps) CapturePaneTailChecked(sessionName string, lines int, activePaneLive bool, opts tmux.Options) (string, bool) {
+	return tmux.CapturePaneTailChecked(sessionName, lines, activePaneLive, opts)
 }
 
 func (tmuxOps) ContentHash(content string) [16]byte {

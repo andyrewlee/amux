@@ -27,11 +27,11 @@ func TestHandleShowRenameWorkspaceDialog_PrefillsCurrentName(t *testing.T) {
 		Workspace: ws,
 	})
 
-	if h.app.dialogProject != project {
-		t.Fatal("expected dialogProject to be stored")
+	if h.app.dlg.project != project {
+		t.Fatal("expected dlg.project to be stored")
 	}
-	if h.app.dialogWorkspace != ws {
-		t.Fatal("expected dialogWorkspace to be stored")
+	if h.app.dlg.workspace != ws {
+		t.Fatal("expected dlg.workspace to be stored")
 	}
 
 	view := dialogView(t, h.app.dialog)
@@ -121,8 +121,8 @@ func TestHandleShowCommitWorkspaceDialog_ValidatesLeadingDash(t *testing.T) {
 
 			h.app.handleShowCommitWorkspaceDialog(messages.ShowCommitWorkspaceDialog{Workspace: ws})
 
-			if h.app.dialogWorkspace != ws {
-				t.Fatal("expected dialogWorkspace to be stored")
+			if h.app.dlg.workspace != ws {
+				t.Fatal("expected dlg.workspace to be stored")
 			}
 			view := dialogView(t, h.app.dialog)
 			if !strings.Contains(view, "Commit changes") {

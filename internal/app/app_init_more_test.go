@@ -8,7 +8,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/testutil/tmuxops"
 	"github.com/andyrewlee/amux/internal/update"
 )
 
@@ -32,55 +32,6 @@ func (s *fakeUpdateService) Check() (*update.CheckResult, error) {
 
 func (s *fakeUpdateService) Upgrade(*update.Release) error { return nil }
 func (s *fakeUpdateService) IsHomebrewBuild() bool         { return false }
-
-// fakeTmuxAvailability implements just enough of TmuxOps to drive
-// checkTmuxAvailable: EnsureAvailable controls the available/unavailable branch
-// and InstallHint is surfaced on the failure path. Every other method is a
-// zero-value stub because checkTmuxAvailable never calls them.
-type fakeTmuxAvailability struct {
-	ensureErr   error
-	installHint string
-}
-
-func (f *fakeTmuxAvailability) EnsureAvailable() error {
-	return f.ensureErr
-}
-func (f *fakeTmuxAvailability) InstallHint() string { return f.installHint }
-func (f *fakeTmuxAvailability) ActiveAgentSessionsByActivity(time.Duration, tmux.Options) ([]tmux.SessionActivity, error) {
-	return nil, nil
-}
-
-func (f *fakeTmuxAvailability) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
-	return nil, nil
-}
-
-func (f *fakeTmuxAvailability) AllSessionStates(tmux.Options) (map[string]tmux.SessionState, error) {
-	return nil, nil
-}
-
-func (f *fakeTmuxAvailability) SessionStateFor(string, tmux.Options) (tmux.SessionState, error) {
-	return tmux.SessionState{}, nil
-}
-
-func (f *fakeTmuxAvailability) SessionHasClients(string, tmux.Options) (bool, error) {
-	return false, nil
-}
-func (f *fakeTmuxAvailability) SessionCreatedAt(string, tmux.Options) (int64, error) { return 0, nil }
-func (f *fakeTmuxAvailability) KillSession(string, tmux.Options) error               { return nil }
-func (f *fakeTmuxAvailability) KillSessionsMatchingTags(map[string]string, tmux.Options) (bool, error) {
-	return false, nil
-}
-func (f *fakeTmuxAvailability) KillSessionsWithPrefix(string, tmux.Options) error { return nil }
-func (f *fakeTmuxAvailability) KillSessionsWithPrefixMissingTag(string, string, tmux.Options) error {
-	return nil
-}
-func (f *fakeTmuxAvailability) KillWorkspaceSessions(string, tmux.Options) error { return nil }
-func (f *fakeTmuxAvailability) SetMonitorActivityOn(tmux.Options) error          { return nil }
-func (f *fakeTmuxAvailability) SetStatusOff(tmux.Options) error                  { return nil }
-func (f *fakeTmuxAvailability) CapturePaneTail(string, int, tmux.Options) (string, bool) {
-	return "", false
-}
-func (f *fakeTmuxAvailability) ContentHash(string) [16]byte { return [16]byte{} }
 
 // ---------------------------------------------------------------------------
 // checkForUpdates
@@ -182,22 +133,21 @@ func TestCheckTmuxAvailable(t *testing.T) {
 		},
 		{
 			name:    "ensure success reports available with no hint",
-			service: &fakeTmuxAvailability{ensureErr: nil},
+			service: &tmuxops.FakeTmuxOps{},
 			want:    tmuxAvailableResult{available: true},
 		},
 		{
 			name: "ensure failure reports unavailable with install hint",
-			service: &fakeTmuxAvailability{
-				ensureErr:   errors.New("tmux not found"),
-				installHint: "brew install tmux",
+			service: &tmuxops.FakeTmuxOps{
+				EnsureAvailableFunc: func() error { return errors.New("tmux not found") },
+				InstallHintFunc:     func() string { return "brew install tmux" },
 			},
 			want: tmuxAvailableResult{available: false, installHint: "brew install tmux"},
 		},
 		{
 			name: "ensure failure with empty hint stays empty",
-			service: &fakeTmuxAvailability{
-				ensureErr:   errors.New("tmux not found"),
-				installHint: "",
+			service: &tmuxops.FakeTmuxOps{
+				EnsureAvailableFunc: func() error { return errors.New("tmux not found") },
 			},
 			want: tmuxAvailableResult{available: false, installHint: ""},
 		},

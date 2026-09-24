@@ -13,6 +13,10 @@ import (
 // Each tick performs:
 // 1) discovery for new sessions created outside this UI instance, and
 // 2) status sync for known tabs.
+// Orphan GC is deliberately NOT here: it runs on its own 60s ticker
+// (handleOrphanGCTick, armed at init) plus ProjectsLoaded/tmuxAvailableResult
+// triggers — it re-issues session listings this tick already ran, and at the
+// 7s sync cadence that multiplied its fork cost ~8.6×.
 // The default 7s tick interval and per-command 5s timeout bound worst-case latency.
 func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
 	if msg.Token != a.tmuxActivity.syncToken {
@@ -28,9 +32,6 @@ func (a *App) handleTmuxSyncTick(msg messages.TmuxSyncTick) []tea.Cmd {
 				cmds = append(cmds, syncCmd)
 			}
 		}
-		if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
-			cmds = append(cmds, gcCmd)
-		}
 	}
 	cmds = append(cmds, a.startTmuxSyncTicker())
 	return cmds
@@ -40,7 +41,7 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 	if msg.WorkspaceID == "" {
 		return nil
 	}
-	if a.isWorkspaceDeleteInFlight(msg.WorkspaceID) {
+	if a.isWorkspaceMutationInFlight(msg.WorkspaceID) {
 		return nil
 	}
 	ws := a.findWorkspaceByID(msg.WorkspaceID)
@@ -81,7 +82,7 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 		wsID := string(wsSnapshot.ID())
 		cmds = append(cmds, func() tea.Msg {
 			var saveErr error
-			saved := a.runUnlessWorkspaceDeleteInFlight(wsID, func() {
+			saved := a.runUnlessWorkspaceMutationInFlight(wsID, func() {
 				saveErr = a.workspaceService.Save(wsSnapshot)
 			})
 			if !saved {

@@ -84,28 +84,30 @@ func appendStoppedTabStatus(stoppedTabs []messages.TabSessionStatus, sessionName
 // dead/disappeared sessions and "running" for revived ones — so that the subsequent
 // ActiveWorkspaceIDsFromTagsWithRemoved call (which filters via IsRunningSession) sees corrected
 // statuses. It returns TabSessionStatus messages for sessions whose status changed
-// from a running-like state to stopped.
+// from a running-like state to stopped, plus the batched session-state map the
+// scan already paid for so downstream captures can reuse its liveness hints
+// (nil when the batched probe failed).
 func syncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	sessions []activity.TaggedSession,
 	svc TmuxOps,
 	opts tmux.Options,
 	missBySession map[string]int,
-) []messages.TabSessionStatus {
+) ([]messages.TabSessionStatus, map[string]tmux.SessionState) {
 	stoppedTabs := make([]messages.TabSessionStatus, 0)
 	if len(infoBySession) == 0 {
 		clear(missBySession)
-		return stoppedTabs
+		return stoppedTabs, nil
 	}
 	if svc == nil {
-		return stoppedTabs
+		return stoppedTabs, nil
 	}
 
 	// Batch: single tmux call gets existence + live-pane status for all sessions.
 	allStates, err := svc.AllSessionStates(opts)
 	if err != nil {
 		logging.Warn("AllSessionStates failed, skipping session state sync: %v", err)
-		return stoppedTabs
+		return stoppedTabs, nil
 	}
 
 	checked := make(map[string]struct{}, len(sessions))
@@ -170,5 +172,5 @@ func syncActivitySessionStates(
 		}
 	}
 
-	return stoppedTabs
+	return stoppedTabs, allStates
 }

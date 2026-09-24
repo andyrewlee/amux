@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
@@ -38,7 +40,7 @@ func TestRescanWorkspaces_ArchivesMissingWorkspaces(t *testing.T) {
 		t.Fatalf("Save ghost workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	workspaceService := workspacesvc.New(registry, store, nil, workspacesRoot)
 	app := &App{
 		workspaceService: workspaceService,
 	}
@@ -82,7 +84,7 @@ func TestRescanWorkspaces_IgnoresExternalWorktrees(t *testing.T) {
 	}
 	store := data.NewWorkspaceStore(filepath.Join(tmp, "workspaces-metadata"))
 
-	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	workspaceService := workspacesvc.New(registry, store, nil, workspacesRoot)
 	app := &App{workspaceService: workspaceService}
 
 	rescanMsg := app.rescanWorkspaces()()
@@ -137,7 +139,7 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 	metadataRoot := filepath.Join(tmp, "workspaces-metadata")
 
 	store := data.NewWorkspaceStore(metadataRoot)
-	workspaceService := newWorkspaceService(nil, store, nil, workspacesRoot)
+	workspaceService := workspacesvc.New(nil, store, nil, workspacesRoot)
 	app := &App{
 		workspaceService: workspaceService,
 	}
@@ -146,21 +148,22 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 
 	var removeCalled bool
 	var deleteCalled bool
-	workspaceService.gitOps = &mockGitOps{
-		createWorkspace: func(repoPath, workspacePath, branch, base string) error {
-			return os.MkdirAll(workspacePath, 0o755)
+	workspaceService.Configure(workspacesvc.Deps{
+		GitOps: &testutil.FakeGitOps{
+			CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+				return os.MkdirAll(workspacePath, 0o755)
+			},
+			RemoveWorkspaceFunc: func(repoPath, workspacePath string) error {
+				removeCalled = true
+				return nil
+			},
+			DeleteBranchFunc: func(repoPath, branch string) error {
+				deleteCalled = true
+				return nil
+			},
 		},
-		removeWorkspace: func(repoPath, workspacePath string) error {
-			removeCalled = true
-			return nil
-		},
-		deleteBranch: func(repoPath, branch string) error {
-			deleteCalled = true
-			return nil
-		},
-	}
-
-	workspaceService.gitPathWaitTimeout = 50 * time.Millisecond
+		GitPathWaitTimeout: 50 * time.Millisecond,
+	})
 
 	msg := app.createWorkspace(project, "feature", "main", "claude")()
 	failed, ok := msg.(messages.WorkspaceCreateFailed)
@@ -186,7 +189,7 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 	}
 }
 
-func TestRescanWorkspaces_SkipsDeleteInFlight(t *testing.T) {
+func TestRescanWorkspaces_SkipsMutationInFlight(t *testing.T) {
 	skipIfNoGit(t)
 
 	repo := t.TempDir()
@@ -214,12 +217,12 @@ func TestRescanWorkspaces_SkipsDeleteInFlight(t *testing.T) {
 		t.Fatalf("Save ghost workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	workspaceService := workspacesvc.New(registry, store, nil, workspacesRoot)
 	// Mark the ghost as mid-delete: an unmanaged workspace would normally be
-	// archived by rescan, but a delete-in-flight one must be left untouched.
-	workspaceService.deleteInFlight = func(id string) bool {
-		return id == string(ghost.ID())
-	}
+	// archived by rescan, but a mutation-in-flight one must be left untouched.
+	workspaceService.Configure(workspacesvc.Deps{MutationInFlight: func(ws *data.Workspace) bool {
+		return ws != nil && ws.ID() == ghost.ID()
+	}})
 	app := &App{workspaceService: workspaceService}
 
 	rescanMsg := app.rescanWorkspaces()()
@@ -232,7 +235,7 @@ func TestRescanWorkspaces_SkipsDeleteInFlight(t *testing.T) {
 		t.Fatalf("Load ghost workspace: %v", err)
 	}
 	if loaded.Archived {
-		t.Fatalf("delete-in-flight workspace must not be archived by rescan")
+		t.Fatalf("mutation-in-flight workspace must not be archived by rescan")
 	}
 }
 
@@ -271,7 +274,7 @@ func TestRescanWorkspaces_SkipsTombstonedWorkspace(t *testing.T) {
 		t.Fatalf("MarkDeleting: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	workspaceService := workspacesvc.New(registry, store, nil, workspacesRoot)
 	app := &App{workspaceService: workspaceService}
 
 	rescanMsg := app.rescanWorkspaces()()
@@ -319,11 +322,11 @@ func TestRescanWorkspaces_GuardsArchiveWriteAgainstConcurrentDelete(t *testing.T
 		t.Fatalf("Save ghost workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
+	workspaceService := workspacesvc.New(registry, store, nil, workspacesRoot)
 	ghostID := string(ghost.ID())
 	guardCalled := false
-	workspaceService.deleteInFlightGuard = func(id string, fn func()) bool {
-		if id != ghostID {
+	workspaceService.Configure(workspacesvc.Deps{MutationInFlightGuard: func(ws *data.Workspace, fn func()) bool {
+		if ws == nil || string(ws.ID()) != ghostID {
 			if fn != nil {
 				fn()
 			}
@@ -331,7 +334,7 @@ func TestRescanWorkspaces_GuardsArchiveWriteAgainstConcurrentDelete(t *testing.T
 		}
 		guardCalled = true
 		return false
-	}
+	}})
 	app := &App{workspaceService: workspaceService}
 
 	rescanMsg := app.rescanWorkspaces()()
@@ -339,7 +342,7 @@ func TestRescanWorkspaces_GuardsArchiveWriteAgainstConcurrentDelete(t *testing.T
 		t.Fatalf("expected RefreshDashboard from rescan, got %T", rescanMsg)
 	}
 	if !guardCalled {
-		t.Fatal("expected delete-in-flight guard to protect archive write")
+		t.Fatal("expected mutation-in-flight guard to protect archive write")
 	}
 
 	loaded, err := store.Load(ghost.ID())

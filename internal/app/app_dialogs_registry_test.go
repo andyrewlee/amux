@@ -3,6 +3,9 @@ package app
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -16,9 +19,13 @@ func TestAppDialogIDsCoverConstants(t *testing.T) {
 		DialogAddProject,
 		DialogCreateWorkspace,
 		DialogDeleteWorkspace,
+		DialogRenameWorkspace,
+		DialogCommitWorkspace,
+		DialogMergeWorkspace,
+		DialogMergeConflict,
 		DialogTrustScripts,
+		DialogShelveWorkspace,
 		DialogRemoveProject,
-		DialogSelectAssistant,
 		common.AgentPickerDialogID,
 		DialogQuit,
 		DialogCleanupTmux,
@@ -27,6 +34,9 @@ func TestAppDialogIDsCoverConstants(t *testing.T) {
 		if !isAppDialogID(id) {
 			t.Errorf("dialog ID %q is not registered in appDialogIDs; "+
 				"its DialogResult would misroute to a component", id)
+		}
+		if appDialogHandlers[id] == nil {
+			t.Errorf("dialog ID %q routes as App-level but has no registered handler", id)
 		}
 	}
 }
@@ -52,5 +62,49 @@ func TestAppDialogIDsNoDuplicates(t *testing.T) {
 func TestUnknownDialogIDIsNotAppLevel(t *testing.T) {
 	if isAppDialogID("definitely-not-a-real-dialog") {
 		t.Fatal("unexpected: unknown ID reported as an App-level dialog")
+	}
+}
+
+// TestRegisteredDialogDispatchesWithoutOtherEdits proves the ≤2-touches
+// contract: a dialog ID plus ONE appDialogHandlers entry is sufficient for
+// routing + result dispatch — no switch case, no allow-list edit. The fake
+// dialog's "keypress" is the DialogResult its widget emits; the registry entry
+// alone must carry it to the handler with the captured dialogContext.
+func TestRegisteredDialogDispatchesWithoutOtherEdits(t *testing.T) {
+	const fakeID = "registry-proof-dialog"
+	var gotResult common.DialogResult
+	var gotDlg dialogContext
+	called := 0
+	appDialogHandlers[fakeID] = func(_ *App, r common.DialogResult, d dialogContext) tea.Cmd {
+		called++
+		gotResult = r
+		gotDlg = d
+		return func() tea.Msg { return "handled" }
+	}
+	t.Cleanup(func() { delete(appDialogHandlers, fakeID) })
+	appDialogIDs[fakeID] = struct{}{}
+	t.Cleanup(func() { delete(appDialogIDs, fakeID) })
+
+	ws := &data.Workspace{Name: "ws-x"}
+	a := &App{dlg: dialogContext{workspace: ws}}
+	consumed, cmd := a.handleDialogResultMsg(common.DialogResult{
+		ID:        fakeID,
+		Confirmed: true,
+		Value:     "v",
+	})
+	if !consumed {
+		t.Fatal("registered dialog result was not consumed at App level")
+	}
+	if cmd == nil {
+		t.Fatal("handler cmd was dropped")
+	}
+	if called != 1 {
+		t.Fatalf("handler ran %d times, want 1", called)
+	}
+	if gotResult.Value != "v" || gotDlg.workspace != ws {
+		t.Fatalf("handler got result=%+v dlg=%+v, want value v + workspace ws-x", gotResult, gotDlg)
+	}
+	if msg := cmd(); msg != "handled" {
+		t.Fatalf("cmd returned %v, want handler's msg", msg)
 	}
 }

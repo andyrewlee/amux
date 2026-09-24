@@ -236,7 +236,6 @@ func TestGcOrphanedTmuxSessions_Integration(t *testing.T) {
 	gcCreateSession(t, opts, "running-orphan", "sleep 300")
 	gcMarkSessionPaneDead(t, opts, "orphan1")
 	gcMarkSessionPaneDead(t, opts, "orphan2")
-	time.Sleep(50 * time.Millisecond)
 
 	// Tag all as @amux with different workspace IDs.
 	gcSetTag(t, opts, "known-sess", "@amux", "1")
@@ -310,7 +309,6 @@ func TestGcOrphanedTmuxSessions_DoesNotKillOrphansFromOtherInstances(t *testing.
 
 	// Create an orphan tagged for a different instance.
 	gcCreateSession(t, opts, "other-orphan", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	gcSetTag(t, opts, "other-orphan", "@amux", "1")
 	gcSetTag(t, opts, "other-orphan", "@amux_workspace", "dead-ws-other")
@@ -378,17 +376,17 @@ func TestGcOrphanedTmuxSessions_NoSessions(t *testing.T) {
 	}
 }
 
-func TestCollectKnownWorkspaceIDs_IncludesDeleting(t *testing.T) {
+func TestCollectKnownWorkspaceIDs_IncludesMutating(t *testing.T) {
 	ws := data.Workspace{Repo: "/repo-d", Root: "/repo-d/ws-delete"}
 	deletingID := string(ws.ID())
 	app := &App{
 		lifecycle: workspaceLifecycleState{
-			phases: map[string]lifecyclePhase{deletingID: lifecycleDeleting},
+			phases: map[string]lifecyclePhase{deletingID: lifecycleMutating},
 		},
 	}
 
 	ids := app.collectKnownWorkspaceIDs()
 	if !ids[deletingID] {
-		t.Fatalf("expected delete-in-flight workspace ID %s to be included even when absent from projects", deletingID)
+		t.Fatalf("expected mutation-in-flight workspace ID %s to be included even when absent from projects", deletingID)
 	}
 }

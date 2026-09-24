@@ -36,12 +36,29 @@ func (a *App) findWorkspaceByID(id string) *data.Workspace {
 	if id == "" {
 		return nil
 	}
-	if a.activeWorkspace != nil && string(a.activeWorkspace.ID()) == id {
+	// Stable forms first: ID()/MetadataID() are free reads once the record is
+	// persisted. ComputedID costs two EvalSymlinks walks plus a hash per
+	// workspace, so it runs only when no stable form matched — the caller is
+	// then resolving an artifact stamped under a legacy drifted identity.
+	stableMatch := func(ws *data.Workspace) bool {
+		return string(ws.ID()) == id || string(ws.MetadataID()) == id
+	}
+	if a.activeWorkspace != nil && stableMatch(a.activeWorkspace) {
 		return a.activeWorkspace
 	}
 	var found *data.Workspace
 	a.eachWorkspaceUntil(func(ws *data.Workspace, _ *data.Project) bool {
-		if string(ws.ID()) == id {
+		if stableMatch(ws) {
+			found = ws
+			return true
+		}
+		return false
+	})
+	if found != nil {
+		return found
+	}
+	a.eachWorkspaceUntil(func(ws *data.Workspace, _ *data.Project) bool {
+		if string(ws.ComputedID()) == id {
 			found = ws
 			return true
 		}

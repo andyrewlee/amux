@@ -10,40 +10,27 @@ import (
 
 // syncActiveWorkspacesToDashboard syncs the active workspace state from center to dashboard.
 // This ensures the dashboard has current data for spinner state decisions.
-func (a *App) syncActiveWorkspacesToDashboard() {
+// The returned Cmd is the dashboard's opt-in agent-done bell; callers append it
+// to their own Cmd list so the runtime executes it like any other effect.
+func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 	if a.dashboard == nil {
-		return
+		return nil
 	}
 	activeWorkspaces := make(map[string]bool)
 	if !a.tmuxActivity.settled {
 		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
-		a.emitDashboardStateCmd(a.dashboard.SetAgentStates(nil))
-		return
+		return a.dashboard.SetAgentStates(nil)
 	}
 	for wsID := range a.tmuxActivity.activeWorkspaceIDs {
 		// A scan completing after a delete began must not re-publish the workspace
-		// as active; the delete-in-flight guard keeps the dashboard consistent.
-		if a.isWorkspaceDeleteInFlight(wsID) {
+		// as active; the mutation-in-flight guard keeps the dashboard consistent.
+		if a.isWorkspaceMutationInFlight(wsID) {
 			continue
 		}
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
-	a.emitDashboardStateCmd(a.dashboard.SetAgentStates(a.tmuxActivity.agentStates))
-}
-
-// emitDashboardStateCmd delivers a fire-and-forget command produced by a
-// dashboard state update (currently the opt-in agent-done bell) to the runtime.
-// syncActiveWorkspacesToDashboard is a void helper called from ~9 non-Update
-// sites, so the command is injected out-of-band via the external-message pump
-// rather than threaded back through every caller. A nil command is a no-op.
-func (a *App) emitDashboardStateCmd(cmd tea.Cmd) {
-	if cmd == nil {
-		return
-	}
-	if msg := cmd(); msg != nil {
-		a.enqueueExternalMsg(msg)
-	}
+	return a.dashboard.SetAgentStates(a.tmuxActivity.agentStates)
 }
 
 // handleKeyPress handles keyboard input

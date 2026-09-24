@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -39,7 +38,9 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	}
 	cmds = append(cmds, a.rebindActiveSelectionForLoad(loadToken)...)
 	a.lifecycle.clearCreatedProjectLoadBarriersThrough(loadToken, loadedIdentities)
-	// Request git status for all workspaces
+	// Request git status for all workspaces — one batched refresh Cmd emits a
+	// single GitStatusBatchResult, so the reload costs one render pass instead
+	// of one per workspace.
 	cmds = append(cmds, a.scanTmuxActivityNow())
 	if gcCmd := a.gcOrphanedTmuxSessions(); gcCmd != nil {
 		cmds = append(cmds, gcCmd)
@@ -47,9 +48,18 @@ func (a *App) handleProjectsLoaded(msg messages.ProjectsLoaded) []tea.Cmd {
 	if countCmd := a.logSessionCount(); countCmd != nil {
 		cmds = append(cmds, countCmd)
 	}
+	statusRoots := make([]string, 0)
+	seenRoots := make(map[string]bool)
 	a.eachWorkspace(func(ws *data.Workspace, _ *data.Project) {
-		cmds = append(cmds, a.requestGitStatus(ws.Root))
+		if ws.Root == "" || seenRoots[ws.Root] {
+			return
+		}
+		seenRoots[ws.Root] = true
+		statusRoots = append(statusRoots, ws.Root)
 	})
+	if statusCmd := a.requestGitStatusBatch(statusRoots); statusCmd != nil {
+		cmds = append(cmds, statusCmd)
+	}
 	return cmds
 }
 
@@ -99,7 +109,7 @@ func (a *App) rebindActiveSelectionForLoad(loadToken projectsLoadToken) []tea.Cm
 			ws, project = a.findWorkspaceAndProjectByCanonicalPaths(previous.Repo, previous.Root)
 		}
 		if ws == nil {
-			if a.lifecycle.isDeletingWorkspace(wsID, previous.Root) {
+			if a.lifecycle.isMutatingWorkspace(wsID, previous.Root) {
 				return cmds
 			}
 			if a.lifecycle.shouldRetainCreatedWorkspace(wsID, previous.Root, loadToken) {
@@ -199,99 +209,6 @@ func (a *App) rebindActiveWorkspaceWatch(previousRoot, currentRoot string) []tea
 	return cmds
 }
 
-func rootsReferToSameWorkspace(left, right string) bool {
-	leftTrimmed := strings.TrimSpace(left)
-	rightTrimmed := strings.TrimSpace(right)
-	if leftTrimmed == "" || rightTrimmed == "" {
-		return false
-	}
-	if leftTrimmed == rightTrimmed {
-		return true
-	}
-	return canonicalPathForMatch(leftTrimmed) == canonicalPathForMatch(rightTrimmed)
-}
-
-func (a *App) findWorkspaceAndProjectByID(id string) (*data.Workspace, *data.Project) {
-	if id == "" {
-		return nil, nil
-	}
-	var foundWs *data.Workspace
-	var foundProject *data.Project
-	a.eachWorkspaceUntil(func(ws *data.Workspace, project *data.Project) bool {
-		if string(ws.ID()) == id {
-			foundWs, foundProject = ws, project
-			return true
-		}
-		return false
-	})
-	return foundWs, foundProject
-}
-
-func (a *App) findWorkspaceAndProjectByCanonicalPaths(repoPath, rootPath string) (*data.Workspace, *data.Project) {
-	targetRepo := canonicalPathForMatch(repoPath)
-	targetRoot := canonicalPathForMatch(rootPath)
-	if targetRepo == "" && targetRoot == "" {
-		return nil, nil
-	}
-	var foundWs *data.Workspace
-	var foundProject *data.Project
-	a.eachWorkspaceUntil(func(ws *data.Workspace, project *data.Project) bool {
-		repoCanonical := canonicalPathForMatch(ws.Repo)
-		rootCanonical := canonicalPathForMatch(ws.Root)
-		if targetRoot != "" && rootCanonical != targetRoot {
-			return false
-		}
-		if targetRepo != "" && repoCanonical != targetRepo {
-			return false
-		}
-		if targetRoot == "" && targetRepo != "" && repoCanonical != targetRepo {
-			return false
-		}
-		foundWs, foundProject = ws, project
-		return true
-	})
-	return foundWs, foundProject
-}
-
-func (a *App) findProjectByPath(path string) *data.Project {
-	if path == "" {
-		return nil
-	}
-	targetCanonical := canonicalProjectPathForMatch(path)
-	for i := range a.projects {
-		project := &a.projects[i]
-		if project.Path == path {
-			return project
-		}
-		if targetCanonical == "" {
-			continue
-		}
-		if canonicalProjectPathForMatch(project.Path) == targetCanonical {
-			return project
-		}
-	}
-	return nil
-}
-
-func canonicalProjectPathForMatch(path string) string {
-	return canonicalPathForMatch(path)
-}
-
-func canonicalPathForMatch(path string) string {
-	value := strings.TrimSpace(path)
-	if value == "" {
-		return ""
-	}
-	cleaned := filepath.Clean(value)
-	if abs, err := filepath.Abs(cleaned); err == nil {
-		cleaned = abs
-	}
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = resolved
-	}
-	return filepath.Clean(cleaned)
-}
-
 // handleWorkspaceActivated processes the WorkspaceActivated message.
 func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cmd {
 	var cmds []tea.Cmd
@@ -315,8 +232,10 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 	}
 	// Bring the run-script indicator in line with the newly active workspace
 	// immediately, rather than letting the periodic reconcile show the previous
-	// workspace's state for up to a tick.
-	a.syncRunScriptIndicator()
+	// workspace's state for up to a tick. Async: the check shells tmux.
+	if cmd := a.requestRunScriptStatus(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	a.sidebarTerminal.SetWorkspacePreview(msg.Workspace)
 	// Discover shared tmux tabs first; restore/sync happens below.
 	if !a.hasPendingAgentLaunch(msg.Workspace) {
@@ -371,7 +290,9 @@ func (a *App) handleWorkspaceActivated(msg messages.WorkspaceActivated) []tea.Cm
 		}
 	}
 	// Sync active workspaces to dashboard (fixes spinner race condition)
-	a.syncActiveWorkspacesToDashboard()
+	if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
 	cmds = append(cmds, cmd)
@@ -443,11 +364,12 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 		})
 		return cmds
 	}
+	var pending *data.Workspace
 	if msg.Project != nil && name != "" && a.workspaceService != nil {
-		pending := a.workspaceService.pendingWorkspace(msg.Project, name, base)
+		pending = a.workspaceService.PendingWorkspace(msg.Project, name, base)
 		if pending != nil {
 			pending.Assistant = assistant
-			if !a.lifecycle.markCreating(string(pending.ID())) {
+			if !a.lifecycle.markCreatingWorkspace(string(pending.ID()), pending.Root) {
 				cmds = append(cmds, func() tea.Msg {
 					return messages.WorkspaceCreateFailed{
 						Workspace: pending,
@@ -461,16 +383,6 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 			}
 		}
 	}
-	cmds = append(cmds, a.createWorkspace(msg.Project, name, base, assistant))
+	cmds = append(cmds, wrapLifecycleCmd(a.createWorkspace(msg.Project, name, base, assistant), lifecycleOpCreate, msg.Project, pending))
 	return cmds
-}
-
-// handleGitStatusResult handles the GitStatusResult message.
-func (a *App) handleGitStatusResult(msg messages.GitStatusResult) tea.Cmd {
-	newDashboard, cmd := a.dashboard.Update(msg)
-	a.dashboard = newDashboard
-	if a.activeWorkspace != nil && rootsReferToSameWorkspace(msg.Root, a.activeWorkspace.Root) {
-		a.sidebar.SetGitStatus(msg.Status)
-	}
-	return cmd
 }

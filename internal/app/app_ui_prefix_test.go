@@ -1,14 +1,18 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/dashboard"
 	"github.com/andyrewlee/amux/internal/ui/layout"
 )
 
@@ -449,5 +453,27 @@ func TestRunPrefixAction_FocusRightPartialApp_NoPanic(t *testing.T) {
 	_ = app.runPrefixAction("focus_right")
 	if app.focusedPane != messages.PaneCenter {
 		t.Fatalf("expected focused pane center, got %v", app.focusedPane)
+	}
+}
+
+// TestRunPrefixAction_NextAttention covers the 'n' action's two branches:
+// nil-dashboard safety, and the no-attention toast when the dashboard has no
+// done badges.
+func TestRunPrefixAction_NextAttention(t *testing.T) {
+	app, _, _ := newPrefixTestApp(t)
+	app.toast = common.NewToastModel()
+
+	if cmd := app.runPrefixAction("next_attention"); cmd != nil {
+		t.Fatalf("nil dashboard should no-op, got %v", cmd)
+	}
+
+	app.dashboard = dashboard.New()
+	app.dashboard.SetSize(30, 20)
+	cmd := app.runPrefixAction("next_attention")
+	if cmd == nil {
+		t.Fatal("expected the no-attention toast cmd")
+	}
+	if view := ansi.Strip(app.toast.View()); !strings.Contains(view, "No workspaces need attention") {
+		t.Fatalf("toast = %q, want the no-attention info", view)
 	}
 }

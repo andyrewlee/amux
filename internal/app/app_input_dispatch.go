@@ -75,17 +75,12 @@ func (a *App) handlePreSwitchInput(msg tea.Msg, cmds *[]tea.Cmd) (tea.Cmd, bool)
 		*cmds = append(*cmds, cmd)
 	}
 
-	if a.handleDialogInput(msg, cmds) {
-		return common.SafeBatch(*cmds...), true
-	}
-	if a.handleFilePickerInput(msg, cmds) {
-		return common.SafeBatch(*cmds...), true
-	}
-	if a.handleSettingsDialogInput(msg, cmds) {
-		return common.SafeBatch(*cmds...), true
-	}
-	if a.handleEnvDialogInput(msg, cmds) {
-		return common.SafeBatch(*cmds...), true
+	// Bespoke overlays consume in overlayChain order — the first live overlay
+	// eats the message. Order is load-bearing (see app_overlays.go).
+	for _, slot := range a.overlayChain() {
+		if slot(msg, cmds) {
+			return common.SafeBatch(*cmds...), true
+		}
 	}
 	return nil, false
 }
@@ -237,8 +232,21 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleWorkspaceCreateFailed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case messages.GitStatusRequest:
+		if cmd := a.requestGitStatusFull(msg.Root); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.GitStatusResult:
 		if cmd := a.handleGitStatusResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+		if msg.Tracked {
+			if cmd := a.gitStatusFollowUp(msg.Root); cmd != nil {
+				*cmds = append(*cmds, cmd)
+			}
+		}
+	case messages.GitStatusBatchResult:
+		if cmd := a.handleGitStatusBatchResult(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
 	case messages.CreateWorkspace:
@@ -258,6 +266,22 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		*cmds = append(*cmds, a.loadProjects())
 	case messages.WorkspaceDeleteFailed:
 		if cmd := a.handleWorkspaceDeleteFailed(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.ShelveWorkspace:
+		*cmds = append(*cmds, a.handleShelveWorkspace(msg)...)
+	case messages.WorkspaceShelved:
+		*cmds = append(*cmds, a.handleWorkspaceShelved(msg)...)
+	case messages.WorkspaceShelveFailed:
+		if cmd := a.handleWorkspaceShelveFailed(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.RestoreWorkspace:
+		*cmds = append(*cmds, a.handleRestoreWorkspace(msg)...)
+	case messages.WorkspaceRestored:
+		*cmds = append(*cmds, a.handleWorkspaceRestored(msg)...)
+	case messages.WorkspaceRestoreFailed:
+		if cmd := a.handleWorkspaceRestoreFailed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
 	case messages.WorkspaceCommitted:
@@ -286,6 +310,10 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		}
 	case messages.WorkspaceScriptStateChanged:
 		if cmd := a.handleWorkspaceScriptStateChanged(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.WorkspaceOnDoneResult:
+		if cmd := a.handleWorkspaceOnDoneResult(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
 	case messages.FileWatcherEvent:
@@ -324,6 +352,38 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowRenameWorkspaceDialog(msg)
 	case messages.ShowWorkspaceEnvDialog:
 		a.handleShowWorkspaceEnvDialog(msg)
+	case messages.ShowProjectEnvDialog:
+		a.handleShowProjectEnvDialog(msg)
+	case messages.ShowShelveWorkspaceDialog:
+		a.handleShowShelveWorkspaceDialog(msg)
+	case messages.ShowBulkShelveWorkspaceDialog:
+		a.handleShowBulkShelveWorkspaceDialog(msg)
+	case messages.ShowBulkRestoreWorkspaceDialog:
+		a.handleShowBulkRestoreWorkspaceDialog(msg)
+	case messages.ShowBulkPurgeWorkspaceDialog:
+		a.handleShowBulkPurgeWorkspaceDialog(msg)
+	case messages.ShowWorkspaceScriptsDialog:
+		a.handleShowWorkspaceScriptsDialog(msg)
+	case messages.ShowRunScriptOutput:
+		if cmd := a.handleShowRunScriptOutput(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.ShowScriptOutput:
+		if cmd := a.handleShowScriptOutput(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.ShowWorkspaceStatus:
+		if cmd := a.handleShowWorkspaceStatus(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case lifecycleScriptExitedMsg:
+		if cmd := a.handleLifecycleScriptExited(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.RunScriptStatusResult:
+		if cmd := a.handleRunScriptStatusResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.ShowCommitWorkspaceDialog:
 		a.handleShowCommitWorkspaceDialog(msg)
 	case messages.ShowMergeWorkspaceDialog:
@@ -347,7 +407,41 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 			*cmds = append(*cmds, cmd)
 		}
 	case common.EnvDialogResult:
+		// The two env editors share the widget; the scope stamped on the
+		// result (not which overlay pointer is live) routes it.
+		if msg.Scope == common.EnvScopeProject {
+			if cmd := a.handleProjectEnvDialogResult(msg); cmd != nil {
+				*cmds = append(*cmds, cmd)
+			}
+			return true
+		}
 		if cmd := a.handleEnvDialogResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case common.ScriptsDialogResult:
+		if cmd := a.handleScriptsDialogResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case common.OutputDialogResult:
+		a.closeRunOutputDialog()
+	case runOutputOpenedMsg:
+		if cmd := a.handleRunOutputOpened(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case workspaceStatusReadyMsg:
+		if cmd := a.handleWorkspaceStatusReady(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case runAttachTargetMsg:
+		if cmd := a.handleRunAttachTarget(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case runOutputTickMsg:
+		if cmd := a.handleRunOutputTick(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case runOutputRefreshedMsg:
+		if cmd := a.handleRunOutputRefreshed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
 	default:

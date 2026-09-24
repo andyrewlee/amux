@@ -3,8 +3,6 @@ package app
 import (
 	"fmt"
 	"runtime/debug"
-	"strings"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -17,8 +15,6 @@ import (
 
 const (
 	fallbackWindowTitle = "amux"
-	syncBegin           = "\x1b[?2026h"
-	syncEnd             = "\x1b[?2026l"
 )
 
 // View renders the application using layer-based composition.
@@ -175,7 +171,12 @@ func (a *App) viewLayerBased() tea.View {
 		!a.toastCoversPoint(terminalCursor.X, terminalCursor.Y) {
 		cursor = terminalCursor
 	}
-	view.SetContent(syncBegin + canvas.Render() + syncEnd)
+	// No manual DEC-2026 wrap: bubbletea v2.0.9's renderer brackets each
+	// update with its own synchronized-output markers when the terminal
+	// reports mode-2026 support (cursed_renderer.go). Baking markers into
+	// the content nested inside that region — the inner ?2026l could close
+	// the renderer's atomic frame early.
+	view.SetContent(canvas.Render())
 	view.Cursor = cursor
 	return view
 }
@@ -190,38 +191,5 @@ func focusedWindowTitle(title string) string {
 }
 
 func sanitizedWindowTitle(title string) string {
-	if title == "" {
-		return ""
-	}
-	var b strings.Builder
-	written := 0
-	for len(title) > 0 && written < maxWindowTitleRunes {
-		r, size := utf8.DecodeRuneInString(title)
-		if r == utf8.RuneError && size == 1 {
-			raw := title[0]
-			title = title[1:]
-			if isTerminalControlByte(raw) {
-				continue
-			}
-		} else {
-			title = title[size:]
-		}
-		if isTerminalControlRune(r) {
-			continue
-		}
-		if b.Len() == 0 {
-			b.Grow(len(title))
-		}
-		b.WriteRune(r)
-		written++
-	}
-	return b.String()
-}
-
-func isTerminalControlByte(b byte) bool {
-	return b <= 0x1f || b == 0x7f || (b >= 0x80 && b <= 0x9f)
-}
-
-func isTerminalControlRune(r rune) bool {
-	return r <= 0x1f || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+	return common.SanitizeDisplayText(title, maxWindowTitleRunes)
 }

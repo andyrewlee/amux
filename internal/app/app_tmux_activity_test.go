@@ -9,49 +9,10 @@ import (
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/testutil/tmuxops"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
-
-// stubTmuxOps implements TmuxOps for testing syncActivitySessionStates.
-// Only AllSessionStates returns real data; all other methods return zero values.
-type stubTmuxOps struct {
-	allStates    map[string]tmux.SessionState
-	allStatesErr error
-}
-
-func (s stubTmuxOps) EnsureAvailable() error { return nil }
-func (s stubTmuxOps) InstallHint() string    { return "" }
-func (s stubTmuxOps) ActiveAgentSessionsByActivity(time.Duration, tmux.Options) ([]tmux.SessionActivity, error) {
-	return nil, nil
-}
-
-func (s stubTmuxOps) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
-	return nil, nil
-}
-
-func (s stubTmuxOps) AllSessionStates(tmux.Options) (map[string]tmux.SessionState, error) {
-	return s.allStates, s.allStatesErr
-}
-
-func (s stubTmuxOps) SessionStateFor(string, tmux.Options) (tmux.SessionState, error) {
-	return tmux.SessionState{}, nil
-}
-func (s stubTmuxOps) SessionHasClients(string, tmux.Options) (bool, error) { return false, nil }
-func (s stubTmuxOps) SessionCreatedAt(string, tmux.Options) (int64, error) { return 0, nil }
-func (s stubTmuxOps) KillSession(string, tmux.Options) error               { return nil }
-func (s stubTmuxOps) KillSessionsMatchingTags(map[string]string, tmux.Options) (bool, error) {
-	return false, nil
-}
-func (s stubTmuxOps) KillSessionsWithPrefix(string, tmux.Options) error { return nil }
-func (s stubTmuxOps) KillSessionsWithPrefixMissingTag(string, string, tmux.Options) error {
-	return nil
-}
-func (s stubTmuxOps) KillWorkspaceSessions(string, tmux.Options) error         { return nil }
-func (s stubTmuxOps) SetMonitorActivityOn(tmux.Options) error                  { return nil }
-func (s stubTmuxOps) SetStatusOff(tmux.Options) error                          { return nil }
-func (s stubTmuxOps) CapturePaneTail(string, int, tmux.Options) (string, bool) { return "", false }
-func (s stubTmuxOps) ContentHash(string) [16]byte                              { return [16]byte{} }
 
 func TestScanTmuxActivityNow_QueuesWhenInFlight(t *testing.T) {
 	app := &App{tmuxActivity: tmuxActivityState{scanInFlight: true}}
@@ -117,7 +78,7 @@ func TestHandleTmuxActivityResult_ConsumesPendingRescan(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSyncActivitySessionStates_NilSvc(t *testing.T) {
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		map[string]activity.SessionInfo{"s": {Status: "running", WorkspaceID: "ws1"}},
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		nil,
@@ -129,12 +90,10 @@ func TestSyncActivitySessionStates_NilSvc(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_EmptyInfoBySession(t *testing.T) {
-	var svc TmuxOps = stubTmuxOps{
-		allStates: map[string]tmux.SessionState{
-			"s": {Exists: true, HasLivePane: true},
-		},
-	}
-	result := syncActivitySessionStates(
+	var svc TmuxOps = newStubTmuxOps(map[string]tmux.SessionState{
+		"s": {Exists: true, HasLivePane: true},
+	}, nil, nil)
+	result, _ := syncActivitySessionStates(
 		map[string]activity.SessionInfo{},
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
@@ -146,13 +105,11 @@ func TestSyncActivitySessionStates_EmptyInfoBySession(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_AllSessionStatesError(t *testing.T) {
-	var svc TmuxOps = stubTmuxOps{
-		allStatesErr: errors.New("tmux failed"),
-	}
+	var svc TmuxOps = newStubTmuxOps(nil, errors.New("tmux failed"), nil)
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "running", WorkspaceID: "ws1"},
 	}
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		info,
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
@@ -168,15 +125,13 @@ func TestSyncActivitySessionStates_AllSessionStatesError(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_RunningSessionDeadPane(t *testing.T) {
-	var svc TmuxOps = stubTmuxOps{
-		allStates: map[string]tmux.SessionState{
-			"s": {Exists: true, HasLivePane: false},
-		},
-	}
+	var svc TmuxOps = newStubTmuxOps(map[string]tmux.SessionState{
+		"s": {Exists: true, HasLivePane: false},
+	}, nil, nil)
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "running", WorkspaceID: "ws1"},
 	}
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		info,
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
@@ -195,13 +150,11 @@ func TestSyncActivitySessionStates_RunningSessionDeadPane(t *testing.T) {
 
 func TestSyncActivitySessionStates_RunningSessionDisappeared(t *testing.T) {
 	// Session appears in tagged list but not in AllSessionStates (disappeared).
-	var svc TmuxOps = stubTmuxOps{
-		allStates: map[string]tmux.SessionState{}, // empty: session gone
-	}
+	var svc TmuxOps = newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil) // empty: session gone
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "running", WorkspaceID: "ws1"},
 	}
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		info,
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
@@ -219,15 +172,13 @@ func TestSyncActivitySessionStates_RunningSessionDisappeared(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_StoppedSessionRevived(t *testing.T) {
-	var svc TmuxOps = stubTmuxOps{
-		allStates: map[string]tmux.SessionState{
-			"s": {Exists: true, HasLivePane: true},
-		},
-	}
+	var svc TmuxOps = newStubTmuxOps(map[string]tmux.SessionState{
+		"s": {Exists: true, HasLivePane: true},
+	}, nil, nil)
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "stopped", WorkspaceID: "ws1"},
 	}
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		info,
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
@@ -243,13 +194,11 @@ func TestSyncActivitySessionStates_StoppedSessionRevived(t *testing.T) {
 
 func TestSyncActivitySessionStates_AlreadyStoppedDisappeared(t *testing.T) {
 	// A session already marked stopped that also disappeared should not emit a duplicate.
-	var svc TmuxOps = stubTmuxOps{
-		allStates: map[string]tmux.SessionState{},
-	}
+	var svc TmuxOps = newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil)
 	info := map[string]activity.SessionInfo{
 		"s": {Status: "stopped", WorkspaceID: "ws1"},
 	}
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		info,
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "s"}}},
 		svc,
@@ -262,13 +211,11 @@ func TestSyncActivitySessionStates_AlreadyStoppedDisappeared(t *testing.T) {
 
 func TestSyncActivitySessionStates_TaggedNotInInfo(t *testing.T) {
 	// Session in tagged list but not in infoBySession should be skipped.
-	var svc TmuxOps = stubTmuxOps{
-		allStates: map[string]tmux.SessionState{
-			"unknown": {Exists: true, HasLivePane: false},
-		},
-	}
+	var svc TmuxOps = newStubTmuxOps(map[string]tmux.SessionState{
+		"unknown": {Exists: true, HasLivePane: false},
+	}, nil, nil)
 	info := map[string]activity.SessionInfo{}
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		info,
 		[]activity.TaggedSession{{Session: tmux.SessionActivity{Name: "unknown"}}},
 		svc,
@@ -281,13 +228,11 @@ func TestSyncActivitySessionStates_TaggedNotInInfo(t *testing.T) {
 
 func TestSyncActivitySessionStates_InfoNotInTaggedRunning(t *testing.T) {
 	// Session in infoBySession but not in tagged list, with running status → emits stopped (second loop).
-	var svc TmuxOps = stubTmuxOps{
-		allStates: map[string]tmux.SessionState{},
-	}
+	var svc TmuxOps = newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil)
 	info := map[string]activity.SessionInfo{
 		"orphan": {Status: "running", WorkspaceID: "ws1"},
 	}
-	result := syncActivitySessionStates(
+	result, _ := syncActivitySessionStates(
 		info,
 		[]activity.TaggedSession{}, // no tagged sessions
 		svc,
@@ -304,7 +249,12 @@ func TestSyncActivitySessionStates_InfoNotInTaggedRunning(t *testing.T) {
 	}
 }
 
+// scriptedActivityTmuxOps is a scripted simulator, not a stub: scanIndex-driven
+// pane content and tag rows are this fake's contract. The embedded shared fake
+// covers the remaining boilerplate methods.
 type scriptedActivityTmuxOps struct {
+	tmuxops.FakeTmuxOps
+
 	sessionName   string
 	workspaceID   string
 	contentByScan []string
@@ -312,9 +262,6 @@ type scriptedActivityTmuxOps struct {
 	prefilterErr  error
 	lastOutputAge time.Duration
 }
-
-func (s *scriptedActivityTmuxOps) EnsureAvailable() error { return nil }
-func (s *scriptedActivityTmuxOps) InstallHint() string    { return "" }
 
 func (s *scriptedActivityTmuxOps) ActiveAgentSessionsByActivity(time.Duration, tmux.Options) ([]tmux.SessionActivity, error) {
 	if s.prefilterErr != nil {
@@ -352,7 +299,13 @@ func (s *scriptedActivityTmuxOps) SessionsWithTags(map[string]string, []string, 
 
 func (s *scriptedActivityTmuxOps) AllSessionStates(tmux.Options) (map[string]tmux.SessionState, error) {
 	return map[string]tmux.SessionState{
-		s.sessionName: {Exists: true, HasLivePane: true},
+		s.sessionName: {Exists: true, HasLivePane: true, ActivePaneLive: true},
+	}, nil
+}
+
+func (s *scriptedActivityTmuxOps) AllSessionMeta(tmux.Options) (map[string]tmux.SessionMeta, error) {
+	return map[string]tmux.SessionMeta{
+		s.sessionName: {Attached: 1},
 	}, nil
 }
 
@@ -367,17 +320,6 @@ func (s *scriptedActivityTmuxOps) SessionHasClients(string, tmux.Options) (bool,
 func (s *scriptedActivityTmuxOps) SessionCreatedAt(string, tmux.Options) (int64, error) {
 	return 0, nil
 }
-func (s *scriptedActivityTmuxOps) KillSession(string, tmux.Options) error { return nil }
-func (s *scriptedActivityTmuxOps) KillSessionsMatchingTags(map[string]string, tmux.Options) (bool, error) {
-	return false, nil
-}
-func (s *scriptedActivityTmuxOps) KillSessionsWithPrefix(string, tmux.Options) error { return nil }
-func (s *scriptedActivityTmuxOps) KillSessionsWithPrefixMissingTag(string, string, tmux.Options) error {
-	return nil
-}
-func (s *scriptedActivityTmuxOps) KillWorkspaceSessions(string, tmux.Options) error { return nil }
-func (s *scriptedActivityTmuxOps) SetMonitorActivityOn(tmux.Options) error          { return nil }
-func (s *scriptedActivityTmuxOps) SetStatusOff(tmux.Options) error                  { return nil }
 
 func (s *scriptedActivityTmuxOps) CapturePaneTail(string, int, tmux.Options) (string, bool) {
 	if len(s.contentByScan) == 0 {
@@ -391,6 +333,13 @@ func (s *scriptedActivityTmuxOps) CapturePaneTail(string, int, tmux.Options) (st
 		idx = len(s.contentByScan) - 1
 	}
 	return s.contentByScan[idx], true
+}
+
+// CapturePaneTailChecked serves the same scripted content as CapturePaneTail —
+// the production capture closure prefers it for sessions present in
+// AllSessionStates, so behavior tests exercise the checked path.
+func (s *scriptedActivityTmuxOps) CapturePaneTailChecked(name string, lines int, _ bool, opts tmux.Options) (string, bool) {
+	return s.CapturePaneTail(name, lines, opts)
 }
 
 func (s *scriptedActivityTmuxOps) ContentHash(content string) [16]byte {

@@ -29,9 +29,9 @@ func TestViewHidesTerminalCursorWhenSettingsOverlayIsVisible(t *testing.T) {
 		t.Fatal("expected visible terminal cursor before overlay")
 	}
 
-	h.app.settingsDialog = common.NewSettingsDialog(common.ThemeTokyoNight, "", "", "")
-	h.app.settingsDialog.Show()
-	h.app.settingsDialog.SetSize(h.app.width, h.app.height)
+	h.app.overlays.settings = common.NewSettingsDialog(common.ThemeTokyoNight, "", "", "")
+	h.app.overlays.settings.Show()
+	h.app.overlays.settings.SetSize(h.app.width, h.app.height)
 
 	overlay := h.Render()
 	if overlay.Cursor != nil {
@@ -196,22 +196,43 @@ func TestViewHidesOverlayCursorWhenToastCoversIt(t *testing.T) {
 	}
 }
 
-func TestViewWrapsRenderedFrameInSynchronizedOutputMarkers(t *testing.T) {
-	h, err := NewHarness(HarnessOptions{
-		Mode:   HarnessCenter,
-		Tabs:   1,
-		Width:  160,
-		Height: 48,
-	})
+// TestOverlayCursor_UsesComposedGeometry pins the plan-088 contract for the
+// dialog/picker cursor path: a fresh compose snapshot supplies the overlay
+// dims (no second View() render); a stale or empty snapshot falls back to
+// measuring live.
+func TestOverlayCursor_UsesComposedGeometry(t *testing.T) {
+	h, err := NewHarness(HarnessOptions{Mode: HarnessCenter, Tabs: 1, Width: 120, Height: 40})
 	if err != nil {
-		t.Fatalf("expected harness creation to succeed: %v", err)
+		t.Fatalf("NewHarness returned error: %v", err)
+	}
+	dialog := common.NewInputDialog("rename", "Rename", "file name")
+	dialog.Show()
+	dialog.SetSize(120, 40)
+	h.app.dialog = dialog
+
+	inner := dialog.Cursor()
+	if inner == nil {
+		t.Fatal("expected the input dialog to own a cursor")
 	}
 
-	view := h.Render()
-	if !strings.HasPrefix(view.Content, syncBegin) {
-		t.Fatal("expected rendered frame to start with DEC 2026 sync begin marker")
+	// Sentinel dims: the cursor offset must follow them, proving the cache
+	// (not a re-render) drove placement.
+	h.app.overlayGeom = overlayGeometry{composed: true, width: 120, height: 40, dialogW: 20, dialogH: 10}
+	c := h.app.overlayCursor()
+	if c == nil {
+		t.Fatal("expected an overlay cursor")
 	}
-	if !strings.HasSuffix(view.Content, syncEnd) {
-		t.Fatal("expected rendered frame to end with DEC 2026 sync end marker")
+	wantX, wantY := 50+inner.X, 15+inner.Y // centeredPosition(20,10) on 120x40
+	if c.X != wantX || c.Y != wantY {
+		t.Fatalf("overlayCursor = (%d,%d), want (%d,%d) from composed dims", c.X, c.Y, wantX, wantY)
+	}
+
+	// Stale snapshot → live measurement resumes.
+	h.app.overlayGeom.width = 999
+	liveW, liveH := viewDimensions(dialog.View())
+	liveC := h.app.overlayCursor()
+	lx, ly := h.app.centeredPosition(liveW, liveH)
+	if liveC.X != lx+inner.X || liveC.Y != ly+inner.Y {
+		t.Fatalf("stale cache: overlayCursor = (%d,%d), want (%d,%d)", liveC.X, liveC.Y, lx+inner.X, ly+inner.Y)
 	}
 }

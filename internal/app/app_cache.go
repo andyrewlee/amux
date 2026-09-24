@@ -123,6 +123,10 @@ type paneGate struct {
 	version  uint64
 	geom     [4]int
 	rendered bool
+	// count remembers a layout-relevant count from the build (e.g. the number
+	// of help lines) so a clean frame can repeat the surrounding layout math
+	// without rebuilding the pane's strings.
+	count int
 }
 
 // clean reports whether the pane's string build can be skipped: the gate has
@@ -134,37 +138,63 @@ func (g *paneGate) clean(version uint64, geom [4]int) bool {
 // record notes the version/geometry that produced the current cache entry and
 // whether that build composed a drawable.
 func (g *paneGate) record(version uint64, geom [4]int, rendered bool) {
+	g.recordCount(version, geom, rendered, 0)
+}
+
+// recordCount is record plus a layout-relevant count for clean frames.
+func (g *paneGate) recordCount(version uint64, geom [4]int, rendered bool, count int) {
 	g.valid = true
 	g.version = version
 	g.geom = geom
 	g.rendered = rendered
+	g.count = count
 }
 
 // renderCacheState groups the chrome/drawable caches used by layer-based
 // rendering. Each cache is keyed on the inputs that produced it and reused
 // across frames until those inputs change.
 type renderCacheState struct {
-	frame                fullFrameCache
-	dashboardChrome      *compositor.ChromeCache
-	centerChrome         *compositor.ChromeCache
-	sidebarChrome        *compositor.ChromeCache
-	dashboardContent     drawableCache
-	dashboardBorders     borderCache
-	sidebarTopTabBar     drawableCache
-	sidebarTopTabBarGate paneGate
-	sidebarTopContent    drawableCache
-	sidebarBottomContent drawableCache
-	sidebarBottomTabBar  drawableCache
-	sidebarBottomStatus  drawableCache
-	sidebarBottomHelp    drawableCache
-	sidebarTopBorders    borderCache
-	sidebarBottomBorders borderCache
-	centerContent        drawableCache
-	centerTabBar         drawableCache
-	centerStatus         drawableCache
-	centerHelp           drawableCache
-	centerHelpGate       paneGate
-	centerBorders        borderCache
+	frame                   fullFrameCache
+	dashboardChrome         *compositor.ChromeCache
+	centerChrome            *compositor.ChromeCache
+	sidebarChrome           *compositor.ChromeCache
+	dashboardContent        drawableCache
+	dashboardGate           paneGate
+	dashboardBorders        borderCache
+	sidebarTopTabBar        drawableCache
+	sidebarTopTabBarGate    paneGate
+	sidebarTopContent       drawableCache
+	sidebarTopContentGate   paneGate
+	sidebarBottomContent    drawableCache
+	sidebarBottomTabBar     drawableCache
+	sidebarBottomTabBarGate paneGate
+	sidebarBottomStatus     drawableCache
+	sidebarBottomStatusGate paneGate
+	sidebarBottomHelp       drawableCache
+	sidebarBottomHelpGate   paneGate
+	sidebarTopBorders       borderCache
+	sidebarBottomBorders    borderCache
+	centerContent           drawableCache
+	centerTabBar            drawableCache
+	centerTabBarGate        paneGate
+	centerStatus            drawableCache
+	centerStatusGate        paneGate
+	centerHelp              drawableCache
+	centerHelpGate          paneGate
+	centerBorders           borderCache
+	// Overlay slots: content-keyed drawable caches so a static overlay's
+	// ANSI parse runs once instead of every frame. One cache per slot —
+	// same single-entry shape as every other drawableCache.
+	overlayDialog     drawableCache
+	overlayFilePicker drawableCache
+	overlaySettings   drawableCache
+	overlayEnv        drawableCache
+	overlayProjectEnv drawableCache
+	overlayScripts    drawableCache
+	overlayRunOutput  drawableCache
+	overlayPalette    drawableCache
+	overlayToast      drawableCache
+	overlayErr        drawableCache
 }
 
 func newRenderCacheState() renderCacheState {

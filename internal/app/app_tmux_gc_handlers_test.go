@@ -4,9 +4,15 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -36,8 +42,8 @@ func (tickGCOps) AllSessionStates(tmux.Options) (map[string]tmux.SessionState, e
 	return map[string]tmux.SessionState{}, nil
 }
 
-func (tickGCOps) SessionNamesWithClients(tmux.Options) (map[string]bool, error) {
-	return map[string]bool{}, nil
+func (tickGCOps) AllSessionMeta(tmux.Options) (map[string]tmux.SessionMeta, error) {
+	return map[string]tmux.SessionMeta{}, nil
 }
 
 func TestHandleOrphanGCTick_SkipsGCWhenTmuxUnavailable(t *testing.T) {
@@ -194,7 +200,7 @@ func TestHandleStaleDetachedAgentGCResult(t *testing.T) {
 		},
 		{
 			name:        "error wins even when counters are populated",
-			msg:         staleDetachedAgentGCResult{Killed: 9, Err: errTmuxUnavailable},
+			msg:         staleDetachedAgentGCResult{Killed: 9, Err: activity.ErrTmuxUnavailable},
 			wantLevel:   "WARN",
 			wantSubstrs: []string{"detached agent GC"},
 		},
@@ -244,7 +250,7 @@ func TestHandleSessionCountResult(t *testing.T) {
 		},
 		{
 			name:        "error wins even when a count is present",
-			msg:         sessionCountResult{Count: 4, Err: errTmuxUnavailable},
+			msg:         sessionCountResult{Count: 4, Err: activity.ErrTmuxUnavailable},
 			wantLevel:   "WARN",
 			wantSubstrs: []string{"session count"},
 		},
@@ -313,5 +319,94 @@ func assertLogLine(t *testing.T, logPath, wantLevel string, wantSubstrs []string
 		if !strings.Contains(line, sub) {
 			t.Fatalf("expected log line to contain %q, got: %q", sub, line)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Orphan GC cadence (plan 085): the sweep must run on its dedicated 60s ticker,
+// not piggyback on the 7s sync tick where it re-issued the session listings
+// the tick already ran (~8.6× the designed fork cost).
+// ---------------------------------------------------------------------------
+
+// countingGCListingOps counts the batched session-listing calls each GC sweep
+// issues, so tests can assert exactly which sweeps a tick's Cmds perform.
+type countingGCListingOps struct {
+	tmuxOps
+	mu               sync.Mutex
+	sessionsWithTags int
+}
+
+func (o *countingGCListingOps) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.sessionsWithTags++
+	return nil, nil
+}
+
+func (o *countingGCListingOps) AllSessionStates(tmux.Options) (map[string]tmux.SessionState, error) {
+	return map[string]tmux.SessionState{}, nil
+}
+
+func (o *countingGCListingOps) AllSessionMeta(tmux.Options) (map[string]tmux.SessionMeta, error) {
+	return map[string]tmux.SessionMeta{}, nil
+}
+
+func (o *countingGCListingOps) tagListingCalls() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.sessionsWithTags
+}
+
+// runTickCmds invokes every returned Cmd except the last — by convention the
+// re-armed ticker is appended last and would sleep for the full interval.
+func runTickCmds(cmds []tea.Cmd) {
+	for _, cmd := range cmds[:len(cmds)-1] {
+		if cmd != nil {
+			cmd()
+		}
+	}
+}
+
+func TestTmuxSyncTick_DoesNotRunOrphanGC(t *testing.T) {
+	ops := &countingGCListingOps{}
+	app := &App{
+		tmuxAvailable:   true,
+		projectsLoaded:  true,
+		tmuxService:     ops,
+		activeWorkspace: &data.Workspace{Name: "ws", Root: t.TempDir()},
+	}
+	app.tmuxActivity.syncToken = 7
+
+	cmds := app.handleTmuxSyncTick(messages.TmuxSyncTick{Token: 7})
+	if len(cmds) < 2 {
+		t.Fatalf("expected discovery+sync Cmds plus the ticker, got %d", len(cmds))
+	}
+	runTickCmds(cmds)
+
+	// Discovery issues exactly one SessionsWithTags; a piggybacked orphan GC
+	// would add a second via amuxSessionsByWorkspace.
+	if got := ops.tagListingCalls(); got != 1 {
+		t.Fatalf("sync tick issued %d session-tag listings, want 1 (discovery only — orphan GC must stay on its 60s ticker)", got)
+	}
+}
+
+func TestOrphanGCTick_StillRunsOrphanGC(t *testing.T) {
+	ops := &countingGCListingOps{}
+	app := &App{
+		tmuxAvailable:  true,
+		projectsLoaded: true,
+		tmuxService:    ops,
+	}
+
+	cmds := app.handleOrphanGCTick()
+	if len(cmds) != 3 {
+		t.Fatalf("expected stale-detached + orphan GC Cmds plus ticker, got %d", len(cmds))
+	}
+	runTickCmds(cmds)
+
+	// gcStaleDetachedAgentSessions and gcOrphanedTmuxSessions each issue one
+	// SessionsWithTags listing.
+	if got := ops.tagListingCalls(); got != 2 {
+		t.Fatalf("orphan GC tick issued %d session-tag listings, want 2 (stale-detached + orphan sweeps)", got)
 	}
 }

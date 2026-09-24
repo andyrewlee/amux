@@ -43,6 +43,15 @@ func (a *App) prefixActionVisible(action string) bool {
 			return true
 		}
 		return a.center.HasTabs()
+	case "copy_transcript", "save_transcript":
+		switch a.focusedPane {
+		case messages.PaneSidebarTerminal:
+			return a.sidebarTerminal.HasActiveTerminal()
+		case messages.PaneCenter:
+			return a.center.HasActiveTerminal()
+		default:
+			return false
+		}
 	default:
 		return true
 	}

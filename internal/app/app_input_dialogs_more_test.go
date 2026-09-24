@@ -10,7 +10,6 @@ import (
 
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
-	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/update"
 )
 
@@ -208,10 +207,10 @@ func TestHandleUpdateCheckComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDialogHarness(t)
-			h.app.settingsDialog = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
-			h.app.settingsDialog.SetSize(h.app.width, h.app.height)
+			h.app.overlays.settings = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
+			h.app.overlays.settings.SetSize(h.app.width, h.app.height)
 			if tc.visible {
-				h.app.settingsDialog.Show()
+				h.app.overlays.settings.Show()
 			}
 
 			cmd := h.app.handleUpdateCheckComplete(messages.UpdateCheckComplete{
@@ -226,15 +225,15 @@ func TestHandleUpdateCheckComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 			if !tc.visible {
 				// View is empty when hidden, so re-show to inspect the lines and
 				// confirm the version line was NOT updated.
-				h.app.settingsDialog.Show()
-				view := ansi.Strip(h.app.settingsDialog.View())
+				h.app.overlays.settings.Show()
+				view := ansi.Strip(h.app.overlays.settings.View())
 				if strings.Contains(view, "10.0.0") {
 					t.Fatalf("expected hidden settings dialog to retain stale version, got %q", view)
 				}
 				return
 			}
 
-			view := ansi.Strip(h.app.settingsDialog.View())
+			view := ansi.Strip(h.app.overlays.settings.View())
 			if !tc.wantInfo {
 				return
 			}
@@ -349,10 +348,10 @@ func assertReportErrorMessages(t *testing.T, cmd tea.Cmd, wantText string) {
 // dialog version line is refreshed on a successful upgrade only when visible.
 func TestHandleUpgradeComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 	h := newDialogHarness(t)
-	h.app.settingsDialog = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
-	h.app.settingsDialog.SetSize(h.app.width, h.app.height)
-	h.app.settingsDialog.SetUpdateInfo("1.0.0", "2.0.0", true)
-	h.app.settingsDialog.Show()
+	h.app.overlays.settings = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
+	h.app.overlays.settings.SetSize(h.app.width, h.app.height)
+	h.app.overlays.settings.SetUpdateInfo("1.0.0", "2.0.0", true)
+	h.app.overlays.settings.Show()
 	h.app.upgradeRunning = true
 
 	cmd := h.app.handleUpgradeComplete(messages.UpgradeComplete{NewVersion: "2.0.0"})
@@ -360,7 +359,7 @@ func TestHandleUpgradeComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 		t.Fatal("expected a toast command")
 	}
 
-	view := ansi.Strip(h.app.settingsDialog.View())
+	view := ansi.Strip(h.app.overlays.settings.View())
 	if !strings.Contains(view, "2.0.0") {
 		t.Fatalf("expected upgraded version in settings view, got %q", view)
 	}
@@ -371,32 +370,32 @@ func TestHandleUpgradeComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 	}
 }
 
-func TestHandleOpenFileInEditor(t *testing.T) {
+func TestHandleOpenFileInVim(t *testing.T) {
 	ws := harnessWorkspace()
 
 	tests := []struct {
 		name    string
-		msg     sidebar.OpenFileInEditor
+		msg     messages.OpenFileInVim
 		wantCmd bool
 	}{
 		{
 			name:    "nil workspace is a noop",
-			msg:     sidebar.OpenFileInEditor{Workspace: nil, Path: "/repo/file.go"},
+			msg:     messages.OpenFileInVim{Workspace: nil, Path: "/repo/file.go"},
 			wantCmd: false,
 		},
 		{
 			name:    "empty path is a noop",
-			msg:     sidebar.OpenFileInEditor{Workspace: ws, Path: ""},
+			msg:     messages.OpenFileInVim{Workspace: ws, Path: ""},
 			wantCmd: false,
 		},
 		{
 			name:    "nil workspace and empty path is a noop",
-			msg:     sidebar.OpenFileInEditor{Workspace: nil, Path: ""},
+			msg:     messages.OpenFileInVim{Workspace: nil, Path: ""},
 			wantCmd: false,
 		},
 		{
 			name:    "valid workspace and path returns a command",
-			msg:     sidebar.OpenFileInEditor{Workspace: ws, Path: "/repo/primary/ws/main.go"},
+			msg:     messages.OpenFileInVim{Workspace: ws, Path: "/repo/primary/ws/main.go"},
 			wantCmd: true,
 		},
 	}
@@ -406,7 +405,7 @@ func TestHandleOpenFileInEditor(t *testing.T) {
 			h := newDialogHarness(t)
 			beforeCenter := h.app.center
 
-			cmd := h.app.handleOpenFileInEditor(tc.msg)
+			cmd := h.app.handleOpenFileInVim(tc.msg)
 
 			if tc.wantCmd {
 				if cmd == nil {

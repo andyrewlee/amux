@@ -21,9 +21,23 @@ func (a *App) composeDashboardPane(canvas *lipgloss.Canvas, leftGutter, topGutte
 	if dashContentHeight < 1 {
 		dashContentHeight = 1
 	}
-	dashContent := clampLines(a.dashboard.View(), dashContentWidth, dashContentHeight)
-	if dashDrawable := a.renderCache.dashboardContent.get(dashContent, leftGutter+1, topGutter+1); dashDrawable != nil {
-		canvas.Compose(dashDrawable)
+	// The gate skips the content string build entirely while the dashboard
+	// reports the same content version at the same compose geometry; see
+	// Model.contentVersion for the dirtiness invariant. Render-time
+	// bookkeeping (scrollOffset, toolbarY, deleteIconX) is only refreshed on
+	// a build, but a build happens after every mutation that could move it,
+	// so hit-testing always sees the geometry of the last composed frame.
+	dashGate := &a.renderCache.dashboardGate
+	dashGeom := [4]int{leftGutter, topGutter, dashWidth, dashHeight}
+	if version := a.dashboard.ContentVersion(); !dashGate.clean(version, dashGeom) {
+		dashContent := clampLines(a.dashboard.View(), dashContentWidth, dashContentHeight)
+		rendered := a.renderCache.dashboardContent.get(dashContent, leftGutter+1, topGutter+1) != nil
+		dashGate.record(version, dashGeom, rendered)
+	}
+	if dashGate.rendered {
+		if dashDrawable := a.renderCache.dashboardContent.drawable; dashDrawable != nil {
+			canvas.Compose(dashDrawable)
+		}
 	}
 	for _, border := range a.renderCache.dashboardBorders.get(leftGutter, topGutter, dashWidth, dashHeight, a.focusedPane == messages.PaneDashboard) {
 		canvas.Compose(border)
@@ -94,15 +108,35 @@ func (a *App) composeCenterTerminalLayer(canvas *lipgloss.Canvas, centerX, topGu
 		contentWidth = 1
 	}
 
-	// Tab bar (top of content area).
-	tabBar := clampLines(a.center.TabBarView(), contentWidth, termOffsetY-1)
-	if tabBarDrawable := a.renderCache.centerTabBar.get(tabBar, termX, topGutter+1); tabBarDrawable != nil {
-		canvas.Compose(tabBarDrawable)
+	// Tab bar (top of content area). The gate skips the string build while
+	// the center reports the same tab bar fingerprint at the same geometry;
+	// see Model.TabBarVersion. tabHits refresh only on a build, which is
+	// what the user last saw — every mutation bumps the fingerprint.
+	tabBarGate := &a.renderCache.centerTabBarGate
+	tabBarGeom := [4]int{termX, topGutter + 1, contentWidth, termOffsetY - 1}
+	if version := a.center.TabBarVersion(); !tabBarGate.clean(version, tabBarGeom) {
+		tabBar := clampLines(a.center.TabBarView(), contentWidth, termOffsetY-1)
+		rendered := a.renderCache.centerTabBar.get(tabBar, termX, topGutter+1) != nil
+		tabBarGate.record(version, tabBarGeom, rendered)
+	}
+	if tabBarGate.rendered {
+		if tabBarDrawable := a.renderCache.centerTabBar.drawable; tabBarDrawable != nil {
+			canvas.Compose(tabBarDrawable)
+		}
 	}
 
-	// Status line (directly below terminal content).
-	if status := clampLines(a.center.ActiveTerminalStatusLine(), contentWidth, 1); status != "" {
-		if statusDrawable := a.renderCache.centerStatus.get(status, termX, termY+termH); statusDrawable != nil {
+	// Status line (directly below terminal content); see Model.StatusLineVersion.
+	statusGate := &a.renderCache.centerStatusGate
+	statusGeom := [4]int{termX, termY + termH, contentWidth, 1}
+	if version := a.center.StatusLineVersion(); !statusGate.clean(version, statusGeom) {
+		rendered := false
+		if status := clampLines(a.center.ActiveTerminalStatusLine(), contentWidth, 1); status != "" {
+			rendered = a.renderCache.centerStatus.get(status, termX, termY+termH) != nil
+		}
+		statusGate.record(version, statusGeom, rendered)
+	}
+	if statusGate.rendered {
+		if statusDrawable := a.renderCache.centerStatus.drawable; statusDrawable != nil {
 			canvas.Compose(statusDrawable)
 		}
 	}
@@ -201,14 +235,24 @@ func (a *App) composeSidebarTopPane(canvas *lipgloss.Canvas, sidebarX, topGutter
 		}
 	}
 
-	// Sidebar content (below tab bar)
+	// Sidebar content (below tab bar). The gate skips the content string
+	// build while the sidebar reports the same content version at the same
+	// geometry; see TabbedSidebar.ContentVersion.
 	sidebarContentHeight := topContentHeight - tabBarHeight
 	if sidebarContentHeight < 1 {
 		sidebarContentHeight = 1
 	}
-	topContent := clampLines(a.sidebar.ContentView(), contentWidth, sidebarContentHeight)
-	if topDrawable := a.renderCache.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight); topDrawable != nil {
-		canvas.Compose(topDrawable)
+	contentGate := &a.renderCache.sidebarTopContentGate
+	contentGeom := [4]int{sidebarX, topGutter, contentWidth, topPaneHeight}
+	if version := a.sidebar.ContentVersion(); !contentGate.clean(version, contentGeom) {
+		topContent := clampLines(a.sidebar.ContentView(), contentWidth, sidebarContentHeight)
+		rendered := a.renderCache.sidebarTopContent.get(topContent, sidebarX+2, topGutter+1+tabBarHeight) != nil
+		contentGate.record(version, contentGeom, rendered)
+	}
+	if contentGate.rendered {
+		if topDrawable := a.renderCache.sidebarTopContent.drawable; topDrawable != nil {
+			canvas.Compose(topDrawable)
+		}
 	}
 	for _, border := range a.renderCache.sidebarTopBorders.get(sidebarX, topGutter, sidebarWidth, topPaneHeight, a.focusedPane == messages.PaneSidebar) {
 		canvas.Compose(border)
@@ -236,32 +280,69 @@ func (a *App) composeSidebarTerminalPane(canvas *lipgloss.Canvas, sidebarX, bott
 		termH = bottomContentHeight
 	}
 
+	// The three chrome builders are version-gated (see the model's
+	// TabBarVersion/StatusLineVersion/HelpVersion fingerprints). Gate
+	// evaluation must run before the layout math below — status emptiness and
+	// the help-line count feed termH — while the status/help drawables can
+	// only be materialized after it. So each gate first produces just its
+	// string on a dirty frame; positions are applied afterwards.
+
 	// Tab bar (above terminal content) - compact single line
-	tabBar := a.sidebarTerminal.TabBarView()
+	tabBarGate := &a.renderCache.sidebarBottomTabBarGate
+	tabBarGeom := [4]int{originX, bottomY, contentWidth, bottomContentHeight}
+	if version := a.sidebarTerminal.TabBarVersion(); !tabBarGate.clean(version, tabBarGeom) {
+		rendered := false
+		if tabBar := a.sidebarTerminal.TabBarView(); tabBar != "" {
+			tabBarContent := clampLines(tabBar, contentWidth, 1)
+			rendered = a.renderCache.sidebarBottomTabBar.get(tabBarContent, originX, bottomY+1) != nil
+		}
+		tabBarGate.record(version, tabBarGeom, rendered)
+	}
 	tabBarHeight := 0
-	if tabBar != "" {
+	if tabBarGate.rendered {
 		tabBarHeight = 1
-		tabBarContent := clampLines(tabBar, contentWidth, 1)
-		tabBarY := bottomY + 1 // Inside the border
-		if tabBarDrawable := a.renderCache.sidebarBottomTabBar.get(tabBarContent, originX, tabBarY); tabBarDrawable != nil {
+		if tabBarDrawable := a.renderCache.sidebarBottomTabBar.drawable; tabBarDrawable != nil {
 			canvas.Compose(tabBarDrawable)
 		}
 	}
 
-	status := clampLines(a.sidebarTerminal.StatusLine(), contentWidth, 1)
-	helpLines := a.sidebarTerminal.HelpLines(contentWidth)
+	statusGate := &a.renderCache.sidebarBottomStatusGate
+	statusGeom := [4]int{originX, originY, contentWidth, bottomContentHeight}
+	status := ""
+	statusDirty := false
+	if version := a.sidebarTerminal.StatusLineVersion(); !statusGate.clean(version, statusGeom) {
+		statusDirty = true
+		status = clampLines(a.sidebarTerminal.StatusLine(), contentWidth, 1)
+		statusGate.record(version, statusGeom, status != "")
+	}
 	statusLines := 0
-	if status != "" {
+	if statusGate.rendered {
 		statusLines = 1
 	}
+
+	helpGate := &a.renderCache.sidebarBottomHelpGate
+	helpGeom := [4]int{originX, originY, contentWidth, bottomContentHeight}
+	helpDirty := false
+	helpContent := ""
+	helpCount := helpGate.count
 	maxHelpHeight := bottomContentHeight - statusLines - tabBarHeight
 	if maxHelpHeight < 0 {
 		maxHelpHeight = 0
 	}
-	if len(helpLines) > maxHelpHeight {
-		helpLines = helpLines[:maxHelpHeight]
+	helpVersion := a.sidebarTerminal.HelpVersion()
+	if !helpGate.clean(helpVersion, helpGeom) {
+		helpDirty = true
+		helpLines := a.sidebarTerminal.HelpLines(contentWidth)
+		if len(helpLines) > maxHelpHeight {
+			helpLines = helpLines[:maxHelpHeight]
+		}
+		helpCount = len(helpLines)
+		if helpCount > 0 {
+			helpContent = clampLines(strings.Join(helpLines, "\n"), contentWidth, helpCount)
+		}
 	}
-	maxTermHeight := bottomContentHeight - statusLines - len(helpLines) - tabBarHeight
+
+	maxTermHeight := bottomContentHeight - statusLines - helpCount - tabBarHeight
 	if maxTermHeight < 0 {
 		maxTermHeight = 0
 	}
@@ -281,22 +362,30 @@ func (a *App) composeSidebarTerminalPane(canvas *lipgloss.Canvas, sidebarX, bott
 	}
 	canvas.Compose(positioned)
 
-	if status != "" {
-		if statusDrawable := a.renderCache.sidebarBottomStatus.get(status, originX, originY+termH); statusDrawable != nil {
+	if statusGate.rendered {
+		statusDrawable := a.renderCache.sidebarBottomStatus.drawable
+		if statusDirty {
+			statusDrawable = a.renderCache.sidebarBottomStatus.get(status, originX, originY+termH)
+		}
+		if statusDrawable != nil {
 			canvas.Compose(statusDrawable)
 		}
 	}
 
-	if len(helpLines) > 0 {
-		helpContent := clampLines(strings.Join(helpLines, "\n"), contentWidth, len(helpLines))
-		helpY := originY + bottomContentHeight - len(helpLines) - tabBarHeight
-		if helpDrawable := a.renderCache.sidebarBottomHelp.get(helpContent, originX, helpY); helpDrawable != nil {
-			canvas.Compose(helpDrawable)
+	if helpDirty {
+		rendered := false
+		if helpCount > 0 {
+			helpY := originY + bottomContentHeight - helpCount - tabBarHeight
+			rendered = a.renderCache.sidebarBottomHelp.get(helpContent, originX, helpY) != nil
+		} else if !statusGate.rendered && bottomContentHeight > termH+tabBarHeight {
+			blank := strings.Repeat(" ", contentWidth)
+			rendered = a.renderCache.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1-tabBarHeight) != nil
 		}
-	} else if status == "" && bottomContentHeight > termH+tabBarHeight {
-		blank := strings.Repeat(" ", contentWidth)
-		if blankDrawable := a.renderCache.sidebarBottomHelp.get(blank, originX, originY+bottomContentHeight-1-tabBarHeight); blankDrawable != nil {
-			canvas.Compose(blankDrawable)
+		helpGate.recordCount(helpVersion, helpGeom, rendered, helpCount)
+	}
+	if helpGate.rendered {
+		if helpDrawable := a.renderCache.sidebarBottomHelp.drawable; helpDrawable != nil {
+			canvas.Compose(helpDrawable)
 		}
 	}
 }
@@ -312,10 +401,11 @@ func delegateTerminalCursor(termLayer *compositor.VTermLayer, originX, originY, 
 		return termLayer
 	}
 	snap := termLayer.Snap
+	cursorX := snap.CursorRenderX()
 	if snap.ShowCursor && !snap.CursorHidden && snap.ViewOffset == 0 &&
-		snap.CursorX >= 0 && snap.CursorY >= 0 &&
-		snap.CursorX < termW && snap.CursorY < termH {
-		setCursor(originX+snap.CursorX, originY+snap.CursorY)
+		cursorX >= 0 && snap.CursorY >= 0 &&
+		cursorX < termW && snap.CursorY < termH {
+		setCursor(originX+cursorX, originY+snap.CursorY)
 		snapCopy := *snap
 		snapCopy.ShowCursor = false
 		termLayer = compositor.NewVTermLayer(&snapCopy)

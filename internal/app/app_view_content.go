@@ -68,13 +68,13 @@ func (a *App) renderCenterButton(buttons []centerButton, idx int) string {
 func (a *App) renderWorkspaceInfo() string {
 	ws := a.activeWorkspace
 
-	title := a.styles.Title.Render(ws.Name)
+	title := a.styles.Title.Render(common.SanitizeDisplayText(ws.Name, 256))
 	content := title + "\n\n"
-	content += fmt.Sprintf("Branch: %s\n", ws.Branch)
-	content += fmt.Sprintf("Path: %s\n", ws.Root)
+	content += fmt.Sprintf("Branch: %s\n", common.SanitizeDisplayText(ws.Branch, 256))
+	content += fmt.Sprintf("Path: %s\n", common.SanitizeDisplayText(ws.Root, 256))
 
 	if a.activeProject != nil {
-		content += fmt.Sprintf("Project: %s\n", a.activeProject.Name)
+		content += fmt.Sprintf("Project: %s\n", common.SanitizeDisplayText(a.activeProject.Name, 256))
 	}
 
 	buttons := centerButtonsFor(centerButtonsWorkspace)

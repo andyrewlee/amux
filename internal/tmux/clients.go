@@ -93,33 +93,3 @@ func parseSessionMeta(lines []string) map[string]SessionMeta {
 	}
 	return out
 }
-
-// SessionNamesWithClients returns the set of session names that currently have
-// attached clients.
-//
-// Note: retained for stack-staging compatibility with the pre-refactor app
-// layer; the app commit removes it. New code should use SessionsWithTags or
-// SessionStateFor.
-func SessionNamesWithClients(opts Options) (map[string]bool, error) {
-	attached := make(map[string]bool)
-	if err := EnsureAvailable(); err != nil {
-		return attached, err
-	}
-	cmd, cancel := tmuxCommand(opts, "list-clients", "-F", "#{session_name}")
-	defer cancel()
-	output, err := runTmuxCmdCombined(cmd)
-	if err != nil {
-		if isExitCode1(err) {
-			stderr := strings.ToLower(strings.TrimSpace(string(output)))
-			// No attached clients should not fail detached-session GC.
-			if stderr == "" || strings.Contains(stderr, "no client") || strings.Contains(stderr, "can't find client") {
-				return attached, nil
-			}
-		}
-		return attached, err
-	}
-	for _, name := range parseOutputLines(output) {
-		attached[name] = true
-	}
-	return attached, nil
-}

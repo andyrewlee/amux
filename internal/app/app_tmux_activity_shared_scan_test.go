@@ -9,24 +9,28 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil/tmuxops"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-type sessionsWithTagsStubTmuxOps struct {
-	stubTmuxOps
-	rows           []tmux.SessionTagValues
-	err            error
-	onSessionsCall func()
-}
-
-func (s sessionsWithTagsStubTmuxOps) SessionsWithTags(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
-	if s.onSessionsCall != nil {
-		s.onSessionsCall()
+// sessionsScanStub returns a FakeTmuxOps whose SessionsWithTags runs onCall
+// (used to simulate a lease takeover mid-scan) then answers with rows/err.
+// AllSessionStates answers an empty map like the old embedded stub did.
+func sessionsScanStub(rows []tmux.SessionTagValues, err error, onCall func()) *tmuxops.FakeTmuxOps {
+	return &tmuxops.FakeTmuxOps{
+		AllSessionStatesFunc: func(tmux.Options) (map[string]tmux.SessionState, error) {
+			return map[string]tmux.SessionState{}, nil
+		},
+		SessionsWithTagsFunc: func(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+			if onCall != nil {
+				onCall()
+			}
+			if err != nil {
+				return nil, err
+			}
+			return rows, nil
+		},
 	}
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.rows, nil
 }
 
 func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *testing.T) {
@@ -52,15 +56,10 @@ func TestRunTmuxActivityScan_FollowerReconcilesStoppedTabsFromSharedSnapshot(t *
 
 	app := &App{
 		instanceID: "shared-follower",
-		tmuxService: sessionsWithTagsStubTmuxOps{
-			stubTmuxOps: stubTmuxOps{
-				allStates: map[string]tmux.SessionState{},
-			},
-			rows: []tmux.SessionTagValues{{
-				Name: "session-a",
-				Tags: map[string]string{},
-			}},
-		},
+		tmuxService: sessionsScanStub([]tmux.SessionTagValues{{
+			Name: "session-a",
+			Tags: map[string]string{},
+		}}, nil, nil),
 		// Pre-seed one prior non-live observation so this single scan reaches the
 		// demotion hysteresis threshold and still demotes the dead session.
 		tmuxActivity: tmuxActivityState{
@@ -108,10 +107,8 @@ func TestRunTmuxActivityScan_ScanErrorIncludesResolvedOwnerMetadata(t *testing.T
 
 	scanErr := errors.New("fetch tagged sessions failed")
 	app := &App{
-		instanceID: "shared-owner",
-		tmuxService: sessionsWithTagsStubTmuxOps{
-			err: scanErr,
-		},
+		instanceID:  "shared-owner",
+		tmuxService: sessionsScanStub(nil, scanErr, nil),
 	}
 
 	result := app.runTmuxActivityScan(1, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
@@ -143,19 +140,14 @@ func TestRunTmuxActivityScan_OwnerLeaseRevalidatedBeforePublish(t *testing.T) {
 
 	app := &App{
 		instanceID: "owner-a",
-		tmuxService: sessionsWithTagsStubTmuxOps{
-			stubTmuxOps: stubTmuxOps{
-				allStates: map[string]tmux.SessionState{},
-			},
-			onSessionsCall: func() {
-				if err := activity.WriteOwnerLease(opts, "owner-b", 3, time.Now()); err != nil {
-					t.Fatalf("simulate owner takeover: %v", err)
-				}
-				if err := tmux.SetGlobalOptionValue(activity.SnapshotOption, activity.EncodeSnapshot(map[string]bool{"ws-new": true}, 3, time.Now()), opts); err != nil {
-					t.Fatalf("write takeover snapshot: %v", err)
-				}
-			},
-		},
+		tmuxService: sessionsScanStub(nil, nil, func() {
+			if err := activity.WriteOwnerLease(opts, "owner-b", 3, time.Now()); err != nil {
+				t.Fatalf("simulate owner takeover: %v", err)
+			}
+			if err := tmux.SetGlobalOptionValue(activity.SnapshotOption, activity.EncodeSnapshot(map[string]bool{"ws-new": true}, 3, time.Now()), opts); err != nil {
+				t.Fatalf("write takeover snapshot: %v", err)
+			}
+		}),
 	}
 
 	result := app.runTmuxActivityScan(42, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
@@ -204,16 +196,10 @@ func TestRunTmuxActivityScan_LeaseRevalidationErrorBeforePublishSkipsApply(t *te
 
 	app := &App{
 		instanceID: "owner-a",
-		tmuxService: sessionsWithTagsStubTmuxOps{
-			stubTmuxOps: stubTmuxOps{
-				allStates: map[string]tmux.SessionState{},
-			},
-			rows: []tmux.SessionTagValues{},
-			onSessionsCall: func() {
-				cmd := exec.Command("tmux", gcTmuxArgs(opts, "kill-server")...)
-				_ = cmd.Run()
-			},
-		},
+		tmuxService: sessionsScanStub([]tmux.SessionTagValues{}, nil, func() {
+			cmd := exec.Command("tmux", gcTmuxArgs(opts, "kill-server")...)
+			_ = cmd.Run()
+		}),
 	}
 
 	result := app.runTmuxActivityScan(99, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
@@ -237,13 +223,8 @@ func TestRunTmuxActivityScan_OwnerResolutionErrorLeavesRoleUnknown(t *testing.T)
 	}
 
 	app := &App{
-		instanceID: "owner-a",
-		tmuxService: sessionsWithTagsStubTmuxOps{
-			stubTmuxOps: stubTmuxOps{
-				allStates: map[string]tmux.SessionState{},
-			},
-			rows: []tmux.SessionTagValues{},
-		},
+		instanceID:  "owner-a",
+		tmuxService: sessionsScanStub([]tmux.SessionTagValues{}, nil, nil),
 	}
 
 	result := app.runTmuxActivityScan(11, map[string]activity.SessionInfo{}, map[string]*activity.SessionState{}, opts, app.tmuxService)
