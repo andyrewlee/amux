@@ -18,6 +18,10 @@ MINISIGN_PUBKEY="RWQtWAYbPCb3AH9id1CLjcfy/KdeL6Uyo68qC6oKRJz1gyBOZS3Xm54P"
 # verification when signature verification cannot run (minisign not installed,
 # signature asset missing, or no public key embedded above). It never bypasses
 # an actual failed signature check. Default: fail closed.
+#
+# Requirements: curl, tar, a sha256 tool (sha256sum or shasum), and — for
+# signature verification — minisign (https://jedisct1.github.io/minisign/).
+# Without minisign the installer fails closed unless AMUX_ALLOW_UNVERIFIED=1.
 
 # Detect OS
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

@@ -4,6 +4,11 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Supply-chain policy: prefer versions >=7 days old (matches the repo's
+    # minimum-release-age convention) so freshly published releases age before
+    # dependabot proposes them.
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns:
@@ -13,6 +18,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     ignore:
       - dependency-name: "github.com/charmbracelet/ultraviolet"
     groups:

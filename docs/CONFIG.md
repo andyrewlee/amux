@@ -1,9 +1,69 @@
-# Configuration: assistants
+# Configuration
+
+amux reads a single user config file at `~/.amux/config.json` (optional —
+missing or malformed sections fall back to defaults). This document covers
+each config section and the environment variables amux honors.
+
+## The `ui` section
+
+```json
+{
+  "ui": {
+    "show_keymap_hints": true,
+    "theme": "gruvbox",
+    "tmux_server": "amux",
+    "tmux_config": "/path/to/tmux.conf",
+    "tmux_sync_interval": "30s",
+    "notify_on_done": true,
+    "viewer_command": "nvim"
+  }
+}
+```
+
+| JSON key             | Type   | Meaning                                                                        |
+|----------------------|--------|--------------------------------------------------------------------------------|
+| `show_keymap_hints`  | bool   | Show keybinding hints in the UI. Default `false`.                              |
+| `theme`              | string | Theme ID. Default `"gruvbox"`.                                                 |
+| `tmux_server`        | string | tmux server (`-L` socket) name for amux's sessions. Empty = tmux default.       |
+| `tmux_config`        | string | Path to a tmux config file (`-f`). Empty = tmux default.                       |
+| `tmux_sync_interval` | string | Duration between tmux session reconciliations (e.g. `"30s"`). Default `7s`; minimum `500ms` — lower values are clamped up. |
+| `notify_on_done`     | bool   | Ring the terminal bell when an agent finishes. Default `false`.                 |
+| `viewer_command`     | string | Shell command the file viewer tab runs as `<command> -- <file>` (e.g. `nvim`, `less -R`). Default `"vim"`. Expects a TUI program — a GUI command opens nothing visible in the pane. |
+
+The tmux keys map to environment variables of the same purpose —
+`AMUX_TMUX_SERVER`, `AMUX_TMUX_CONFIG`, `AMUX_TMUX_SYNC_INTERVAL` — which amux
+also accepts directly. A non-empty config value wins over the environment.
+
+## Environment variables
+
+Variables injected **into** agents (`AMUX_WORKSPACE_*`, `AMUX_PORT`,
+`AMUX_PORT_RANGE`) and the debugging surface (`AMUX_LOG_LEVEL`,
+`AMUX_PTY_TRACE`, `AMUX_PPROF`, `AMUX_DEBUG_SIGNALS`, `AMUX_PROFILE*`,
+`AMUX_ENABLE_OSC52_CLIPBOARD`, `AMUX_MAX_ATTACHED_*`, `AMUX_ALLOW_GIT_HOOKS`)
+are documented in the README's environment section, which also covers the
+custom env layering — repo `env` (trust-gated, **scripts only**) < project
+env (`~/.amux/project-env.json`, press `E`) < workspace env (press `e`).
+Interactive sessions (agents, sidebar terminals) get the injected vars plus
+the project and workspace layers — never repo `env`, even when trusted. The
+rest:
+
+| Variable                  | Meaning                                                                                    |
+|---------------------------|--------------------------------------------------------------------------------------------|
+| `AMUX_WORKSPACES_ROOT`    | Relocate the workspace worktree root (default `~/.amux/workspaces`). The only knob for it — there is no config key. amux re-exports the resolved value under the same name so internal packages see one consistent root. |
+| `AMUX_TMUX_SERVER`        | Same as `ui.tmux_server`.                                                                  |
+| `AMUX_TMUX_CONFIG`        | Same as `ui.tmux_config`.                                                                  |
+| `AMUX_TMUX_SYNC_INTERVAL` | Same as `ui.tmux_sync_interval`.                                                           |
+| `AMUX_LOG_RETENTION_DAYS` | Days of `~/.amux/logs` retention. Default 14.                                              |
+| `AMUX_PPROF_ALLOW_REMOTE` | With `AMUX_PPROF` set, bind pprof on all interfaces instead of loopback. Off by default because pprof endpoints expose internals — set `=1` only on trusted networks. |
+| `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output (harness/CI use).                                       |
+| `AMUX_E2E_BIN`            | Path to a prebuilt binary for `internal/e2e` tests (test-only).                            |
+
+## The `assistants` map
 
 amux ships a built-in roster of AI coding agents, but you are not limited to it.
 The user config file lets you **override a built-in's launch command** or **add
 a brand-new assistant** (for example a company-internal CLI or a tool amux does
-not know about yet). This document describes that `assistants` config.
+not know about yet). This section describes that `assistants` config.
 
 ## Where the config lives
 
@@ -18,7 +78,7 @@ section falls back to the built-in defaults; a valid `assistants` section is
 merged on top of them. (This is per-user global config, distinct from the
 per-project `.amux/workspaces.json` described in the README.)
 
-## The `assistants` map
+## The `assistants` schema
 
 The config schema has an `assistants` object. Each **key** is the assistant
 name; each **value** overrides that assistant's launch settings:
@@ -50,8 +110,10 @@ is ignored.
 
 ## Adding a custom assistant
 
-Give the new key a **non-empty `command`**. That is the only requirement — a new
-name with a command becomes a real, usable assistant:
+The fastest path is in-app: open **Settings**, Tab to **Assistants**, and press
+**Ctrl+A** to add a name and command (the same validation below applies, and
+interrupt fields default sensibly). To do it in the file instead, give the new
+key a **non-empty `command`** — that is the only requirement:
 
 ```json
 {

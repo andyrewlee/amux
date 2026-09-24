@@ -112,3 +112,36 @@ func TestShouldLaunchTUIRequiresAllTTYStreams(t *testing.T) {
 		})
 	}
 }
+
+func TestSignalDebugEnabled(t *testing.T) {
+	tests := []struct {
+		name   string
+		ver    string
+		envVal *string
+		want   bool
+	}{
+		{name: "dev build", ver: "dev", envVal: nil, want: true},
+		{name: "dev build ignores env", ver: "dev", envVal: strPtr(""), want: true},
+		{name: "release without env", ver: "1.2.3", envVal: nil, want: false},
+		{name: "release with env", ver: "1.2.3", envVal: strPtr("1"), want: true},
+		{name: "release with whitespace-only env", ver: "1.2.3", envVal: strPtr("  "), want: false},
+		{name: "release with padded env", ver: "1.2.3", envVal: strPtr(" on "), want: true},
+		{name: "empty version without env", ver: "", envVal: nil, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envVal != nil {
+				t.Setenv("AMUX_DEBUG_SIGNALS", *tt.envVal)
+			} else {
+				t.Setenv("AMUX_DEBUG_SIGNALS", "")
+				// t.Setenv cannot unset; empty behaves identically in the predicate.
+			}
+			if got := signalDebugEnabled(tt.ver); got != tt.want {
+				t.Fatalf("signalDebugEnabled(%q) = %v, want %v", tt.ver, got, tt.want)
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }

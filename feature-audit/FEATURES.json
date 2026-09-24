@@ -2134,7 +2134,7 @@
     "area": "Config",
     "feature": "Custom tmux server name (env/config)",
     "user_story": "As a user, I want a custom tmux server name, so that I can run isolated amux instances.",
-    "expected_behavior": "AMUX_TMUX_SERVER (or ui.tmux_server) overrides default 'amux'; passed via -S to all tmux commands.",
+    "expected_behavior": "AMUX_TMUX_SERVER (or ui.tmux_server) overrides default 'amux'; passed via -L (socket name) to all tmux commands.",
     "source": "tmux/tmux.go; config/user_settings.go",
     "tests": "tmux/tmux_test.go",
     "status": "Pass",

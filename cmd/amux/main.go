@@ -173,11 +173,18 @@ func startPprof() {
 	})
 }
 
+// signalDebugEnabled reports whether the SIGUSR1 goroutine-dump handler should
+// be registered: only in dev builds or when AMUX_DEBUG_SIGNALS is explicitly
+// set. A release binary must not grow a signal-driven dump surface silently.
+func signalDebugEnabled(ver string) bool {
+	return ver == "dev" || strings.TrimSpace(os.Getenv("AMUX_DEBUG_SIGNALS")) != ""
+}
+
 // startSignalDebug registers a SIGUSR1 handler for debug goroutine dumps.
 // The goroutine and signal handler intentionally live for the process lifetime
 // since this is only active in dev builds or when AMUX_DEBUG_SIGNALS is set.
 func startSignalDebug() {
-	if version != "dev" && strings.TrimSpace(os.Getenv("AMUX_DEBUG_SIGNALS")) == "" {
+	if !signalDebugEnabled(version) {
 		return
 	}
 	ch := make(chan os.Signal, 1)

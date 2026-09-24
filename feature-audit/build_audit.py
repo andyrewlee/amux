@@ -707,7 +707,7 @@ ROWS += [
       "config/config.go; user_settings.go", "config/config_test.go, user_settings_test.go"),
     R("OPS-06", "Config", "Custom tmux server name (env/config)",
       "As a user, I want a custom tmux server name, so that I can run isolated amux instances.",
-      "AMUX_TMUX_SERVER (or ui.tmux_server) overrides default 'amux'; passed via -S to all tmux commands.",
+      "AMUX_TMUX_SERVER (or ui.tmux_server) overrides default 'amux'; passed via -L (socket name) to all tmux commands.",
       "tmux/tmux.go; config/user_settings.go", "tmux/tmux_test.go"),
     R("OPS-07", "Config", "CLI: --version and TTY guard",
       "As a user, I want --version and a clear non-TTY error, so that I can script checks and get feedback when run non-interactively.",
@@ -737,9 +737,28 @@ def apply_results(rows):
     return rows
 
 
+def _stamp():
+    """Returns a 'generated <iso-date> at commit <sha>' line, or a bare date
+    if git is unavailable. Keeps outputs self-dating so readers know the
+    bundle is a point-in-time snapshot, not living documentation."""
+    import datetime
+    import subprocess
+    stamp = datetime.date.today().isoformat()
+    try:
+        sha = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(HERE), text=True,
+            stderr=subprocess.DEVNULL).strip()
+        return f"Generated {stamp} at commit {sha}. Point-in-time audit — not a living document."
+    except Exception:
+        return f"Generated {stamp}. Point-in-time audit — not a living document."
+
+
 def write_outputs(rows):
     import json
-    # Structured JSON for downstream agents/workflows
+    stamp = _stamp()
+    # Structured JSON for downstream agents/workflows — kept as a bare array;
+    # the generation stamp lives in FEATURES.md/SUMMARY.md and README.md.
     json_path = os.path.join(HERE, "FEATURES.json")
     with open(json_path, "w") as f:
         json.dump(rows, f, indent=2)
@@ -755,6 +774,7 @@ def write_outputs(rows):
     md_path = os.path.join(HERE, "FEATURES.md")
     with open(md_path, "w") as f:
         f.write("# amux Feature Audit\n\n")
+        f.write(f"_{stamp}_\n\n")
         f.write(f"Total user stories: **{len(rows)}**\n\n")
         cur_area = None
         for r in rows:
@@ -788,6 +808,7 @@ def write_outputs(rows):
         by_area[r["area"]][r["status"]] = by_area[r["area"]].get(r["status"], 0) + 1
     with open(sum_path, "w") as f:
         f.write("# Feature Audit — Status Summary\n\n")
+        f.write(f"_{stamp}_\n\n")
         f.write(f"Total user stories: **{len(rows)}**\n\n")
         f.write("## By status\n\n")
         for s in ["Catalogued", "Pass", "Error", "Fixed", "Verified"]:

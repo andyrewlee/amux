@@ -1,5 +1,7 @@
 # amux Feature Audit
 
+_Generated 2026-09-22 at commit b04fbeb. Point-in-time audit — not a living document._
+
 Total user stories: **144**
 
 
@@ -1197,7 +1199,7 @@ Total user stories: **144**
 
 ### OPS-06 — Custom tmux server name (env/config)  `[Pass]`
 - **Story:** As a user, I want a custom tmux server name, so that I can run isolated amux instances.
-- **Expected:** AMUX_TMUX_SERVER (or ui.tmux_server) overrides default 'amux'; passed via -S to all tmux commands.
+- **Expected:** AMUX_TMUX_SERVER (or ui.tmux_server) overrides default 'amux'; passed via -L (socket name) to all tmux commands.
 - **Source:** tmux/tmux.go; config/user_settings.go
 - **Tests:** tmux/tmux_test.go
 - **Test method:** code-trace (Phase 2 multi-agent verify)
