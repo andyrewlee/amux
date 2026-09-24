@@ -51,6 +51,7 @@ var defaultLogger *Logger
 const (
 	logDateLayout          = "2006-01-02"
 	logPrefix              = "amux-"
+	ptyTracePrefix         = "amux-pty-"
 	logSuffix              = ".log"
 	defaultRetentionDays   = 14
 	logRetentionEnvVarName = "AMUX_LOG_RETENTION_DAYS"
@@ -134,6 +135,19 @@ func pruneOldLogs(logDir string, retentionDays int) error {
 		}
 		name := entry.Name()
 		if !strings.HasPrefix(name, logPrefix) || !strings.HasSuffix(name, logSuffix) {
+			continue
+		}
+		if strings.HasPrefix(name, ptyTracePrefix) {
+			// PTY trace names embed a compact timestamp mid-name behind an
+			// arbitrary tab ID, so they can't be parsed under logDateLayout —
+			// prune by mtime, which is the trace's last write.
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().Before(cutoff) {
+				_ = os.Remove(filepath.Join(logDir, name))
+			}
 			continue
 		}
 		dateStr := strings.TrimSuffix(strings.TrimPrefix(name, logPrefix), logSuffix)

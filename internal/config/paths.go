@@ -3,8 +3,13 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
+// WorkspacesRootEnvVar relocates the workspace worktree root. It is the only
+// knob for this: there is no config-file key for workspaces_root. At startup
+// amux re-exports the resolved root under the same name so leaf packages
+// (e.g. internal/git) receive the effective value through the environment.
 const WorkspacesRootEnvVar = "AMUX_WORKSPACES_ROOT"
 
 // Paths holds all the file system paths used by the application
@@ -25,9 +30,14 @@ func DefaultPaths() (*Paths, error) {
 
 	amuxHome := filepath.Join(home, ".amux")
 
+	workspacesRoot := filepath.Join(amuxHome, "workspaces")
+	if override := strings.TrimSpace(os.Getenv(WorkspacesRootEnvVar)); override != "" {
+		workspacesRoot = override
+	}
+
 	return &Paths{
 		Home:           amuxHome,
-		WorkspacesRoot: filepath.Join(amuxHome, "workspaces"),
+		WorkspacesRoot: workspacesRoot,
 		RegistryPath:   filepath.Join(amuxHome, "projects.json"),
 		MetadataRoot:   filepath.Join(amuxHome, "workspaces-metadata"),
 		ConfigPath:     filepath.Join(amuxHome, "config.json"),
@@ -49,4 +59,26 @@ func (p *Paths) EnsureDirectories() error {
 	}
 
 	return nil
+}
+
+// ExpandHomePath expands a leading "~" (or "~/" / "~\") to the user's home
+// directory. Other prefixes pass through unchanged — "~other" user lookups are
+// deliberately not supported. This is the single home-expansion helper; the
+// filepicker/validation/workspacesvc sites predate it and are converged
+// separately.
+func ExpandHomePath(path string) (string, error) {
+	if !strings.HasPrefix(path, "~") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case path == "~":
+		return home, nil
+	case strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\"):
+		return filepath.Join(home, path[2:]), nil
+	}
+	return path, nil
 }

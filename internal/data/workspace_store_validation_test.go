@@ -83,6 +83,10 @@ func TestWorkspaceStore_LockWorkspaceIDsUsesDeterministicOrder(t *testing.T) {
 		done <- nil
 	}()
 
+	// Timing heuristic (kept per plan 048 triage): give the high-priority
+	// lock goroutine a head start so the low-priority attempt queues behind
+	// it — flock acquisition order is not observable, so there is nothing to
+	// poll on.
 	time.Sleep(100 * time.Millisecond)
 
 	type lockResult struct {

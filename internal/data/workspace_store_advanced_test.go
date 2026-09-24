@@ -353,3 +353,53 @@ func TestWorkspaceStore_DeleteRejectsInvalidWorkspaceID(t *testing.T) {
 		t.Fatalf("expected metadata root to remain intact, stat err=%v", err)
 	}
 }
+
+// TestWorkspaceStore_ListAll_ByRepoMatchesListByRepo pins plan 041's snapshot
+// contract: one ListAll round serves every repo filter with results identical
+// to the per-repo path for a mixed store (live + archived + other-repo).
+func TestWorkspaceStore_ListAll_ByRepoMatchesListByRepo(t *testing.T) {
+	store := NewWorkspaceStore(t.TempDir())
+	repo := "/home/user/repo"
+	other := "/home/user/other"
+
+	fixtures := []*Workspace{
+		{Name: "live-a", Repo: repo, Root: "/path/a"},
+		{Name: "live-b", Repo: repo, Root: "/path/b"},
+		{Name: "archived", Repo: repo, Root: "/path/c", Archived: true},
+		{Name: "foreign", Repo: other, Root: "/path/d"},
+	}
+	for _, ws := range fixtures {
+		if err := store.Save(ws); err != nil {
+			t.Fatalf("Save(%s) error = %v", ws.Name, err)
+		}
+	}
+
+	set, err := store.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	for _, includeArchived := range []bool{false, true} {
+		for _, repoPath := range []string{repo, other, "/nonexistent"} {
+			var want []*Workspace
+			var wantErr error
+			if includeArchived {
+				want, wantErr = store.ListByRepoIncludingArchived(repoPath)
+			} else {
+				want, wantErr = store.ListByRepo(repoPath)
+			}
+			got, gotErr := set.ByRepo(repoPath, includeArchived)
+			if (wantErr == nil) != (gotErr == nil) {
+				t.Fatalf("ByRepo(%s, %v) err mismatch: want %v got %v", repoPath, includeArchived, wantErr, gotErr)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("ByRepo(%s, %v) = %d workspaces, want %d", repoPath, includeArchived, len(got), len(want))
+			}
+			for i := range want {
+				if got[i].Name != want[i].Name || got[i].Root != want[i].Root {
+					t.Fatalf("ByRepo(%s, %v)[%d] = %s@%s, want %s@%s",
+						repoPath, includeArchived, i, got[i].Name, got[i].Root, want[i].Name, want[i].Root)
+				}
+			}
+		}
+	}
+}

@@ -54,7 +54,7 @@ const noHooksPath = "/dev/null"
 // read paths pass --no-ext-diff/--no-textconv per call site instead (see
 // diff.go); there is no single git-wide flag to disable all attribute-driven
 // filter drivers, so that vector is a documented residual — see the
-// Maintenance notes in plans/045-sec-git-hardening-completeness.md.
+// Maintenance notes in plans/062-git-filter-driver-investigation.md.
 func hardenedGitArgs(args []string) []string {
 	if allowRepoGitHooks {
 		return args

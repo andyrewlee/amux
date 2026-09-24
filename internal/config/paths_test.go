@@ -33,3 +33,24 @@ func TestPathsEnsureDirectories(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultPathsWorkspacesRootEnvOverride(t *testing.T) {
+	custom := filepath.Join(t.TempDir(), "custom-workspaces")
+	t.Setenv(WorkspacesRootEnvVar, custom)
+	paths, err := DefaultPaths()
+	if err != nil {
+		t.Fatalf("DefaultPaths() error = %v", err)
+	}
+	if paths.WorkspacesRoot != custom {
+		t.Errorf("WorkspacesRoot = %q, want env override %q", paths.WorkspacesRoot, custom)
+	}
+
+	t.Setenv(WorkspacesRootEnvVar, "   ")
+	paths, err = DefaultPaths()
+	if err != nil {
+		t.Fatalf("DefaultPaths() error = %v", err)
+	}
+	if want := filepath.Join(paths.Home, "workspaces"); paths.WorkspacesRoot != want {
+		t.Errorf("blank env should fall back: WorkspacesRoot = %q, want %q", paths.WorkspacesRoot, want)
+	}
+}

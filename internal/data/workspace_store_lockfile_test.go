@@ -33,9 +33,11 @@ func TestWorkspaceStore_RemovesLockFileOnDelete(t *testing.T) {
 	}
 }
 
-// TestWorkspaceStore_RemovesOldLockFileOnSaveRebind proves a rebind (ID change)
-// removes the stale old lock file while keeping the live one.
-func TestWorkspaceStore_RemovesOldLockFileOnSaveRebind(t *testing.T) {
+// TestWorkspaceStore_RootMutationKeepsPersistedKey proves that mutating Root
+// after the first save does not rebind the record: plan 042 made the store
+// key the identity, so the record — and its lock file — stay under the
+// minted key while the moved path is saved into it.
+func TestWorkspaceStore_RootMutationKeepsPersistedKey(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)
 
@@ -49,21 +51,28 @@ func TestWorkspaceStore_RemovesOldLockFileOnSaveRebind(t *testing.T) {
 	}
 	oldID := ws.ID()
 
-	// Rebind: changing Root changes the computed ID while storeID still points at
-	// the old metadata, triggering the oldID cleanup branch.
 	ws.Root = "/home/user/.amux/workspaces/new-root"
 	if err := store.Save(ws); err != nil {
 		t.Fatalf("rebind Save() error = %v", err)
 	}
-	newID := ws.ID()
-	if oldID == newID {
-		t.Fatal("expected the workspace ID to change on rebind")
+	if ws.ID() != oldID {
+		t.Fatal("expected the persisted key to survive a Root mutation")
+	}
+	if ws.ComputedID() == oldID {
+		t.Fatal("expected ComputedID to reflect the new root")
 	}
 
-	if _, err := os.Stat(store.workspaceLockPath(oldID)); !os.IsNotExist(err) {
-		t.Fatalf("expected stale old lock file removed after rebind, stat err=%v", err)
+	if _, err := os.Stat(store.workspaceLockPath(oldID)); err != nil {
+		t.Fatalf("expected lock file retained under the persisted key, stat err=%v", err)
 	}
-	if _, err := os.Stat(store.workspaceLockPath(newID)); err != nil {
-		t.Fatalf("expected live new lock file retained, stat err=%v", err)
+	if _, err := os.Stat(store.workspaceLockPath(ws.ComputedID())); !os.IsNotExist(err) {
+		t.Fatalf("expected no record under the computed key, stat err=%v", err)
+	}
+	loaded, err := store.Load(oldID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Root != ws.Root {
+		t.Fatalf("loaded Root = %q, want %q", loaded.Root, ws.Root)
 	}
 }

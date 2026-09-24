@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func setupLogger(t *testing.T, level Level) (string, func()) {
@@ -167,5 +168,46 @@ func TestLevelFiltering(t *testing.T) {
 	}
 	if !strings.Contains(content, "WARN: warn message") {
 		t.Fatalf("expected warn log, got: %q", content)
+	}
+}
+
+func TestPruneOldLogsRemovesStalePTYTraces(t *testing.T) {
+	logDir := t.TempDir()
+	old := time.Now().AddDate(0, 0, -30)
+
+	writeAged := func(name string, mtime time.Time) {
+		p := filepath.Join(logDir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatalf("chtimes %s: %v", name, err)
+		}
+	}
+
+	writeAged("amux-pty-claude-abc123-20250101-000000.log", old)
+	writeAged("amux-pty-claude-def456-20990101-000000.log", time.Now())
+	writeAged("amux-2020-01-01.log", old)
+	writeAged("amux-not-a-log.log", old)
+
+	if err := pruneOldLogs(logDir, 14); err != nil {
+		t.Fatalf("pruneOldLogs: %v", err)
+	}
+
+	exists := func(name string) bool {
+		_, err := os.Stat(filepath.Join(logDir, name))
+		return err == nil
+	}
+	if exists("amux-pty-claude-abc123-20250101-000000.log") {
+		t.Error("stale PTY trace survived pruning")
+	}
+	if !exists("amux-pty-claude-def456-20990101-000000.log") {
+		t.Error("fresh PTY trace was pruned")
+	}
+	if exists("amux-2020-01-01.log") {
+		t.Error("dated log survived pruning")
+	}
+	if !exists("amux-not-a-log.log") {
+		t.Error("unrelated amux-* file was pruned")
 	}
 }

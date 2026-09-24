@@ -56,6 +56,12 @@ type WorkspaceDeleted struct {
 	// Warning is a non-fatal note (e.g. an archive script returned a warning).
 	// The workspace delete still succeeded; this is surfaced to the user as a toast.
 	Warning string
+	// WorkspaceIDs carries the workspace's identity keys stamped BEFORE the
+	// worktree was removed. ws.ID() drifts post-removal (NormalizePath only
+	// resolves existing paths), so cleanup must use this set rather than
+	// recomputing — it contains both the resolved ID form the UI keyed tabs
+	// under and the persisted MetadataID form.
+	WorkspaceIDs []string
 }
 
 // WorkspaceDeleteFailed is sent when a workspace deletion fails
@@ -63,6 +69,9 @@ type WorkspaceDeleteFailed struct {
 	Project   *data.Project
 	Workspace *data.Workspace
 	Err       error
+	// WorkspaceIDs: see WorkspaceDeleted — stamped pre-removal so failure
+	// cleanup can unmark every ID form the in-flight guard set.
+	WorkspaceIDs []string
 }
 
 // ProjectAdded is sent when a new project is registered
@@ -85,6 +94,19 @@ type GitStatusResult struct {
 	Root   string
 	Status *git.StatusResult
 	Err    error
+	// Tracked marks a result produced by the app's status-request dedup
+	// layer: only tracked results may clear the root's in-flight mark and
+	// drain coalesced follow-ups. Cache-hit and externally produced results
+	// leave it false.
+	Tracked bool
+}
+
+// GitStatusBatchResult carries per-root status results from one batched
+// refresh pass. A projects reload emits one batch instead of one message per
+// workspace, so the UI pays a single render pass for the whole reload rather
+// than one per workspace.
+type GitStatusBatchResult struct {
+	Results []GitStatusResult
 }
 
 // FocusPane requests focus change to a specific pane
@@ -168,6 +190,10 @@ type Error struct {
 	Logged  bool
 }
 
+// MarkCriticalExternalMsg marks Error as a critical external message: the
+// app msgpump must never evict it from the lossy external queue.
+func (Error) MarkCriticalExternalMsg() {}
+
 func (e Error) Error() string {
 	if e.Context != "" {
 		return e.Context + ": " + e.Err.Error()
@@ -236,6 +262,40 @@ type ShowWorkspaceEnvDialog struct {
 	Workspace *data.Workspace
 }
 
+// ShowProjectEnvDialog requests showing the project-level environment editor
+// for the workspace's repo — the user-owned layer beneath ws.Env that every
+// workspace of the project inherits.
+type ShowProjectEnvDialog struct {
+	Workspace *data.Workspace
+}
+
+// ShowRunScriptOutput requests showing the workspace run script's captured
+// output (live pane or post-exit tail) in a read-only viewer.
+type ShowRunScriptOutput struct {
+	Workspace *data.Workspace
+}
+
+// ShowScriptOutput requests showing the workspace's recorded lifecycle-script
+// transcripts (setup/archive/on-done — the last run of each, bounded) in a
+// read-only viewer. Run output stays on ShowRunScriptOutput's live tail.
+type ShowScriptOutput struct {
+	Workspace *data.Workspace
+}
+
+// ShowWorkspaceStatus requests the workspace's operational snapshot —
+// port allocation, run-session state, script config + trust, env key names,
+// lifecycle state, open tabs — in a read-only dialog.
+type ShowWorkspaceStatus struct {
+	Workspace *data.Workspace
+}
+
+// ShowWorkspaceScriptsDialog requests showing the workspace scripts editor
+// (user-entered setup/run/archive commands + run mode) for the given
+// workspace.
+type ShowWorkspaceScriptsDialog struct {
+	Workspace *data.Workspace
+}
+
 // ShowTrustScriptsDialog requests confirmation before trusting repo scripts.
 type ShowTrustScriptsDialog struct {
 	Workspace  *data.Workspace
@@ -245,212 +305,5 @@ type ShowTrustScriptsDialog struct {
 // ShowCommitWorkspaceDialog requests showing the commit-message input dialog
 // for a workspace's changes (git commit-all).
 type ShowCommitWorkspaceDialog struct {
-	Workspace *data.Workspace
-}
-
-// WorkspaceCommitted is sent when a commit-all attempt finishes. Err is non-nil
-// on failure (surfaced via ReportError); on success the sidebar diff/status view
-// is refreshed for the workspace.
-type WorkspaceCommitted struct {
-	Workspace *data.Workspace
-	Err       error
-}
-
-// MergeWorkspace requests merging a workspace's branch into its base branch in
-// the project's primary checkout. The precondition check (is the base actually
-// checked out?) runs in the handler, before any confirm dialog is shown.
-//
-// The workspace alone identifies the merge: Repo names the primary checkout to
-// merge in, Branch what to merge, and Base what to merge into. No project is
-// carried because none is needed.
-type MergeWorkspace struct {
-	Workspace *data.Workspace
-}
-
-// ShowMergeWorkspaceDialog requests the merge confirmation dialog. Base is the
-// local branch the merge will land on, resolved and verified by the handler, so
-// the dialog can state the exact command that will run.
-type ShowMergeWorkspaceDialog struct {
-	Workspace *data.Workspace
-	Base      string
-}
-
-// MergeWorkspaceRefused reports that the merge precondition did not hold, so no
-// dialog is shown and nothing is written. Reason is the user-facing
-// explanation; Err is set only when the check itself failed (as opposed to
-// answering "no"), so the app can tell a refusal apart from a fault.
-type MergeWorkspaceRefused struct {
-	Workspace *data.Workspace
-	Reason    string
-	Err       error
-}
-
-// WorkspaceMerged is sent when a merge attempt finishes. A conflict arrives
-// here too, as an Err wrapping git.ErrMergeConflict, because a stopped merge is
-// an outcome the user must act on rather than a silent failure.
-type WorkspaceMerged struct {
-	Workspace *data.Workspace
-	Base      string
-	Err       error
-}
-
-// AbortWorkspaceMerge requests abandoning the merge left in progress in the
-// workspace's primary checkout.
-type AbortWorkspaceMerge struct {
-	Workspace *data.Workspace
-}
-
-// WorkspaceMergeAborted reports the outcome of an AbortWorkspaceMerge.
-type WorkspaceMergeAborted struct {
-	Workspace *data.Workspace
-	Err       error
-}
-
-// ShowRemoveProjectDialog requests showing the remove project confirmation
-type ShowRemoveProjectDialog struct {
-	Project *data.Project
-}
-
-// CreateWorkspace requests creating a new workspace
-type CreateWorkspace struct {
-	Project   *data.Project
-	Name      string
-	Base      string
-	Assistant string
-}
-
-// DeleteWorkspace requests deleting a workspace
-type DeleteWorkspace struct {
-	Project   *data.Project
-	Workspace *data.Workspace
-}
-
-// RenameWorkspace requests renaming a workspace's display label (Tier-1). Only
-// the human Name changes; the git branch, worktree, and workspace ID are left
-// untouched.
-type RenameWorkspace struct {
-	Project   *data.Project
-	Workspace *data.Workspace
-	NewName   string
-}
-
-// RemoveProject requests removing a project from the registry
-type RemoveProject struct {
-	Project *data.Project
-}
-
-// AddProject requests adding a new project
-type AddProject struct {
-	Path string
-}
-
-// ShowSelectAssistantDialog requests showing the assistant selection dialog
-type ShowSelectAssistantDialog struct{}
-
-// LaunchAgent requests launching an agent in a new tab
-type LaunchAgent struct {
-	Assistant string
-	Workspace *data.Workspace
-}
-
-// OpenDiff requests opening a diff viewer for a file
-type OpenDiff struct {
-	Change    *git.Change
-	Mode      git.DiffMode
-	Workspace *data.Workspace
-}
-
-// CloseTab requests closing the current tab
-type CloseTab struct{}
-
-// ShowCleanupTmuxDialog requests confirmation before cleaning tmux sessions.
-type ShowCleanupTmuxDialog struct{}
-
-// CleanupTmuxSessions requests cleanup of amux tmux sessions.
-type CleanupTmuxSessions struct{}
-
-// WorkspaceCreatedWithWarning indicates workspace was created but setup had issues
-type WorkspaceCreatedWithWarning struct {
-	Workspace *data.Workspace
-	Warning   string
-}
-
-// ToggleWorkspaceScript requests starting a workspace's `run` script, or
-// stopping it when it is already running. The app owns the ScriptRunner and so
-// decides which of the two applies; the sender only names the workspace.
-//
-// Only `run` is user-triggerable: `setup` fires automatically on workspace
-// creation and `archive` fires on delete, so neither needs a request message.
-type ToggleWorkspaceScript struct {
-	Workspace *data.Workspace
-}
-
-// WorkspaceScriptStateChanged reports the outcome of a ToggleWorkspaceScript.
-// Running is the state the workspace's run script ended up in, so the sidebar
-// can show an accurate indicator even when the request failed.
-type WorkspaceScriptStateChanged struct {
-	Workspace *data.Workspace
-	Running   bool
-	Err       error
-}
-
-// GitStatusTick triggers periodic git status refresh
-type GitStatusTick struct{}
-
-// OrphanGCTick triggers periodic tmux orphan session cleanup.
-type OrphanGCTick struct{}
-
-// FileWatcherEvent is sent when a watched file changes
-type FileWatcherEvent struct {
-	Root string
-}
-
-// StateWatcherEvent is sent when amux state files change on disk.
-type StateWatcherEvent struct {
-	Reason string
-	Paths  []string
-}
-
-// SidebarPTYOutput contains PTY output for sidebar terminal
-type SidebarPTYOutput struct {
-	WorkspaceID string
-	TabID       string
-	Data        []byte
-}
-
-// SidebarPTYFlush applies buffered PTY output for sidebar terminal
-type SidebarPTYFlush struct {
-	WorkspaceID string
-	TabID       string
-}
-
-// SidebarPTYStopped signals that the sidebar PTY read loop has stopped
-type SidebarPTYStopped struct {
-	WorkspaceID string
-	TabID       string
-	Err         error
-}
-
-// UpdateCheckComplete is sent when the background update check finishes
-type UpdateCheckComplete struct {
-	CurrentVersion  string
-	LatestVersion   string
-	UpdateAvailable bool
-	ReleaseNotes    string
-	Err             error
-}
-
-// TriggerUpgrade is sent when the user requests an upgrade
-type TriggerUpgrade struct{}
-
-// UpgradeComplete is sent when the upgrade finishes
-type UpgradeComplete struct {
-	NewVersion string
-	Err        error
-}
-
-// OpenFileInVim requests opening a file in vim in the center pane
-type OpenFileInVim struct {
-	Path      string
 	Workspace *data.Workspace
 }

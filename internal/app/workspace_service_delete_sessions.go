@@ -8,23 +8,10 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 )
 
+// workspaceMetadataIDs delegates to the full identity set — see
+// data.WorkspaceIdentitySet, which this delegates to.
 func workspaceMetadataIDs(ws *data.Workspace) []data.WorkspaceID {
-	if ws == nil {
-		return nil
-	}
-	ids := make([]data.WorkspaceID, 0, 2)
-	seen := make(map[data.WorkspaceID]struct{}, 2)
-	for _, id := range []data.WorkspaceID{ws.MetadataID(), ws.ID()} {
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	return ids
+	return data.WorkspaceIdentitySet(ws)
 }
 
 // killWorkspaceSessionsForDeletedWorkspace cleans both current-ID sessions and

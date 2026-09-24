@@ -10,6 +10,9 @@ import (
 
 // workspaceJSON is used for loading old-format metadata files during migration
 type workspaceJSON struct {
+	// Version is the schema stamp written by Save; absent on v0 (pre-
+	// versioning) records. workspaceFileVersion is the newest known schema.
+	Version        int               `json:"version,omitempty"`
 	Name           string            `json:"name"`
 	Branch         string            `json:"branch"`
 	Repo           string            `json:"repo"`
@@ -18,6 +21,7 @@ type workspaceJSON struct {
 	Created        json.RawMessage   `json:"created"` // Can be time.Time or string
 	Archived       bool              `json:"archived"`
 	ArchivedAt     json.RawMessage   `json:"archived_at,omitempty"`
+	Shelved        bool              `json:"shelved"`
 	Assistant      string            `json:"assistant"`
 	Runtime        string            `json:"runtime"`
 	Scripts        ScriptsConfig     `json:"scripts"`

@@ -20,6 +20,10 @@ type UISettings struct {
 	// NotifyOnDone rings a terminal bell when an agent finishes. Default off so
 	// existing users are not surprised by sound.
 	NotifyOnDone bool
+	// ViewerCommand is the shell fragment the file viewer tab runs as
+	// `<command> -- <file>`. Default "vim"; empty means vim. TUI viewers are
+	// expected — a GUI command opens nothing visible in the pane.
+	ViewerCommand string
 }
 
 func defaultUISettings() UISettings {
@@ -30,6 +34,7 @@ func defaultUISettings() UISettings {
 		TmuxConfigPath:   "",
 		TmuxSyncInterval: "",
 		NotifyOnDone:     false,
+		ViewerCommand:    "vim",
 	}
 }
 
@@ -42,6 +47,7 @@ type uiSettingsRaw struct {
 	TmuxConfigPath   *string `json:"tmux_config"`
 	TmuxSyncInterval *string `json:"tmux_sync_interval"`
 	NotifyOnDone     *bool   `json:"notify_on_done"`
+	ViewerCommand    *string `json:"viewer_command"`
 }
 
 // applyUISettings overlays the parsed config-file section onto the defaults.
@@ -63,6 +69,9 @@ func applyUISettings(settings UISettings, raw uiSettingsRaw) UISettings {
 	}
 	if raw.NotifyOnDone != nil {
 		settings.NotifyOnDone = *raw.NotifyOnDone
+	}
+	if raw.ViewerCommand != nil {
+		settings.ViewerCommand = *raw.ViewerCommand
 	}
 	return settings
 }
@@ -93,6 +102,7 @@ func saveUISettings(path string, settings UISettings) error {
 	ui["tmux_config"] = settings.TmuxConfigPath
 	ui["tmux_sync_interval"] = settings.TmuxSyncInterval
 	ui["notify_on_done"] = settings.NotifyOnDone
+	ui["viewer_command"] = settings.ViewerCommand
 	payload["ui"] = ui
 
 	// Crash-safe write (temp + fsync + atomic rename) so a crash mid-save can't
