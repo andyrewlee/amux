@@ -135,7 +135,7 @@ func TestHandleDialogResult_AddProjectEmptyShowsWarning(t *testing.T) {
 		ID:        DialogAddProject,
 		Confirmed: true,
 		Value:     "",
-	})
+	}, app.dlg)
 
 	if cmd == nil {
 		t.Fatal("expected warning toast command")
@@ -154,7 +154,7 @@ func TestHandleDialogResultLogDoesNotIncludeRawValue(t *testing.T) {
 		ID:        DialogCreateWorkspace,
 		Confirmed: true,
 		Value:     secret,
-	})
+	}, app.dlg)
 	if cmd != nil {
 		t.Fatal("expected no command when create-workspace dialog has no project context")
 	}

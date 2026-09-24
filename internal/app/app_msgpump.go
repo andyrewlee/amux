@@ -13,7 +13,6 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
-	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -46,6 +45,12 @@ func (a *App) SetMsgSender(send func(tea.Msg)) {
 	})
 }
 
+// enqueueExternalMsg injects a message into Update from producers that run on
+// their own goroutines (the sidebar-terminal msg sink, background panic
+// reporting, external watch loops). It is NOT a shortcut for Update-side code
+// that merely doesn't want to thread a tea.Cmd — Cmds produced inside Update
+// must be returned through the normal []tea.Cmd path so the runtime owns
+// their scheduling and ordering.
 func (a *App) enqueueExternalMsg(msg tea.Msg) {
 	_ = a.tryEnqueueExternalMsg(msg)
 }
@@ -150,13 +155,6 @@ func (a *App) installSupervisorErrorHandler() {
 }
 
 func isCriticalExternalMsg(msg tea.Msg) bool {
-	if _, ok := msg.(common.CriticalExternalMsg); ok {
-		return true
-	}
-	switch msg.(type) {
-	case messages.Error, messages.SidebarPTYStopped, center.PTYStopped:
-		return true
-	default:
-		return false
-	}
+	_, ok := msg.(common.CriticalExternalMsg)
+	return ok
 }

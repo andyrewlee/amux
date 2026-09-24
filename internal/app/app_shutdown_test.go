@@ -9,6 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/process"
@@ -85,7 +86,7 @@ func TestShutdown_StopsEachSubsystemOnce(t *testing.T) {
 		stateWatcher:     sw,
 		center:           center.New(&config.Config{}),
 		sidebarTerminal:  sidebar.NewTerminalModel(),
-		workspaceService: newWorkspaceService(nil, nil, process.NewScriptRunner(6400, 10), ""),
+		workspaceService: workspacesvc.New(nil, nil, process.NewScriptRunner(6400, 10), ""),
 	}
 
 	a.Shutdown()

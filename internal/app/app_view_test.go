@@ -142,8 +142,9 @@ func TestView_FinalizeClearsPendingInputLatency(t *testing.T) {
 
 // TestView_ReadyBranchRendersLayerComposition drives the happy path of view()
 // through the headless harness (which wires a real App), proving that a ready,
-// non-quitting app renders the layer-based frame wrapped in the DEC 2026
-// synchronized-output markers rather than a placeholder banner.
+// non-quitting app renders the layer-based frame rather than a placeholder
+// banner. DEC 2026 synchronized-output bracketing happens in the renderer
+// (ultraviolet), below view().
 func TestView_ReadyBranchRendersLayerComposition(t *testing.T) {
 	h, err := NewHarness(HarnessOptions{Mode: HarnessCenter, Tabs: 1, Width: 160, Height: 48})
 	if err != nil {
@@ -156,9 +157,6 @@ func TestView_ReadyBranchRendersLayerComposition(t *testing.T) {
 
 	if view.Content == "Goodbye!\n" || view.Content == "Loading..." {
 		t.Fatalf("expected layer-based render, got placeholder: %q", view.Content)
-	}
-	if !strings.HasPrefix(view.Content, syncBegin) || !strings.HasSuffix(view.Content, syncEnd) {
-		t.Fatal("expected the ready frame to be wrapped in DEC 2026 sync markers")
 	}
 }
 

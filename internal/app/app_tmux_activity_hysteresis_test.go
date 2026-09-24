@@ -17,10 +17,10 @@ func TestSyncActivitySessionStates_DemotionHysteresis(t *testing.T) {
 		sessionName: {Status: "running", WorkspaceID: "ws", IsChat: true},
 	}
 	sessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: sessionName}}}
-	deadSvc := stubTmuxOps{allStates: map[string]tmux.SessionState{}} // not live
+	deadSvc := newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil) // not live
 	miss := map[string]int{}
 
-	r1 := syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
+	r1, _ := syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
 	if len(r1) != 0 {
 		t.Fatalf("first non-live observation must not demote, got %d stopped", len(r1))
 	}
@@ -28,7 +28,7 @@ func TestSyncActivitySessionStates_DemotionHysteresis(t *testing.T) {
 		t.Fatalf("first miss must keep status running, got %q", info[sessionName].Status)
 	}
 
-	r2 := syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
+	r2, _ := syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
 	if len(r2) != 1 {
 		t.Fatalf("second consecutive non-live observation must demote, got %d stopped", len(r2))
 	}
@@ -48,15 +48,15 @@ func TestSyncActivitySessionStates_LiveResetsMissCounter(t *testing.T) {
 	sessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: sessionName}}}
 	miss := map[string]int{}
 
-	deadSvc := stubTmuxOps{allStates: map[string]tmux.SessionState{}}
+	deadSvc := newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil)
 	syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
 	if miss[sessionName] != 1 {
 		t.Fatalf("expected 1 miss after one non-live observation, got %d", miss[sessionName])
 	}
 
-	liveSvc := stubTmuxOps{allStates: map[string]tmux.SessionState{
+	liveSvc := newStubTmuxOps(map[string]tmux.SessionState{
 		sessionName: {Exists: true, HasLivePane: true},
-	}}
+	}, nil, nil)
 	syncActivitySessionStates(info, sessions, liveSvc, tmux.Options{}, miss)
 	if _, ok := miss[sessionName]; ok {
 		t.Fatalf("a live observation must reset the miss counter, still have %d", miss[sessionName])
@@ -73,7 +73,7 @@ func TestSyncActivitySessionStates_PrunesMissForClosedSession(t *testing.T) {
 		sessionName: {Status: "running", WorkspaceID: "ws"},
 	}
 	sessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: sessionName}}}
-	deadSvc := stubTmuxOps{allStates: map[string]tmux.SessionState{}}
+	deadSvc := newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil)
 	miss := map[string]int{}
 
 	// One non-live observation records a miss for the open session.
@@ -97,7 +97,7 @@ func TestSyncActivitySessionStates_PrunesMissForClosedSession(t *testing.T) {
 func TestSyncActivitySessionStates_PrunesMissWhenLastSessionCloses(t *testing.T) {
 	miss := map[string]int{"amux-ws-sess": 1}
 
-	syncActivitySessionStates(map[string]activity.SessionInfo{}, nil, stubTmuxOps{}, tmux.Options{}, miss)
+	syncActivitySessionStates(map[string]activity.SessionInfo{}, nil, newStubTmuxOps(nil, nil, nil), tmux.Options{}, miss)
 
 	if len(miss) != 0 {
 		t.Fatalf("expected final closed session to prune miss counters, got %v", miss)

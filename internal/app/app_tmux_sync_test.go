@@ -1,18 +1,22 @@
 package app
 
 import (
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
+// blockingWorkspaceStore blocks inside Save until released — the blocking
+// contract is the point of the fake; the embedded shared store provides the
+// rest of WorkspaceStore and records the completed saves.
 type blockingWorkspaceStore struct {
+	testutil.FakeWorkspaceStore
+
 	saveStarted chan struct{}
 	releaseSave chan struct{}
-	mu          sync.Mutex
-	saveCalls   int
 }
 
 func newBlockingWorkspaceStore() *blockingWorkspaceStore {
@@ -22,51 +26,14 @@ func newBlockingWorkspaceStore() *blockingWorkspaceStore {
 	}
 }
 
-func (s *blockingWorkspaceStore) ListByRepo(repo string) ([]*data.Workspace, error) {
-	return nil, nil
-}
-
-func (s *blockingWorkspaceStore) ListByRepoIncludingArchived(repo string) ([]*data.Workspace, error) {
-	return nil, nil
-}
-
-func (s *blockingWorkspaceStore) LoadMetadataFor(workspace *data.Workspace) (bool, error) {
-	return false, nil
-}
-
-func (s *blockingWorkspaceStore) UpsertFromDiscovery(workspace *data.Workspace) error {
-	return nil
-}
-
 func (s *blockingWorkspaceStore) Save(workspace *data.Workspace) error {
 	close(s.saveStarted)
 	<-s.releaseSave
-	s.mu.Lock()
-	s.saveCalls++
-	s.mu.Unlock()
-	return nil
-}
-
-func (s *blockingWorkspaceStore) Delete(id data.WorkspaceID) error {
-	return nil
-}
-
-func (s *blockingWorkspaceStore) Rename(id data.WorkspaceID, newName string) error {
-	return nil
-}
-
-func (s *blockingWorkspaceStore) SetEnv(id data.WorkspaceID, env map[string]string) error {
-	return nil
-}
-
-func (s *blockingWorkspaceStore) ResolvedDefaultAssistant() string {
-	return data.DefaultAssistant
+	return s.FakeWorkspaceStore.Save(workspace)
 }
 
 func (s *blockingWorkspaceStore) SaveCalls() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.saveCalls
+	return len(s.SavedIDs())
 }
 
 func TestHandleTmuxTabsSyncResult_SaveAndDeleteMarkAreAtomic(t *testing.T) {
@@ -80,7 +47,7 @@ func TestHandleTmuxTabsSyncResult_SaveAndDeleteMarkAreAtomic(t *testing.T) {
 	}}
 
 	store := newBlockingWorkspaceStore()
-	svc := newWorkspaceService(nil, store, nil, "")
+	svc := workspacesvc.New(nil, store, nil, "")
 	app := &App{
 		workspaceService: svc,
 		projects:         []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
@@ -114,7 +81,7 @@ func TestHandleTmuxTabsSyncResult_SaveAndDeleteMarkAreAtomic(t *testing.T) {
 
 	markDone := make(chan struct{})
 	go func() {
-		app.markWorkspaceDeleteInFlight(ws, true)
+		app.markWorkspaceMutationInFlight(ws, true)
 		close(markDone)
 	}()
 
@@ -141,7 +108,11 @@ func TestHandleTmuxTabsSyncResult_SaveAndDeleteMarkAreAtomic(t *testing.T) {
 	if store.SaveCalls() != 1 {
 		t.Fatalf("expected one save call, got %d", store.SaveCalls())
 	}
-	if !app.isWorkspaceDeleteInFlight(wsID) {
-		t.Fatal("expected workspace to be marked delete-in-flight after save section")
+	if !app.isWorkspaceMutationInFlight(wsID) {
+		t.Fatal("expected workspace to be marked mutation-in-flight after save section")
 	}
+}
+
+func (s *blockingWorkspaceStore) SetScripts(data.WorkspaceID, data.ScriptsConfig, string) error {
+	return nil
 }

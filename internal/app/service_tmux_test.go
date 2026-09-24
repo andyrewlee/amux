@@ -117,7 +117,6 @@ func TestTmuxOps_AllSessionStates(t *testing.T) {
 	// _keepalive is created by gcTestServer; add two more named sessions.
 	gcCreateSession(t, opts, "alpha", "sleep 300")
 	gcCreateSession(t, opts, "beta", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	states, err := ops.AllSessionStates(opts)
 	if err != nil {
@@ -163,7 +162,6 @@ func TestTmuxOps_SessionStateFor_LiveAndMissing(t *testing.T) {
 	ops := tmuxOps{}
 
 	gcCreateSession(t, opts, "live-sess", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	st, err := ops.SessionStateFor("live-sess", opts)
 	if err != nil {
@@ -180,30 +178,6 @@ func TestTmuxOps_SessionStateFor_LiveAndMissing(t *testing.T) {
 	}
 	if missing.Exists || missing.HasLivePane {
 		t.Fatalf("SessionStateFor(ghost) = %+v, want zero value", missing)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// SessionNamesWithClients
-// ---------------------------------------------------------------------------
-
-func TestTmuxOps_SessionNamesWithClients_Detached(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := gcTestServer(t)
-	ops := tmuxOps{}
-
-	gcCreateSession(t, opts, "detached-sess", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
-
-	// No clients are attached in a headless test, so the set must be empty —
-	// crucially, the "no attached clients" path must NOT surface as an error
-	// (that would break detached-session GC).
-	attached, err := ops.SessionNamesWithClients(opts)
-	if err != nil {
-		t.Fatalf("SessionNamesWithClients: %v", err)
-	}
-	if len(attached) != 0 {
-		t.Fatalf("SessionNamesWithClients = %v, want empty (no clients attached)", attached)
 	}
 }
 
@@ -228,7 +202,6 @@ func TestTmuxOps_SessionCreatedAt_ExistingAndMissing(t *testing.T) {
 
 	after := time.Now().Unix()
 	gcCreateSession(t, opts, "stamped", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	// For an existing session the contract is: no error, and a non-negative
 	// timestamp. The exact value comes from tmux's #{session_created}, which on
@@ -289,7 +262,6 @@ func TestTmuxOps_ActiveAgentSessionsByActivity(t *testing.T) {
 	gcCreateSession(t, opts, "random-shell", "sleep 300")
 	// Tagged session whose type is not "agent": must be skipped.
 	gcCreateSession(t, opts, "amux-helper", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	gcSetTag(t, opts, "amux-ws-tab", "@amux", "1")
 	gcSetTag(t, opts, "amux-ws-tab", "@amux_workspace", "ws-7")
@@ -330,7 +302,6 @@ func TestTmuxOps_ActiveAgentSessionsByActivity_WindowFilters(t *testing.T) {
 	ops := tmuxOps{}
 
 	gcCreateSession(t, opts, "amux-fresh", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 	gcSetTag(t, opts, "amux-fresh", "@amux", "1")
 	gcSetTag(t, opts, "amux-fresh", "@amux_type", "agent")
 

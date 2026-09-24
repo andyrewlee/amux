@@ -145,18 +145,24 @@ func (a *App) handleShowMergeWorkspaceDialog(msg messages.ShowMergeWorkspaceDial
 	if msg.Workspace == nil {
 		return
 	}
-	a.dialogWorkspace = msg.Workspace
-	a.dialogMergeBase = msg.Base
-	a.dialog = common.NewConfirmDialog(
-		DialogMergeWorkspace,
-		"Merge Workspace",
-		fmt.Sprintf("Merge branch '%s' into '%s' in %s?\nRuns: git merge --no-ff -- %s",
-			msg.Workspace.Branch, msg.Base, msg.Workspace.Repo, msg.Workspace.Branch),
-	)
-	// Repo hooks are neutralized on every amux git call, so a pre-merge hook the
-	// user relies on will not fire. Say so rather than letting them find out.
-	a.dialog.SetWarning("Repository git hooks are disabled for amux-run git commands.")
-	a.presentDialog(a.dialog)
+	if a.dialogOpen() {
+		return
+	}
+	a.requestOverlayOpen(func() {
+		a.clearPendingWorkspaceCreate()
+		a.dlg.workspace = msg.Workspace
+		a.dlg.mergeBase = msg.Base
+		a.dialog = common.NewConfirmDialog(
+			DialogMergeWorkspace,
+			"Merge Workspace",
+			fmt.Sprintf("Merge branch '%s' into '%s' in %s?\nRuns: git merge --no-ff -- %s",
+				msg.Workspace.Branch, msg.Base, msg.Workspace.Repo, msg.Workspace.Branch),
+		)
+		// Repo hooks are neutralized on every amux git call, so a pre-merge hook the
+		// user relies on will not fire. Say so rather than letting them find out.
+		a.dialog.SetWarning("Repository git hooks are disabled for amux-run git commands.")
+		a.presentDialog(a.dialog)
+	})
 }
 
 // mergeWorkspaceAsync performs the merge off the UI goroutine. It merges into
@@ -238,17 +244,19 @@ func (a *App) refreshPrimaryCheckoutStatus(repo string) []tea.Cmd {
 // resolves nothing itself: the workspace already has a real shell, which is
 // where conflict resolution belongs.
 func (a *App) showMergeConflictDialog(ws *data.Workspace, conflict *git.MergeConflictError) {
-	a.dialogWorkspace = ws
-	a.dialog = common.NewConfirmDialog(
-		DialogMergeConflict,
-		"Merge Conflict",
-		fmt.Sprintf("Merging '%s' stopped with conflicts:\n%s\n\nAbort the merge now?",
-			conflict.Branch, formatConflictList(conflict.Files)),
-	)
-	// Default to "No" — leaving the merge in progress is the recoverable choice,
-	// and the user may well want to resolve the conflicts in the terminal.
-	a.dialog.SetWarning("Choosing No leaves the merge in progress to resolve in the terminal.")
-	a.presentDialog(a.dialog)
+	a.requestOverlayOpen(func() {
+		a.dlg.workspace = ws
+		a.dialog = common.NewConfirmDialog(
+			DialogMergeConflict,
+			"Merge Conflict",
+			fmt.Sprintf("Merging '%s' stopped with conflicts:\n%s\n\nAbort the merge now?",
+				common.SanitizeDisplayText(conflict.Branch, 128), formatConflictList(conflict.Files)),
+		)
+		// Default to "No" — leaving the merge in progress is the recoverable choice,
+		// and the user may well want to resolve the conflicts in the terminal.
+		a.dialog.SetWarning("Choosing No leaves the merge in progress to resolve in the terminal.")
+		a.presentDialog(a.dialog)
+	})
 }
 
 // formatConflictList renders conflicted paths as an indented list, truncating
@@ -263,7 +271,13 @@ func formatConflictList(files []string) string {
 		shown = files[:maxListedConflicts]
 		suffix = fmt.Sprintf("\n  ...and %d more", len(files)-maxListedConflicts)
 	}
-	return "  " + strings.Join(shown, "\n  ") + suffix
+	// Conflicted paths are repo-controlled — sanitize each before joining so
+	// none can inject terminal control bytes into the dialog message.
+	sanitized := make([]string, 0, len(shown))
+	for _, path := range shown {
+		sanitized = append(sanitized, common.SanitizeDisplayText(path, 256))
+	}
+	return "  " + strings.Join(sanitized, "\n  ") + suffix
 }
 
 // abortWorkspaceMergeAsync abandons the in-progress merge off the UI goroutine.

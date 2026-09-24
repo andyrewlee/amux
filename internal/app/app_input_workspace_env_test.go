@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -27,7 +28,7 @@ func newEnvTestHarness(t *testing.T, ws *data.Workspace) (*Harness, *data.Worksp
 	if err := store.Save(ws); err != nil {
 		t.Fatalf("seed Save() error = %v", err)
 	}
-	h.app.workspaceService = newWorkspaceService(nil, store, nil, "")
+	h.app.workspaceService = workspacesvc.New(nil, store, nil, "")
 	return h, store, ws.ID()
 }
 
@@ -45,13 +46,13 @@ func TestHandleShowWorkspaceEnvDialog_SeedsDialogExcludingReservedKeys(t *testin
 
 	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: ws})
 
-	if h.app.envDialog == nil || !h.app.envDialog.Visible() {
+	if h.app.overlays.env == nil || !h.app.overlays.env.Visible() {
 		t.Fatal("expected envDialog to be shown")
 	}
-	if h.app.envDialogWorkspace != ws {
-		t.Fatalf("envDialogWorkspace = %#v, want %#v", h.app.envDialogWorkspace, ws)
+	if h.app.overlays.envWorkspace != ws {
+		t.Fatalf("envDialogWorkspace = %#v, want %#v", h.app.overlays.envWorkspace, ws)
 	}
-	got := h.app.envDialog.Env()
+	got := h.app.overlays.env.Env()
 	if got["API_KEY"] != "secret" {
 		t.Fatalf("expected API_KEY row, got %#v", got)
 	}
@@ -66,7 +67,7 @@ func TestHandleShowWorkspaceEnvDialog_NilWorkspaceIsNoop(t *testing.T) {
 		t.Fatalf("NewHarness returned error: %v", err)
 	}
 	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: nil})
-	if h.app.envDialog != nil {
+	if h.app.overlays.env != nil {
 		t.Fatal("expected no dialog for a nil workspace")
 	}
 }
@@ -83,7 +84,7 @@ func TestHandleEnvDialogResult_PersistsEditedEnvAndUpdatesActiveWorkspace(t *tes
 
 	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: ws})
 	// Edit NODE_ENV's value (cursor starts on row 0, the only row).
-	h.app.envDialog.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
+	h.app.overlays.env.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
 
 	cmd := h.app.handleEnvDialogResult(common.EnvDialogResult{})
 	if cmd == nil {
@@ -101,7 +102,7 @@ func TestHandleEnvDialogResult_PersistsEditedEnvAndUpdatesActiveWorkspace(t *tes
 	if h.app.activeWorkspace.Env["NODE_ENV"] != "devX" {
 		t.Fatalf("active workspace Env not updated in place: %#v", h.app.activeWorkspace.Env)
 	}
-	if h.app.envDialog != nil || h.app.envDialogWorkspace != nil {
+	if h.app.overlays.env != nil || h.app.overlays.envWorkspace != nil {
 		t.Fatal("expected envDialog/envDialogWorkspace cleared after confirm")
 	}
 	if !strings.Contains(h.app.toast.View(), "feature") {
@@ -120,7 +121,7 @@ func TestHandleEnvDialogResult_RemovedPairIsDeletedFromEnv(t *testing.T) {
 
 	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: ws})
 	// Cursor starts on row 0, which is "DROP" (sorted before "KEEP").
-	h.app.envDialog.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	h.app.overlays.env.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 
 	h.app.handleEnvDialogResult(common.EnvDialogResult{})
 
@@ -146,7 +147,7 @@ func TestHandleEnvDialogResult_CanceledDiscardsEditsWithoutPersisting(t *testing
 	h, store, id := newEnvTestHarness(t, ws)
 
 	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: ws})
-	h.app.envDialog.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
+	h.app.overlays.env.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
 
 	cmd := h.app.handleEnvDialogResult(common.EnvDialogResult{Canceled: true})
 	if cmd != nil {
@@ -160,7 +161,7 @@ func TestHandleEnvDialogResult_CanceledDiscardsEditsWithoutPersisting(t *testing
 	if reloaded.Env["NODE_ENV"] != "dev" {
 		t.Fatalf("cancel must not persist: Env = %#v, want unchanged", reloaded.Env)
 	}
-	if h.app.envDialog != nil || h.app.envDialogWorkspace != nil {
+	if h.app.overlays.env != nil || h.app.overlays.envWorkspace != nil {
 		t.Fatal("expected envDialog/envDialogWorkspace cleared after cancel")
 	}
 }
@@ -206,5 +207,72 @@ func TestHandleEnvDialogResult_NoDialogIsNoop(t *testing.T) {
 	}
 	if cmd := h.app.handleEnvDialogResult(common.EnvDialogResult{}); cmd != nil {
 		t.Fatalf("expected nil cmd with no dialog open, got one that emits %T", cmd())
+	}
+}
+
+// TestHandleEnvDialogResult_PersistsAddedPair drives the dialog's ctrl+a add
+// mode end to end: a workspace with no Env map gets its first variable
+// entirely through the UI, and it lands in the persisted store.
+func TestHandleEnvDialogResult_PersistsAddedPair(t *testing.T) {
+	ws := &data.Workspace{
+		Name: "feature",
+		Repo: "/repo/primary",
+		Root: "/repo/primary/ws",
+	}
+	h, store, id := newEnvTestHarness(t, ws)
+
+	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: ws})
+
+	d := h.app.overlays.env
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	for _, r := range "NEW_FLAG" {
+		d.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	for _, r := range "on" {
+		d.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	cmd := h.app.handleEnvDialogResult(common.EnvDialogResult{})
+	if cmd == nil {
+		t.Fatal("expected a success-toast cmd")
+	}
+
+	reloaded, err := store.Load(id)
+	if err != nil {
+		t.Fatalf("Load() after confirm error = %v", err)
+	}
+	if reloaded.Env["NEW_FLAG"] != "on" {
+		t.Fatalf("persisted Env = %#v, want NEW_FLAG=on", reloaded.Env)
+	}
+}
+
+// TestHandleShowWorkspaceEnvDialog_RejectsReservedKeyAdd pins the validator
+// wiring: attempting to add a reserved name inside the dialog is rejected
+// visibly (the add stays open with an error) rather than silently dropped
+// at persist time.
+func TestHandleShowWorkspaceEnvDialog_RejectsReservedKeyAdd(t *testing.T) {
+	ws := &data.Workspace{
+		Name: "feature",
+		Repo: "/repo/primary",
+		Root: "/repo/primary/ws",
+	}
+	h, _, _ := newEnvTestHarness(t, ws)
+
+	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: ws})
+	d := h.app.overlays.env
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	for _, r := range "AMUX_WORKSPACE_ROOT" {
+		d.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if got := d.Env(); len(got) != 0 {
+		t.Fatalf("reserved name must not be added: Env = %#v", got)
+	}
+	if view := d.View(); !strings.Contains(view, "reserved") {
+		t.Fatalf("expected a visible 'reserved' rejection in the dialog, got:\n%s", view)
 	}
 }

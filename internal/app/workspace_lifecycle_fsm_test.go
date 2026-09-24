@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
@@ -18,13 +19,13 @@ func TestLifecyclePhaseTransitionTable(t *testing.T) {
 		want bool
 	}{
 		{"active->creating", lifecycleActive, lifecycleCreating, true},
-		{"active->deleting", lifecycleActive, lifecycleDeleting, true},
+		{"active->mutating", lifecycleActive, lifecycleMutating, true},
 		{"creating->active", lifecycleCreating, lifecycleActive, true},
-		{"deleting->active", lifecycleDeleting, lifecycleActive, true},
+		{"mutating->active", lifecycleMutating, lifecycleActive, true},
 		{"creating->creating", lifecycleCreating, lifecycleCreating, true},
-		{"deleting->deleting", lifecycleDeleting, lifecycleDeleting, true},
-		{"creating->deleting rejected", lifecycleCreating, lifecycleDeleting, false},
-		{"deleting->creating rejected", lifecycleDeleting, lifecycleCreating, false},
+		{"mutating->mutating", lifecycleMutating, lifecycleMutating, true},
+		{"creating->mutating rejected", lifecycleCreating, lifecycleMutating, false},
+		{"mutating->creating rejected", lifecycleMutating, lifecycleCreating, false},
 	}
 	for _, tc := range cases {
 		if got := lifecycleTransitionAllowed(tc.from, tc.to); got != tc.want {
@@ -33,23 +34,23 @@ func TestLifecyclePhaseTransitionTable(t *testing.T) {
 	}
 }
 
-func TestLifecycleRejectsCreateWhileDeleting(t *testing.T) {
+func TestLifecycleRejectsCreateWhileMutating(t *testing.T) {
 	st := newWorkspaceLifecycleState()
-	st.markDeleting("ws-1", true)
+	st.markMutating("ws-1", true)
 
 	if st.markCreating("ws-1") {
 		t.Fatal("expected markCreating to be rejected while delete is in flight")
 	}
-	if !st.isDeleting("ws-1") {
+	if !st.isMutating("ws-1") {
 		t.Fatal("expected deleting phase preserved after rejected create")
 	}
-	// clearCreating must not stomp the deleting phase either.
+	// clearCreating must not stomp the mutating phase either.
 	st.clearCreating("ws-1")
-	if !st.isDeleting("ws-1") {
+	if !st.isMutating("ws-1") {
 		t.Fatal("expected deleting phase preserved after clearCreating")
 	}
 
-	st.markDeleting("ws-1", false)
+	st.markMutating("ws-1", false)
 	if st.phase("ws-1") != lifecycleActive {
 		t.Fatalf("expected workspace settled back to active, got %s", st.phase("ws-1"))
 	}
@@ -58,23 +59,23 @@ func TestLifecycleRejectsCreateWhileDeleting(t *testing.T) {
 	}
 }
 
-func TestLifecycleClearsDeletingByWorkspaceRoot(t *testing.T) {
+func TestLifecycleClearsMutatingByWorkspaceRoot(t *testing.T) {
 	st := newWorkspaceLifecycleState()
 	root := "/repo/.amux/workspaces/feature"
 
-	if !st.markDeletingWorkspace("pre-delete-id", root, true) {
+	if !st.markMutatingWorkspace("pre-delete-id", root, true) {
 		t.Fatal("expected delete marker to be accepted")
 	}
-	if !st.isDeletingWorkspace("different-id", root) {
+	if !st.isMutatingWorkspace("different-id", root) {
 		t.Fatal("expected root identity to report delete in flight")
 	}
-	if !st.markDeletingWorkspace("post-delete-id", root, false) {
+	if !st.markMutatingWorkspace("post-delete-id", root, false) {
 		t.Fatal("expected delete marker clear to be accepted")
 	}
-	if st.isDeleting("pre-delete-id") {
+	if st.isMutating("pre-delete-id") {
 		t.Fatal("expected original delete phase to be cleared by root identity")
 	}
-	if st.isDeletingWorkspace("post-delete-id", root) {
+	if st.isMutatingWorkspace("post-delete-id", root) {
 		t.Fatal("expected root identity to be settled after clear")
 	}
 }
@@ -89,7 +90,7 @@ func TestLifecycleCreateWhileProjectsLoading(t *testing.T) {
 		tmuxActivity:     newTmuxActivityState(),
 		dashboard:        dashboard.New(),
 		center:           center.New(nil),
-		workspaceService: newWorkspaceService(nil, nil, nil, t.TempDir()),
+		workspaceService: workspacesvc.New(nil, nil, nil, t.TempDir()),
 	}
 
 	project := data.NewProject("/repo")
@@ -115,7 +116,7 @@ func TestLifecycleCreateWhileProjectsLoading(t *testing.T) {
 		t.Fatal("expected creating phase to survive a projects reload")
 	}
 
-	pending := app.workspaceService.pendingWorkspace(project, "feature", "main")
+	pending := app.workspaceService.PendingWorkspace(project, "feature", "main")
 	app.handleWorkspaceCreated(messages.WorkspaceCreated{Workspace: pending})
 	if app.lifecycle.phase(wsID) != lifecycleActive {
 		t.Fatalf("expected workspace settled after WorkspaceCreated, got %s", app.lifecycle.phase(wsID))
@@ -134,7 +135,7 @@ func TestCreatedWorkspaceSurvivesOlderProjectLoadUntilConfirmed(t *testing.T) {
 		tmuxActivity:     newTmuxActivityState(),
 		dashboard:        dashboard.New(),
 		center:           center.New(nil),
-		workspaceService: newWorkspaceService(nil, nil, nil, t.TempDir()),
+		workspaceService: workspacesvc.New(nil, nil, nil, t.TempDir()),
 		projects:         []data.Project{*project},
 		activeProject:    project,
 		activeWorkspace:  created,
@@ -189,8 +190,8 @@ func TestCreatedWorkspaceSurvivesOlderProjectLoadUntilConfirmed(t *testing.T) {
 func TestHandleCreateWorkspaceStopsWhenLifecycleRejectsCreate(t *testing.T) {
 	workspacesRoot := t.TempDir()
 	project := data.NewProject("/repo")
-	service := newWorkspaceService(nil, nil, nil, workspacesRoot)
-	pending := service.pendingWorkspace(project, "feature", "main")
+	service := workspacesvc.New(nil, nil, nil, workspacesRoot)
+	pending := service.PendingWorkspace(project, "feature", "main")
 	if pending == nil {
 		t.Fatal("expected pending workspace")
 	}
@@ -200,7 +201,7 @@ func TestHandleCreateWorkspaceStopsWhenLifecycleRejectsCreate(t *testing.T) {
 		dashboard:        dashboard.New(),
 		workspaceService: service,
 	}
-	app.lifecycle.markDeleting(string(pending.ID()), true)
+	app.lifecycle.markMutating(string(pending.ID()), true)
 
 	cmds := app.handleCreateWorkspace(messages.CreateWorkspace{
 		Project:   project,
@@ -222,7 +223,7 @@ func TestHandleCreateWorkspaceStopsWhenLifecycleRejectsCreate(t *testing.T) {
 	if failed.Err == nil {
 		t.Fatal("expected lifecycle rejection error")
 	}
-	if !app.lifecycle.isDeleting(string(pending.ID())) {
+	if !app.lifecycle.isMutating(string(pending.ID())) {
 		t.Fatal("expected deleting phase to remain active after rejected create")
 	}
 	if app.lifecycle.phase(string(pending.ID())) == lifecycleCreating {
@@ -248,15 +249,15 @@ func TestHandleDeleteWorkspaceStopsWhenLifecycleRejectsDelete(t *testing.T) {
 	if app.lifecycle.phase(string(ws.ID())) != lifecycleCreating {
 		t.Fatal("expected creating phase to remain active after rejected delete")
 	}
-	if app.lifecycle.isDeleting(string(ws.ID())) {
+	if app.lifecycle.isMutating(string(ws.ID())) {
 		t.Fatal("expected rejected delete not to mark workspace deleting")
 	}
 }
 
-// TestLifecycleDeleteWhilePersisting exercises the deleting phase against the
+// TestLifecycleMutationWhilePersisting exercises the mutating phase against the
 // persistence paths concurrently (the guard methods are read from Cmd/worker
 // goroutines while Update-handler transitions run); run with -race.
-func TestLifecycleDeleteWhilePersisting(t *testing.T) {
+func TestLifecycleMutationWhilePersisting(t *testing.T) {
 	st := newWorkspaceLifecycleState()
 	const wsID = "ws-race"
 	st.markDirty(wsID)
@@ -269,7 +270,7 @@ func TestLifecycleDeleteWhilePersisting(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for j := 0; j < 200; j++ {
-				st.markDeleting(wsID, j%2 == 0)
+				st.markMutating(wsID, j%2 == 0)
 			}
 		}()
 		wg.Add(1)
@@ -277,9 +278,9 @@ func TestLifecycleDeleteWhilePersisting(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for j := 0; j < 200; j++ {
-				_ = st.isDeleting(wsID)
-				_ = st.snapshotDeleting()
-				st.runUnlessDeleting(wsID, func() {})
+				_ = st.isMutating(wsID)
+				_ = st.snapshotMutating()
+				st.runUnlessMutating(wsID, func() {})
 			}
 		}()
 	}

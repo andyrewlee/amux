@@ -5,9 +5,12 @@ import (
 	"io/fs"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
@@ -45,7 +48,7 @@ func TestPersistAllWorkspacesNowSavesExplicitlyEmptyTabs(t *testing.T) {
 		t.Fatal("expected HasWorkspaceState=true after close")
 	}
 
-	svc := newWorkspaceService(nil, store, nil, "")
+	svc := workspacesvc.New(nil, store, nil, "")
 
 	// Clear old tabs from in-memory workspace before persist
 	ws.OpenTabs = nil
@@ -70,7 +73,7 @@ func TestPersistAllWorkspacesNowSavesExplicitlyEmptyTabs(t *testing.T) {
 	}
 }
 
-func TestPersistAllWorkspacesNowSkipsDeleteInFlightWorkspace(t *testing.T) {
+func TestPersistAllWorkspacesNowSkipsMutationInFlightWorkspace(t *testing.T) {
 	// Shutdown must not save a workspace while its delete is in flight. The delete
 	// can remove the worktree and metadata while shutdown persistence is still
 	// collecting state, and a later save would recreate dir-less metadata.
@@ -90,21 +93,21 @@ func TestPersistAllWorkspacesNowSkipsDeleteInFlightWorkspace(t *testing.T) {
 	}
 	c.AddTab(tab)
 
-	svc := newWorkspaceService(nil, store, nil, "")
+	svc := workspacesvc.New(nil, store, nil, "")
 	app := &App{
 		center:           c,
 		workspaceService: svc,
 		projects:         []data.Project{{Name: "p", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
 		lifecycle: workspaceLifecycleState{
 			dirty:  make(map[string]bool),
-			phases: map[string]lifecyclePhase{wsID: lifecycleDeleting},
+			phases: map[string]lifecyclePhase{wsID: lifecycleMutating},
 		},
 	}
 
 	app.persistAllWorkspacesNow()
 
 	if _, err := store.Load(ws.ID()); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("expected delete-in-flight workspace metadata to remain absent, err=%v", err)
+		t.Fatalf("expected mutation-in-flight workspace metadata to remain absent, err=%v", err)
 	}
 }
 
@@ -127,20 +130,20 @@ func TestPersistWorkspaceTabsInitializesDirtyMap(t *testing.T) {
 	}
 }
 
-func TestPersistWorkspaceTabsSkipsDeleteInFlightWorkspace(t *testing.T) {
+func TestPersistWorkspaceTabsSkipsMutationInFlightWorkspace(t *testing.T) {
 	app := &App{
 		lifecycle: workspaceLifecycleState{
 			dirty:  make(map[string]bool),
-			phases: map[string]lifecyclePhase{"ws-123": lifecycleDeleting},
+			phases: map[string]lifecyclePhase{"ws-123": lifecycleMutating},
 		},
 	}
 
 	cmd := app.persistWorkspaceTabs("ws-123")
 	if cmd != nil {
-		t.Fatal("expected no debounce command for deleting workspace")
+		t.Fatal("expected no debounce command for mutating workspace")
 	}
 	if app.lifecycle.dirty["ws-123"] {
-		t.Fatal("did not expect deleting workspace to be marked dirty")
+		t.Fatal("did not expect mutating workspace to be marked dirty")
 	}
 }
 
@@ -148,7 +151,7 @@ func TestHandlePersistDebounceSkipsWhenPersistenceDependenciesMissing(t *testing
 	// nil center
 	app := &App{
 		center:           nil,
-		workspaceService: newWorkspaceService(nil, nil, nil, ""),
+		workspaceService: workspacesvc.New(nil, nil, nil, ""),
 		lifecycle: workspaceLifecycleState{
 			persistToken: 1,
 			dirty:        map[string]bool{"ws": true},
@@ -174,13 +177,13 @@ func TestHandlePersistDebounceSkipsWhenPersistenceDependenciesMissing(t *testing
 	}
 }
 
-func TestHandlePersistDebounceSkipsDeleteInFlightWorkspace(t *testing.T) {
+func TestHandlePersistDebounceSkipsMutationInFlightWorkspace(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
 	wsID := string(ws.ID())
 
 	storeRoot := t.TempDir()
 	store := data.NewWorkspaceStore(storeRoot)
-	svc := newWorkspaceService(nil, store, nil, "")
+	svc := workspacesvc.New(nil, store, nil, "")
 
 	app := &App{
 		center:           center.New(nil),
@@ -189,14 +192,14 @@ func TestHandlePersistDebounceSkipsDeleteInFlightWorkspace(t *testing.T) {
 		lifecycle: workspaceLifecycleState{
 			persistToken: 1,
 			dirty:        map[string]bool{wsID: true},
-			phases:       map[string]lifecyclePhase{wsID: lifecycleDeleting},
+			phases:       map[string]lifecyclePhase{wsID: lifecycleMutating},
 			localSavesAt: make(map[string]localWorkspaceSaveMarker),
 		},
 	}
 
 	cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1})
 	if cmd != nil {
-		t.Fatal("expected nil cmd when only dirty workspace is delete-in-flight")
+		t.Fatal("expected nil cmd when only dirty workspace is mutation-in-flight")
 	}
 	if !app.lifecycle.dirty[wsID] {
 		t.Fatal("expected dirty marker to remain while workspace delete is in-flight")
@@ -212,7 +215,7 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 
 	storeRoot := t.TempDir()
 	store := data.NewWorkspaceStore(storeRoot)
-	svc := newWorkspaceService(nil, store, nil, "")
+	svc := workspacesvc.New(nil, store, nil, "")
 
 	c := center.New(nil)
 	c.SetWorkspace(ws)
@@ -230,7 +233,7 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 		lifecycle: workspaceLifecycleState{
 			persistToken: 1,
 			dirty:        map[string]bool{wsID: true},
-			phases:       map[string]lifecyclePhase{wsID: lifecycleDeleting},
+			phases:       map[string]lifecyclePhase{wsID: lifecycleMutating},
 			localSavesAt: make(map[string]localWorkspaceSaveMarker),
 		},
 	}
@@ -248,8 +251,8 @@ func TestDeleteFailureRequeuesAndDebouncedPersistSavesWorkspace(t *testing.T) {
 	}); cmd == nil {
 		t.Fatal("expected non-nil command on delete failure")
 	}
-	if app.isWorkspaceDeleteInFlight(wsID) {
-		t.Fatal("expected delete-in-flight marker to be cleared on delete failure")
+	if app.isWorkspaceMutationInFlight(wsID) {
+		t.Fatal("expected mutation-in-flight marker to be cleared on delete failure")
 	}
 
 	persistCmd := app.handlePersistDebounce(persistDebounceMsg{token: app.lifecycle.persistToken})
@@ -282,8 +285,8 @@ func TestHandlePersistDebounceReDirtiesWorkspaceOnSaveFailure(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
 	wsID := string(ws.ID())
 
-	store := &failingDeleteStore{saveErr: errors.New("disk full")}
-	svc := newWorkspaceService(nil, store, nil, "")
+	store := &testutil.FakeWorkspaceStore{SaveFunc: func(*data.Workspace) error { return errors.New("disk full") }}
+	svc := workspacesvc.New(nil, store, nil, "")
 
 	c := center.New(nil)
 	c.SetWorkspace(ws)
@@ -316,7 +319,7 @@ func TestHandlePersistDebounceReDirtiesWorkspaceOnSaveFailure(t *testing.T) {
 	}
 
 	msg := cmd()
-	if store.saved == nil {
+	if store.LastSaved() == nil {
 		t.Fatal("expected Save to have been called")
 	}
 	failMsg, ok := msg.(persistSaveFailedMsg)
@@ -346,7 +349,7 @@ func TestHandlePersistDebounceSuccessDoesNotReDirty(t *testing.T) {
 
 	storeRoot := t.TempDir()
 	store := data.NewWorkspaceStore(storeRoot)
-	svc := newWorkspaceService(nil, store, nil, "")
+	svc := workspacesvc.New(nil, store, nil, "")
 
 	c := center.New(nil)
 	c.SetWorkspace(ws)
@@ -386,5 +389,88 @@ func TestHandlePersistDebounceSuccessDoesNotReDirty(t *testing.T) {
 	}
 	if len(loaded.OpenTabs) == 0 {
 		t.Fatal("expected workspace tabs to be persisted")
+	}
+}
+
+// TestPersistDebounce_MidFlightSkip_RequeuedOnShelveFailure covers the gap
+// between collect-time retention and cmd-time skip: the dirty marker is
+// cleared when the snapshot is collected, but the save cmd skips while the
+// workspace is mid-shelve — so the shelve-failure path must re-dirty it,
+// matching what handleWorkspaceDeleteFailed already does.
+func TestPersistDebounce_MidFlightSkip_RequeuedOnShelveFailure(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	wsID := string(ws.ID())
+
+	storeRoot := t.TempDir()
+	store := data.NewWorkspaceStore(storeRoot)
+	svc := workspacesvc.New(nil, store, nil, "")
+
+	c := center.New(nil)
+	c.SetWorkspace(ws)
+	c.AddTab(&center.Tab{
+		Name:      "agent",
+		Assistant: "claude",
+		Workspace: ws,
+	})
+
+	app := &App{
+		center:           c,
+		dashboard:        dashboard.New(),
+		toast:            common.NewToastModel(),
+		workspaceService: svc,
+		projects:         []data.Project{{Name: "repo", Path: "/repo", Workspaces: []data.Workspace{*ws}}},
+		lifecycle: workspaceLifecycleState{
+			persistToken: 1,
+			dirty:        map[string]bool{wsID: true},
+			phases:       map[string]lifecyclePhase{},
+			localSavesAt: make(map[string]localWorkspaceSaveMarker),
+		},
+	}
+
+	// Collect while clean: marker cleared, save cmd returned.
+	cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1})
+	if cmd == nil {
+		t.Fatal("expected a save command for the dirty workspace")
+	}
+	if app.lifecycle.dirty[wsID] {
+		t.Fatal("expected dirty marker cleared at snapshot time")
+	}
+
+	// The shelve starts before the cmd runs — the save is skipped mid-flight.
+	app.markWorkspaceMutationInFlight(ws, true)
+	if msg := cmd(); msg != nil {
+		t.Fatalf("expected nil msg (no save, no failure) from skipped save, got %T", msg)
+	}
+	if _, err := store.Load(ws.ID()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected the mid-flight skip to have saved nothing, err=%v", err)
+	}
+
+	// The shelve fails: the pending tab state must be requeued, not lost.
+	if cmd := app.handleWorkspaceShelveFailed(messages.WorkspaceShelveFailed{
+		Workspace: ws,
+		Err:       errors.New("shelve failed"),
+	}); cmd == nil {
+		t.Fatal("expected non-nil command on shelve failure")
+	}
+	if app.isWorkspaceMutationInFlight(wsID) {
+		t.Fatal("expected in-flight marker cleared on shelve failure")
+	}
+	if !app.lifecycle.dirty[wsID] {
+		t.Fatal("expected shelve failure to re-dirty the skipped workspace")
+	}
+
+	persistCmd := app.handlePersistDebounce(persistDebounceMsg{token: app.lifecycle.persistToken})
+	if persistCmd == nil {
+		t.Fatal("expected debounced persistence command after shelve-failure requeue")
+	}
+	if msg := persistCmd(); msg != nil {
+		t.Fatalf("expected nil tea.Msg from persistence command, got %T", msg)
+	}
+	loaded, err := store.Load(ws.ID())
+	if err != nil {
+		t.Fatalf("load after persistence: %v", err)
+	}
+	if len(loaded.OpenTabs) == 0 {
+		t.Fatal("expected workspace tabs persisted after shelve-failure requeue")
 	}
 }

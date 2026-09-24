@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -55,7 +56,7 @@ func TestRunScriptToggle_EndToEnd(t *testing.T) {
 		toast:            common.NewToastModel(),
 		sidebar:          sb,
 		activeWorkspace:  ws,
-		workspaceService: newWorkspaceService(nil, nil, scripts, filepath.Join(tmp, "managed")),
+		workspaceService: workspacesvc.New(nil, nil, scripts, filepath.Join(tmp, "managed")),
 	}
 
 	// --- Start: route the toggle exactly as Update would. ---
@@ -150,7 +151,7 @@ func TestRunScriptIndicatorClearsWhenTheScriptExitsOnItsOwn(t *testing.T) {
 		toast:            common.NewToastModel(),
 		sidebar:          sb,
 		activeWorkspace:  ws,
-		workspaceService: newWorkspaceService(nil, nil, scripts, filepath.Join(tmp, "managed")),
+		workspaceService: workspacesvc.New(nil, nil, scripts, filepath.Join(tmp, "managed")),
 	}
 
 	started, ok := app.workspaceService.ToggleScriptAsync(ws)().(messages.WorkspaceScriptStateChanged)
@@ -174,7 +175,17 @@ func TestRunScriptIndicatorClearsWhenTheScriptExitsOnItsOwn(t *testing.T) {
 		t.Fatal("setup: the indicator cleared without a reconcile, so this test proves nothing")
 	}
 
-	app.syncRunScriptIndicator()
+	// The reconcile is async now: request the status, deliver the result
+	// message through the handler the dispatch routes it to.
+	cmd := app.requestRunScriptStatus()
+	if cmd == nil {
+		t.Fatal("requestRunScriptStatus returned nil for an active workspace")
+	}
+	result, ok := cmd().(messages.RunScriptStatusResult)
+	if !ok {
+		t.Fatalf("status cmd produced %T, want messages.RunScriptStatusResult", cmd())
+	}
+	app.handleRunScriptStatusResult(result)
 	if runIndicatorVisible(sb) {
 		t.Fatal("the [run] indicator survived a script that exited on its own")
 	}

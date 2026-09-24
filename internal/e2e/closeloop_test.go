@@ -138,11 +138,11 @@ func TestCloseLoopKeystrokeDeliveryToRawAgent(t *testing.T) {
 	// amux throttles wheel events arriving within 15ms of each other
 	// (mouseEventFilter in cmd/amux), so pace both wheels past it — otherwise
 	// the shift+wheel could be dropped before reaching the guard.
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(wheelThrottleDelay)
 	if err := session.SendString(centerPaneShiftWheelUpInput(120, 30, 2, 3)); err != nil {
 		t.Fatalf("send shift+wheel: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(wheelThrottleDelay)
 	secondWheel := centerPaneWheelUpInput(120, 30, 5, 7)
 	if err := session.SendString(secondWheel.outer); err != nil {
 		t.Fatalf("send second wheel: %v", err)

@@ -39,8 +39,12 @@ func (a *App) handleGitStatusTick() []tea.Cmd {
 		cmds = append(cmds, a.requestGitStatusCached(a.activeWorkspace.Root, true))
 	}
 	// Refresh active workspace indicators even when no PTY output is flowing.
-	a.syncActiveWorkspacesToDashboard()
-	a.syncRunScriptIndicator()
+	if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := a.requestRunScriptStatus(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	cmds = append(cmds, a.startGitStatusTicker())
 	return cmds
 }
@@ -61,9 +65,13 @@ func (a *App) handleFileWatcherEvent(msg messages.FileWatcherEvent) []tea.Cmd {
 		}
 		a.dashboard.InvalidateStatus(requestRoot)
 	}
-	statusCmd := a.requestGitStatus(requestRoot)
+	// One request, not two: issuing fast then overwriting with full would now
+	// also be eaten by the per-root dedup (and it always was wasted work).
+	var statusCmd tea.Cmd
 	if requestFull {
 		statusCmd = a.requestGitStatusFull(requestRoot)
+	} else {
+		statusCmd = a.requestGitStatus(requestRoot)
 	}
 	return []tea.Cmd{
 		statusCmd,
@@ -102,7 +110,9 @@ func (a *App) handleTabInputFailed(msg center.TabInputFailed) []tea.Cmd {
 // handleSpinnerTick handles the SpinnerTickMsg from dashboard.
 func (a *App) handleSpinnerTick(msg dashboard.SpinnerTickMsg) []tea.Cmd {
 	var cmds []tea.Cmd
-	a.syncActiveWorkspacesToDashboard()
+	if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	a.center.TickSpinner()
 	newDashboard, cmd := a.dashboard.Update(msg)
 	a.dashboard = newDashboard
@@ -135,10 +145,14 @@ func (a *App) handlePTYWatchdogTick() []tea.Cmd {
 		}
 		// Same hazard as the center pane: a terminal holding a stale reattach
 		// lock is refused by the attach gate forever.
-		a.sidebarTerminal.SweepStalledReattaches()
+		if cmd := a.sidebarTerminal.SweepStalledReattaches(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	// Keep dashboard "working" state accurate even when agents go idle.
-	a.syncActiveWorkspacesToDashboard()
+	if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	cmds = append(cmds, a.startPTYWatchdog())
 	return cmds
 }

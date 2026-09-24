@@ -19,7 +19,7 @@ import (
 // TestSessionAgentStateChanges_CoalescesToRealTransitions proves that only
 // sessions whose classified AgentState actually changed this scan are
 // returned — an unchanged session must not appear, which is the coalescing
-// plan 057 requires to bound @amux_agent_state writes to real transitions
+// contract that bounds @amux_agent_state writes to real transitions
 // instead of firing on every ~5s scan tick.
 func TestSessionAgentStateChanges_CoalescesToRealTransitions(t *testing.T) {
 	now := time.Now()
@@ -118,7 +118,7 @@ func TestAgentStateTagWriteCmd_NilForNoChanges(t *testing.T) {
 }
 
 // TestAgentStateTagWriteCmd_WritesStateStringPerChangedSession is the pin
-// plan 057 asks for: a simulated state transition results in a
+// for the transition-bounded write: a simulated state transition results in a
 // SetSessionTagValue call using tmux.TagAgentState and state.String(). The
 // write is also proven best-effort — a simulated tmux failure must not panic
 // or surface as an error message.

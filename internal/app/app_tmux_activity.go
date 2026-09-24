@@ -141,7 +141,7 @@ func (a *App) runTmuxActivityScan(
 		return *followerResult
 	}
 
-	sessions, stoppedTabs, err := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
+	sessions, stoppedTabs, allStates, err := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
 	if err != nil {
 		return tmuxActivityResult{
 			Token: scanToken,
@@ -158,7 +158,16 @@ func (a *App) runTmuxActivityScan(
 		logging.Warn("tmux activity prefilter failed; using unbounded stale-tag fallback: %v", err)
 		recentActivityBySession = nil
 	}
-	active, updatedStates, removedStates := activity.ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, svc.CapturePaneTail, svc.ContentHash)
+	// Feed the batched session states back into per-session captures: a session
+	// whose liveness is already known skips the extra display-message probe;
+	// a session missing from the map falls back to probing (conservative).
+	captureFn := func(sessionName string, lines int, o tmux.Options) (string, bool) {
+		if st, ok := allStates[sessionName]; ok {
+			return svc.CapturePaneTailChecked(sessionName, lines, st.ActivePaneLive, o)
+		}
+		return svc.CapturePaneTail(sessionName, lines, o)
+	}
+	active, updatedStates, removedStates := activity.ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, captureFn, svc.ContentHash)
 	result := tmuxActivityResult{
 		Token:              scanToken,
 		ActiveWorkspaceIDs: active,
@@ -216,7 +225,7 @@ func (a *App) runFollowerScan(
 	opts tmux.Options,
 	svc TmuxOps,
 ) tmuxActivityResult {
-	_, stoppedTabs, syncErr := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
+	_, stoppedTabs, _, syncErr := a.fetchAndSyncActivitySessionStates(infoBySession, opts, svc)
 	if syncErr != nil {
 		logging.Warn("tmux activity follower session-state sync failed: %v", syncErr)
 	}
@@ -298,17 +307,17 @@ func (a *App) fetchAndSyncActivitySessionStates(
 	infoBySession map[string]activity.SessionInfo,
 	opts tmux.Options,
 	svc TmuxOps,
-) ([]activity.TaggedSession, []messages.TabSessionStatus, error) {
+) ([]activity.TaggedSession, []messages.TabSessionStatus, map[string]tmux.SessionState, error) {
 	sessions, err := activity.FetchTaggedSessions(svc, infoBySession, opts)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Mutates infoBySession so IsRunningSession sees corrected statuses.
 	if a.tmuxActivity.missBySession == nil {
 		a.tmuxActivity.missBySession = make(map[string]int)
 	}
-	stoppedTabs := syncActivitySessionStates(infoBySession, sessions, svc, opts, a.tmuxActivity.missBySession)
-	return sessions, stoppedTabs, nil
+	stoppedTabs, allStates := syncActivitySessionStates(infoBySession, sessions, svc, opts, a.tmuxActivity.missBySession)
+	return sessions, stoppedTabs, allStates, nil
 }
 
 func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
@@ -318,11 +327,11 @@ func (a *App) handleTmuxAvailableResult(msg tmuxAvailableResult) []tea.Cmd {
 	a.tmuxActivity.settled = false
 	a.tmuxActivity.settledScans = 0
 	a.tmuxActivity.activeWorkspaceIDs = make(map[string]bool)
-	a.syncActiveWorkspacesToDashboard()
+	dashboardCmd := a.syncActiveWorkspacesToDashboard()
 	if !msg.available {
-		return []tea.Cmd{common.ReportError("checking tmux availability", errors.New("tmux not installed"), "tmux not installed. "+msg.installHint)}
+		return []tea.Cmd{dashboardCmd, common.ReportError("checking tmux availability", errors.New("tmux not installed"), "tmux not installed. "+msg.installHint)}
 	}
-	cmds := []tea.Cmd{a.scanTmuxActivityNow()}
+	cmds := []tea.Cmd{dashboardCmd, a.scanTmuxActivityNow()}
 	if a.activeWorkspace != nil {
 		if discoverCmd := a.discoverWorkspaceTabsFromTmux(a.activeWorkspace); discoverCmd != nil {
 			cmds = append(cmds, discoverCmd)

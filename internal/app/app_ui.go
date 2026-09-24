@@ -137,11 +137,20 @@ func (a *App) updateLayout() {
 	if a.filePicker != nil {
 		a.filePicker.SetSize(a.width, a.height)
 	}
-	if a.settingsDialog != nil {
-		a.settingsDialog.SetSize(a.width, a.height)
+	if a.overlays.settings != nil {
+		a.overlays.settings.SetSize(a.width, a.height)
 	}
-	if a.envDialog != nil {
-		a.envDialog.SetSize(a.width, a.height)
+	if a.overlays.env != nil {
+		a.overlays.env.SetSize(a.width, a.height)
+	}
+	if a.overlays.projectEnv != nil {
+		a.overlays.projectEnv.SetSize(a.width, a.height)
+	}
+	if a.overlays.scripts != nil {
+		a.overlays.scripts.SetSize(a.width, a.height)
+	}
+	if a.overlays.runOutput != nil {
+		a.overlays.runOutput.SetSize(a.width, a.height)
 	}
 }
 

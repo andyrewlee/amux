@@ -12,7 +12,7 @@ import (
 
 // persistAllWorkspacesNow saves all workspace tab state synchronously.
 // Called before shutdown to ensure tabs are persisted before they are closed.
-// This intentionally skips delete-in-flight workspaces. Saving during a
+// This intentionally skips mutation-in-flight workspaces. Saving during a
 // destructive delete can recreate metadata after the delete removes it.
 func (a *App) persistAllWorkspacesNow() {
 	if a.workspaceService == nil || a.center == nil {
@@ -22,7 +22,7 @@ func (a *App) persistAllWorkspacesNow() {
 		for i := range project.Workspaces {
 			ws := &project.Workspaces[i]
 			wsID := string(ws.ID())
-			if a.isWorkspaceDeleteInFlight(wsID) {
+			if a.isWorkspaceMutationInFlight(wsID) {
 				continue
 			}
 			tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
@@ -66,7 +66,7 @@ func (a *App) persistWorkspaceTabs(wsID string) tea.Cmd {
 	if wsID == "" {
 		return nil
 	}
-	if a.isWorkspaceDeleteInFlight(wsID) {
+	if a.isWorkspaceMutationInFlight(wsID) {
 		return nil
 	}
 	a.lifecycle.markDirty(wsID)
@@ -112,7 +112,7 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	var snapshots []*data.Workspace
 	processed := make(map[string]bool, len(a.lifecycle.dirty))
 	for wsID := range a.lifecycle.dirty {
-		if a.isWorkspaceDeleteInFlight(wsID) {
+		if a.isWorkspaceMutationInFlight(wsID) {
 			// Keep dirty marker while delete is in flight. If delete fails, the
 			// marker must remain so pending workspace state can still be saved.
 			continue
@@ -143,7 +143,7 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 		for _, snap := range snapshots {
 			wsID := string(snap.ID())
 			var saveErr error
-			saved := a.runUnlessWorkspaceDeleteInFlight(wsID, func() {
+			saved := a.runUnlessWorkspaceMutationInFlight(wsID, func() {
 				saveErr = service.Save(snap)
 			})
 			if !saved {

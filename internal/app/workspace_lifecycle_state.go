@@ -3,10 +3,11 @@ package app
 import (
 	"sync"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
-// lifecyclePhase is a workspace's position in the create/delete lifecycle.
+// lifecyclePhase is a workspace's position in the create/mutate lifecycle.
 // Workspaces not present in the phase map are active: loaded, with no
 // lifecycle operation in flight.
 type lifecyclePhase uint8
@@ -16,22 +17,22 @@ const (
 	// lifecycleCreating: create accepted, worktree/metadata still being built;
 	// the workspace is not in the projects list yet.
 	lifecycleCreating
-	// lifecycleDeleting: delete accepted, teardown in flight.
-	lifecycleDeleting
+	// lifecycleMutating: delete accepted, teardown in flight.
+	lifecycleMutating
 )
 
 func (p lifecyclePhase) String() string {
 	switch p {
 	case lifecycleCreating:
 		return "creating"
-	case lifecycleDeleting:
-		return "deleting"
+	case lifecycleMutating:
+		return "mutating"
 	default:
 		return "active"
 	}
 }
 
-// lifecycleTransitionAllowed is the transition table: creating and deleting
+// lifecycleTransitionAllowed is the transition table: creating and mutating
 // are mutually exclusive, entered only from active, and always allowed to
 // settle back to active. Same-phase moves are idempotent no-ops.
 func lifecycleTransitionAllowed(from, to lifecyclePhase) bool {
@@ -41,24 +42,29 @@ func lifecycleTransitionAllowed(from, to lifecyclePhase) bool {
 	switch from {
 	case lifecycleActive:
 		return true
-	case lifecycleCreating, lifecycleDeleting:
+	case lifecycleCreating, lifecycleMutating:
 		return to == lifecycleActive
 	default:
 		return false
 	}
 }
 
-// workspaceLifecycleState holds the workspace create/delete/persist
+// workspaceLifecycleState holds the workspace create/mutate/persist
 // bookkeeping. The phase map is the explicit lifecycle state machine; the
 // dirty set is deliberately NOT a phase, because a dirty marker must survive
-// a delete that later fails (the failed-delete handler requeues persistence),
-// so dirty coexists with deleting.
+// a mutation that later fails (the failed-op handler requeues persistence),
+// so dirty coexists with mutating.
 type workspaceLifecycleState struct {
-	// phaseMu guards phases; the deleting phase is read from Cmd/worker
+	// phaseMu guards phases; the mutating phase is read from Cmd/worker
 	// goroutines via the App guard helpers.
 	phaseMu        sync.RWMutex
 	phases         map[string]lifecyclePhase
-	deletingRootID map[string]string
+	mutatingRootID map[string]string
+	// creatingRootID bridges root → the ID a create was marked under. The
+	// marked form is computed while the worktree dir does not exist, so it
+	// can differ from every identity the post-create workspace reproduces —
+	// without the bridge the pre-create key leaks in phases forever.
+	creatingRootID map[string]string
 	// dirty tracks workspaces with unsaved tab state (persist debounce).
 	// Touched only from App.Update handlers (single writer).
 	dirty map[string]bool
@@ -85,7 +91,8 @@ type workspaceLifecycleState struct {
 func newWorkspaceLifecycleState() workspaceLifecycleState {
 	return workspaceLifecycleState{
 		phases:                        make(map[string]lifecyclePhase),
-		deletingRootID:                make(map[string]string),
+		mutatingRootID:                make(map[string]string),
+		creatingRootID:                make(map[string]string),
 		dirty:                         make(map[string]bool),
 		deletedUntilProjectsLoadToken: make(map[string]projectsLoadToken),
 		createdUntilProjectsLoadToken: make(map[string]projectsLoadToken),
@@ -94,7 +101,7 @@ func newWorkspaceLifecycleState() workspaceLifecycleState {
 }
 
 // transition moves wsID to a new phase, rejecting (and logging) moves the
-// transition table does not allow — e.g. deleting → creating.
+// transition table does not allow — e.g. mutating → creating.
 func (w *workspaceLifecycleState) transition(wsID string, to lifecyclePhase) bool {
 	if wsID == "" {
 		return false
@@ -129,7 +136,7 @@ func (w *workspaceLifecycleState) phase(wsID string) lifecyclePhase {
 }
 
 // markCreating records a workspace as create-in-flight. It reports whether
-// the transition was accepted (rejected when the workspace is mid-delete).
+// the transition was accepted (rejected when the workspace is mid-mutation).
 func (w *workspaceLifecycleState) markCreating(wsID string) bool {
 	return w.transition(wsID, lifecycleCreating)
 }
@@ -144,72 +151,138 @@ func (w *workspaceLifecycleState) clearCreating(wsID string) {
 	}
 }
 
-// markDeleting sets or clears the delete-in-flight phase for a workspace.
-// Setting is rejected while the workspace is mid-create; clearing only
-// settles a deleting workspace (it never stomps another phase).
-func (w *workspaceLifecycleState) markDeleting(wsID string, deleting bool) bool {
-	if deleting {
-		return w.transition(wsID, lifecycleDeleting)
+// markMutating sets or clears the mutation-in-flight phase for a workspace.
+// Setting is rejected while the workspace is mid-create AND while it is
+// already mutating — every caller is a lifecycle dispatch guard, so a
+// repeated mark is a re-entry, not an idempotent refresh. Clearing only
+// settles a mutating workspace (it never stomps another phase).
+func (w *workspaceLifecycleState) markMutating(wsID string, mutating bool) bool {
+	if mutating {
+		w.phaseMu.Lock()
+		defer w.phaseMu.Unlock()
+		if w.phases == nil {
+			w.phases = make(map[string]lifecyclePhase)
+		}
+		if w.phases[wsID] == lifecycleMutating {
+			return false
+		}
+		return w.transitionLocked(wsID, lifecycleMutating)
 	}
 	w.phaseMu.Lock()
 	defer w.phaseMu.Unlock()
-	if w.phases[wsID] == lifecycleDeleting {
+	if w.phases[wsID] == lifecycleMutating {
 		delete(w.phases, wsID)
 	}
 	return true
 }
 
-func (w *workspaceLifecycleState) markDeletingWorkspace(wsID, root string, deleting bool) bool {
+func (w *workspaceLifecycleState) markMutatingWorkspace(wsID, root string, mutating bool) bool {
 	if root == "" {
-		return w.markDeleting(wsID, deleting)
+		return w.markMutating(wsID, mutating)
 	}
 	w.phaseMu.Lock()
 	defer w.phaseMu.Unlock()
 	if w.phases == nil {
 		w.phases = make(map[string]lifecyclePhase)
 	}
-	if w.deletingRootID == nil {
-		w.deletingRootID = make(map[string]string)
+	if w.mutatingRootID == nil {
+		w.mutatingRootID = make(map[string]string)
 	}
-	if deleting {
-		if !w.transitionLocked(wsID, lifecycleDeleting) {
+	if mutating {
+		if w.phases[wsID] == lifecycleMutating {
+			// Already in flight under this identity — the dispatch must be
+			// rejected, not treated as an idempotent re-mark (the generic
+			// transition table allows same-phase moves, which is exactly the
+			// re-entry this guard exists to stop).
 			return false
 		}
-		w.deletingRootID[root] = wsID
+		if !w.transitionLocked(wsID, lifecycleMutating) {
+			return false
+		}
+		w.mutatingRootID[root] = wsID
 		return true
 	}
-	if markedID := w.deletingRootID[root]; markedID != "" {
+	if markedID := w.mutatingRootID[root]; markedID != "" {
 		delete(w.phases, markedID)
-		delete(w.deletingRootID, root)
+		delete(w.mutatingRootID, root)
 	}
-	if w.phases[wsID] == lifecycleDeleting {
+	if w.phases[wsID] == lifecycleMutating {
 		delete(w.phases, wsID)
 	}
 	return true
 }
 
-// isDeleting reports whether a workspace is currently delete-in-flight.
-func (w *workspaceLifecycleState) isDeleting(wsID string) bool {
+// isMutating reports whether a workspace is currently mutation-in-flight.
+func (w *workspaceLifecycleState) isMutating(wsID string) bool {
 	if wsID == "" {
 		return false
 	}
-	return w.phase(wsID) == lifecycleDeleting
+	return w.phase(wsID) == lifecycleMutating
 }
 
-func (w *workspaceLifecycleState) isDeletingWorkspace(wsID, root string) bool {
+// isMutatingLocked is the caller-holds-phaseMu core of every mutation probe:
+// direct ID hit plus the root bridge (the mark stamped under one ID form is
+// findable through the root when a sibling form drifts).
+func (w *workspaceLifecycleState) isMutatingLocked(wsID, root string) bool {
+	if wsID != "" && w.phases[wsID] == lifecycleMutating {
+		return true
+	}
+	if root != "" {
+		markedID := w.mutatingRootID[root]
+		return markedID != "" && w.phases[markedID] == lifecycleMutating
+	}
+	return false
+}
+
+func (w *workspaceLifecycleState) isMutatingWorkspace(wsID, root string) bool {
 	if wsID == "" && root == "" {
 		return false
 	}
 	w.phaseMu.RLock()
 	defer w.phaseMu.RUnlock()
-	if wsID != "" && w.phases[wsID] == lifecycleDeleting {
-		return true
+	return w.isMutatingLocked(wsID, root)
+}
+
+// isMutatingWorkspaceIDs probes the workspace's FULL identity set plus the
+// root bridge — a mutation marked under any form (pre/post-drift ComputedID,
+// MetadataID, storeID) is found regardless of which form this workspace
+// value resolves to right now.
+func (w *workspaceLifecycleState) isMutatingWorkspaceIDs(ws *data.Workspace) bool {
+	if ws == nil {
+		return false
 	}
-	if root != "" {
-		markedID := w.deletingRootID[root]
-		return markedID != "" && w.phases[markedID] == lifecycleDeleting
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+	for _, id := range data.WorkspaceIdentityStrings(ws) {
+		if w.isMutatingLocked(id, "") {
+			return true
+		}
 	}
-	return false
+	return w.isMutatingLocked("", ws.Root)
+}
+
+// runUnlessMutatingWorkspaceIDs is the set-wide counterpart of
+// runUnlessMutating: the check and fn run under the same phaseMu hold, so a
+// mutation marked mid-flight between the probe and the store write can't
+// slip past. Used by the service's rescan/import guards.
+func (w *workspaceLifecycleState) runUnlessMutatingWorkspaceIDs(ws *data.Workspace, fn func()) bool {
+	if ws == nil {
+		return false
+	}
+	w.phaseMu.RLock()
+	defer w.phaseMu.RUnlock()
+	for _, id := range data.WorkspaceIdentityStrings(ws) {
+		if w.isMutatingLocked(id, "") {
+			return false
+		}
+	}
+	if w.isMutatingLocked("", ws.Root) {
+		return false
+	}
+	if fn != nil {
+		fn()
+	}
+	return true
 }
 
 // snapshotPhase returns a copy of the IDs currently in the given phase. The
@@ -231,9 +304,9 @@ func (w *workspaceLifecycleState) snapshotPhase(phase lifecyclePhase) map[string
 	return out
 }
 
-// snapshotDeleting returns a copy of the IDs currently delete-in-flight.
-func (w *workspaceLifecycleState) snapshotDeleting() map[string]bool {
-	return w.snapshotPhase(lifecycleDeleting)
+// snapshotMutating returns a copy of the IDs currently mutation-in-flight.
+func (w *workspaceLifecycleState) snapshotMutating() map[string]bool {
+	return w.snapshotPhase(lifecycleMutating)
 }
 
 // snapshotCreating returns a copy of the IDs currently create-in-flight.
@@ -241,14 +314,14 @@ func (w *workspaceLifecycleState) snapshotCreating() map[string]bool {
 	return w.snapshotPhase(lifecycleCreating)
 }
 
-// runUnlessDeleting runs fn while holding the shared phase lock only when
-// wsID is not currently delete-in-flight. Holding the lock across fn keeps
-// the check and side effect atomic with respect to markDeleting.
-func (w *workspaceLifecycleState) runUnlessDeleting(wsID string, fn func()) bool {
+// runUnlessMutating runs fn while holding the shared phase lock only when
+// wsID is not currently mutation-in-flight. Holding the lock across fn keeps
+// the check and side effect atomic with respect to markMutating.
+func (w *workspaceLifecycleState) runUnlessMutating(wsID string, fn func()) bool {
 	w.phaseMu.RLock()
 	defer w.phaseMu.RUnlock()
 
-	if wsID == "" || w.phases[wsID] == lifecycleDeleting {
+	if wsID == "" || w.phases[wsID] == lifecycleMutating {
 		return false
 	}
 	if fn != nil {
@@ -337,12 +410,12 @@ func (w *workspaceLifecycleState) shouldFilterDeletedWorkspace(wsID, root string
 	}
 	w.phaseMu.RLock()
 	defer w.phaseMu.RUnlock()
-	if wsID != "" && w.phases[wsID] == lifecycleDeleting {
+	if wsID != "" && w.phases[wsID] == lifecycleMutating {
 		return true
 	}
 	if root != "" {
-		markedID := w.deletingRootID[root]
-		if markedID != "" && w.phases[markedID] == lifecycleDeleting {
+		markedID := w.mutatingRootID[root]
+		if markedID != "" && w.phases[markedID] == lifecycleMutating {
 			return true
 		}
 	}

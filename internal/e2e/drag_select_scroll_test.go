@@ -158,7 +158,7 @@ func waitForScrolledTo(t *testing.T, session *PTYSession, needle string, minOffs
 		if maxOffset >= minOffset {
 			return
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(screenPollInterval)
 	}
 	if !sawScroll {
 		t.Fatalf("drag above viewport never entered scrollback\n\nscreen:\n%s", lastScreen)
@@ -274,7 +274,7 @@ func TestTmuxDeliversSynchronizedOutputToClient(t *testing.T) {
 				}
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(screenPollInterval)
 	}
 	t.Fatalf("no DEC 2026 sync-begin found in PTY traces under %s; tmux is not wrapping redraws in synchronized output", logDir)
 }

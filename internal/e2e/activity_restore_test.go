@@ -81,7 +81,7 @@ func assertLabelNeverBold(t *testing.T, session *PTYSession, label string, durat
 		if labelBoldInScreen(session, label) {
 			t.Fatalf("label %q became bold (active flash) during observation window", label)
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(screenPollInterval)
 	}
 }
 

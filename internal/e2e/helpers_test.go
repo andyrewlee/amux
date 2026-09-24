@@ -72,11 +72,11 @@ func deleteSelectedWorkspace(t *testing.T, session *PTYSession, workspaceName st
 	if err := session.SendString("h"); err != nil {
 		t.Fatalf("select Yes in delete dialog: %v", err)
 	}
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(dialogInputSettle)
 	if err := session.SendString("h"); err != nil {
 		t.Fatalf("keep Yes selected in delete dialog: %v", err)
 	}
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(dialogInputSettle)
 	if err := session.SendString("\r"); err != nil {
 		t.Fatalf("confirm delete: %v", err)
 	}
@@ -93,8 +93,18 @@ func selectWorkspaceRow(t *testing.T, session *PTYSession, workspaceName string,
 		if err := session.SendString(dashboardRowLeftClickInput(120, 30, candidateY)); err != nil {
 			t.Fatalf("activate workspace row %q: %v", workspaceName, err)
 		}
-		time.Sleep(200 * time.Millisecond)
-		if !stringsContains(session.ScreenASCII(), "Create Workspace") {
+		// A mis-aimed click opens the create dialog; poll briefly for it
+		// instead of sampling once — under load the dialog may render late.
+		createAppeared := false
+		clickDeadline := time.Now().Add(time.Second)
+		for time.Now().Before(clickDeadline) {
+			if stringsContains(session.ScreenASCII(), "Create Workspace") {
+				createAppeared = true
+				break
+			}
+			time.Sleep(screenPollInterval)
+		}
+		if !createAppeared {
 			return
 		}
 		if i == len(candidates)-1 {

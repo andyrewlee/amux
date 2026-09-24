@@ -71,7 +71,7 @@ func TestMergeWorkspace_EndToEnd(t *testing.T) {
 		t.Fatal("the merge confirmation dialog was not shown")
 	}
 
-	mergeCmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: true})
+	mergeCmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: true}, app.dlg)
 	if mergeCmd == nil {
 		t.Fatal("confirming the dialog produced no merge command")
 	}
@@ -193,7 +193,12 @@ func TestMergeWorkspace_EndToEndConflictThenAbort(t *testing.T) {
 	app := newIntegrationMergeApp()
 
 	app.handleShowMergeWorkspaceDialog(messages.ShowMergeWorkspaceDialog{Workspace: ws, Base: "main"})
-	mergeCmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: true})
+	mergeCmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: true}, app.dlg)
+	// The real bound-result path clears a.dialog before dispatching the result
+	// handler (app_dialog_result_binding.go); this test calls the handler
+	// directly, so mirror that clearing or the later conflict open queues
+	// behind a stale-visible confirm dialog.
+	app.dialog = nil
 	merged, ok := mergeCmd().(messages.WorkspaceMerged)
 	if !ok {
 		t.Fatalf("merge produced %T, want WorkspaceMerged", mergeCmd())
@@ -207,7 +212,7 @@ func TestMergeWorkspace_EndToEndConflictThenAbort(t *testing.T) {
 		t.Fatalf("conflict dialog does not list the conflicted file:\n%s", view)
 	}
 
-	abortCmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeConflict, Confirmed: true})
+	abortCmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeConflict, Confirmed: true}, app.dlg)
 	if abortCmd == nil {
 		t.Fatal("confirming the conflict dialog produced no abort command")
 	}

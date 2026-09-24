@@ -41,7 +41,7 @@ func TestHandleProjectsLoaded_DropsStaleLoadToken(t *testing.T) {
 	}
 }
 
-func TestHandleProjectsLoaded_FiltersDeletingWorkspace(t *testing.T) {
+func TestHandleProjectsLoaded_FiltersMutatingWorkspace(t *testing.T) {
 	repo := "/repo"
 	deleted := data.NewWorkspace("deleted", "deleted", "main", repo, "/repo/deleted")
 	kept := data.NewWorkspace("kept", "kept", "main", repo, "/repo/kept")
@@ -55,7 +55,7 @@ func TestHandleProjectsLoaded_FiltersDeletingWorkspace(t *testing.T) {
 		sidebarTerminal: sidebar.NewTerminalModel(),
 		lifecycle:       newWorkspaceLifecycleState(),
 	}
-	app.markWorkspaceDeleteInFlight(deleted, true)
+	app.markWorkspaceMutationInFlight(deleted, true)
 
 	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*project}, LoadToken: 1})
 
@@ -67,7 +67,7 @@ func TestHandleProjectsLoaded_FiltersDeletingWorkspace(t *testing.T) {
 	}
 }
 
-func TestHandleProjectsLoaded_PreservesActiveDeletingWorkspace(t *testing.T) {
+func TestHandleProjectsLoaded_PreservesActiveMutatingWorkspace(t *testing.T) {
 	repo := "/repo"
 	deleting := data.NewWorkspace("deleting", "deleting", "main", repo, "/repo/deleting")
 	kept := data.NewWorkspace("kept", "kept", "main", repo, "/repo/kept")
@@ -83,18 +83,18 @@ func TestHandleProjectsLoaded_PreservesActiveDeletingWorkspace(t *testing.T) {
 		activeProject:   project,
 		activeWorkspace: deleting,
 	}
-	app.markWorkspaceDeleteInFlight(deleting, true)
+	app.markWorkspaceMutationInFlight(deleting, true)
 
 	app.handleProjectsLoaded(messages.ProjectsLoaded{Projects: []data.Project{*project}, LoadToken: 1})
 
 	if app.activeWorkspace == nil || app.activeWorkspace.Root != deleting.Root {
-		t.Fatalf("expected active deleting workspace to stay put, got %+v", app.activeWorkspace)
+		t.Fatalf("expected active mutating workspace to stay put, got %+v", app.activeWorkspace)
 	}
 	if app.activeProject == nil || app.activeProject.Path != project.Path {
 		t.Fatalf("expected active project to stay put, got %+v", app.activeProject)
 	}
 	if len(app.projects) != 1 || len(app.projects[0].Workspaces) != 1 || app.projects[0].Workspaces[0].Root != kept.Root {
-		t.Fatalf("expected deleting workspace hidden from project list, got %+v", app.projects)
+		t.Fatalf("expected mutating workspace hidden from project list, got %+v", app.projects)
 	}
 }
 

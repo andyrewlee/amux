@@ -7,11 +7,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
 // handleDeleteWorkspace handles the DeleteWorkspace message.
@@ -22,7 +24,7 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		return nil
 	}
 	msg.Workspace = snapshotWorkspaceForSave(msg.Workspace)
-	if !a.markWorkspaceDeleteInFlight(msg.Workspace, true) {
+	if !a.markWorkspaceMutationInFlight(msg.Workspace, true) {
 		logging.Warn("DeleteWorkspace rejected while workspace %s is in another lifecycle phase", msg.Workspace.ID())
 		return nil
 	}
@@ -37,7 +39,7 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 	// the async DeleteWorkspace cmd; killing up-front means a rejected or failed
 	// delete still destroys live agent sessions and scrollback. The kill now runs
 	// only on the confirmed-success path in handleWorkspaceDeleted.
-	if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, true); cmd != nil {
+	if cmd := a.dashboard.SetWorkspaceBusy(msg.Workspace.Root, dashboard.WorkspaceOpDelete, true); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	cmds = append(cmds, a.deleteWorkspace(msg.Project, msg.Workspace))
@@ -53,10 +55,12 @@ func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) []tea.Cmd {
 		logging.Warn("RenameWorkspace received with nil workspace")
 		return nil
 	}
-	if a.workspaceService == nil || a.workspaceService.store == nil {
+	if a.workspaceService == nil {
 		return nil
 	}
-	if err := a.workspaceService.store.Rename(msg.Workspace.ID(), msg.NewName); err != nil {
+	// The service owns the identity rule — it stores under MetadataID(), the
+	// persisted record key; ws.ID() drifts across worktree create/remove.
+	if err := a.workspaceService.RenameWorkspace(msg.Workspace, msg.NewName); err != nil {
 		if cmd := common.ReportError(errorContext(errorServiceWorkspace, "renaming workspace"), err, ""); cmd != nil {
 			return []tea.Cmd{cmd}
 		}
@@ -80,7 +84,7 @@ func (a *App) handleWorkspaceCreatedWithWarning(msg messages.WorkspaceCreatedWit
 	var cmds []tea.Cmd
 	a.err = fmt.Errorf("workspace created with warning: %s", msg.Warning)
 	if msg.Workspace != nil {
-		a.lifecycle.clearCreating(string(msg.Workspace.ID()))
+		a.lifecycle.clearCreatingWorkspace(msg.Workspace)
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -105,7 +109,7 @@ func (a *App) loadProjectsAfterCreate(ws *data.Workspace) tea.Cmd {
 func (a *App) handleWorkspaceCreated(msg messages.WorkspaceCreated) []tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
-		a.lifecycle.clearCreating(string(msg.Workspace.ID()))
+		a.lifecycle.clearCreatingWorkspace(msg.Workspace)
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -241,7 +245,7 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 func (a *App) handleWorkspaceCreateFailed(msg messages.WorkspaceCreateFailed) tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
-		a.lifecycle.clearCreating(string(msg.Workspace.ID()))
+		a.lifecycle.clearCreatingWorkspace(msg.Workspace)
 		if cmd := a.dashboard.SetWorkspaceCreating(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -261,25 +265,33 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	}
 	if msg.Workspace != nil {
 		postDeleteLoad = a.loadProjects()
-		a.lifecycle.markDeletedUntilProjectsLoad(string(msg.Workspace.ID()), msg.Workspace.Root, a.lifecycle.projectsLoadToken)
-		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
-		// Drop the deleted workspace from the active set now rather than waiting
-		// for the async loadProjects -> scan reconcile, so a killed-but-not-yet-
-		// reaped agent session cannot keep it shown as active by tag alone.
-		delete(a.tmuxActivity.activeWorkspaceIDs, string(msg.Workspace.ID()))
-		a.syncActiveWorkspacesToDashboard()
+		// Use the stamped pre-removal identity set: ws.ID() computed now is the
+		// unresolved form and can miss the resolved-form keys the tombstone,
+		// active, and dirty maps were written under.
+		for _, wsID := range workspacesvc.WorkspaceIDsOrComputed(msg.Workspace, msg.WorkspaceIDs) {
+			a.lifecycle.markDeletedUntilProjectsLoad(wsID, msg.Workspace.Root, a.lifecycle.projectsLoadToken)
+			// Drop the deleted workspace from the active set now rather than
+			// waiting for the async loadProjects -> scan reconcile, so a killed-
+			// but-not-yet-reaped agent session cannot keep it shown as active by
+			// tag alone.
+			delete(a.tmuxActivity.activeWorkspaceIDs, wsID)
+			delete(a.lifecycle.dirty, wsID)
+		}
+		a.markWorkspaceMutationInFlight(msg.Workspace, false)
+		if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		// Navigate home only now that the delete is confirmed (moved off the
 		// up-front deleteWorkspace path so a failed delete leaves the user put).
 		if a.activeWorkspace != nil && a.activeWorkspace.Root == msg.Workspace.Root {
 			a.goHome()
 		}
-		delete(a.lifecycle.dirty, string(msg.Workspace.ID()))
 		// No trailing tmux cleanup here: the validated delete path already tore
 		// down this workspace's sessions before removing the worktree. Re-running
-		// it after the delete-in-flight flag is cleared would, on a delete-then-
+		// it after the mutation-in-flight flag is cleared would, on a delete-then-
 		// recreate at the same project+name (same wsID, same session names), match
 		// and kill the brand-new agent session by tag.
-		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
+		if cmd := a.dashboard.SetWorkspaceBusy(msg.Workspace.Root, dashboard.WorkspaceOpDelete, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		if a.gitStatus != nil {
@@ -324,12 +336,20 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if postDeleteLoad != nil {
 			cmds = append(cmds, postDeleteLoad)
 		}
+		if cmd := a.bulkFinished(msg.Workspace, false); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		return cmds
 	}
 	if postDeleteLoad == nil {
 		postDeleteLoad = a.loadProjects()
 	}
 	cmds = append(cmds, postDeleteLoad)
+	// A bulk purge member's completion advances the queue; foreign delete
+	// completions leave the batch untouched.
+	if cmd := a.bulkFinished(msg.Workspace, true); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	return cmds
 }
 
@@ -356,18 +376,18 @@ func (a *App) removeWorkspaceFromLoadedProjects(ws *data.Workspace) {
 func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) tea.Cmd {
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
-		// Ordering is intentional: clear delete-in-flight first so the
+		// Ordering is intentional: clear mutation-in-flight first so the
 		// persistence requeue below is not suppressed.
-		a.markWorkspaceDeleteInFlight(msg.Workspace, false)
+		a.markWorkspaceMutationInFlight(msg.Workspace, false)
 		// Clear the delete tombstone only when the worktree is still present (the
 		// delete failed before removing it, so the workspace stays usable). If the
 		// worktree is already gone — e.g. metadata removal failed after the worktree
 		// was deleted — leave the tombstone so startup recovery finishes the delete
 		// rather than resurfacing a dir-less ghost.
-		if a.workspaceService != nil && dirExists(msg.Workspace.Root) {
-			a.workspaceService.clearWorkspaceDeleteTombstones(msg.Workspace)
+		if a.workspaceService != nil && workspacesvc.DirExists(msg.Workspace.Root) {
+			a.workspaceService.ClearWorkspaceDeleteTombstones(msg.Workspace)
 		}
-		if cmd := a.dashboard.SetWorkspaceDeleting(msg.Workspace.Root, false); cmd != nil {
+		if cmd := a.dashboard.SetWorkspaceBusy(msg.Workspace.Root, dashboard.WorkspaceOpDelete, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		if a.tmuxAvailable {
@@ -384,6 +404,9 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 	}
 	if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "removing workspace"), msg.Err, ""); errCmd != nil {
 		cmds = append(cmds, errCmd)
+	}
+	if cmd := a.bulkFinished(msg.Workspace, false); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	return common.SafeBatch(cmds...)
 }

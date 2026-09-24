@@ -100,8 +100,8 @@ func TestHandleShowCreateWorkspaceDialog_StoresProjectAndValidates(t *testing.T)
 			h := newDialogHarness(t)
 			h.app.handleShowCreateWorkspaceDialog(messages.ShowCreateWorkspaceDialog{Project: project})
 
-			if h.app.dialogProject != project {
-				t.Fatalf("expected dialogProject to be stored, got %v", h.app.dialogProject)
+			if h.app.dlg.project != project {
+				t.Fatalf("expected dlg.project to be stored, got %v", h.app.dlg.project)
 			}
 			if h.app.dialog == nil || !h.app.dialog.Visible() {
 				t.Fatal("expected create-workspace dialog to be visible")
@@ -167,11 +167,11 @@ func TestHandleShowDeleteWorkspaceDialog_StoresTargetsAndConfirms(t *testing.T) 
 		Workspace: ws,
 	})
 
-	if h.app.dialogProject != project {
-		t.Fatal("expected dialogProject to be stored")
+	if h.app.dlg.project != project {
+		t.Fatal("expected dlg.project to be stored")
 	}
-	if h.app.dialogWorkspace != ws {
-		t.Fatal("expected dialogWorkspace to be stored")
+	if h.app.dlg.workspace != ws {
+		t.Fatal("expected dlg.workspace to be stored")
 	}
 
 	view := dialogView(t, h.app.dialog)
@@ -222,11 +222,11 @@ func TestHandleShowTrustScriptsDialog_StoresHashAndDefaultsToNo(t *testing.T) {
 				ConfigHash: tc.hash,
 			})
 
-			if h.app.dialogWorkspace != tc.workspace {
-				t.Fatal("expected dialogWorkspace to be stored")
+			if h.app.dlg.workspace != tc.workspace {
+				t.Fatal("expected dlg.workspace to be stored")
 			}
-			if h.app.dialogTrustScriptsHash != tc.hash {
-				t.Fatalf("expected stored hash %q, got %q", tc.hash, h.app.dialogTrustScriptsHash)
+			if h.app.dlg.trustScriptsHash != tc.hash {
+				t.Fatalf("expected stored hash %q, got %q", tc.hash, h.app.dlg.trustScriptsHash)
 			}
 
 			view := dialogView(t, h.app.dialog)
@@ -284,8 +284,8 @@ func TestHandleShowRemoveProjectDialog_RendersProjectName(t *testing.T) {
 			h := newDialogHarness(t)
 			h.app.handleShowRemoveProjectDialog(messages.ShowRemoveProjectDialog{Project: tc.project})
 
-			if h.app.dialogProject != tc.project {
-				t.Fatal("expected dialogProject to be stored")
+			if h.app.dlg.project != tc.project {
+				t.Fatal("expected dlg.project to be stored")
 			}
 
 			view := dialogView(t, h.app.dialog)
@@ -314,7 +314,7 @@ func TestHandleShowRemoveProjectDialog_RendersProjectName(t *testing.T) {
 func TestHandleShowSelectAssistantDialog_NoActiveWorkspaceIsNoop(t *testing.T) {
 	h := newDialogHarness(t)
 	h.app.activeWorkspace = nil
-	h.app.pendingWorkspaceProject = nil
+	h.app.pendingWorkspaceCreate.project = nil
 	h.app.dialog = nil
 
 	h.app.handleShowSelectAssistantDialog()
@@ -335,7 +335,7 @@ func TestHandleShowSelectAssistantDialog_ShowsAgentPicker(t *testing.T) {
 		},
 		{
 			name:    "pending workspace project present",
-			prepare: func(a *App) { a.pendingWorkspaceProject = &data.Project{Name: "alpha"} },
+			prepare: func(a *App) { a.pendingWorkspaceCreate.project = &data.Project{Name: "alpha"} },
 		},
 	}
 
@@ -343,7 +343,7 @@ func TestHandleShowSelectAssistantDialog_ShowsAgentPicker(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDialogHarness(t)
 			h.app.activeWorkspace = nil
-			h.app.pendingWorkspaceProject = nil
+			h.app.pendingWorkspaceCreate.project = nil
 			tc.prepare(h.app)
 
 			h.app.handleShowSelectAssistantDialog()

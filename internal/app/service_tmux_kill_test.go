@@ -2,7 +2,6 @@ package app
 
 import (
 	"testing"
-	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
 )
@@ -24,7 +23,6 @@ func TestTmuxOps_KillSessionsMatchingTags(t *testing.T) {
 	gcCreateSession(t, opts, "match-a", "sleep 300")
 	gcCreateSession(t, opts, "match-b", "sleep 300")
 	gcCreateSession(t, opts, "nomatch", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	gcSetTag(t, opts, "match-a", "@amux", "1")
 	gcSetTag(t, opts, "match-a", "@amux_workspace", "doomed")
@@ -82,7 +80,6 @@ func TestTmuxOps_KillSessionsWithPrefix(t *testing.T) {
 	gcCreateSession(t, opts, "pfx-one", "sleep 300")
 	gcCreateSession(t, opts, "pfx-two", "sleep 300")
 	gcCreateSession(t, opts, "other", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	if err := ops.KillSessionsWithPrefix("pfx-", opts); err != nil {
 		t.Fatalf("KillSessionsWithPrefix: %v", err)
@@ -101,7 +98,6 @@ func TestTmuxOps_KillSessionsWithPrefix_EmptyPrefix(t *testing.T) {
 	ops := tmuxOps{}
 
 	gcCreateSession(t, opts, "keep-me", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	// Empty prefix must be a no-op (guard clause), leaving every session alive.
 	if err := ops.KillSessionsWithPrefix("", opts); err != nil {
@@ -127,7 +123,6 @@ func TestTmuxOps_KillSessionsWithPrefixMissingTag(t *testing.T) {
 	gcCreateSession(t, opts, "amux-owned", "sleep 300")
 	// Wrong prefix → never considered.
 	gcCreateSession(t, opts, "foreign", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	gcSetTag(t, opts, "amux-owned", "@amux_instance", "inst-42")
 
@@ -151,7 +146,6 @@ func TestTmuxOps_KillSessionsWithPrefixMissingTag_EmptyArgs(t *testing.T) {
 	ops := tmuxOps{}
 
 	gcCreateSession(t, opts, "amux-survivor", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	// Either empty prefix or empty tag short-circuits to a no-op.
 	if err := ops.KillSessionsWithPrefixMissingTag("", "@amux_instance", opts); err != nil {
@@ -182,7 +176,6 @@ func TestTmuxOps_KillWorkspaceSessions(t *testing.T) {
 
 	gcCreateSession(t, opts, target, "sleep 300")
 	gcCreateSession(t, opts, other, "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	if err := ops.KillWorkspaceSessions(wsID, opts); err != nil {
 		t.Fatalf("KillWorkspaceSessions: %v", err)
@@ -201,7 +194,6 @@ func TestTmuxOps_KillWorkspaceSessions_EmptyID(t *testing.T) {
 	ops := tmuxOps{}
 
 	gcCreateSession(t, opts, "amux-keep-tab1", "sleep 300")
-	time.Sleep(50 * time.Millisecond)
 
 	// Empty workspace ID is a guarded no-op.
 	if err := ops.KillWorkspaceSessions("", opts); err != nil {

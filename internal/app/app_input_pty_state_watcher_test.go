@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -19,7 +20,7 @@ func TestHandleStateWatcherEvent_SuppressesSelfOriginatedWorkspaceReload(t *test
 		t.Fatalf("WriteFile(localPath): %v", err)
 	}
 	app := &App{
-		workspaceService: newWorkspaceService(nil, nil, nil, ""),
+		workspaceService: workspacesvc.New(nil, nil, nil, ""),
 		stateWatcher:     &stateWatcher{},
 		stateWatcherCh:   make(chan messages.StateWatcherEvent, 1),
 		config: &config.Config{
@@ -51,7 +52,7 @@ func TestHandleStateWatcherEvent_DoesNotSuppressExternalWorkspaceReload(t *testi
 		t.Fatalf("WriteFile(localPath): %v", err)
 	}
 	app := &App{
-		workspaceService: newWorkspaceService(nil, nil, nil, ""),
+		workspaceService: workspacesvc.New(nil, nil, nil, ""),
 		stateWatcher:     &stateWatcher{},
 		stateWatcherCh:   make(chan messages.StateWatcherEvent, 1),
 		config: &config.Config{
@@ -86,7 +87,7 @@ func TestHandleStateWatcherEvent_DoesNotSuppressSamePathWhenFileChanged(t *testi
 	}
 
 	app := &App{
-		workspaceService: newWorkspaceService(nil, nil, nil, ""),
+		workspaceService: workspacesvc.New(nil, nil, nil, ""),
 		stateWatcher:     &stateWatcher{},
 		stateWatcherCh:   make(chan messages.StateWatcherEvent, 1),
 		config: &config.Config{
@@ -116,7 +117,7 @@ func TestHandleStateWatcherEvent_DoesNotSuppressSamePathWhenFileChanged(t *testi
 
 func TestHandleStateWatcherEvent_LoadsProjectsWithoutRecentLocalSave(t *testing.T) {
 	app := &App{
-		workspaceService: newWorkspaceService(nil, nil, nil, ""),
+		workspaceService: workspacesvc.New(nil, nil, nil, ""),
 		stateWatcher:     &stateWatcher{},
 		stateWatcherCh:   make(chan messages.StateWatcherEvent, 1),
 	}

@@ -37,10 +37,10 @@ func TestHandleSettingsResult_PersistsTmuxConfigEdit(t *testing.T) {
 
 	// Tab from Theme to the tmux server field, then to the config-path field,
 	// and type a new value there.
-	h.app.settingsDialog, _ = h.app.settingsDialog.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	h.app.settingsDialog, _ = h.app.settingsDialog.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	h.app.overlays.settings, _ = h.app.overlays.settings.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	h.app.overlays.settings, _ = h.app.overlays.settings.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	for _, r := range "/tmp/new-tmux.conf" {
-		h.app.settingsDialog, _ = h.app.settingsDialog.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		h.app.overlays.settings, _ = h.app.overlays.settings.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 
 	cmd := h.app.handleSettingsResult(common.SettingsResult{})

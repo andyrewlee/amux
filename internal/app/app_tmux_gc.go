@@ -1,6 +1,8 @@
 package app
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -8,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -21,33 +24,24 @@ type orphanGCResult struct {
 	Err    error
 }
 
-// staleDetachedAgentGCResult is returned after attempting to clean up stale
-// detached agent sessions.
-type staleDetachedAgentGCResult struct {
-	Considered       int
-	Killed           int
-	SkippedAttached  int
-	SkippedLiveOwner int
-	SkippedFresh     int
-	SkippedLivePane  int
-	Err              error
-}
-
-// collectKnownWorkspaceIDs returns the set of workspace IDs currently tracked
-// by the app. Must be called on the Update goroutine.
 func (a *App) collectKnownWorkspaceIDs() map[string]bool {
 	ids := make(map[string]bool)
 	a.eachWorkspace(func(ws *data.Workspace, _ *data.Project) {
-		ids[string(ws.ID())] = true
+		// Collect every identity form: sessions spawned before stable IDs may
+		// carry a drifted computed form in their @amux_workspace tag, and an
+		// unrecognized tag here means the session gets killed as an orphan.
+		for _, id := range workspacesvc.WorkspaceMetadataIDs(ws) {
+			ids[string(id)] = true
+		}
 	})
 	for id := range a.lifecycle.snapshotCreating() {
 		ids[id] = true
 	}
-	// A workspace mid-delete may already be absent from a.projects (loadProjects
+	// A workspace mid-mutation may already be absent from a.projects (loadProjects
 	// replaces it after each WorkspaceDeleted), so without this a concurrently
 	// scheduled orphan GC would see its session as unknown and kill it — racing
 	// the orderly cleanup, and on a failed delete killing a still-needed agent.
-	for id := range a.snapshotDeletingWorkspaceIDs() {
+	for id := range a.snapshotMutatingWorkspaceIDs() {
 		ids[id] = true
 	}
 	return ids
@@ -64,7 +58,7 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 	svc := a.tmuxService
 	return func() tea.Msg {
 		if svc == nil {
-			return orphanGCResult{Err: errTmuxUnavailable}
+			return orphanGCResult{Err: activity.ErrTmuxUnavailable}
 		}
 		now := time.Now()
 		byWorkspace, err := a.amuxSessionsByWorkspace(opts)
@@ -72,125 +66,16 @@ func (a *App) gcOrphanedTmuxSessions() tea.Cmd {
 			return orphanGCResult{Err: err}
 		}
 		a.refreshOwnedSessionHeartbeats(byWorkspace, now, opts)
-		killed := a.killOrphanedSessions(byWorkspace, knownIDs, now, opts)
+		// Batched session facts for the per-orphan checks below. If either
+		// listing fails we cannot confirm orphans are client-free or dead —
+		// fail closed and skip the pass rather than probe per session.
+		meta, metaErr := svc.AllSessionMeta(opts)
+		allStates, statesErr := svc.AllSessionStates(opts)
+		if err := errors.Join(metaErr, statesErr); err != nil {
+			return orphanGCResult{Err: fmt.Errorf("session metadata/states: %w", err)}
+		}
+		killed := a.killOrphanedSessions(byWorkspace, knownIDs, allStates, meta, now, opts)
 		return orphanGCResult{Killed: killed}
-	}
-}
-
-func (a *App) gcStaleDetachedAgentSessions() tea.Cmd {
-	if !a.tmuxAvailable {
-		return nil
-	}
-	opts := a.tmuxOptions
-	svc := a.tmuxService
-	return func() tea.Msg {
-		if svc == nil {
-			return staleDetachedAgentGCResult{Err: errTmuxUnavailable}
-		}
-
-		match := map[string]string{"@amux": "1", "@amux_type": "agent"}
-		rows, err := svc.SessionsWithTags(
-			match,
-			[]string{
-				"@amux_instance",
-				"@amux_created_at",
-				"session_activity",
-				tmux.TagLastOutputAt,
-				tmux.TagLastInputAt,
-				tmux.TagSessionLeaseAt,
-				tmux.TagSessionOwnerHeartbeatAt,
-			},
-			opts,
-		)
-		if err != nil {
-			return staleDetachedAgentGCResult{Err: err}
-		}
-		var sessionNamesWithClients map[string]bool
-		type sessionClientsLister interface {
-			SessionNamesWithClients(opts tmux.Options) (map[string]bool, error)
-		}
-		// Bulk client listing is an optional fast path on the default tmux ops.
-		// Keep a per-session fallback for stubs/custom ops that only expose
-		// SessionHasClients so detached-session GC remains correct everywhere.
-		if lister, ok := svc.(sessionClientsLister); ok {
-			clientNames, clientsErr := lister.SessionNamesWithClients(opts)
-			if clientsErr != nil {
-				logging.Warn("detached agent GC: failed to list attached clients in bulk: %v", clientsErr)
-			} else {
-				sessionNamesWithClients = clientNames
-			}
-		}
-
-		allStates, err := svc.AllSessionStates(opts)
-		if err != nil {
-			return staleDetachedAgentGCResult{Err: err}
-		}
-
-		now := time.Now()
-		result := staleDetachedAgentGCResult{}
-		for _, row := range rows {
-			sessionName := strings.TrimSpace(row.Name)
-			if sessionName == "" {
-				continue
-			}
-			if !instancesShareState(row.Tags["@amux_instance"], a.instanceID) {
-				continue
-			}
-			result.Considered++
-
-			hasClients := false
-			if sessionNamesWithClients != nil {
-				hasClients = sessionNamesWithClients[sessionName]
-			} else {
-				var checkErr error
-				hasClients, checkErr = svc.SessionHasClients(sessionName, opts)
-				if checkErr != nil {
-					logging.Warn("detached agent GC: failed to check clients for %s: %v", sessionName, checkErr)
-					continue
-				}
-			}
-			if hasClients {
-				result.SkippedAttached++
-				continue
-			}
-			if foreignSessionOwnerAlive(row.Tags, a.instanceID, now) {
-				result.SkippedLiveOwner++
-				continue
-			}
-
-			lastActiveAt := activityTagTime(row.Tags)
-			if lastActiveAt.IsZero() {
-				// SessionCreatedAt is a tmux-native fallback for sessions whose
-				// @amux_created_at tag is absent from list output.
-				if createdAt, err := svc.SessionCreatedAt(sessionName, opts); err == nil && createdAt > 0 {
-					lastActiveAt = time.Unix(createdAt, 0)
-				}
-			}
-			if lastActiveAt.IsZero() {
-				lastActiveAt = now
-			}
-			if lastActiveAt.After(now) {
-				result.SkippedFresh++
-				continue
-			}
-			inactiveFor := now.Sub(lastActiveAt)
-			if inactiveFor < detachedAgentStaleAfter {
-				result.SkippedFresh++
-				continue
-			}
-			state, ok := allStates[sessionName]
-			if ok && state.Exists && state.HasLivePane && inactiveFor < detachedAgentLivePaneStaleAfter {
-				result.SkippedLivePane++
-				continue
-			}
-
-			if err := svc.KillSession(sessionName, opts); err != nil {
-				logging.Warn("detached agent GC: failed to kill session %s: %v", sessionName, err)
-				continue
-			}
-			result.Killed++
-		}
-		return result
 	}
 }
 
@@ -203,7 +88,7 @@ type workspaceSession struct {
 
 func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]workspaceSession, error) {
 	if a.tmuxService == nil {
-		return nil, errTmuxUnavailable
+		return nil, activity.ErrTmuxUnavailable
 	}
 	match := map[string]string{"@amux": "1"}
 	rows, err := a.tmuxService.SessionsWithTags(match, []string{
@@ -240,17 +125,9 @@ func (a *App) amuxSessionsByWorkspace(opts tmux.Options) (map[string][]workspace
 	return out, nil
 }
 
-type sessionTagBatchSetter interface {
-	SetSessionTagValueForSessions(sessionNames []string, key, value string, opts tmux.Options) error
-}
-
 func (a *App) refreshOwnedSessionHeartbeats(byWorkspace map[string][]workspaceSession, now time.Time, opts tmux.Options) {
 	instanceID := strings.TrimSpace(a.instanceID)
 	if instanceID == "" || a.tmuxService == nil {
-		return
-	}
-	setter, ok := a.tmuxService.(sessionTagBatchSetter)
-	if !ok {
 		return
 	}
 	names := make([]string, 0)
@@ -269,7 +146,7 @@ func (a *App) refreshOwnedSessionHeartbeats(byWorkspace map[string][]workspaceSe
 	if len(names) == 0 {
 		return
 	}
-	if err := setter.SetSessionTagValueForSessions(
+	if err := a.tmuxService.SetSessionTagValueForSessions(
 		names,
 		tmux.TagSessionOwnerHeartbeatAt,
 		strconv.FormatInt(now.UnixMilli(), 10),
@@ -279,7 +156,7 @@ func (a *App) refreshOwnedSessionHeartbeats(byWorkspace map[string][]workspaceSe
 	}
 }
 
-func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, knownIDs map[string]bool, now time.Time, opts tmux.Options) int {
+func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, knownIDs map[string]bool, allStates map[string]tmux.SessionState, meta map[string]tmux.SessionMeta, now time.Time, opts tmux.Options) int {
 	if a.tmuxService == nil {
 		return 0
 	}
@@ -295,31 +172,31 @@ func (a *App) killOrphanedSessions(byWorkspace map[string][]workspaceSession, kn
 			if foreignWorkspaceSessionOwnerAlive(ws, a.instanceID, now) {
 				continue
 			}
+			m, metaOK := meta[ws.Name]
 			createdAt := ws.CreatedAt
-			if createdAt == 0 {
-				if ts, err := a.tmuxService.SessionCreatedAt(ws.Name, opts); err == nil {
-					createdAt = ts
-				}
+			if createdAt == 0 && metaOK {
+				createdAt = m.CreatedAt
 			}
 			if isRecentOrphanSession(createdAt, now) {
 				continue
 			}
-			hasClients, err := a.tmuxService.SessionHasClients(ws.Name, opts)
-			if err != nil {
-				// Fail closed: never kill a session we could not confirm is
-				// client-free (matches gcStaleDetachedAgentSessions).
-				logging.Warn("orphan GC: failed to check clients for %s: %v", ws.Name, err)
+			// Fail closed: never kill a session we could not confirm is
+			// client-free. A missing meta entry means it vanished between
+			// listing and classification — same outcome as the old
+			// SessionHasClients error path.
+			if !metaOK {
+				logging.Warn("orphan GC: no session metadata for %s; skipping", ws.Name)
 				continue
 			}
-			if hasClients {
+			if m.Attached > 0 {
 				continue
 			}
-			state, err := a.tmuxService.SessionStateFor(ws.Name, opts)
-			if err != nil {
+			state, ok := allStates[ws.Name]
+			if !ok {
 				// A detached session can still be running an agent, build, or proof.
 				// Missing metadata is not enough evidence to terminate that work;
 				// only collect sessions whose panes are confirmed dead.
-				logging.Warn("orphan GC: failed to check pane liveness for %s: %v", ws.Name, err)
+				logging.Warn("orphan GC: no pane state for %s; skipping", ws.Name)
 				continue
 			}
 			if state.Exists && state.HasLivePane {
@@ -405,24 +282,6 @@ func (a *App) handleOrphanGCTick() []tea.Cmd {
 	return cmds
 }
 
-func (a *App) handleStaleDetachedAgentGCResult(msg staleDetachedAgentGCResult) {
-	if msg.Err != nil {
-		logging.Warn("detached agent GC: %v", msg.Err)
-		return
-	}
-	if msg.Killed > 0 {
-		logging.Info(
-			"detached agent GC: killed=%d considered=%d attached=%d live_owner=%d fresh=%d live_pane=%d",
-			msg.Killed,
-			msg.Considered,
-			msg.SkippedAttached,
-			msg.SkippedLiveOwner,
-			msg.SkippedFresh,
-			msg.SkippedLivePane,
-		)
-	}
-}
-
 // sessionCountResult is returned after counting amux tmux sessions.
 type sessionCountResult struct {
 	Count int
@@ -438,7 +297,7 @@ func (a *App) logSessionCount() tea.Cmd {
 	svc := a.tmuxService
 	return func() tea.Msg {
 		if svc == nil {
-			return sessionCountResult{Err: errTmuxUnavailable}
+			return sessionCountResult{Err: activity.ErrTmuxUnavailable}
 		}
 		match := map[string]string{"@amux": "1"}
 		rows, err := svc.SessionsWithTags(match, nil, opts)

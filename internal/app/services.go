@@ -3,31 +3,14 @@ package app
 import (
 	"time"
 
-	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/update"
 )
 
-// ProjectRegistry is the minimal interface used by the app for project tracking.
-type ProjectRegistry interface {
-	Projects() ([]string, error)
-	AddProject(path string) error
-	RemoveProject(path string) error
-}
-
-// WorkspaceStore is the minimal interface used by the app for workspace metadata.
-type WorkspaceStore interface {
-	ListByRepo(repo string) ([]*data.Workspace, error)
-	ListByRepoIncludingArchived(repo string) ([]*data.Workspace, error)
-	LoadMetadataFor(workspace *data.Workspace) (bool, error)
-	UpsertFromDiscovery(workspace *data.Workspace) error
-	Save(workspace *data.Workspace) error
-	Delete(id data.WorkspaceID) error
-	Rename(id data.WorkspaceID, newName string) error
-	SetEnv(id data.WorkspaceID, env map[string]string) error
-	ResolvedDefaultAssistant() string
-}
+// The workspace-service interfaces (ProjectRegistry, WorkspaceStore,
+// GitOperations) live in internal/app/workspacesvc — the only package that
+// consumes them.
 
 // GitStatusService provides cached status reads and fresh refreshes.
 type GitStatusService interface {
@@ -44,7 +27,14 @@ type TmuxOps interface {
 	InstallHint() string
 	ActiveAgentSessionsByActivity(window time.Duration, opts tmux.Options) ([]tmux.SessionActivity, error)
 	SessionsWithTags(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error)
+	// SetSessionTagValueForSessions is declared on the interface (not asserted)
+	// because owner-heartbeat refresh has no fallback: a TmuxOps lacking it
+	// silently breaks the cross-instance liveness the GC relies on.
+	SetSessionTagValueForSessions(sessionNames []string, key, value string, opts tmux.Options) error
 	AllSessionStates(opts tmux.Options) (map[string]tmux.SessionState, error)
+	// AllSessionMeta returns attached-client count and creation time for every
+	// session in one call, so scan loops can skip per-session probes.
+	AllSessionMeta(opts tmux.Options) (map[string]tmux.SessionMeta, error)
 	SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error)
 	SessionHasClients(sessionName string, opts tmux.Options) (bool, error)
 	SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error)
@@ -56,6 +46,10 @@ type TmuxOps interface {
 	SetMonitorActivityOn(opts tmux.Options) error
 	SetStatusOff(opts tmux.Options) error
 	CapturePaneTail(sessionName string, lines int, opts tmux.Options) (string, bool)
+	// CapturePaneTailChecked is CapturePaneTail with the active-pane liveness
+	// probe supplied by the caller (e.g. from AllSessionStates), saving one
+	// tmux subprocess per call.
+	CapturePaneTailChecked(sessionName string, lines int, activePaneLive bool, opts tmux.Options) (string, bool)
 	ContentHash(content string) [16]byte
 }
 

@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -51,8 +52,8 @@ func TestLoadProjects_SymlinkedWorkspacesRootKeepsMissingManagedWorkspace(t *tes
 		t.Fatalf("Save managed workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, symlinkedWorkspacesRoot)
-	app := &App{workspaceService: workspaceService}
+	svc := workspacesvc.New(registry, store, nil, symlinkedWorkspacesRoot)
+	app := &App{workspaceService: svc}
 
 	msg := app.loadProjects()()
 	loaded, ok := msg.(messages.ProjectsLoaded)
@@ -128,8 +129,8 @@ func TestLoadProjects_SymlinkedWorkspacesRootKeepsMissingResolvedManagedWorkspac
 		t.Fatalf("Save managed workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, symlinkedWorkspacesRoot)
-	app := &App{workspaceService: workspaceService}
+	svc := workspacesvc.New(registry, store, nil, symlinkedWorkspacesRoot)
+	app := &App{workspaceService: svc}
 
 	msg := app.loadProjects()()
 	loaded, ok := msg.(messages.ProjectsLoaded)
@@ -200,8 +201,8 @@ func TestLoadProjects_BrokenSymlinkedWorkspacesRootKeepsMissingResolvedManagedWo
 		t.Fatalf("Save managed workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, symlinkedWorkspacesRoot)
-	app := &App{workspaceService: workspaceService}
+	svc := workspacesvc.New(registry, store, nil, symlinkedWorkspacesRoot)
+	app := &App{workspaceService: svc}
 
 	msg := app.loadProjects()()
 	loaded, ok := msg.(messages.ProjectsLoaded)
@@ -277,8 +278,8 @@ func TestWorkspaceVisibilityAcrossRepoAliasBasenameChange(t *testing.T) {
 		t.Fatalf("Save managed workspace: %v", err)
 	}
 
-	workspaceService := newWorkspaceService(registry, store, nil, workspacesRoot)
-	app := &App{workspaceService: workspaceService}
+	svc := workspacesvc.New(registry, store, nil, workspacesRoot)
+	app := &App{workspaceService: svc}
 
 	msg := app.loadProjects()()
 	loaded, ok := msg.(messages.ProjectsLoaded)

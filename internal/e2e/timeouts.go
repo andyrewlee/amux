@@ -23,6 +23,20 @@ const (
 	// apart for the app's prefix-mode state machine to observe each key.
 	prefixInterKeyDelay = 15 * time.Millisecond
 
+	// prefixSettleDelay lets the app register prefix mode after the leader
+	// byte before the command key arrives. No screen observable exists for
+	// "prefix mode is armed", so this stays a fixed pacing sleep.
+	prefixSettleDelay = 50 * time.Millisecond
+
+	// dialogInputSettle lets a dialog consume one navigation key before the
+	// next arrives. Selection state is styling-only (not visible in
+	// ScreenASCII), so there is nothing to poll.
+	dialogInputSettle = 150 * time.Millisecond
+
+	// wheelThrottleDelay paces wheel events past the app's 15ms wheel
+	// throttle (mouseEventFilter in cmd/amux) so neither event is dropped.
+	wheelThrottleDelay = 50 * time.Millisecond
+
 	// sessionPollInterval paces tmux list-sessions polling; tmux session
 	// state changes at human speed, so 200ms keeps subprocess churn low.
 	sessionPollInterval = 200 * time.Millisecond

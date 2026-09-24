@@ -48,15 +48,15 @@ func applyHarnessOverlay(app *App, overlay string) {
 		// real ~/.amux/config.json, which would otherwise bake a machine-specific
 		// theme selection into testdata/golden and fail CI on a clean checkout.
 		// ThemeGruvbox matches the chrome theme.Init() installs in the harness.
-		app.settingsDialog = common.NewSettingsDialog(common.ThemeGruvbox, "", "", "")
+		app.overlays.settings = common.NewSettingsDialog(common.ThemeGruvbox, "", "", "")
 		// Use the canonical built-in registry (not app.config.Assistants) for the
 		// same reason as ThemeGruvbox above: app.config is loaded from the real
 		// ~/.amux/config.json, whose "assistants" overrides are machine-specific
 		// and would make the golden frame non-reproducible across checkouts.
-		app.settingsDialog.SetAssistants(config.AgentNames(), harnessAssistantCommands())
-		app.settingsDialog.SetSize(app.width, app.height)
-		app.settingsDialog.SetUpdateInfo(app.version, "", false)
-		app.settingsDialog.Show()
+		app.overlays.settings.SetAssistants(config.AgentNames(), harnessAssistantCommands())
+		app.overlays.settings.SetSize(app.width, app.height)
+		app.overlays.settings.SetUpdateInfo(app.version, "", false)
+		app.overlays.settings.Show()
 	case HarnessOverlayPrefix:
 		app.prefixActive = true
 	case HarnessOverlayError:

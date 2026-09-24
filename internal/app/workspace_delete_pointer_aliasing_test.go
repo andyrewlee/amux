@@ -3,8 +3,11 @@ package app
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/testutil"
+	"github.com/andyrewlee/amux/internal/testutil/tmuxops"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
@@ -55,8 +58,8 @@ func TestFilterDeletedWorkspacesFromProjectLoad_DoesNotMutateBackingArray(t *tes
 	outstandingB := &project.Workspaces[1]
 
 	wsA := &project.Workspaces[0]
-	if !app.lifecycle.markDeletingWorkspace(string(wsA.ID()), wsA.Root, true) {
-		t.Fatal("failed to mark workspace a as deleting")
+	if !app.lifecycle.markMutatingWorkspace(string(wsA.ID()), wsA.Root, true) {
+		t.Fatal("failed to mark workspace a as mutating")
 	}
 
 	filtered := app.filterDeletedWorkspacesFromProjectLoad([]data.Project{*project}, 0)
@@ -81,14 +84,14 @@ func TestHandleDeleteWorkspace_FreezesIdentityAgainstAliasedMutation(t *testing.
 	victimID := string(handedOver.ID())
 	victimRoot := handedOver.Root
 
-	svc := newWorkspaceService(nil, nil, nil, "/tmp/workspaces")
-	svc.gitOps = &mockGitOps{}
+	svc := workspacesvc.New(nil, nil, nil, "/tmp/workspaces")
+	svc.Configure(workspacesvc.Deps{GitOps: &testutil.FakeGitOps{}})
 	app := &App{
 		dashboard:        dashboard.New(),
 		center:           center.New(nil),
 		sidebar:          sidebar.NewTabbedSidebar(),
 		sidebarTerminal:  sidebar.NewTerminalModel(),
-		tmuxService:      &killRecordingTmuxOps{},
+		tmuxService:      &tmuxops.FakeTmuxOps{},
 		tmuxOptions:      tmux.Options{},
 		workspaceService: svc,
 	}

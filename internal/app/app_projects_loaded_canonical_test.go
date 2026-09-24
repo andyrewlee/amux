@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -126,7 +127,7 @@ func TestHandleProjectsLoadedCanonicalRebindMigratesDirtyWorkspaceID(t *testing.
 		center:           center.New(nil),
 		sidebar:          sidebar.NewTabbedSidebar(),
 		sidebarTerminal:  sidebar.NewTerminalModel(),
-		workspaceService: newWorkspaceService(nil, nil, nil, ""),
+		workspaceService: workspacesvc.New(nil, nil, nil, ""),
 		projects:         []data.Project{*oldProject},
 		activeWorkspace:  activeOld,
 		activeProject:    oldProject,
