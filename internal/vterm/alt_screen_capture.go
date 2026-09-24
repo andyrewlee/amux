@@ -63,7 +63,7 @@ func (v *VTerm) captureScreenToScrollback() bool {
 
 	added := 0
 	for _, line := range lines[overlap:] {
-		v.Scrollback = append(v.Scrollback, CopyLine(line))
+		v.Scrollback = append(v.Scrollback, copyLineTrimmed(line))
 		added++
 	}
 	v.altCapture.frameLen = len(lines)
@@ -371,96 +371,4 @@ func (v *VTerm) invalidateAltScreenCapture() {
 
 func (v *VTerm) invalidateTrackedAltScreenCapture() {
 	v.altCapture.reset()
-}
-
-// captureRowsMatch compares lines with captured rows using the current terminal width.
-func captureRowsMatch(current, captured [][]Cell, width int) bool {
-	if len(current) != len(captured) {
-		return false
-	}
-	for i := range current {
-		if !linesEqual(current[i], copyVisibleLine(captured[i], width)) {
-			return false
-		}
-	}
-	return true
-}
-
-// matchesScrollbackTail returns true if the last len(lines) entries in
-// scrollback are cell-identical to lines.
-func matchesScrollbackTail(scrollback, lines [][]Cell) bool {
-	n := len(lines)
-	sb := len(scrollback)
-	if sb < n || n == 0 {
-		return false
-	}
-	for i := 0; i < n; i++ {
-		if !linesEqual(scrollback[sb-n+i], lines[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// scrollbackTailOverlap returns the length of the longest suffix of scrollback
-// that matches a prefix of lines. This detects lines already pushed into
-// scrollback by scrollUp so captureScreenToScrollback can skip them.
-func scrollbackTailOverlap(scrollback, lines [][]Cell) int {
-	maxK := len(lines)
-	if len(scrollback) < maxK {
-		maxK = len(scrollback)
-	}
-	for k := maxK; k > 0; k-- {
-		match := true
-		for i := 0; i < k; i++ {
-			if !linesEqual(scrollback[len(scrollback)-k+i], lines[i]) {
-				match = false
-				break
-			}
-		}
-		if match {
-			return k
-		}
-	}
-	return 0
-}
-
-// frameShiftOverlap returns the longest suffix of oldLines that matches a
-// prefix of newLines. A non-zero result indicates the visible frame advanced
-// upward and new content appeared below it.
-func frameShiftOverlap(oldLines, newLines [][]Cell) int {
-	maxK := len(oldLines)
-	if len(newLines) < maxK {
-		maxK = len(newLines)
-	}
-	for k := maxK; k > 0; k-- {
-		match := true
-		for i := 0; i < k; i++ {
-			if !linesEqual(oldLines[len(oldLines)-k+i], newLines[i]) {
-				match = false
-				break
-			}
-		}
-		if match {
-			return k
-		}
-	}
-	return 0
-}
-
-// linesEqual returns true if two cell slices have identical visible content and
-// styles.
-func linesEqual(a, b []Cell) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Rune != b[i].Rune ||
-			a[i].GraphemeCluster != b[i].GraphemeCluster ||
-			a[i].Width != b[i].Width ||
-			a[i].Style != b[i].Style {
-			return false
-		}
-	}
-	return true
 }

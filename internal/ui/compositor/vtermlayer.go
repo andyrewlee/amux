@@ -155,7 +155,7 @@ func cellToUVSnapshot(uvCell *uv.Cell, cell vterm.Cell, snap *VTermSnapshot, x, 
 
 	// Apply selection and cursor reverse (selection has precedence over cursor)
 	cursorHere := snap.ShowCursor && !snap.CursorHidden &&
-		y == snap.CursorY && x == snap.CursorX && snap.ViewOffset == 0
+		y == snap.CursorY && x == snap.CursorRenderX() && snap.ViewOffset == 0
 	if inSel || cursorHere {
 		style.Reverse = !style.Reverse
 	}

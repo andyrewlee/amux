@@ -164,14 +164,19 @@ func TestCapturePaneSnapshot_PreservesTrailingSpaces(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "snapshot-trailing-spaces", "printf 'pad   '; sleep 300")
-	time.Sleep(200 * time.Millisecond)
 
-	snapshot, err := CapturePaneSnapshot("snapshot-trailing-spaces", opts)
-	if err != nil {
-		t.Fatalf("CapturePaneSnapshot: %v", err)
-	}
-	if !strings.Contains(string(snapshot.Data), "pad   ") {
-		t.Fatalf("expected trailing spaces to be preserved in snapshot, got %q", snapshot.Data)
+	// Wait for the printf to land in the pane buffer — the shell spawns
+	// asynchronously after new-session returns.
+	var snapshot PaneSnapshot
+	if !eventually(5*time.Second, func() bool {
+		snap, err := CapturePaneSnapshot("snapshot-trailing-spaces", opts)
+		if err != nil {
+			return false
+		}
+		snapshot = snap
+		return strings.Contains(string(snap.Data), "pad   ")
+	}) {
+		t.Fatalf("printf output never appeared in pane, snapshot %q", snapshot.Data)
 	}
 }
 
@@ -185,11 +190,17 @@ func TestCapturePane_PreservesTrailingSpaces(t *testing.T) {
 		"capture-trailing-spaces",
 		`i=1; printf 'pad   \n'; while [ "$i" -le 80 ]; do printf 'line%02d\n' "$i"; i=$((i+1)); done; sleep 300`,
 	)
-	time.Sleep(200 * time.Millisecond)
-
-	scrollback, err := CapturePane("capture-trailing-spaces", opts)
-	if err != nil {
-		t.Fatalf("CapturePane: %v", err)
+	// Wait for the printf output to land in the pane buffer.
+	var scrollback []byte
+	if !eventually(5*time.Second, func() bool {
+		out, err := CapturePane("capture-trailing-spaces", opts)
+		if err != nil {
+			return false
+		}
+		scrollback = out
+		return strings.Contains(string(out), "pad   ")
+	}) {
+		t.Fatalf("printf output never appeared in pane, capture %q", scrollback)
 	}
 	if !strings.Contains(string(scrollback), "pad   ") {
 		t.Fatalf("expected trailing spaces to be preserved in scrollback capture, got %q", scrollback)
@@ -208,7 +219,6 @@ func TestCapturePaneSnapshot_RejectsMultiPaneWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("split-window: %v\n%s", err, out)
 	}
-	time.Sleep(200 * time.Millisecond)
 
 	_, err = CapturePaneSnapshot("snapshot-multi-pane", opts)
 	if !errors.Is(err, errPaneSnapshotNotWholeWindow) {
@@ -235,7 +245,6 @@ func TestCapturePaneSnapshot_RejectsZoomedSplitWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resize-pane -Z: %v\n%s", err, out)
 	}
-	time.Sleep(200 * time.Millisecond)
 
 	_, err = CapturePaneSnapshot("snapshot-zoomed-pane", opts)
 	if !errors.Is(err, errPaneSnapshotNotWholeWindow) {
@@ -258,7 +267,6 @@ func TestResizePaneToSize_ResizesDetachedWindow(t *testing.T) {
 	opts := testServer(t)
 
 	createSession(t, opts, "resize-detached-window", "sleep 300")
-	time.Sleep(100 * time.Millisecond)
 
 	if err := ResizePaneToSize("resize-detached-window", 91, 27, opts); err != nil {
 		t.Fatalf("ResizePaneToSize: %v", err)

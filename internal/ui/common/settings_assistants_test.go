@@ -235,3 +235,176 @@ func TestSettingsClickOnAssistantRowFocusesAndSetsCursor(t *testing.T) {
 		t.Fatalf("assistantCursor after click = %d, want 1 (codex)", d.assistantCursor)
 	}
 }
+
+// typeIntoAssistant drives the dialog's real key router while the Assistants
+// section is focused (mirrors typeIntoEnvDialog).
+func typeIntoAssistant(d *SettingsDialog, s string) {
+	for _, r := range s {
+		d.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
+// TestSettingsDialogAssistantAddFirstEntry covers the empty-roster case: the
+// section renders its "ctrl+a to add" affordance and the first assistant is
+// created entirely through the two-field add input.
+func TestSettingsDialogAssistantAddFirstEntry(t *testing.T) {
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
+	d.SetAssistants(nil, nil)
+	d.Show()
+	d.focusedItem = settingsItemAssistants
+
+	// The empty roster still renders the section + affordance.
+	joined := strings.Join(d.renderLines(), "\n")
+	if !strings.Contains(joined, "ctrl+a to add") {
+		t.Fatalf("empty roster should render the add affordance, got:\n%s", joined)
+	}
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	if !d.assistantAdding {
+		t.Fatal("ctrl+a did not open the add input")
+	}
+	typeIntoAssistant(d, "Gemini")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.assistantAddField != 1 {
+		t.Fatalf("enter on a valid name did not advance to command (field=%d)", d.assistantAddField)
+	}
+	typeIntoAssistant(d, "gemini --fast")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if d.assistantAdding {
+		t.Fatal("commit did not exit add mode")
+	}
+	if got := d.AssistantCommands()["gemini"]; got != "gemini --fast" {
+		t.Fatalf("AssistantCommands()[gemini] = %q, want %q", got, "gemini --fast")
+	}
+	if len(d.assistantNames) != 1 || d.assistantNames[0] != "gemini" {
+		t.Fatalf("assistantNames = %#v, want [gemini] (name normalized lowercase)", d.assistantNames)
+	}
+	if d.assistantCursor != 0 {
+		t.Fatalf("assistantCursor = %d, want 0 (the new row)", d.assistantCursor)
+	}
+}
+
+// TestSettingsDialogAssistantAddDuplicate pins the duplicate contract: a
+// normalized-name collision cancels the add, focuses the existing row, and
+// never overwrites its command.
+func TestSettingsDialogAssistantAddDuplicate(t *testing.T) {
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
+	d.SetAssistants([]string{"claude"}, map[string]string{"claude": "claude"})
+	d.Show()
+	d.focusedItem = settingsItemAssistants
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	typeIntoAssistant(d, "CLAUDE")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	typeIntoAssistant(d, "different-cmd")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if d.assistantAdding {
+		t.Fatal("duplicate add should exit add mode")
+	}
+	if got := d.AssistantCommands()["claude"]; got != "claude" {
+		t.Fatalf("duplicate add overwrote the command: %q, want %q", got, "claude")
+	}
+	if d.assistantCursor != 0 {
+		t.Fatalf("assistantCursor = %d, want 0 (the existing claude row)", d.assistantCursor)
+	}
+	if d.assistantNotice == "" {
+		t.Fatal("duplicate add should leave a notice")
+	}
+	if len(d.assistantNames) != 1 {
+		t.Fatalf("assistantNames = %#v — duplicate must not append", d.assistantNames)
+	}
+}
+
+// TestSettingsDialogAssistantAddValidation covers name and command rules.
+func TestSettingsDialogAssistantAddValidation(t *testing.T) {
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
+	d.SetAssistants(nil, nil)
+	d.Show()
+	d.focusedItem = settingsItemAssistants
+
+	// Empty name stays on the name field with an error.
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.assistantAddField != 0 || d.assistantAddError == "" {
+		t.Fatalf("empty name should stay on name field with error (field=%d err=%q)", d.assistantAddField, d.assistantAddError)
+	}
+
+	// Whitespace inside the name is rejected.
+	d.assistantAddName = "two words"
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.assistantAddField != 0 || d.assistantAddError == "" {
+		t.Fatalf("whitespace name should stay on name field with error (field=%d err=%q)", d.assistantAddField, d.assistantAddError)
+	}
+
+	// Valid name advances; empty command blocks the commit.
+	d.assistantAddName = "newbot"
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.assistantAddField != 1 {
+		t.Fatalf("valid name should advance (field=%d err=%q)", d.assistantAddField, d.assistantAddError)
+	}
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !d.assistantAdding || d.assistantAddError == "" {
+		t.Fatalf("empty command should keep add mode open with error (adding=%v err=%q)", d.assistantAdding, d.assistantAddError)
+	}
+}
+
+// TestSettingsDialogAssistantAddNameValidator confirms the domain hook wired
+// via SetAssistantNameValidator rejects names the generic rules accept —
+// the path that keeps config-load validation from silently dropping a
+// dialog-added assistant on restart.
+func TestSettingsDialogAssistantAddNameValidator(t *testing.T) {
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
+	d.SetAssistants(nil, nil)
+	d.SetAssistantNameValidator(func(name string) string {
+		if name == "bad!name" {
+			return "assistant must start with letter/number and contain only letters, numbers, dots, dashes, or underscores"
+		}
+		return ""
+	})
+	d.Show()
+	d.focusedItem = settingsItemAssistants
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	typeIntoAssistant(d, "bad!name")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.assistantAddField != 0 || !strings.Contains(d.assistantAddError, "letter/number") {
+		t.Fatalf("validator-rejected name should stay on name field with its error (field=%d err=%q)", d.assistantAddField, d.assistantAddError)
+	}
+
+	d.assistantAddName = "goodname"
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.assistantAddField != 1 {
+		t.Fatalf("accepted name should advance (field=%d err=%q)", d.assistantAddField, d.assistantAddError)
+	}
+}
+
+// TestSettingsDialogAssistantAddCancel pins the Esc contract inside add mode:
+// it cancels only the add — the dialog stays open and nothing is appended.
+func TestSettingsDialogAssistantAddCancel(t *testing.T) {
+	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
+	d.SetAssistants([]string{"claude"}, map[string]string{"claude": "claude"})
+	d.Show()
+	d.focusedItem = settingsItemAssistants
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	typeIntoAssistant(d, "partial")
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if d.assistantAdding {
+		t.Fatal("esc did not cancel add mode")
+	}
+	if !d.Visible() {
+		t.Fatal("esc inside add mode must not close the dialog")
+	}
+	if len(d.assistantNames) != 1 {
+		t.Fatalf("assistantNames = %#v — canceled add must not append", d.assistantNames)
+	}
+
+	// Esc on the list still cancels the whole dialog.
+	d.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if d.Visible() {
+		t.Fatal("esc on the list should close the dialog")
+	}
+}

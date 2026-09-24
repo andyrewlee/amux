@@ -9,12 +9,26 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// EnvDialogResult is sent when the workspace environment-variable dialog
-// closes. Canceled is true when the user dismissed via Esc, in which case the
+// EnvScope identifies which env editor emitted an EnvDialogResult — the
+// workspace-scoped and project-scoped editors share this widget, and the
+// scope (set at construction) is what routes the result, not which App
+// pointer happens to be non-nil.
+type EnvScope int
+
+const (
+	// EnvScopeWorkspace is the default: the workspace env editor.
+	EnvScopeWorkspace EnvScope = iota
+	// EnvScopeProject is the per-project env editor.
+	EnvScopeProject
+)
+
+// EnvDialogResult is sent when an environment-variable dialog closes.
+// Canceled is true when the user dismissed via Esc, in which case the
 // caller must discard every edit (no mutation, no persist) -- the same
 // cancel contract SettingsResult uses.
 type EnvDialogResult struct {
 	Canceled bool
+	Scope    EnvScope
 }
 
 // EnvDialog is a modal dialog that edits a single workspace's
@@ -30,24 +44,39 @@ type EnvDialogResult struct {
 // (process.IsReservedScriptEnvKey) is the caller's job -- see
 // internal/app's handleShowWorkspaceEnvDialog, which filters ws.Env before
 // calling NewEnvDialog and filters again defensively before persisting.
+// Callers that want domain validation surfaced inside the dialog wire
+// SetKeyValidator (e.g. to reject reserved names) -- without one the dialog
+// enforces only the generic name rules (non-empty, no whitespace/'=').
 //
-// First-cut scope (plan 058's Design decision): only EDITING an existing
-// pair's value and REMOVING a pair are supported. Adding a brand-new key
-// needs a second input target inside a row (a name field, with its own
-// validation) -- a materially different widget than every other multi-row
-// editor in this package -- so "add" is deferred to a follow-up, the same
-// escape hatch plan 031 used for "add a new assistant".
+// Adding a new pair: ctrl+a opens a two-field input (name -> value, Tab
+// switches fields, Enter commits, Esc cancels just the add). A duplicate
+// name cancels the add and moves the cursor to the existing row instead of
+// silently overwriting it.
 type EnvDialog struct {
 	visible bool
 	width   int
+	title   string
 
 	// keys is the display order. It is built once at construction (sorted,
-	// for a deterministic and testable row order) and only ever shrinks (on
-	// remove); it is never re-sorted, so removing a row does not reshuffle
-	// the rows around it.
+	// for a deterministic and testable row order); removes shrink it and adds
+	// insert at the sorted position, so the order stays stable and sorted
+	// without ever re-sorting.
 	keys   []string
 	values map[string]string
 	cursor int
+
+	// Add-mode state (see the doc comment above). notice is a transient
+	// footer line shown after an add/cancel/duplicate outcome; it clears on
+	// the next keypress. keyValidator is the optional domain hook from
+	// SetKeyValidator ("" return = accept).
+	adding       bool
+	addField     int // 0 = name, 1 = value
+	addName      string
+	addValue     string
+	addError     string
+	notice       string
+	keyValidator func(string) string
+	scope        EnvScope
 }
 
 // NewEnvDialog seeds the dialog from env, which is copied so later edits in
@@ -60,7 +89,30 @@ func NewEnvDialog(env map[string]string) *EnvDialog {
 		values[k] = v
 	}
 	sort.Strings(keys)
-	return &EnvDialog{keys: keys, values: values}
+	return &EnvDialog{keys: keys, values: values, title: "Workspace Environment"}
+}
+
+// SetTitle overrides the rendered heading — the project-level editor reuses
+// this dialog but is not workspace-scoped, so it must not claim to be.
+func (d *EnvDialog) SetTitle(title string) {
+	if title != "" {
+		d.title = title
+	}
+}
+
+// SetScope marks which editor instance this dialog is; emitted
+// EnvDialogResults carry it so dispatch routes on the result itself.
+func (d *EnvDialog) SetScope(scope EnvScope) {
+	d.scope = scope
+}
+
+// SetKeyValidator installs the optional domain check run on a new key name
+// when the user commits an add ("" return = accept; anything else renders as
+// the in-dialog error). The workspace editor wires this to
+// process.IsReservedScriptEnvKey so a reserved name is rejected visibly, not
+// just dropped at persist time by the caller-side filter.
+func (d *EnvDialog) SetKeyValidator(fn func(string) string) {
+	d.keyValidator = fn
 }
 
 func (d *EnvDialog) Show()            { d.visible = true }
@@ -96,15 +148,20 @@ func (d *EnvDialog) Update(msg tea.Msg) (*EnvDialog, tea.Cmd) {
 	if !ok {
 		return d, nil
 	}
+	d.notice = ""
+
+	if d.adding {
+		return d.updateAddMode(keyMsg)
+	}
 
 	switch {
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("esc"))):
 		d.visible = false
-		return d, func() tea.Msg { return EnvDialogResult{Canceled: true} }
+		return d, func() tea.Msg { return EnvDialogResult{Canceled: true, Scope: d.scope} }
 
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))):
 		d.visible = false
-		return d, func() tea.Msg { return EnvDialogResult{} }
+		return d, func() tea.Msg { return EnvDialogResult{Scope: d.scope} }
 
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("down"))):
 		d.moveCursor(1)
@@ -118,6 +175,10 @@ func (d *EnvDialog) Update(msg tea.Msg) (*EnvDialog, tea.Cmd) {
 		d.deleteFocusedPair()
 		return d, nil
 
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("ctrl+a"))):
+		d.startAdd()
+		return d, nil
+
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("backspace"))):
 		d.deleteFocusedRune()
 		return d, nil
@@ -127,6 +188,122 @@ func (d *EnvDialog) Update(msg tea.Msg) (*EnvDialog, tea.Cmd) {
 		d.appendFocusedText(keyMsg.Text)
 	}
 	return d, nil
+}
+
+// updateAddMode handles input while the two-field add input is open: Tab
+// toggles between name and value, Enter advances name->value (when the name
+// is valid) and commits from the value field, Esc cancels just the add
+// (list edits are untouched). Structural list keys are inert here.
+func (d *EnvDialog) updateAddMode(keyMsg tea.KeyPressMsg) (*EnvDialog, tea.Cmd) {
+	switch {
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("esc"))):
+		d.cancelAdd("add canceled")
+		return d, nil
+
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab", "shift+tab"))):
+		d.addField = 1 - d.addField
+		return d, nil
+
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))):
+		if d.addField == 0 {
+			if err := d.validateAddName(); err != "" {
+				d.addError = err
+				return d, nil
+			}
+			d.addError = ""
+			d.addField = 1
+			return d, nil
+		}
+		d.commitAdd()
+		return d, nil
+
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("backspace"))):
+		if d.addField == 0 {
+			d.addName = trimLastRune(d.addName)
+		} else {
+			d.addValue = trimLastRune(d.addValue)
+		}
+		return d, nil
+	}
+
+	if keyMsg.Text != "" {
+		txt := keepRunes(keyMsg.Text, isPrintableFieldRune)
+		if d.addField == 0 {
+			d.addName += txt
+		} else {
+			d.addValue += txt
+		}
+	}
+	return d, nil
+}
+
+// startAdd opens the two-field add input.
+func (d *EnvDialog) startAdd() {
+	d.adding = true
+	d.addField = 0
+	d.addName = ""
+	d.addValue = ""
+	d.addError = ""
+}
+
+// cancelAdd closes the add input without committing, leaving a footer note.
+func (d *EnvDialog) cancelAdd(note string) {
+	d.adding = false
+	d.addError = ""
+	if note != "" {
+		d.notice = note
+	}
+}
+
+// validateAddName enforces the generic name rules plus the optional domain
+// validator; it returns "" for a usable name or the error text to display.
+func (d *EnvDialog) validateAddName() string {
+	name := strings.TrimSpace(d.addName)
+	if name == "" {
+		return "name required"
+	}
+	if strings.ContainsAny(name, " \t\n\r=") {
+		return "name must not contain whitespace or '='"
+	}
+	for _, r := range name {
+		if !isPrintableFieldRune(r) {
+			return "name must be printable"
+		}
+	}
+	if d.keyValidator != nil {
+		if err := d.keyValidator(name); err != "" {
+			return err
+		}
+	}
+	return ""
+}
+
+// commitAdd applies the add: a duplicate name cancels the add and focuses
+// the existing row (never silently overwrite); a new name is inserted at
+// its sorted position so the display order stays sorted.
+func (d *EnvDialog) commitAdd() {
+	name := strings.TrimSpace(d.addName)
+	if err := d.validateAddName(); err != "" {
+		d.addError = err
+		return
+	}
+	if _, exists := d.values[name]; exists {
+		for i, k := range d.keys {
+			if k == name {
+				d.cursor = i
+				break
+			}
+		}
+		d.cancelAdd(name + " already exists")
+		return
+	}
+	idx := sort.SearchStrings(d.keys, name)
+	d.keys = append(d.keys, "")
+	copy(d.keys[idx+1:], d.keys[idx:])
+	d.keys[idx] = name
+	d.values[name] = d.addValue
+	d.cursor = idx
+	d.cancelAdd("added " + name)
 }
 
 // moveCursor moves the row cursor by delta, wrapping within the row list
@@ -206,9 +383,9 @@ func (d *EnvDialog) renderLines() []string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary())
 	muted := lipgloss.NewStyle().Foreground(ColorMuted())
 
-	lines := []string{title.Render("Workspace Environment"), ""}
+	lines := []string{title.Render(d.title), ""}
 
-	if len(d.keys) == 0 {
+	if len(d.keys) == 0 && !d.adding {
 		lines = append(lines, muted.Render("No editable environment variables."))
 	}
 	for i, k := range d.keys {
@@ -220,6 +397,30 @@ func (d *EnvDialog) renderLines() []string {
 		lines = append(lines, prefix+style.Render(k+": "+d.values[k]))
 	}
 
-	lines = append(lines, "", muted.Render("up/down move  ctrl+d remove  enter save  esc cancel"))
+	if d.adding {
+		lines = append(lines, "", muted.Render("New entry"))
+		nameStyle, valueStyle := muted, muted
+		namePrefix, valuePrefix := "  ", "  "
+		if d.addField == 0 {
+			nameStyle = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			namePrefix = Icons.Cursor + " "
+		} else {
+			valueStyle = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			valuePrefix = Icons.Cursor + " "
+		}
+		lines = append(lines,
+			namePrefix+nameStyle.Render("name:  "+d.addName),
+			valuePrefix+valueStyle.Render("value: "+d.addValue))
+		if d.addError != "" {
+			lines = append(lines, lipgloss.NewStyle().Foreground(ColorError()).Render("  "+d.addError))
+		}
+		lines = append(lines, "", muted.Render("tab switch field  enter next/commit  esc cancel"))
+		return lines
+	}
+
+	if d.notice != "" {
+		lines = append(lines, "", muted.Render(d.notice))
+	}
+	lines = append(lines, "", muted.Render("up/down move  ctrl+a add  ctrl+d remove  enter save  esc cancel"))
 	return lines
 }

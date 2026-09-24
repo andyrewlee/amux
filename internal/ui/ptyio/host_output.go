@@ -66,6 +66,11 @@ type AppendResult struct {
 // SeedForTrim hook doing its own locking, and a lock around the overflow
 // bookkeeping. PendingOutput is written with mu released, so call AppendOutput
 // only from the single-writer Update goroutine, as both panes do.
+//
+// Ownership: when the buffer is empty, AppendOutput adopts data's backing
+// array into PendingOutput instead of copying. Callers must treat data as
+// transferred — never retain or mutate it after the call (both panes pass
+// consumed message payloads, which satisfies this).
 func (st *State) AppendOutput(mu sync.Locker, data []byte, maxBuffered int, h OutputHooks) AppendResult {
 	mu.Lock()
 	var carryConsumed bool
@@ -76,7 +81,14 @@ func (st *State) AppendOutput(mu sync.Locker, data []byte, maxBuffered int, h Ou
 	mu.Unlock()
 
 	prevPendingLen := len(st.PendingOutput)
-	st.PendingOutput = append(st.PendingOutput, data...)
+	// Adopt data when the buffer is drained: callers hand over a message
+	// payload they never retain, so ownership transfers and the append-copy is
+	// only needed when merging onto a live backlog.
+	if len(st.PendingOutput) == 0 {
+		st.PendingOutput = data
+	} else {
+		st.PendingOutput = append(st.PendingOutput, data...)
+	}
 	if h.AfterAppendLocked != nil {
 		mu.Lock()
 		h.AfterAppendLocked(len(data))

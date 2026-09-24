@@ -64,7 +64,7 @@ func activeWorkspaceIDsFromTags(
 			return captureFn(sessionName, lines, opts)
 		}
 	}
-	fallbackActive, updated, removed := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, c.fallback, states, c.seenChatSessions, opts, captureWithSuppression, hashFn)
+	fallbackActive, updated, removed := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, c.fallback, states, c.seenChatSessions, c.preseededStates, opts, captureWithSuppression, hashFn)
 	// preseededStates entries point at the same *SessionState objects in
 	// states/updated; this assignment preserves updates when fallback skipped
 	// the session in this scan.
@@ -165,9 +165,9 @@ func (c *tagClassifier) classifyFreshOutput(snapshot TaggedSession, info Session
 		if state := c.states[name]; state != nil && state.Score > ScoreThreshold {
 			state.Score = ScoreThreshold
 		}
-		// Note: for uninitialized states this calls capture-pane to seed a
-		// baseline hash; hysteresis will call it again. The double capture is a
-		// minor cost limited to first observation.
+		// For uninitialized states this captures once to seed the baseline
+		// hash; the hysteresis pass reuses that seed (via preseededStates)
+		// instead of capturing the same pane again this scan.
 		SeedFreshTagFallbackBaseline(name, c.states, c.preseededStates, c.opts, c.captureFn, c.hashFn)
 		c.markSeenFallback(name, snapshot.Session)
 		return
@@ -247,6 +247,7 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 	sessions []tmux.SessionActivity,
 	states map[string]*SessionState,
 	seenSessions map[string]bool,
+	seededThisScan map[string]*SessionState,
 	opts tmux.Options,
 	captureFn CaptureFn,
 	hashFn HashFn,
@@ -276,7 +277,20 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 		state.UnseenScans = 0
 		observedWork := false
 
-		// Capture pane content and compute hash
+		// Capture pane content and compute hash. Sessions whose baseline was
+		// seeded during this scan's tag-classification pass skip the capture —
+		// their seed hash IS this scan's sample, so the hysteresis outcome is
+		// the unchanged branch (a single score decay), which we run inline.
+		// A seeded state (Score=0, no hold) cannot be active this scan.
+		if _, seeded := seededThisScan[session.Name]; seeded && state.Initialized {
+			state.Score--
+			if state.Score < 0 {
+				state.Score = 0
+			}
+			updatedStates[session.Name] = state
+			continue
+		}
+
 		content, captureOK := captureFn(session.Name, CaptureTail, opts)
 		if captureOK {
 			hash := hashFn(content)

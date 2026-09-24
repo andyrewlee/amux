@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -29,11 +30,6 @@ type Options struct {
 	CommandTimeout  time.Duration
 }
 
-type SessionState struct {
-	Exists      bool
-	HasLivePane bool
-}
-
 type SessionTags struct {
 	WorkspaceID  string
 	TabID        string
@@ -43,6 +39,13 @@ type SessionTags struct {
 	InstanceID   string
 	SessionOwner string
 	LeaseAtMS    int64
+	// WorkspaceName/ProjectName are display-only labels for external
+	// orchestrators (`@amux_workspace_name`, `@amux_project`) — never read
+	// back by amux and never identity keys. They snapshot the names as of
+	// the last session attach: a workspace rename does not re-tag a live
+	// session (docs/ORCHESTRATION.md documents the staleness contract).
+	WorkspaceName string
+	ProjectName   string
 }
 
 const tmuxCommandTimeout = 5 * time.Second
@@ -65,11 +68,69 @@ func DefaultOptions() Options {
 	}
 }
 
+var ensureAvailability struct {
+	once sync.Once
+	err  error
+}
+
+// EnsureAvailable reports whether a usable tmux is installed: present on
+// PATH and at least version 3.2 (amux's `=` session targets and pane_dead
+// formats depend on it). The check runs a `tmux -V` subprocess, so the
+// result is cached with sync.Once — this sits on the hot path of every
+// tmux operation. An unparseable or failing `tmux -V` fails closed.
 func EnsureAvailable() error {
-	if _, err := exec.LookPath("tmux"); err == nil {
-		return nil
+	ensureAvailability.once.Do(func() {
+		ensureAvailability.err = checkAvailability()
+	})
+	return ensureAvailability.err
+}
+
+func checkAvailability() error {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return fmt.Errorf("tmux is not installed.\n\n%s", InstallHint())
 	}
-	return fmt.Errorf("tmux is not installed.\n\n%s", InstallHint())
+	out, err := exec.Command("tmux", "-V").Output()
+	if err != nil {
+		return fmt.Errorf("tmux is installed but `tmux -V` failed: %w\n\n%s", err, InstallHint())
+	}
+	raw := strings.TrimSpace(string(out))
+	major, minor, ok := parseVersion(raw)
+	if !ok {
+		return fmt.Errorf("unrecognized tmux version %q; amux requires tmux >= 3.2.\n\n%s", raw, InstallHint())
+	}
+	if major < 3 || (major == 3 && minor < 2) {
+		return fmt.Errorf("found %s, but amux requires tmux >= 3.2.\n\n%s", raw, InstallHint())
+	}
+	return nil
+}
+
+// parseVersion extracts the numeric version from `tmux -V` output such as
+// "tmux 3.4", "tmux 3.2a" (letter suffix = patch level, ignored), or
+// "tmux next-3.6" (git builds).
+func parseVersion(s string) (major, minor int, ok bool) {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "tmux"))
+	s = strings.TrimPrefix(s, "next-")
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return 0, 0, false
+	}
+	major, err := strconv.Atoi(s[:i])
+	if err != nil {
+		return 0, 0, false
+	}
+	if i < len(s) && s[i] == '.' {
+		j := i + 1
+		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+			j++
+		}
+		if j > i+1 {
+			minor, _ = strconv.Atoi(s[i+1 : j])
+		}
+	}
+	return major, minor, true
 }
 
 func InstallHint() string {
@@ -99,51 +160,6 @@ func SessionName(parts ...string) string {
 		return "amux"
 	}
 	return strings.Join(cleaned, "-")
-}
-
-// AllSessionStates returns the SessionState for every tmux session on the
-// server in a single subprocess call.  It runs:
-//
-//	tmux list-panes -a -F "#{session_name}\t#{pane_dead}"
-//
-// Sessions that appear in output have Exists=true.  Any session with at
-// least one pane where pane_dead is "0" gets HasLivePane=true.
-// If there are no sessions at all (exit code 1), an empty map is returned.
-func AllSessionStates(opts Options) (map[string]SessionState, error) {
-	if err := EnsureAvailable(); err != nil {
-		return nil, err
-	}
-	lines, err := listTmux(opts, "list-panes", "-a", "-F", "#{session_name}\t#{pane_dead}")
-	if err != nil {
-		return nil, err
-	}
-	return parseSessionStates(lines), nil
-}
-
-// parseSessionStates is the pure parse/aggregate half of AllSessionStates. It
-// takes the raw `list-panes -a -F "#{session_name}\t#{pane_dead}"` output and
-// returns one SessionState per session: Exists is true for any session that
-// appears, and HasLivePane is true once any of the session's panes reports
-// pane_dead=="0". Aggregating across multiple panes per session is the
-// genuinely bug-prone part, so it lives here to be unit-tested without a live
-// tmux server.
-func parseSessionStates(lines []string) map[string]SessionState {
-	states := make(map[string]SessionState)
-	for _, line := range lines {
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		name := parts[0]
-		dead := parts[1]
-		st := states[name]
-		st.Exists = true
-		if dead == "0" {
-			st.HasLivePane = true
-		}
-		states[name] = st
-	}
-	return states
 }
 
 func SessionStateFor(sessionName string, opts Options) (SessionState, error) {
@@ -306,186 +322,4 @@ type SessionActivity struct {
 	TabID       string
 	Type        string
 	Tagged      bool
-}
-
-// SessionTagValue returns a session option value for the given tag key.
-func SessionTagValue(sessionName, key string, opts Options) (string, error) {
-	if sessionName == "" || key == "" {
-		return "", nil
-	}
-	exists, err := hasSession(sessionName, opts)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return "", nil
-	}
-	cmd, cancel := tmuxCommand(opts, "show-options", "-t", exactSessionOptionTarget(sessionName), "-v", key)
-	defer cancel()
-	output, err := runTmuxCmd(cmd)
-	if err != nil {
-		if isExitCode1(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-// GlobalOptionValue returns a tmux global option value for the given key.
-// Missing options return an empty value with nil error, while connection
-// failures (for example, no running server) are returned as errors.
-// Unlike SetGlobalOptionValue, read paths do not suppress generic command
-// errors because callers rely on these failures for ownership/coordination
-// fallback decisions.
-func GlobalOptionValue(key string, opts Options) (string, error) {
-	if strings.TrimSpace(key) == "" {
-		return "", nil
-	}
-	if err := EnsureAvailable(); err != nil {
-		return "", err
-	}
-	cmd, cancel := tmuxCommand(opts, "show-options", "-g", "-v", key)
-	defer cancel()
-	output, err := runTmuxCmdCombined(cmd)
-	if err != nil {
-		if isExitCode1(err) {
-			if isOptionMissingStderr(string(output)) {
-				return "", nil
-			}
-			stderr := strings.TrimSpace(string(output))
-			return "", fmt.Errorf("show-options -g %s: %s: %w", key, stderr, err)
-		}
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-// OptionValue represents a tmux option key/value pair.
-type OptionValue struct {
-	Key   string
-	Value string
-}
-
-// SetGlobalOptionValue sets a tmux global option value.
-func SetGlobalOptionValue(key, value string, opts Options) error {
-	if strings.TrimSpace(key) == "" {
-		return nil
-	}
-	if err := EnsureAvailable(); err != nil {
-		return err
-	}
-	cmd, cancel := tmuxCommand(opts, "set-option", "-g", key, value)
-	defer cancel()
-	output, err := runTmuxCmdCombined(cmd)
-	if err != nil {
-		if isExitCode1(err) {
-			stderr := strings.TrimSpace(string(output))
-			if isOptionMissingStderr(stderr) {
-				return nil
-			}
-			return fmt.Errorf("set-option -g %s: %s: %w", key, stderr, err)
-		}
-		return err
-	}
-	return nil
-}
-
-// buildMultiSetOptionArgs builds semicolon-separated tmux set-option arguments.
-// scope provides the targeting flags (e.g. []string{"-g"} or []string{"-t", target}).
-func buildMultiSetOptionArgs(scope []string, values []OptionValue) ([]string, int) {
-	args := make([]string, 0, len(values)*6)
-	added := 0
-	for _, candidate := range values {
-		key := strings.TrimSpace(candidate.Key)
-		if key == "" {
-			continue
-		}
-		if added > 0 {
-			args = append(args, ";")
-		}
-		args = append(args, "set-option")
-		args = append(args, scope...)
-		args = append(args, key, candidate.Value)
-		added++
-	}
-	return args, added
-}
-
-// SetGlobalOptionValues sets multiple tmux global options in a single tmux command.
-func SetGlobalOptionValues(values []OptionValue, opts Options) error {
-	if len(values) == 0 {
-		return nil
-	}
-	if err := EnsureAvailable(); err != nil {
-		return err
-	}
-	args, added := buildMultiSetOptionArgs([]string{"-g"}, values)
-	if added == 0 {
-		return nil
-	}
-	cmd, cancel := tmuxCommand(opts, args...)
-	defer cancel()
-	output, err := runTmuxCmdCombined(cmd)
-	if err != nil {
-		if isExitCode1(err) {
-			stderr := strings.TrimSpace(string(output))
-			if isOptionMissingStderr(stderr) {
-				return nil
-			}
-			return fmt.Errorf("set-option -g (multi): %s: %w", stderr, err)
-		}
-		return err
-	}
-	return nil
-}
-
-func sanitize(value string) string {
-	// Normalize to lowercase to keep session naming deterministic across inputs.
-	value = strings.ToLower(value)
-	var b strings.Builder
-	b.Grow(len(value))
-	for i := 0; i < len(value); i++ {
-		ch := value[i]
-		switch {
-		case ch >= 'a' && ch <= 'z':
-			b.WriteByte(ch)
-		case ch >= '0' && ch <= '9':
-			b.WriteByte(ch)
-		case ch == '-' || ch == '_':
-			b.WriteByte(ch)
-		default:
-			b.WriteByte('-')
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-// sessionTarget returns a tmux target for session-level commands.
-// Uses "=" prefix for exact session matching, preventing tmux from
-// prefix-matching "amux-ws-tab-1" to "amux-ws-tab-10".
-func sessionTarget(name string) string { return "=" + name }
-
-// exactSessionOptionTarget returns a tmux target for session-scoped options.
-// Unlike has-session and send-keys, tmux set-option and show-options do not
-// support the "=" exact-match prefix (tmux 3.6a returns "no such session").
-// Bare names are safe here because amux session names include workspace ID +
-// tab ID, making prefix collisions practically impossible.
-func exactSessionOptionTarget(name string) string { return name }
-
-// parseOutputLines splits tmux command output into non-empty trimmed lines.
-func parseOutputLines(output []byte) []string {
-	raw := strings.TrimSpace(string(output))
-	if raw == "" {
-		return nil
-	}
-	lines := strings.Split(raw, "\n")
-	result := make([]string, 0, len(lines))
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			result = append(result, line)
-		}
-	}
-	return result
 }

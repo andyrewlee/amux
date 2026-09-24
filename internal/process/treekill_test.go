@@ -150,6 +150,50 @@ func TestKillProcessGroup_ChildProcessCleanup(t *testing.T) {
 	}, "process group still running")
 }
 
+func TestKillProcessGroup_OrphanedGroupReaped(t *testing.T) {
+	// Leader spawns a child then dies: the group lives on without its leader.
+	// The old Getpgid(leaderPID) lookup returned ESRCH here and never signaled
+	// the group; signaling -leaderPID must still reap it.
+	cmd := exec.Command("sh", "-c", "sleep 60 & wait")
+	SetProcessGroup(cmd)
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+
+	pid := cmd.Process.Pid
+
+	// Give the child time to spawn
+	time.Sleep(50 * time.Millisecond)
+
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatalf("failed to get pgid: %v", err)
+	}
+
+	// Kill only the leader; the orphaned sleep keeps the group alive.
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		t.Fatalf("failed to kill leader: %v", err)
+	}
+	_ = cmd.Wait()
+
+	if err := syscall.Kill(-pgid, 0); err == syscall.ESRCH {
+		t.Skip("orphaned child did not survive leader exit in this environment")
+	}
+
+	err = KillProcessGroup(pid, KillOptions{GracePeriod: 50 * time.Millisecond})
+	if err != nil {
+		if err == syscall.EPERM {
+			t.Skip("signal permissions restricted in this environment")
+		}
+		t.Errorf("KillProcessGroup returned error: %v", err)
+	}
+
+	testutil.Eventually(t, 500*time.Millisecond, 10*time.Millisecond, func() bool {
+		return syscall.Kill(-pgid, 0) == syscall.ESRCH
+	}, "orphaned process group still running")
+}
+
 func TestSetProcessGroup(t *testing.T) {
 	cmd := exec.Command("echo", "test")
 

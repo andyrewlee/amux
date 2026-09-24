@@ -7,6 +7,12 @@ func (p *Parser) executeSGR() {
 
 	for i := 0; i < len(p.params); i++ {
 		param := p.params[i]
+		if i < len(p.subParams) && p.subParams[i] != nil {
+			// Colon-grouped parameter: its subparameters belong to this code —
+			// they are never independent SGR values.
+			i = p.executeSGRSubParam(i, param)
+			continue
+		}
 		switch param {
 		case 0: // Reset
 			p.vt.CurrentStyle = Style{}
@@ -59,6 +65,58 @@ func (p *Parser) executeSGR() {
 			p.vt.CurrentStyle.Fg = Color{Type: ColorIndexed, Value: uint32(param - 90 + 8)}
 		case 100, 101, 102, 103, 104, 105, 106, 107: // Bright BG
 			p.vt.CurrentStyle.Bg = Color{Type: ColorIndexed, Value: uint32(param - 100 + 8)}
+		}
+	}
+}
+
+// executeSGRSubParam applies one colon-grouped SGR parameter. subs is the
+// full subparameter list for the parameter (subs[0] equals param). The flat
+// loop consumes no additional params — the whole group lives in subParams[i].
+func (p *Parser) executeSGRSubParam(i, param int) int {
+	subs := p.subParams[i]
+	switch param {
+	case 4: // underline style: 4:0 off; 4:n (single/double/curly/dotted/dashed) on
+		if len(subs) > 1 {
+			p.vt.CurrentStyle.Underline = subs[1] != 0
+		} else {
+			p.vt.CurrentStyle.Underline = true
+		}
+	case 38:
+		p.parseExtendedColorSub(subs, &p.vt.CurrentStyle.Fg)
+	case 48:
+		p.parseExtendedColorSub(subs, &p.vt.CurrentStyle.Bg)
+	case 58:
+		// Underline color: parsed and discarded — Style has no underline-color
+		// channel. Consuming the group keeps its interior values (e.g. the 2/0
+		// of "58:2::r:g:b") from being executed as standalone codes.
+	default:
+		// Unknown colon form — consume the group without executing any
+		// subparameter as a standalone code.
+	}
+	return i
+}
+
+// parseExtendedColorSub resolves the colon form of extended color sequences:
+// "x:5:n" indexed, "x:2:r:g:b" RGB, and the ITU "x:2::r:g:b" form whose empty
+// colorspace-ID subparameter is skipped.
+func (p *Parser) parseExtendedColorSub(subs []int, color *Color) {
+	if len(subs) < 2 {
+		return
+	}
+	switch subs[1] {
+	case 2: // RGB
+		rest := subs[2:]
+		if len(rest) >= 4 {
+			rest = rest[1:] // skip the (usually empty) colorspace-ID subparam
+		}
+		if len(rest) >= 3 {
+			color.Type = ColorRGB
+			color.Value = clampColorComponent(rest[0])<<16 | clampColorComponent(rest[1])<<8 | clampColorComponent(rest[2])
+		}
+	case 5: // 256 color
+		if len(subs) >= 3 {
+			color.Type = ColorIndexed
+			color.Value = uint32(subs[2])
 		}
 	}
 }

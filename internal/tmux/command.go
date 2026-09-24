@@ -37,44 +37,15 @@ func clientCommand(sessionName, workDir, command string, environment []string, o
 		opts.ConfigPath = filepath.Join(workDir, opts.ConfigPath)
 	}
 	base := tmuxBase(opts)
-	session := shellutil.ShellQuote(sessionName)
 	optionTgt := shellutil.ShellQuote(exactSessionOptionTarget(sessionName))
 	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
 	dir := shellutil.ShellQuote(workDir)
-	// Strip tmux-specific vars inside managed panes so `tmux` commands do not
-	// accidentally target the AMUX control server.
-	command = "unset TMUX TMUX_PANE; " + command
-	cmd := shellutil.ShellQuote(command)
-	paneEnvironment := make([]string, 0, len(environment))
-	for _, assignment := range environment {
-		if assignment != "" {
-			paneEnvironment = append(paneEnvironment, shellutil.ShellQuote(assignment))
-		}
-	}
-	paneEnvironmentArgs := ""
-	if len(paneEnvironment) > 0 {
-		paneEnvironmentArgs = " " + strings.Join(paneEnvironment, " ")
-	}
-	// The trampoline's $0 is a fixed label, $1 is workDir, and the remaining
-	// arguments are the environment assignments plus the final shell argv.
-	// Keeping values in positional parameters avoids evaluating any workspace
-	// path or environment value as shell source.
-	chdirScript := shellutil.ShellQuote(`cd "$1" && shift && exec env "$@"`)
-	paneCommand := fmt.Sprintf("sh -c %s amux-chdir %s%s sh -lc %s", chdirScript, dir, paneEnvironmentArgs, cmd)
+	paneCommand := paneLaunchCommand(command, dir, environment)
 
 	// Ensure the session/server exists without attaching yet. tmux computes
 	// client features at attach time, so the server option below must be set
 	// while the server is alive but before the final attach command.
-	// tmux keeps the server's original cwd open for its lifetime. If amux was
-	// launched from a managed workspace and that workspace is later deleted,
-	// tmux can leave a new pane in that deleted directory even when new-session
-	// receives an absolute -c path (observed on tmux 3.7b). Run the pane command
-	// through a POSIX-shell trampoline that performs a second, process-level
-	// chdir, so both fresh and already poisoned servers start the final shell in
-	// workDir. This intentionally avoids env -C, which is absent on macOS 14 and
-	// BusyBox-based Linux systems.
-	ensureSession := fmt.Sprintf("(%s has-session -t %s 2>/dev/null || %s new-session -ds %s -c %s %s || %s has-session -t %s 2>/dev/null)",
-		base, sessionTgt, base, session, dir, paneCommand, base, sessionTgt)
+	ensureSession := ensureSessionScript(base, sessionName, dir, paneCommand)
 
 	// Advertise DEC 2026 synchronized-output support before attaching. The
 	// indexed slot keeps repeated session creates idempotent on amux's
@@ -97,6 +68,65 @@ func clientCommand(sessionName, workDir, command string, environment []string, o
 	// fallback, spending a tmux round-trip per option against a session that does
 	// not exist.
 	return fmt.Sprintf("%s && %s && { %s}; %s", ensureSession, syncFeatureSet, settingsScript(base, settings), attach)
+}
+
+// AttachOnlyClientCommand builds the shell command that attaches a tmux
+// client to an EXISTING session — no ensure-session, no set-option, no tags.
+// It exists for sessions the client does not own (run sessions): NewClientCommand
+// would re-stamp amux's session settings and tab tags on attach, rewriting the
+// session's identity out from under its real owner. If the session is gone the
+// bare attach fails and the caller reports it — nothing is recreated.
+func AttachOnlyClientCommand(sessionName string, opts Options) string {
+	if opts == (Options{}) {
+		opts = DefaultOptions()
+	}
+	base := tmuxBase(opts)
+	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
+	syncFeatureSet := "(" + base + " set-option -s 'terminal-features[16]' 'xterm*:sync' 2>/dev/null || true)"
+	return fmt.Sprintf("%s; %s attach -dt %s", syncFeatureSet, base, sessionTgt)
+}
+
+// paneLaunchCommand renders the argv that runs command inside a managed pane:
+// the tmux-var strip, the quoted env assignments, and the chdir trampoline.
+//
+// tmux keeps the server's original cwd open for its lifetime. If amux was
+// launched from a managed workspace and that workspace is later deleted,
+// tmux can leave a new pane in that deleted directory even when new-session
+// receives an absolute -c path (observed on tmux 3.7b). Run the pane command
+// through a POSIX-shell trampoline that performs a second, process-level
+// chdir, so both fresh and already poisoned servers start the final shell in
+// workDir. This intentionally avoids env -C, which is absent on macOS 14 and
+// BusyBox-based Linux systems.
+//
+// dir must already be shell-quoted. The trampoline's $0 is a fixed label, $1
+// is workDir, and the remaining arguments are the environment assignments
+// plus the final shell argv — keeping values in positional parameters avoids
+// evaluating any workspace path or environment value as shell source.
+func paneLaunchCommand(command, dir string, environment []string) string {
+	command = "unset TMUX TMUX_PANE; " + command
+	cmd := shellutil.ShellQuote(command)
+	paneEnvironment := make([]string, 0, len(environment))
+	for _, assignment := range environment {
+		if assignment != "" {
+			paneEnvironment = append(paneEnvironment, shellutil.ShellQuote(assignment))
+		}
+	}
+	paneEnvironmentArgs := ""
+	if len(paneEnvironment) > 0 {
+		paneEnvironmentArgs = " " + strings.Join(paneEnvironment, " ")
+	}
+	chdirScript := shellutil.ShellQuote(`cd "$1" && shift && exec env "$@"`)
+	return fmt.Sprintf("sh -c %s amux-chdir %s%s sh -lc %s", chdirScript, dir, paneEnvironmentArgs, cmd)
+}
+
+// ensureSessionScript renders the "create unless present" shell fragment:
+// has-session, else new-session -ds running paneCommand in dir, else a final
+// has-session that closes the create race between two concurrent creators.
+func ensureSessionScript(base, sessionName, dir, paneCommand string) string {
+	session := shellutil.ShellQuote(sessionName)
+	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
+	return fmt.Sprintf("(%s has-session -t %s 2>/dev/null || %s new-session -ds %s -c %s %s || %s has-session -t %s 2>/dev/null)",
+		base, sessionTgt, base, session, dir, paneCommand, base, sessionTgt)
 }
 
 // sessionSettingArgs returns the argument list of every `set-option` amux applies
@@ -161,35 +191,97 @@ func settingsScript(base string, settings [][]string) string {
 	return fmt.Sprintf("{ %s; } 2>/dev/null || { %strue; }; ", chained.String(), sequential.String())
 }
 
-func sessionTagArgs(session string, tags SessionTags) [][]string {
-	if tags.WorkspaceID == "" && tags.TabID == "" && tags.Type == "" && tags.Assistant == "" && tags.CreatedAt == 0 && tags.InstanceID == "" && tags.SessionOwner == "" && tags.LeaseAtMS == 0 {
+// SessionTagPair is one resolved @amux_* option/value pair.
+type SessionTagPair struct {
+	Key   string
+	Value string
+}
+
+// SessionTagPairs resolves tags into the full ordered option/value set — the
+// single mapping shared by session creation (sessionTagArgs) and the
+// sidebar's verify/retag path so a new tag field cannot drift between them.
+// Nil for an all-empty identity set: a marker without identity is refused.
+// Display values are sanitized here so every writer emits the identical form.
+func SessionTagPairs(tags SessionTags) []SessionTagPair {
+	// Identity values are normalized the same way for every consumer:
+	// strings are trimmed (whitespace-only is meaningless), timestamps are
+	// positive-only (non-positive epochs are unset). The guard checks
+	// normalized identity fields so a whitespace-only or display-only set
+	// still refuses the bare marker.
+	workspaceID := strings.TrimSpace(tags.WorkspaceID)
+	tabID := strings.TrimSpace(tags.TabID)
+	typ := strings.TrimSpace(tags.Type)
+	assistant := strings.TrimSpace(tags.Assistant)
+	instanceID := strings.TrimSpace(tags.InstanceID)
+	owner := strings.TrimSpace(tags.SessionOwner)
+	if workspaceID == "" && tabID == "" && typ == "" && assistant == "" && tags.CreatedAt <= 0 && instanceID == "" && owner == "" && tags.LeaseAtMS <= 0 {
 		return nil
 	}
-	args := [][]string{{"-t", session, "@amux", "1"}}
-	entries := []struct{ key, value string }{
-		{"@amux_workspace", tags.WorkspaceID},
-		{"@amux_tab", tags.TabID},
-		{"@amux_type", tags.Type},
-		{"@amux_assistant", tags.Assistant},
-		{"@amux_created_at", formatInt64NonZero(tags.CreatedAt)},
-		{"@amux_instance", tags.InstanceID},
-		{TagSessionOwner, tags.SessionOwner},
-		{TagSessionLeaseAt, formatInt64Positive(tags.LeaseAtMS)},
-		{TagSessionOwnerHeartbeatAt, formatInt64Positive(tags.LeaseAtMS)},
+	pairs := []SessionTagPair{{Key: "@amux", Value: "1"}}
+	entries := []SessionTagPair{
+		{Key: "@amux_workspace", Value: workspaceID},
+		{Key: "@amux_tab", Value: tabID},
+		{Key: "@amux_type", Value: typ},
+		{Key: "@amux_assistant", Value: assistant},
+		{Key: "@amux_created_at", Value: formatInt64Positive(tags.CreatedAt)},
+		{Key: "@amux_instance", Value: instanceID},
+		{Key: TagSessionOwner, Value: owner},
+		{Key: TagSessionLeaseAt, Value: formatInt64Positive(tags.LeaseAtMS)},
+		{Key: TagSessionOwnerHeartbeatAt, Value: formatInt64Positive(tags.LeaseAtMS)},
+		// Display-only tags for external orchestrators — sanitized because
+		// the project basename is filesystem-controlled (a workspace Name is
+		// already validated to [a-zA-Z0-9._-], but the boundary strips
+		// control bytes regardless).
+		{Key: "@amux_workspace_name", Value: sanitizeTagValue(tags.WorkspaceName)},
+		{Key: "@amux_project", Value: sanitizeTagValue(tags.ProjectName)},
 	}
 	for _, e := range entries {
-		if e.value != "" {
-			args = append(args, []string{"-t", session, e.key, shellutil.ShellQuote(e.value)})
+		if e.Value != "" {
+			pairs = append(pairs, e)
 		}
+	}
+	return pairs
+}
+
+func sessionTagArgs(session string, tags SessionTags) [][]string {
+	pairs := SessionTagPairs(tags)
+	if pairs == nil {
+		return nil
+	}
+	args := make([][]string, 0, len(pairs))
+	for _, p := range pairs {
+		value := p.Value
+		if p.Key != "@amux" {
+			value = shellutil.ShellQuote(value)
+		}
+		args = append(args, []string{"-t", session, p.Key, value})
 	}
 	return args
 }
 
-func formatInt64NonZero(v int64) string {
-	if v == 0 {
-		return ""
+// tagValueMaxRunes bounds a display tag value; identity/timestamp values are
+// fixed-format and never reach the sanitizer.
+const tagValueMaxRunes = 128
+
+// sanitizeTagValue strips terminal control runes (C0 including newline/tab,
+// DEL, C1) from a display tag value and caps its length — the tmux-option
+// equivalent of ui/common.SanitizeDisplayText (kept local: tmux must not
+// import the UI layer). Workspace names are already validated to a strict
+// identifier charset; this guards the filesystem-controlled project basename.
+func sanitizeTagValue(s string) string {
+	var b strings.Builder
+	written := 0
+	for _, r := range s {
+		if written >= tagValueMaxRunes {
+			break
+		}
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+		written++
 	}
-	return strconv.FormatInt(v, 10)
+	return b.String()
 }
 
 func formatInt64Positive(v int64) string {

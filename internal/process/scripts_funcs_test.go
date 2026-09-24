@@ -251,7 +251,9 @@ func TestScriptRunnerPortAllocated(t *testing.T) {
 				runner.portAllocator = nil
 			}
 			if tt.allocate && runner.portAllocator != nil {
-				runner.portAllocator.AllocatePort(tt.ws.Root)
+				if _, err := runner.portAllocator.AllocatePort(tt.ws.Root); err != nil {
+					t.Fatalf("AllocatePort: %v", err)
+				}
 			}
 
 			port, found := runner.PortAllocated(tt.ws)
@@ -269,7 +271,9 @@ func TestScriptRunnerPortAllocatedReflectsRelease(t *testing.T) {
 	ws := &data.Workspace{Repo: t.TempDir(), Root: t.TempDir()}
 
 	runner := NewScriptRunner(6200, 10)
-	runner.portAllocator.AllocatePort(ws.Root)
+	if _, err := runner.portAllocator.AllocatePort(ws.Root); err != nil {
+		t.Fatalf("AllocatePort: %v", err)
+	}
 
 	port, ok := runner.PortAllocated(ws)
 	if !ok || port != 6200 {

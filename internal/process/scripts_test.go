@@ -319,7 +319,7 @@ func TestScriptRunnerRunScriptNonconcurrentStopFailure(t *testing.T) {
 	if _, err := runner.RunScript(ws, ScriptRun); err != nil {
 		t.Fatalf("RunScript() error = %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitForScriptRunning(t, runner, ws)
 
 	// Inject a non-benign stop error via the struct field
 	origKill := runner.killProcessGroup
@@ -355,7 +355,7 @@ func TestScriptRunnerRunScriptNonconcurrentIgnoresBenignStopRace(t *testing.T) {
 	if _, err := runner.RunScript(ws, ScriptRun); err != nil {
 		t.Fatalf("RunScript() error = %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitForScriptRunning(t, runner, ws)
 
 	// Inject a benign "process already finished" error via the struct field
 	origKill := runner.killProcessGroup
@@ -427,4 +427,18 @@ func waitForFile(path string, timeout time.Duration) error {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
+}
+
+// waitForScriptRunning polls until the runner tracks a running script for the
+// workspace — RunScript returns before the goroutine registers.
+func waitForScriptRunning(t *testing.T, runner *ScriptRunner, ws *data.Workspace) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if runner.IsRunning(ws) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("script for %s never tracked as running", ws.Name)
 }

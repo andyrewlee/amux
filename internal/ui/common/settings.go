@@ -59,16 +59,35 @@ type SettingsDialog struct {
 	tmuxConfigPath   string
 	tmuxSyncInterval string
 
-	// Assistant roster values. assistantNames is the fixed, ordered display
-	// list for the dialog's lifetime (set via SetAssistants); assistantCommands
-	// holds the (possibly edited) command string per assistant name, persisted
-	// to the config's "assistants" map on close. Only an existing assistant's
-	// command is editable in this first cut -- adding a brand-new assistant
-	// name needs a different input model (a name field plus validation) and is
-	// deferred; see plan 031.
+	// Assistant roster values. assistantNames is the ordered display list
+	// (set via SetAssistants; new names append at the end — the config
+	// re-sorts extras on next load); assistantCommands holds the (possibly
+	// edited) command string per assistant name, persisted to the config's
+	// "assistants" map on close. ctrl+a opens the two-field add input
+	// (name -> command, Tab switches, Enter commits, Esc cancels the add) —
+	// the same shape as EnvDialog's add mode; a duplicate name cancels the
+	// add and focuses the existing row instead of overwriting.
+	// assistantsSet records that SetAssistants ran (production always does)
+	// so an empty roster still renders the section header — otherwise the
+	// first-add affordance would be invisible.
+	assistantsSet     bool
 	assistantNames    []string
 	assistantCommands map[string]string
 	assistantCursor   int
+
+	// Assistant add-mode state, mirroring EnvDialog's (assistantNotice is
+	// the transient footer line after an add/cancel/duplicate outcome,
+	// cleared on the next keypress). assistantNameValidator is the optional
+	// domain hook from SetAssistantNameValidator ("" return = accept) — the
+	// app wires the config name rules so a dialog-added name can't be
+	// silently dropped by the loader's validation on the next start.
+	assistantAdding        bool
+	assistantAddField      int // 0 = name, 1 = command
+	assistantAddName       string
+	assistantAddCmd        string
+	assistantAddError      string
+	assistantNotice        string
+	assistantNameValidator func(string) string
 
 	// UI state
 	focusedItem settingsItem
@@ -175,8 +194,13 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		}
 
 	case tea.KeyPressMsg:
-		// Esc always cancels, whatever is focused.
+		// Esc always cancels, whatever is focused — except while the
+		// assistant add input is open, where it cancels just the add
+		// (EnvDialog's add-mode contract; the field router owns the key).
 		if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
+			if s.focusedItem == settingsItemAssistants && s.assistantAdding {
+				return s.handleAssistantFieldKey(msg)
+			}
 			s.visible = false
 			return s, func() tea.Msg { return SettingsResult{Canceled: true} }
 		}

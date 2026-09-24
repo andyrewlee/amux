@@ -14,7 +14,6 @@ func TestKillSession_KillsProcessTree(t *testing.T) {
 
 	// Spawn a session whose pane runs a parent with two children.
 	createSession(t, opts, "tree", "sleep 300 & sleep 300 & wait")
-	time.Sleep(100 * time.Millisecond)
 
 	pids, err := panePIDs("tree", opts)
 	if err != nil {
@@ -61,7 +60,6 @@ func TestKillSession_ProcessTreeAcrossWindows(t *testing.T) {
 	// Session with 2 windows, each spawning children.
 	createSession(t, opts, "multi-tree", "sleep 300 & sleep 300 & wait")
 	addWindow(t, opts, "multi-tree", "sleep 300 & sleep 300 & wait")
-	time.Sleep(100 * time.Millisecond)
 
 	pids, err := panePIDs("multi-tree", opts)
 	if err != nil {

@@ -6,14 +6,19 @@ import (
 )
 
 type VTermSnapshot struct {
-	Screen       [][]vterm.Cell
-	DirtyLines   []bool
-	AllDirty     bool
-	CursorX      int
-	CursorY      int
-	ViewOffset   int
-	CursorHidden bool
-	ShowCursor   bool
+	Screen     [][]vterm.Cell
+	DirtyLines []bool
+	AllDirty   bool
+	CursorX    int
+	CursorY    int
+	// CursorPendingWrap marks the vterm's deferred-wrap state (CursorX ==
+	// Width): the cursor logically sits on the last column. Renderers use
+	// CursorRenderX() rather than raw CursorX so the cursor block doesn't
+	// vanish in this state.
+	CursorPendingWrap bool
+	ViewOffset        int
+	CursorHidden      bool
+	ShowCursor        bool
 	// SuppressBlink strips the SGR blink attribute at draw time (chat tabs
 	// suppress assistant blink flicker without mutating snapshot rows).
 	SuppressBlink bool
@@ -23,6 +28,16 @@ type VTermSnapshot struct {
 	SelActive            bool
 	SelStartX, SelStartY int
 	SelEndX, SelEndY     int
+}
+
+// CursorRenderX is the column renderers should draw the cursor on: during
+// pending wrap the raw CursorX == Width (off-grid), and the logical position
+// is the last cell.
+func (s *VTermSnapshot) CursorRenderX() int {
+	if s.CursorPendingWrap && s.CursorX >= s.Width && s.Width > 0 {
+		return s.Width - 1
+	}
+	return s.CursorX
 }
 
 // NewVTermSnapshot creates a snapshot from a VTerm.
@@ -149,6 +164,7 @@ func newVTermSnapshot(term *vterm.VTerm, showCursor bool, prev *VTermSnapshot, e
 	snap.AllDirty = allDirty
 	snap.CursorX = term.CursorX
 	snap.CursorY = term.CursorY
+	snap.CursorPendingWrap = term.PendingWrap
 	snap.ViewOffset = term.ViewOffset
 	snap.CursorHidden = term.CursorHiddenForRender()
 	snap.ShowCursor = showCursor

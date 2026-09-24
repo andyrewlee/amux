@@ -141,3 +141,44 @@ func TestIsProcessToken_RejectsEmpty(t *testing.T) {
 		t.Fatal("expected empty token slice to be rejected")
 	}
 }
+
+// TestContainsASCIIFold_IndexSeededEquivalence pins the seeded-scan
+// implementation against the semantics of the naive per-position fold: every
+// case here was hand-verified against the old loop.
+func TestContainsASCIIFold_IndexSeededEquivalence(t *testing.T) {
+	tests := []struct {
+		name     string
+		haystack []byte
+		needle   string
+		want     bool
+	}{
+		{"empty needle", []byte("anything"), "", true},
+		{"empty haystack", nil, "malloc", false},
+		{"shorter than needle", []byte("mall"), "malloc", false},
+		{"exact lowercase", []byte("malloc"), "malloc", true},
+		{"exact uppercase", []byte("MALLOC"), "malloc", true},
+		{"mixed case", []byte("MaLlOc"), "malloc", true},
+		{"prefix only", []byte("mall"), "malloc", false},
+		{"embedded", []byte("xx malloc: boom yy"), "malloc", true},
+		{"embedded mixed", []byte("xx Malloc: boom"), "malloc", true},
+		{"needle at tail", []byte("diag ends with MALLOC"), "malloc", true},
+		{"needle at head", []byte("malloc starts"), "malloc", true},
+		{"adjacent partials", []byte("mal mal loc"), "malloc", false},
+		{"repeated first byte", []byte("mmmmmm"), "malloc", false},
+		{"first-byte run then hit", []byte("m m ma malloc"), "malloc", true},
+		{"overlap retry", []byte("mamalloc"), "malloc", true},
+		{"non-letter needle", []byte("a=b;c=d"), "=d", true},
+		{"non-letter miss", []byte("a=b;c=d"), "=e", false},
+		{"uppercase needle no fold-up", []byte("malloc"), "MALLOC", false},
+		{"uppercase needle never matches", []byte("MALLOC"), "MALLOC", false},
+		{"single char needle", []byte("xMyx"), "m", true},
+		{"needle past end", []byte("mallo"), "malloc", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsASCIIFold(tt.haystack, tt.needle); got != tt.want {
+				t.Fatalf("containsASCIIFold(%q, %q) = %v, want %v", tt.haystack, tt.needle, got, tt.want)
+			}
+		})
+	}
+}

@@ -67,24 +67,7 @@ func (s *SettingsDialog) renderLines() []string {
 	}
 	lines = append(lines, "")
 
-	// Assistants section: one row per roster entry (name + editable command).
-	// Only rendered when a roster was set via SetAssistants (production always
-	// sets one; dialogs built directly in tests without it simply show no
-	// rows, matching how an empty theme/update list would render).
-	if len(s.assistantNames) > 0 {
-		lines = append(lines, label.Render("Assistants"))
-		for i, name := range s.assistantNames {
-			style, prefix := muted, "  "
-			if s.focusedItem == settingsItemAssistants && i == s.assistantCursor {
-				style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
-				prefix = Icons.Cursor + " "
-			}
-			y := len(lines)
-			lines = append(lines, prefix+style.Render(name+": "+s.assistantCommands[name]))
-			s.addHit(settingsItemAssistants, i, y)
-		}
-		lines = append(lines, "")
-	}
+	lines = s.renderAssistantLines(lines, label, muted)
 
 	lines = append(lines, label.Render("Version"))
 	if s.currentVersion == "" || s.currentVersion == "dev" {
@@ -115,5 +98,67 @@ func (s *SettingsDialog) renderLines() []string {
 	lines = append(lines, style.Render("[Close]"))
 	s.addHit(settingsItemClose, -1, y)
 
+	return lines
+}
+
+// renderAssistantLines appends the Assistants section: one row per roster
+// entry (name + editable command). Rendered whenever a roster was set via
+// SetAssistants (production always sets one; dialogs built directly in tests
+// without it show no section, matching how an empty theme/update list would
+// render). An empty roster still shows the header plus a hint so the ctrl+a
+// first-add affordance is discoverable. The add input and post-add notice
+// render inline.
+func (s *SettingsDialog) renderAssistantLines(lines []string, label, muted lipgloss.Style) []string {
+	if !s.assistantsSet && !s.assistantAdding {
+		return lines
+	}
+	lines = append(lines, label.Render("Assistants"))
+	if len(s.assistantNames) == 0 && !s.assistantAdding {
+		style, prefix := muted, "  "
+		if s.focusedItem == settingsItemAssistants {
+			style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			prefix = Icons.Cursor + " "
+		}
+		lines = append(lines, prefix+style.Render("(none — ctrl+a to add)"))
+	}
+	for i, name := range s.assistantNames {
+		style, prefix := muted, "  "
+		if s.focusedItem == settingsItemAssistants && i == s.assistantCursor && !s.assistantAdding {
+			style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			prefix = Icons.Cursor + " "
+		}
+		y := len(lines)
+		lines = append(lines, prefix+style.Render(name+": "+s.assistantCommands[name]))
+		s.addHit(settingsItemAssistants, i, y)
+	}
+	if s.assistantAdding {
+		lines = s.renderAssistantAddLines(lines, muted)
+	} else if s.assistantNotice != "" {
+		lines = append(lines, muted.Render("  "+s.assistantNotice))
+	}
+	return append(lines, "")
+}
+
+// renderAssistantAddLines renders the two-field add input under the roster
+// rows, highlighting whichever field is active while the section is focused.
+func (s *SettingsDialog) renderAssistantAddLines(lines []string, muted lipgloss.Style) []string {
+	nameStyle, cmdStyle := muted, muted
+	namePrefix, cmdPrefix := "  ", "  "
+	if s.focusedItem == settingsItemAssistants {
+		if s.assistantAddField == 0 {
+			nameStyle = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			namePrefix = Icons.Cursor + " "
+		} else {
+			cmdStyle = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			cmdPrefix = Icons.Cursor + " "
+		}
+	}
+	lines = append(lines,
+		muted.Render("  New assistant"),
+		namePrefix+nameStyle.Render("name:    "+s.assistantAddName),
+		cmdPrefix+cmdStyle.Render("command: "+s.assistantAddCmd))
+	if s.assistantAddError != "" {
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorError()).Render("  "+s.assistantAddError))
+	}
 	return lines
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -31,26 +32,18 @@ const (
 	DoneWindow = 30 * time.Second
 )
 
-// AgentState is the semantic activity state of an agent session.
-type AgentState int
+// AgentState is the semantic activity state of an agent session. The enum
+// itself lives in the leaf package internal/data (see data/agent_state.go) so
+// non-app layers — dashboard rendering, tmux tag serialization — can consume
+// it without an upward import; the aliases below keep this package's existing
+// references working unchanged.
+type AgentState = data.AgentState
 
 const (
-	StateIdle    AgentState = iota // quiet, nothing pending
-	StateWorking                   // actively producing output
-	StateDone                      // recently finished (was working, now quiet)
+	StateIdle    = data.StateIdle    // quiet, nothing pending
+	StateWorking = data.StateWorking // actively producing output
+	StateDone    = data.StateDone    // recently finished (was working, now quiet)
 )
-
-// String returns a human-readable label for the AgentState.
-func (s AgentState) String() string {
-	switch s {
-	case StateWorking:
-		return "working"
-	case StateDone:
-		return "done"
-	default:
-		return "idle"
-	}
-}
 
 // SessionInfo maps a tmux session name to known tab metadata.
 type SessionInfo struct {

@@ -89,7 +89,9 @@ func (fp *FilePicker) renderLines() []string {
 		idx := fp.filteredIdx[i]
 		entry := fp.entries[idx]
 
-		name := entry.Name()
+		// Entry names are filesystem-controlled bytes — strip terminal control
+		// sequences before they reach the rendered frame.
+		name := SanitizeDisplayText(entry.Name(), maxNameWidth*2)
 		if entry.IsDir() {
 			name += "/"
 		}
@@ -144,21 +146,7 @@ func truncateToWidth(s string, maxWidth int) string {
 	if maxWidth <= 3 {
 		return s
 	}
-	w := lipgloss.Width(s)
-	if w <= maxWidth {
-		return s
-	}
-	// Need to truncate - find the right cut point
-	// Account for "..." suffix (3 chars)
-	targetWidth := maxWidth - 3
-	runes := []rune(s)
-	for i := len(runes); i > 0; i-- {
-		candidate := string(runes[:i])
-		if lipgloss.Width(candidate) <= targetWidth {
-			return candidate + "..."
-		}
-	}
-	return "..."
+	return TruncateRightCells(s, maxWidth, "...", 0)
 }
 
 func (fp *FilePicker) renderButtonsLine(baseLine int) string {

@@ -8,23 +8,37 @@ import (
 	"testing"
 )
 
+func mustAlloc(t *testing.T, p *PortAllocator, root string) int {
+	t.Helper()
+	port, err := p.AllocatePort(root)
+	if err != nil {
+		t.Fatalf("AllocatePort(%q) error = %v", root, err)
+	}
+	return port
+}
+
+func allocOrErr(p *PortAllocator, root string) int {
+	port, _ := p.AllocatePort(root)
+	return port
+}
+
 func TestPortAllocator_AllocatePort(t *testing.T) {
 	p := NewPortAllocator(6200, 10)
 
 	// First allocation
-	port1 := p.AllocatePort("/workspace1")
+	port1 := mustAlloc(t, p, "/workspace1")
 	if port1 != 6200 {
 		t.Errorf("First allocation = %d, want 6200", port1)
 	}
 
 	// Second allocation
-	port2 := p.AllocatePort("/workspace2")
+	port2 := mustAlloc(t, p, "/workspace2")
 	if port2 != 6210 {
 		t.Errorf("Second allocation = %d, want 6210", port2)
 	}
 
 	// Same workspace should return same port
-	port1Again := p.AllocatePort("/workspace1")
+	port1Again := mustAlloc(t, p, "/workspace1")
 	if port1Again != port1 {
 		t.Errorf("Same workspace returned different port: %d != %d", port1Again, port1)
 	}
@@ -40,7 +54,7 @@ func TestPortAllocator_GetPort(t *testing.T) {
 	}
 
 	// After allocation
-	p.AllocatePort("/workspace1")
+	mustAlloc(t, p, "/workspace1")
 	port, ok := p.GetPort("/workspace1")
 	if !ok {
 		t.Error("GetPort should return true for allocated workspace")
@@ -53,7 +67,7 @@ func TestPortAllocator_GetPort(t *testing.T) {
 func TestPortAllocator_ReleasePort(t *testing.T) {
 	p := NewPortAllocator(6200, 10)
 
-	p.AllocatePort("/workspace1")
+	mustAlloc(t, p, "/workspace1")
 	p.ReleasePort("/workspace1")
 
 	_, ok := p.GetPort("/workspace1")
@@ -65,14 +79,14 @@ func TestPortAllocator_ReleasePort(t *testing.T) {
 func TestPortAllocator_ReusesReleasedBase(t *testing.T) {
 	p := NewPortAllocator(6200, 10)
 
-	if got := p.AllocatePort("/workspace-a"); got != 6200 {
+	if got := mustAlloc(t, p, "/workspace-a"); got != 6200 {
 		t.Fatalf("AllocatePort(A) = %d, want 6200", got)
 	}
 	p.ReleasePort("/workspace-a")
-	if got := p.AllocatePort("/workspace-b"); got != 6200 {
+	if got := mustAlloc(t, p, "/workspace-b"); got != 6200 {
 		t.Fatalf("AllocatePort(B after release) = %d, want 6200", got)
 	}
-	if got := p.AllocatePort("/workspace-c"); got != 6210 {
+	if got := mustAlloc(t, p, "/workspace-c"); got != 6210 {
 		t.Fatalf("AllocatePort(C) = %d, want 6210", got)
 	}
 }
@@ -81,15 +95,15 @@ func TestPortAllocator_SameRootRecreateDoesNotLeak(t *testing.T) {
 	p := NewPortAllocator(6200, 10)
 
 	for i := 0; i < 100; i++ {
-		if got := p.AllocatePort("/workspace"); got != 6200 {
+		if got := mustAlloc(t, p, "/workspace"); got != 6200 {
 			t.Fatalf("iteration %d AllocatePort(/workspace) = %d, want 6200", i, got)
 		}
 		p.ReleasePort("/workspace")
 	}
-	if got := p.AllocatePort("/fresh"); got != 6200 {
+	if got := mustAlloc(t, p, "/fresh"); got != 6200 {
 		t.Fatalf("AllocatePort(/fresh) = %d, want 6200", got)
 	}
-	if got := p.AllocatePort("/fresh-2"); got >= 6230 {
+	if got := mustAlloc(t, p, "/fresh-2"); got >= 6230 {
 		t.Fatalf("next fresh base ran away to %d", got)
 	}
 }
@@ -98,46 +112,42 @@ func TestPortAllocator_ExhaustionScanStaysInRange(t *testing.T) {
 	p := NewPortAllocator(65500, 10)
 
 	for i, want := range []int{65500, 65510, 65520} {
-		if got := p.AllocatePort(fmt.Sprintf("/workspace-%d", i)); got != want {
+		if got := mustAlloc(t, p, fmt.Sprintf("/workspace-%d", i)); got != want {
 			t.Fatalf("AllocatePort(%d) = %d, want %d", i, got, want)
 		}
 	}
 	p.ReleasePort("/workspace-1")
-	if got := p.AllocatePort("/workspace-reused"); got != 65510 {
+	if got := mustAlloc(t, p, "/workspace-reused"); got != 65510 {
 		t.Fatalf("AllocatePort(reused) = %d, want 65510", got)
 	}
-	expectPortExhaustionPanic(t, func() {
-		p.AllocatePort("/workspace-exhausted")
-	})
+	if _, err := p.AllocatePort("/workspace-exhausted"); !errors.Is(err, ErrPortRangeExhausted) {
+		t.Fatalf("AllocatePort(exhausted) error = %v, want ErrPortRangeExhausted", err)
+	}
 }
 
-func TestPortAllocator_FullExhaustionPanics(t *testing.T) {
+func TestPortAllocator_FullExhaustionReturnsError(t *testing.T) {
 	p := NewPortAllocator(1, 32768)
 
-	if got := p.AllocatePort("/workspace-1"); got != 1 {
+	if got := mustAlloc(t, p, "/workspace-1"); got != 1 {
 		t.Fatalf("AllocatePort(first) = %d, want 1", got)
 	}
-	expectPortExhaustionPanic(t, func() {
-		p.AllocatePort("/workspace-2")
-	})
-}
-
-func expectPortExhaustionPanic(t *testing.T, fn func()) {
-	t.Helper()
-	defer func() {
-		recovered := recover()
-		err, ok := recovered.(error)
-		if !ok || !errors.Is(err, ErrPortRangeExhausted) {
-			t.Fatalf("panic = %v, want ErrPortRangeExhausted", recovered)
-		}
-	}()
-	fn()
+	// Exhaustion is a returned error, never a panic — a panic inside a Cmd
+	// closure would degrade to a generic message and skip lifecycle cleanup.
+	if _, err := p.AllocatePort("/workspace-2"); !errors.Is(err, ErrPortRangeExhausted) {
+		t.Fatalf("AllocatePort(exhausted) error = %v, want ErrPortRangeExhausted", err)
+	}
+	if _, _, err := p.PortRange("/workspace-3"); !errors.Is(err, ErrPortRangeExhausted) {
+		t.Fatalf("PortRange(exhausted) error = %v, want ErrPortRangeExhausted", err)
+	}
 }
 
 func TestPortAllocator_PortRange(t *testing.T) {
 	p := NewPortAllocator(6200, 10)
 
-	port, rangeEnd := p.PortRange("/workspace1")
+	port, rangeEnd, err := p.PortRange("/workspace1")
+	if err != nil {
+		t.Fatalf("PortRange() error = %v", err)
+	}
 	if port != 6200 {
 		t.Errorf("port = %d, want 6200", port)
 	}
@@ -163,7 +173,7 @@ func TestPortAllocator_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
-			bases[i] = p.AllocatePort(fmt.Sprintf("/ws%d", i))
+			bases[i] = allocOrErr(p, fmt.Sprintf("/ws%d", i))
 		}(i)
 	}
 	wg.Wait()
@@ -221,7 +231,7 @@ func TestPortAllocator_ConcurrentAllocateRelease(t *testing.T) {
 			defer wg.Done()
 			root := fmt.Sprintf("/workspace-%d", i)
 			for j := 0; j < cycles; j++ {
-				base := p.AllocatePort(root)
+				base := allocOrErr(p, root)
 				if base < portStart || base > 65535 || (base-portStart)%rangeSize != 0 {
 					errCh <- fmt.Sprintf("worker %d cycle %d got invalid base %d", i, j, base)
 				}
@@ -249,7 +259,7 @@ func TestPortAllocator_ConcurrentSameWorkspace(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
-			results[i] = p.AllocatePort("/shared")
+			results[i] = allocOrErr(p, "/shared")
 		}(i)
 	}
 	wg.Wait()

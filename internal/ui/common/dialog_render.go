@@ -8,6 +8,15 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// Render-sink bounds for SanitizeDisplayText: dialog strings are composed by
+// callers from filesystem- and repo-derived names, so they are sanitized
+// where they're drawn. Bounds are generous — they exist to bound work and
+// runaway input, not to shape legitimately short labels.
+const (
+	dialogMaxTitleRunes = 128
+	dialogMaxLineRunes  = 256
+)
+
 func viewDimensions(view string) (width, height int) {
 	lines := strings.Split(view, "\n")
 	height = len(lines)
@@ -43,7 +52,7 @@ func (d *Dialog) Cursor() *tea.Cursor {
 		Bold(true).
 		Foreground(ColorPrimary()).
 		MarginBottom(1)
-	prefix.WriteString(titleStyle.Render(d.title))
+	prefix.WriteString(titleStyle.Render(SanitizeDisplayText(d.title, dialogMaxTitleRunes)))
 	prefix.WriteString("\n\n")
 
 	switch d.dtype {
@@ -52,7 +61,7 @@ func (d *Dialog) Cursor() *tea.Cursor {
 	case DialogSelect:
 		if d.filterEnabled {
 			if d.message != "" {
-				prefix.WriteString(d.message)
+				prefix.WriteString(sanitizeDisplayLines(d.message, dialogMaxLineRunes))
 				prefix.WriteString("\n\n")
 			}
 			input = &d.filterInput
@@ -126,7 +135,7 @@ func (d *Dialog) renderLines() []string {
 		Bold(true).
 		Foreground(ColorPrimary()).
 		MarginBottom(1)
-	appendLines(titleStyle.Render(d.title))
+	appendLines(titleStyle.Render(SanitizeDisplayText(d.title, dialogMaxTitleRunes)))
 	appendBlank(1)
 
 	switch d.dtype {
@@ -142,20 +151,20 @@ func (d *Dialog) renderLines() []string {
 		line := d.renderInputButtonsLine(baseLine)
 		lines = append(lines, line)
 	case DialogConfirm:
-		appendLines(d.message)
+		appendLines(sanitizeDisplayLines(d.message, dialogMaxLineRunes))
 		if d.warning != "" {
 			warnStyle := lipgloss.NewStyle().
 				Foreground(ColorWarning()).
 				MarginTop(1)
 			appendBlank(1)
-			appendLines(warnStyle.Render(d.warning))
+			appendLines(warnStyle.Render(sanitizeDisplayLines(d.warning, dialogMaxLineRunes)))
 		}
 		appendBlank(1)
 		baseLine := d.renderedLineCount(lines)
 		lines = append(lines, d.renderOptionsLines(baseLine)...)
 	case DialogSelect:
 		if d.message != "" {
-			appendLines(d.message)
+			appendLines(sanitizeDisplayLines(d.message, dialogMaxLineRunes))
 			appendBlank(1)
 		}
 		baseLine := d.renderedLineCount(lines)
@@ -194,9 +203,13 @@ func (d *Dialog) renderHorizontalOptionsLine(baseLine int) string {
 	var b strings.Builder
 	x := 0
 	for i, opt := range d.options {
-		rendered := normalStyle.Render(opt)
+		// Options can carry caller-derived names (e.g. assistant names from
+		// config); sanitize the rendered label while the raw option remains
+		// the result Value.
+		label := SanitizeDisplayText(opt, dialogMaxLineRunes)
+		rendered := normalStyle.Render(label)
 		if i == d.cursor {
-			rendered = selectedStyle.Render(opt)
+			rendered = selectedStyle.Render(label)
 		}
 		width := min(lipgloss.Width(rendered), d.dialogContentWidth()-x)
 		// Extend hit region to include gap (for easier clicking)

@@ -1,14 +1,10 @@
 package process
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -23,43 +19,10 @@ const (
 	ScriptSetup   ScriptType = "setup"
 	ScriptRun     ScriptType = "run"
 	ScriptArchive ScriptType = "archive"
+	ScriptOnDone  ScriptType = "on-done"
 )
 
 const configFilename = "workspaces.json"
-
-// ErrScriptsNotTrusted is returned (wrapped) when a repo's .amux/workspaces.json
-// supplies commands but the user has not approved the current content of that
-// file. It is the sentinel callers test with errors.Is to distinguish a trust
-// skip from a genuine setup failure.
-var ErrScriptsNotTrusted = errors.New("project scripts not trusted")
-
-// ErrScriptsChangedSincePrompt is returned when a user approves script content
-// after the repo config changed from the content that originally triggered the prompt.
-var ErrScriptsChangedSincePrompt = errors.New("project scripts changed since trust prompt")
-
-// ErrNoScriptConfigured is returned (wrapped) when neither the repo's
-// .amux/workspaces.json nor the workspace's own Scripts field defines a command
-// for the requested script type. It is a sentinel rather than a bare error so
-// callers can treat "nothing to run" as benign — the archive-on-delete path
-// skips silently, while a user-triggered run reports it — instead of surfacing
-// it as a failure.
-var ErrNoScriptConfigured = errors.New("no script configured")
-
-// ScriptsNotTrustedError carries the hash of the repo config content that was
-// blocked, so the UI can bind a later approval to the exact reviewed content.
-type ScriptsNotTrustedError struct {
-	Repo       string
-	Command    string
-	ConfigHash string
-}
-
-func (e *ScriptsNotTrustedError) Error() string {
-	return fmt.Sprintf("%s (%q): %v", e.Repo, e.Command, ErrScriptsNotTrusted)
-}
-
-func (e *ScriptsNotTrustedError) Unwrap() error {
-	return ErrScriptsNotTrusted
-}
 
 // scriptStopTimeout is how long Stop waits for the background cmd.Wait monitor
 // to observe process exit before escalating to a direct SIGKILL.
@@ -134,6 +97,15 @@ type WorkspaceConfig struct {
 	SetupWorkspace []string `json:"setup-workspace"`
 	RunScript      string   `json:"run"`
 	ArchiveScript  string   `json:"archive"`
+	// OnDoneScript fires when an agent session in the workspace crosses the
+	// working→done edge. Trust-gated like the others — it executes on a
+	// lifecycle edge without any user keystroke.
+	OnDoneScript string `json:"on-done"`
+	// Env layers repo-supplied defaults beneath the workspace's own env map.
+	// Trust-gated: env reaches every spawned process, so an unapproved repo
+	// map must never leak in — it is shareable non-secret config only
+	// (committed to the repo; secrets belong in the user-level project map).
+	Env map[string]string `json:"env"`
 }
 
 // ScriptRunner manages script execution for workspaces
@@ -145,6 +117,25 @@ type ScriptRunner struct {
 	pendingRelease   map[string]pendingPortRelease
 	killProcessGroup func(pid int, opts KillOptions) error
 	trust            *ScriptTrust // per-user approval registry for repo-supplied scripts
+	// runHost hosts `run` scripts in persistent sessions (tmux at the app
+	// layer) when set; nil keeps the subprocess path. See run_session.go.
+	runHost RunSessionHost
+	// projectEnv resolves the user-level per-project env map for a repo path
+	// (secrets/overrides that sit above repo `env` and beneath ws.Env). Nil
+	// means no project layer. See script_env.go.
+	projectEnv func(repoPath string) map[string]string
+	// lastOutput records the bounded transcript of the most recent run of
+	// each lifecycle script (setup/archive/on-done) per workspace — what the
+	// "script output" viewer shows. See script_output.go.
+	lastOutput map[string]ScriptOutput
+	// exitListener notifies the app when a detached lifecycle script exits
+	// non-zero (on-done — the only lifecycle hook without a synchronous
+	// caller to report to). See script_output.go.
+	exitListener func(ws *data.Workspace, scriptType ScriptType, runErr error)
+	// runSessionsSeen records workspace ID forms under which run sessions
+	// were ever found, so the hosted-status sweep can be skipped for
+	// workspaces that have never had one. See run_session.go.
+	runSessionsSeen map[string]struct{}
 }
 
 type runningScript struct {
@@ -174,57 +165,13 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		envBuilder:       NewEnvBuilder(ports),
 		running:          make(map[string]*runningScript),
 		pendingRelease:   make(map[string]pendingPortRelease),
+		lastOutput:       make(map[string]ScriptOutput),
+		runSessionsSeen:  make(map[string]struct{}),
 		killProcessGroup: KillProcessGroup,
 		trust:            defaultScriptTrust(),
 	}
 }
 
-// LoadConfig loads the workspace configuration from the repo
-func (r *ScriptRunner) LoadConfig(repoPath string) (*WorkspaceConfig, error) {
-	config, _, err := r.loadConfigRaw(repoPath)
-	return config, err
-}
-
-// loadConfigRaw loads the workspace configuration and also returns the raw file
-// bytes, so the trust check can hash exactly what was parsed without a second
-// disk read. A missing file yields an empty config and nil bytes (nothing to
-// trust or run).
-func (r *ScriptRunner) loadConfigRaw(repoPath string) (*WorkspaceConfig, []byte, error) {
-	fileData, err := readWorkspaceConfigFile(repoPath)
-	if os.IsNotExist(err) {
-		return &WorkspaceConfig{}, nil, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var config WorkspaceConfig
-	if err := json.Unmarshal(fileData, &config); err != nil {
-		return nil, nil, err
-	}
-	return &config, fileData, nil
-}
-
-func readWorkspaceConfigFile(repoPath string) ([]byte, error) {
-	root, err := os.OpenRoot(filepath.Join(repoPath, ".amux"))
-	if err != nil {
-		return nil, err
-	}
-	data, readErr := root.ReadFile(configFilename)
-	closeErr := root.Close()
-	if readErr != nil {
-		if closeErr != nil {
-			return nil, errors.Join(readErr, fmt.Errorf("close workspace config directory: %w", closeErr))
-		}
-		return nil, readErr
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close workspace config directory: %w", closeErr)
-	}
-	return data, nil
-}
-
-// RunSetup runs the setup scripts for a workspace
 func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	if err := validateScriptWorkspace(ws); err != nil {
 		return err
@@ -245,17 +192,26 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		}
 	}
 
-	env := r.envBuilder.BuildEnv(ws)
+	env, err := r.buildScriptEnv(ws)
+	if err != nil {
+		return err
+	}
 
-	// Run each setup command sequentially
+	// Run each setup command sequentially. Output across all commands lands
+	// in one bounded tail so the recorded transcript (and a failure's error)
+	// covers the whole setup, not just the command that died — stdout was
+	// previously dropped entirely, which hid the failure's own diagnostics.
+	tail := &tailWriter{max: scriptOutputTailBytes}
 	for _, cmdStr := range config.SetupWorkspace {
 		cmd := exec.Command("sh", "-c", cmdStr)
 		cmd.Dir = ws.Root
 		cmd.Env = env
 		SetProcessGroup(cmd)
 
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
+		// One writer for both streams: exec dedupes it into a single copy
+		// goroutine, preserving real output order in the transcript.
+		cmd.Stdout = tail
+		cmd.Stderr = tail
 
 		if err := cmd.Start(); err != nil {
 			return err
@@ -271,150 +227,11 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		close(running.done)
 		r.finishRunningEntry(key, running)
 		if err != nil {
-			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, stderr.String(), err)
+			r.recordScriptOutput(ws, ScriptSetup, tail.String(), err)
+			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, tail.String(), err)
 		}
 	}
+	r.recordScriptOutput(ws, ScriptSetup, tail.String(), nil)
 
 	return nil
-}
-
-// TrustRepoScripts records the current content of repoPath's
-// .amux/workspaces.json as approved, so subsequent RunSetup/RunScript calls
-// execute its repo-supplied commands. Approval is content-bound: any later edit
-// to the file re-gates execution until the user trusts it again. A repo with no
-// config file is a no-op (nothing to trust).
-func (r *ScriptRunner) TrustRepoScripts(repoPath string) error {
-	_, raw, err := r.loadConfigRaw(repoPath)
-	if err != nil {
-		return err
-	}
-	if raw == nil {
-		return nil
-	}
-	return r.trust.Trust(repoPath, raw)
-}
-
-// TrustRepoScriptsIfHash records trust only if the repo config still matches the
-// content hash that originally triggered the user approval prompt.
-func (r *ScriptRunner) TrustRepoScriptsIfHash(repoPath, expectedHash string) error {
-	_, raw, err := r.loadConfigRaw(repoPath)
-	if err != nil {
-		return err
-	}
-	if raw == nil {
-		return nil
-	}
-	if expectedHash != "" && hashConfig(raw) != expectedHash {
-		return ErrScriptsChangedSincePrompt
-	}
-	return r.trust.Trust(repoPath, raw)
-}
-
-// Stop stops the running script for a workspace
-func (r *ScriptRunner) Stop(ws *data.Workspace) error {
-	if err := validateScriptWorkspace(ws); err != nil {
-		return err
-	}
-
-	key := scriptWorkspaceKey(ws)
-	r.mu.Lock()
-	running, ok := r.running[key]
-	r.mu.Unlock()
-
-	if !ok {
-		return nil
-	}
-
-	if running.cmd != nil && running.cmd.Process != nil {
-		pid := running.cmd.Process.Pid
-		err := r.killProcessGroup(pid, KillOptions{})
-		if err != nil {
-			if isBenignStopError(err) {
-				r.clearRunningEntry(key)
-				return nil
-			}
-			return err
-		}
-		if running.done == nil {
-			r.clearRunningEntry(key)
-			return nil
-		}
-		// Wait briefly for the background cmd.Wait monitor to observe exit,
-		// then escalate to SIGKILL if needed.
-		select {
-		case <-running.done:
-			r.clearRunningEntry(key)
-		case <-time.After(scriptStopTimeout):
-			_ = ForceKillProcess(pid)
-			r.clearRunningEntry(key)
-		}
-	}
-
-	return nil
-}
-
-// IsRunning checks if a script is running for a workspace
-func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
-	if validateScriptWorkspace(ws) != nil {
-		return false
-	}
-	key := scriptWorkspaceKey(ws)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	_, ok := r.running[key]
-	return ok
-}
-
-// PortAllocated reports the port base allocated for the workspace, and whether
-// one is currently held. It mirrors PortAllocator.GetPort so callers (and the
-// delete path's tests) can observe release without reaching into the allocator.
-func (r *ScriptRunner) PortAllocated(ws *data.Workspace) (int, bool) {
-	if validateScriptWorkspace(ws) != nil || r.portAllocator == nil {
-		return 0, false
-	}
-	return r.portAllocator.GetPort(ws.Root)
-}
-
-// ReleaseWorkspace releases the workspace's port allocation once no script is
-// running for it, so a deleted workspace's port-range entry does not leak in the
-// allocator's map for the lifetime of the process. It is a no-op while a script
-// is still running so a release can never strand a live script's port; the
-// caller (workspace delete) tears scripts down first. The allocator is keyed by
-// the raw ws.Root (see EnvBuilder.PortRange), so release uses ws.Root directly.
-func (r *ScriptRunner) ReleaseWorkspace(ws *data.Workspace) {
-	if validateScriptWorkspace(ws) != nil {
-		return
-	}
-	key := scriptWorkspaceKey(ws)
-	r.mu.Lock()
-	running, isRunning := r.running[key]
-	if isRunning {
-		r.pendingRelease[key] = pendingPortRelease{root: ws.Root, running: running}
-	}
-	r.mu.Unlock()
-	if isRunning {
-		return
-	}
-	if r.portAllocator != nil {
-		r.portAllocator.ReleasePort(ws.Root)
-	}
-}
-
-// StopAll stops all running scripts
-func (r *ScriptRunner) StopAll() {
-	r.mu.Lock()
-	running := make([]*runningScript, 0, len(r.running))
-	for _, entry := range r.running {
-		running = append(running, entry)
-	}
-	r.running = make(map[string]*runningScript)
-	r.mu.Unlock()
-
-	for _, entry := range running {
-		if entry.cmd != nil && entry.cmd.Process != nil {
-			if err := KillProcessGroup(entry.cmd.Process.Pid, KillOptions{}); err != nil {
-				slog.Debug("best-effort process group kill failed", "pid", entry.cmd.Process.Pid, "error", err)
-			}
-		}
-	}
 }

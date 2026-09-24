@@ -19,7 +19,9 @@ func TestScriptRunnerReleaseWorkspace(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
 
 	// Allocate a port range for the workspace, as BuildEnv would during a run.
-	runner.portAllocator.AllocatePort(ws.Root)
+	if _, err := runner.portAllocator.AllocatePort(ws.Root); err != nil {
+		t.Fatalf("AllocatePort: %v", err)
+	}
 	if _, ok := runner.portAllocator.GetPort(ws.Root); !ok {
 		t.Fatalf("expected port to be allocated for %s", ws.Root)
 	}
@@ -39,7 +41,9 @@ func TestScriptRunnerReleaseWorkspaceGatedByRunning(t *testing.T) {
 	ws := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	runner := NewScriptRunner(6200, 10)
-	runner.portAllocator.AllocatePort(ws.Root)
+	if _, err := runner.portAllocator.AllocatePort(ws.Root); err != nil {
+		t.Fatalf("AllocatePort: %v", err)
+	}
 
 	// Simulate a script still running for this workspace.
 	runner.running[scriptWorkspaceKey(ws)] = &runningScript{}
@@ -101,7 +105,9 @@ func TestScriptRunnerPendingReleaseDoesNotApplyToReplacementRun(t *testing.T) {
 	ws := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	runner := NewScriptRunner(6200, 10)
-	runner.portAllocator.AllocatePort(ws.Root)
+	if _, err := runner.portAllocator.AllocatePort(ws.Root); err != nil {
+		t.Fatalf("AllocatePort: %v", err)
+	}
 	key := scriptWorkspaceKey(ws)
 
 	oldRun := &runningScript{}

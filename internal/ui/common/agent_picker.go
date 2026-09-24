@@ -73,7 +73,9 @@ func (d *Dialog) renderAgentPickerOptions(baseLine int) []string {
 		if cursorIdx == d.cursor {
 			nameStyle = nameStyle.Bold(true)
 		}
-		name := nameStyle.Render("[" + opt + "]")
+		// opt is a config-derived name — sanitize the rendered label; the
+		// raw option remains the result Value.
+		name := nameStyle.Render("[" + SanitizeDisplayText(opt, dialogMaxLineRunes) + "]")
 		line := cursor + indicator + " " + name
 
 		// Use full dialog content width for easier clicking

@@ -1,6 +1,9 @@
 package vterm
 
 func (v *VTerm) clampCursor() {
+	// Every caller is a cursor-positioning op — the pending-wrap state ends
+	// here whether or not the position actually changed.
+	v.PendingWrap = false
 	if v.CursorX < 0 {
 		v.CursorX = 0
 	}
@@ -138,6 +141,7 @@ func (v *VTerm) enterAltScreen(saveCursor bool) {
 		return
 	}
 	v.AltScreen = true
+	v.PendingWrap = false
 	v.invalidateAltScreenCapture()
 	if saveCursor {
 		v.altCursorX = v.CursorX
@@ -167,6 +171,7 @@ func (v *VTerm) exitAltScreen(restoreCursor bool) {
 		return
 	}
 	v.AltScreen = false
+	v.PendingWrap = false
 	v.invalidateAltScreenCapture()
 	v.Screen = v.altScreenBuf
 	v.altScreenBuf = nil
@@ -233,6 +238,7 @@ func (v *VTerm) saveCursor() {
 func (v *VTerm) restoreCursor() {
 	prevX, prevY := v.CursorX, v.CursorY
 	v.clampSavedCursor()
+	v.PendingWrap = false
 	v.CursorX = v.SavedCursorX
 	v.CursorY = v.SavedCursorY
 	v.CurrentStyle = v.SavedStyle
