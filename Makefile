@@ -195,7 +195,7 @@ doctor:
 	if command -v go >/dev/null 2>&1; then \
 		gov=$$(go version | awk '{print $$3}' | sed 's/^go//'); \
 		need=$$(awk '/^go [0-9]/{print $$2; exit}' go.mod); \
-		if [ "$$(printf '%s\n%s\n' "$$need" "$$gov" | sort -V | head -1)" = "$$need" ]; then \
+		if [ "$$(printf '%s\n%s\n' "$$need" "$$gov" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$$need" ]; then \
 			echo "ok   go $$gov (>= $$need required)"; \
 		else \
 			echo "FAIL go $$gov < $$need (go.mod)"; fail=1; \
