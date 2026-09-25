@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func (s *Service) CreateWorkspace(project *data.Project, name, base string, assi
 		var ws *data.Workspace
 		defer func() {
 			if r := recover(); r != nil {
-				logging.Error("panic in createWorkspace: %v", r)
+				logging.Error("panic in createWorkspace: %v\n%s", r, debug.Stack())
 				msg = messages.WorkspaceCreateFailed{
 					Workspace: ws,
 					Err:       fmt.Errorf("create workspace panicked: %v", r),

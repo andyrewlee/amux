@@ -23,7 +23,11 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Error("panic in app.Update: %v\n%s", r, debug.Stack())
+			wsID := "none"
+			if a.activeWorkspace != nil {
+				wsID = string(a.activeWorkspace.ID())
+			}
+			logging.Error("panic in app.Update (msg=%T, workspace=%s): %v\n%s", msg, wsID, r, debug.Stack())
 			a.err = fmt.Errorf("internal error: %v", r)
 			a.renderCache.frame.invalidate()
 			model = a
