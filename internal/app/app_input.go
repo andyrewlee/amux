@@ -107,10 +107,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// Sync active agents state to dashboard (show spinner only when actively outputting)
-		if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		// syncActiveWorkspacesToDashboard is deliberately absent here: its
+		// inputs (tmuxActivity.activeWorkspaceIDs/agentStates) are mutated
+		// only by activity-result and lifecycle handlers, which all publish
+		// themselves — a per-PTY-message republish could only rebuild
+		// identical maps at output rate.
 		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 			cmds = append(cmds, startCmd)
 		}
