@@ -235,7 +235,7 @@ func (m *TerminalModel) SendToTerminal(s string) {
 	ts := m.getTerminal()
 	if ts != nil && ts.Terminal != nil {
 		if err := ts.Terminal.SendString(s); err != nil {
-			logging.Warn("Sidebar SendToTerminal failed: %v", err)
+			logging.Error("Sidebar SendToTerminal failed: %v", err)
 			ts.mu.Lock()
 			ts.Running = false
 			ts.Detached = true

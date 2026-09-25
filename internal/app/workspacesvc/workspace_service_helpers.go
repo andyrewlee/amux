@@ -66,11 +66,11 @@ func (s *Service) rollbackWorkspaceCreation(
 			}
 			err = errors.Join(err, cleanupErr)
 		}
-		logging.Warn("Failed to roll back workspace %s: %v", workspacePath, err)
+		logging.Error("Failed to roll back workspace %s: %v", workspacePath, err)
 	}
 branchCleanup:
 	if err := s.gitOps.DeleteBranch(repoPath, branch); err != nil {
-		logging.Warn("Failed to roll back branch %s: %v", branch, err)
+		logging.Error("Failed to roll back branch %s: %v", branch, err)
 	}
 }
 

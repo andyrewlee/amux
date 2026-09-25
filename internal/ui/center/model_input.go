@@ -20,7 +20,7 @@ func (m *Model) directSendToTerminal(tab *Tab, data, label string) (*Model, bool
 	}
 	m.tracePTYInput(tab, []byte(data))
 	if err := tab.Agent.Terminal.SendString(data); err != nil {
-		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
+		logging.Error("%s failed for tab %s: %v", label, tab.ID, err)
 		tab.mu.Lock()
 		tab.markDetachedLocked()
 		tab.mu.Unlock()

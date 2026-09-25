@@ -44,7 +44,7 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 		// matching stamp in DeleteWorkspace.
 		stampedIDs := WorkspaceIDStrings(ws)
 		fail := func(stage string, err error) tea.Msg {
-			logging.Warn("workspace shelve failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
+			logging.Error("workspace shelve failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
 			return messages.WorkspaceShelveFailed{Project: project, Workspace: ws, Err: err, WorkspaceIDs: stampedIDs}
 		}
 		// clearShelveIntent rolls the intent flags back when the shelve is
@@ -69,7 +69,7 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 			fresh.Archived = false
 			fresh.ArchivedAt = time.Time{}
 			if err := s.store.Save(fresh); err != nil {
-				logging.Warn("workspace shelve intent rollback failed workspace_id=%s error=%v", wsID, err)
+				logging.Error("workspace shelve intent rollback failed workspace_id=%s error=%v", wsID, err)
 			}
 		}
 
@@ -163,7 +163,7 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		// lifecycle guard under every form the mark touched.
 		stampedIDs := WorkspaceIDStrings(ws)
 		fail := func(stage string, err error) tea.Msg {
-			logging.Warn("workspace restore failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
+			logging.Error("workspace restore failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
 			return messages.WorkspaceRestoreFailed{Project: project, Workspace: ws, Err: err, WorkspaceIDs: stampedIDs}
 		}
 
@@ -216,7 +216,7 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 				return
 			}
 			if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
-				logging.Warn("workspace restore rollback failed workspace_id=%s workspace_root=%s error=%v", wsID, ws.Root, err)
+				logging.Error("workspace restore rollback failed workspace_id=%s workspace_root=%s error=%v", wsID, ws.Root, err)
 			}
 		}
 		if err := waitForGitPath(filepath.Join(ws.Root, ".git"), s.gitPathWaitTimeout); err != nil {
@@ -252,7 +252,7 @@ func (s *Service) listShelvedWorkspaces(repoPath string) []data.Workspace {
 	}
 	all, err := s.store.ListByRepoIncludingArchived(repoPath)
 	if err != nil {
-		logging.Warn("Failed to list shelved workspaces for %s: %v", repoPath, err)
+		logging.Error("Failed to list shelved workspaces for %s: %v", repoPath, err)
 		return nil
 	}
 	shelved := make([]data.Workspace, 0, len(all))

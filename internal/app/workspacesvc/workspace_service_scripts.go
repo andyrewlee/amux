@@ -91,7 +91,7 @@ func (s *Service) runArchiveScriptForDelete(ws *data.Workspace) string {
 		logging.Info("workspace delete skipped untrusted archive script workspace_id=%s", ws.ID())
 		return fmt.Sprintf("Skipped the archive script for %s: repo not trusted yet", ws.Name)
 	default:
-		logging.Warn("workspace archive script failed workspace_id=%s error=%v", ws.ID(), err)
+		logging.Error("workspace archive script failed workspace_id=%s error=%v", ws.ID(), err)
 		return fmt.Sprintf("Archive script failed for %s: %v", ws.Name, err)
 	}
 }

@@ -33,7 +33,7 @@ func (a *App) persistAllWorkspacesNow() {
 			ws.ActiveTabIndex = activeIdx
 			snap := snapshotWorkspaceForSave(ws)
 			if err := a.workspaceService.Save(snap); err != nil {
-				logging.Warn("Failed to persist workspace on shutdown: %v", err)
+				logging.Error("Failed to persist workspace on shutdown: %v", err)
 			} else {
 				a.markLocalWorkspaceSaveForID(string(snap.ID()))
 			}
@@ -150,7 +150,7 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 				continue
 			}
 			if saveErr != nil {
-				logging.Warn("Failed to save workspace tabs: %v", saveErr)
+				logging.Error("Failed to save workspace tabs: %v", saveErr)
 				// Do not touch a.lifecycle.dirty here — this runs in a Cmd
 				// goroutine, not on the Update loop. Report the failure via a
 				// message so handlePersistSaveFailed can re-dirty safely.

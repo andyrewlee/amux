@@ -146,7 +146,7 @@ func (m *TerminalModel) handlePaste(msg tea.PasteMsg) (*TerminalModel, tea.Cmd) 
 	text := msg.Content
 	bracketedText := ansi.BracketedPasteStart + text + ansi.BracketedPasteEnd
 	if err := ts.Terminal.SendString(bracketedText); err != nil {
-		logging.Warn("Sidebar paste failed: %v", err)
+		logging.Error("Sidebar paste failed: %v", err)
 		m.detachState(ts, false)
 	}
 	logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
@@ -213,7 +213,7 @@ func (m *TerminalModel) handleKeyPress(msg tea.KeyPressMsg) (*TerminalModel, tea
 	input := common.KeyToBytes(msg)
 	if len(input) > 0 {
 		if err := ts.Terminal.SendString(string(input)); err != nil {
-			logging.Warn("Sidebar input failed: %v", err)
+			logging.Error("Sidebar input failed: %v", err)
 			m.detachState(ts, false)
 		}
 	}

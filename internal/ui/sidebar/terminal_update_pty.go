@@ -155,7 +155,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 		})
 	}
 	if termAlive {
-		logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restart limit reached, marking detached: %v", wsID, tabID, msg.Err)
+		logging.Error("Sidebar PTY stopped for workspace %s tab %s; restart limit reached, marking detached: %v", wsID, tabID, msg.Err)
 	} else {
 		logging.Info("Sidebar PTY stopped for workspace %s tab %s, marking detached: %v", wsID, tabID, msg.Err)
 	}

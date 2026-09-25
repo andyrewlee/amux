@@ -92,7 +92,7 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 			if s.store != nil {
 				storedWorkspaces, err = s.listByRepoFromSet(recordSet, path, false)
 				if err != nil {
-					logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
+					logging.Error("Failed to load stored workspaces for %s: %v", path, err)
 				}
 			}
 
@@ -146,7 +146,7 @@ func (s *Service) importManagedWorkspaces(path string) {
 	project := data.NewProject(path)
 	discovered, err := s.gitOps.DiscoverWorkspaces(project)
 	if err != nil {
-		logging.Warn("Failed to discover workspaces while adding %s: %v", path, err)
+		logging.Error("Failed to discover workspaces while adding %s: %v", path, err)
 		return
 	}
 	for i := range discovered {
@@ -164,7 +164,7 @@ func (s *Service) importManagedWorkspaces(path string) {
 			continue
 		}
 		if upsertErr != nil {
-			logging.Warn("Failed to import workspace %s while adding %s: %v", ws.Name, path, upsertErr)
+			logging.Error("Failed to import workspace %s while adding %s: %v", ws.Name, path, upsertErr)
 		}
 	}
 }
@@ -191,11 +191,11 @@ func (s *Service) prependPrimaryCheckout(path string, workspaces []data.Workspac
 	if s.store != nil {
 		found, loadErr := s.store.LoadMetadataFor(primaryWs)
 		if loadErr != nil {
-			logging.Warn("Failed to load metadata for primary checkout %s: %v", path, loadErr)
+			logging.Error("Failed to load metadata for primary checkout %s: %v", path, loadErr)
 		} else if !found {
 			// No stored metadata - save so UI state persists across restarts
 			if err := s.store.Save(primaryWs); err != nil {
-				logging.Warn("Failed to save primary checkout %s: %v", path, err)
+				logging.Error("Failed to save primary checkout %s: %v", path, err)
 			}
 		}
 	}
@@ -225,7 +225,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 			project := data.NewProject(path)
 			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
 			if err != nil {
-				logging.Warn("Failed to discover workspaces for %s: %v", path, err)
+				logging.Error("Failed to discover workspaces for %s: %v", path, err)
 				continue
 			}
 
@@ -268,7 +268,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 						continue
 					}
 					if upsertErr != nil {
-						logging.Warn("Failed to import workspace %s: %v", ws.Name, upsertErr)
+						logging.Error("Failed to import workspace %s: %v", ws.Name, upsertErr)
 					}
 				}
 			}
@@ -277,7 +277,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 			if s.store != nil {
 				storedWorkspaces, err = s.listByRepoFromSet(recordSet, path, true)
 				if err != nil {
-					logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
+					logging.Error("Failed to load stored workspaces for %s: %v", path, err)
 					continue
 				}
 			}
@@ -333,7 +333,7 @@ func (s *Service) archiveWorkspaceRecord(ws *data.Workspace, kind string) bool {
 		return false
 	}
 	if saveErr != nil {
-		logging.Warn("Failed to archive %s %s: %v", kind, ws.Name, saveErr)
+		logging.Error("Failed to archive %s %s: %v", kind, ws.Name, saveErr)
 	}
 	return true
 }

@@ -289,7 +289,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 					return
 				}
 				if err := agentTerm.SendString(string(data)); err != nil {
-					logging.Warn("Response write failed for tab %s: %v", tabID, err)
+					logging.Error("Response write failed for tab %s: %v", tabID, err)
 					if m.msgSink != nil {
 						m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 					}
@@ -359,7 +359,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				return
 			}
 			if err := agentTerm.SendString(string(data)); err != nil {
-				logging.Warn("Response write failed for tab %s: %v", tabID, err)
+				logging.Error("Response write failed for tab %s: %v", tabID, err)
 				if m.msgSink != nil {
 					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 				}

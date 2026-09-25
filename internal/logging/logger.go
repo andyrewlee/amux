@@ -47,6 +47,10 @@ type Logger struct {
 	level    atomic.Int32 // stores Level
 	enabled  atomic.Bool
 	filePath string
+	// writeErrReported gates a one-shot stderr note when the log-file write
+	// fails — the file is the diagnostics channel itself, and repeating the
+	// note per line would paint over the TUI, so once is the cost accepted.
+	writeErrReported atomic.Bool
 }
 
 var defaultLogger *Logger
@@ -69,7 +73,11 @@ func Initialize(logDir string, level Level) error {
 	retentionDays := logRetentionDays()
 	if retentionDays > 0 {
 		if err := pruneOldLogs(logDir, retentionDays); err != nil {
-			slog.Debug("log pruning failed", "error", err)
+			// The file logger does not exist yet — stderr via slog is the only
+			// channel. Warn (not Debug): the default slog level is Info, so a
+			// Debug line would be silently dropped and a prune failure would
+			// leave no trace anywhere.
+			slog.Warn("log pruning failed", "error", err)
 		}
 	}
 
@@ -215,7 +223,11 @@ func log(level Level, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	line := fmt.Sprintf("[%s] %s: %s\n", timestamp, level.String(), msg)
 
-	_, _ = defaultLogger.writer.Write([]byte(line))
+	if _, err := l.writer.Write([]byte(line)); err != nil {
+		if l.writeErrReported.CompareAndSwap(false, true) {
+			fmt.Fprintf(os.Stderr, "amux: log write failed: %v\n", err)
+		}
+	}
 }
 
 // Debug logs a debug message

@@ -26,7 +26,7 @@ func (s *Service) markDeleteTombstone(id data.WorkspaceID) error {
 		return nil
 	}
 	if err := s.store.MarkDeleting(id); err != nil {
-		logging.Warn("workspace delete: failed to write tombstone workspace_id=%s error=%v", id, err)
+		logging.Error("workspace delete: failed to write tombstone workspace_id=%s error=%v", id, err)
 		return fmt.Errorf("write delete tombstone: %w", err)
 	}
 	return nil
@@ -47,7 +47,7 @@ func (s *Service) clearDeleteTombstone(id data.WorkspaceID) {
 		return
 	}
 	if err := s.store.ClearDeleting(id); err != nil {
-		logging.Warn("workspace delete: failed to clear tombstone workspace_id=%s error=%v", id, err)
+		logging.Error("workspace delete: failed to clear tombstone workspace_id=%s error=%v", id, err)
 	}
 }
 

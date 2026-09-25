@@ -205,7 +205,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 		if project != nil {
 			projectPath = project.Path
 		}
-		logging.Warn(
+		logging.Error(
 			"workspace delete failed workspace_id=%s stage=validate_nil workspace_root=%s project_path=%s error=%v",
 			wsID,
 			wsRoot,
@@ -236,7 +236,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 			ws.Branch,
 		)
 		fail := func(stage string, err error) tea.Msg {
-			logging.Warn(
+			logging.Error(
 				"workspace delete failed workspace_id=%s stage=%s workspace_name=%s workspace_root=%s project_path=%s error=%v",
 				wsID,
 				stage,
@@ -297,7 +297,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 				// pointing at a missing worktree. Archive the surviving metadata as a
 				// durable fallback, then return the deleted message so UI cleanup still
 				// runs, with the metadata error attached for reporting.
-				logging.Warn("workspace delete metadata cleanup failed workspace_id=%s error=%v", wsID, err)
+				logging.Error("workspace delete metadata cleanup failed workspace_id=%s error=%v", wsID, err)
 				if archiveErr := s.archiveDeletedWorkspaceMetadata(ws); archiveErr != nil {
 					return fail("remove_metadata", errors.Join(err, archiveErr))
 				}
@@ -444,7 +444,7 @@ func (s *Service) handleStaleRemoveError(
 	if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
 		return fail("remove_worktree", errors.Join(err, cleanupErr))
 	}
-	logging.Warn("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
+	logging.Error("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
 	return nil
 }
 
