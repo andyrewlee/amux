@@ -40,7 +40,7 @@ your row when done.
 | 024 | Log-level fast path before the logger mutex | P3 | S | — | DONE |
 | 025 | Docs hygiene: LINTING.md devcheck, hook env vars, make help | P3 | S | — | DONE |
 | 026 | Warn-vs-Error log-level convention + re-level real failures | P3 | M | — | DONE |
-| 027 | Switch fakeagent to charmbracelet/x/term, drop golang.org/x/term | P3 | S | — | TODO |
+| 027 | Switch fakeagent to charmbracelet/x/term, drop golang.org/x/term | P3 | S | — | DONE |
 | 028 | Replace unmaintained atotto/clipboard fallback | P3 | M | — | TODO |
 | 029 | Route agent BEL into the attention surface (Option A: count-based) | P2 | M | — | TODO |
 | 030 | Re-runnable `setup` on demand | P2 | S | — | TODO |

@@ -29,7 +29,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"golang.org/x/term"
+	"github.com/charmbracelet/x/term"
 )
 
 // readyBanner is emitted once the agent is in raw mode and ready for input.
@@ -131,7 +131,7 @@ func main() {
 	// Put stdin into raw mode so received bytes are untranslated. Without this a
 	// carriage return would be read as NL and the test could not tell hex 0D from
 	// the named Enter key.
-	fd := int(os.Stdin.Fd())
+	fd := os.Stdin.Fd()
 	if term.IsTerminal(fd) {
 		prev, err := term.MakeRaw(fd)
 		if err != nil {

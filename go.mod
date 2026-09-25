@@ -22,7 +22,6 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	golang.org/x/term v0.46.0
 )
 
 require (
