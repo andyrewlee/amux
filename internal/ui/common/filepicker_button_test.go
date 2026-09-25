@@ -104,6 +104,7 @@ func TestFilePickerButtonClickNoSubdirectories(t *testing.T) {
 	fp := NewFilePicker("id", tmp, true) // directoriesOnly = true
 	fp.SetSize(120, 40)
 	fp.Show()
+	pumpPicker(fp)
 
 	// Should show "No subdirectories" message
 	fp.renderLines()
@@ -210,6 +211,7 @@ func TestFilePickerMultipleLongDirectories(t *testing.T) {
 	fp := NewFilePicker("id", tmp, true)
 	fp.SetSize(120, 40)
 	fp.Show()
+	pumpPicker(fp)
 
 	fp.renderLines()
 

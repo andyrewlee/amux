@@ -6,8 +6,8 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// newTestFilePicker builds a picker rooted at a fresh temp dir so that the
-// constructor's loadDirectory call succeeds without touching shared state.
+// newTestFilePicker builds a picker rooted at a fresh temp dir so its pending
+// directory load stays free of shared state.
 func newTestFilePicker(t *testing.T) *FilePicker {
 	t.Helper()
 	return NewFilePicker("id", t.TempDir(), true)

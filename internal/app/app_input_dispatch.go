@@ -343,7 +343,9 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	case messages.ShowQuitDialog:
 		a.showQuitDialog()
 	case messages.ShowAddProjectDialog:
-		a.handleShowAddProjectDialog()
+		if cmd := a.handleShowAddProjectDialog(); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.ShowCreateWorkspaceDialog:
 		a.handleShowCreateWorkspaceDialog(msg)
 	case messages.ShowDeleteWorkspaceDialog:

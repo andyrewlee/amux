@@ -116,6 +116,9 @@ func (fp *FilePicker) renderLines() []string {
 		if fp.directoriesOnly {
 			message = "No subdirectories"
 		}
+		if fp.needsLoad || fp.loadInFlight {
+			message = "Loading…"
+		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(ColorMuted()).Render(message))
 	} else if totalRows > fp.maxVisible {
 		indicator := lipgloss.NewStyle().Foreground(ColorMuted()).Render(

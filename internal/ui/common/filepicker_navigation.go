@@ -10,14 +10,79 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// loadDirectory loads entries from the current path
-func (fp *FilePicker) loadDirectory() {
+// directoryLoadedMsg delivers an os.ReadDir result. path pins the result to
+// the directory it was issued for — a result for anything but the current
+// path is stale and must be discarded.
+type directoryLoadedMsg struct {
+	path    string
+	entries []os.DirEntry
+	err     error
+}
+
+// resolveOp distinguishes what a pathResolvedMsg result should do.
+type resolveOp int
+
+const (
+	// resolveEnter is Enter on a typed path: confirm a hit, or navigate when
+	// the hit is a directory and the picker is not directories-only.
+	resolveEnter resolveOp = iota
+	// resolveOpenDir is the autocomplete fallback: navigate into the typed
+	// path only when it resolves to a directory.
+	resolveOpenDir
+)
+
+// pathResolvedMsg delivers an os.Stat result for a typed input path. input is
+// the text at issue time; the result is stale when the input has moved on.
+type pathResolvedMsg struct {
+	input string
+	path  string
+	op    resolveOp
+	info  os.FileInfo
+	err   error
+}
+
+// markNeedsLoad clears the visible listing and flags a reload. The actual
+// os.ReadDir runs inside dueLoadCmd's tea.Cmd — never on the Update
+// goroutine — so a slow mount stalls nothing but this picker's listing.
+func (fp *FilePicker) markNeedsLoad() {
 	fp.entries = nil
 	fp.filteredIdx = nil
 	fp.cursor = 0
 	fp.scrollOffset = 0
+	fp.needsLoad = true
+}
 
-	entries, err := os.ReadDir(fp.currentPath)
+// dueLoadCmd issues the pending directory read once. Update calls it after
+// every handled message, which is what makes deferred opens and drops work:
+// any navigation marks needsLoad and the next message round-trip performs
+// the read off-goroutine.
+func (fp *FilePicker) dueLoadCmd() tea.Cmd {
+	if !fp.visible || !fp.needsLoad || fp.loadInFlight {
+		return nil
+	}
+	fp.loadInFlight = true
+	return fp.loadDirectoryCmd(fp.currentPath)
+}
+
+func (fp *FilePicker) loadDirectoryCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		entries, err := os.ReadDir(path)
+		return directoryLoadedMsg{path: path, entries: entries, err: err}
+	}
+}
+
+func resolvePathCmd(input, path string, op resolveOp) tea.Cmd {
+	return func() tea.Msg {
+		info, err := os.Stat(path)
+		return pathResolvedMsg{input: input, path: path, op: op, info: info, err: err}
+	}
+}
+
+// finishDirectoryLoad applies a fresh ReadDir result on the UI goroutine:
+// filter hidden/files per picker settings, sort dirs-first alphabetical, and
+// rebuild the filtered view. An error leaves the listing empty, matching the
+// previous synchronous behavior.
+func (fp *FilePicker) finishDirectoryLoad(entries []os.DirEntry, err error) {
 	if err != nil {
 		return
 	}
@@ -142,7 +207,7 @@ func (fp *FilePicker) handleBackspace() bool {
 			fp.currentPath = parent
 			fp.input.SetValue(fp.inputBasePath())
 			fp.input.CursorEnd()
-			fp.loadDirectory()
+			fp.markNeedsLoad()
 			return true
 		}
 		return false
@@ -156,10 +221,10 @@ func (fp *FilePicker) handleBackspace() bool {
 	if !ok {
 		return false
 	}
+	// The input naming the currently shown directory means "go up". No stat
+	// needed: currentPath is a directory we already listed, and ascending is
+	// still correct if it has since been removed.
 	if filepath.Clean(path) != filepath.Clean(fp.currentPath) {
-		return false
-	}
-	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		return false
 	}
 
@@ -171,7 +236,7 @@ func (fp *FilePicker) handleBackspace() bool {
 	fp.currentPath = parent
 	fp.input.SetValue(fp.inputBasePath())
 	fp.input.CursorEnd()
-	fp.loadDirectory()
+	fp.markNeedsLoad()
 	return true
 }
 
@@ -209,7 +274,7 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 			fp.currentPath = newPath
 			fp.input.SetValue(fp.inputBasePath())
 			fp.input.CursorEnd()
-			fp.loadDirectory()
+			fp.markNeedsLoad()
 			return fp, nil
 		}
 		if !fp.directoriesOnly {
@@ -236,47 +301,65 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 			path = filepath.Join(fp.currentPath, path)
 		}
 		path = filepath.Clean(path)
-		if info, err := os.Stat(path); err == nil {
-			if info.IsDir() {
-				if fp.directoriesOnly {
-					fp.visible = false
-					return fp, func() tea.Msg {
-						return DialogResult{
-							ID:        fp.id,
-							Confirmed: true,
-							Value:     path,
-						}
-					}
-				}
-				fp.currentPath = path
-				fp.input.SetValue(fp.inputBasePath())
-				fp.input.CursorEnd()
-				fp.loadDirectory()
-				return fp, nil
-			}
-			if !fp.directoriesOnly {
-				fp.visible = false
-				return fp, func() tea.Msg {
-					return DialogResult{
-						ID:        fp.id,
-						Confirmed: true,
-						Value:     path,
-					}
-				}
-			}
-		}
-		return fp, nil
+		// The stat runs off the Update goroutine; the result applies itself
+		// via applyResolvedPath unless the input moved on meanwhile.
+		return fp, resolvePathCmd(fp.input.Value(), path, resolveEnter)
 	}
 
 	// Otherwise, select current directory
 	return fp.confirmCurrentDirectory()
 }
 
-// handleOpenFromInput navigates into the path typed in the input when it is a directory.
-func (fp *FilePicker) handleOpenFromInput() bool {
+// applyResolvedPath applies a fresh pathResolvedMsg. Stale results — the
+// input changed since the stat was issued — are dropped without effect.
+func (fp *FilePicker) applyResolvedPath(msg pathResolvedMsg) tea.Cmd {
+	if fp.input.Value() != msg.input || msg.err != nil || msg.info == nil {
+		return nil
+	}
+
+	switch msg.op {
+	case resolveOpenDir:
+		if !msg.info.IsDir() {
+			return nil
+		}
+		fp.currentPath = msg.path
+		fp.input.SetValue("")
+		fp.markNeedsLoad()
+		return nil
+
+	case resolveEnter:
+		if msg.info.IsDir() {
+			if fp.directoriesOnly {
+				fp.visible = false
+				path := msg.path
+				return func() tea.Msg {
+					return DialogResult{ID: fp.id, Confirmed: true, Value: path}
+				}
+			}
+			fp.currentPath = msg.path
+			fp.input.SetValue(fp.inputBasePath())
+			fp.input.CursorEnd()
+			fp.markNeedsLoad()
+			return nil
+		}
+		if !fp.directoriesOnly {
+			fp.visible = false
+			path := msg.path
+			return func() tea.Msg {
+				return DialogResult{ID: fp.id, Confirmed: true, Value: path}
+			}
+		}
+	}
+	return nil
+}
+
+// handleOpenFromInput navigates into the path typed in the input when it is a
+// directory. The stat is async; the result navigates via applyResolvedPath.
+// Returns nil (no work) for empty input.
+func (fp *FilePicker) handleOpenFromInput() tea.Cmd {
 	input := strings.TrimSpace(fp.input.Value())
 	if input == "" {
-		return false
+		return nil
 	}
 
 	path := input
@@ -287,18 +370,12 @@ func (fp *FilePicker) handleOpenFromInput() bool {
 	} else if !filepath.IsAbs(path) {
 		path = filepath.Join(fp.currentPath, path)
 	}
+	path = filepath.Clean(path)
 
-	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		fp.currentPath = path
-		fp.input.SetValue("")
-		fp.loadDirectory()
-		return true
-	}
-
-	return false
+	return resolvePathCmd(fp.input.Value(), path, resolveOpenDir)
 }
 
-func (fp *FilePicker) handleAutocomplete() {
+func (fp *FilePicker) handleAutocomplete() tea.Cmd {
 	if fp.cursor >= 0 && len(fp.filteredIdx) > 0 && fp.cursor < len(fp.filteredIdx) {
 		entry := fp.entries[fp.filteredIdx[fp.cursor]]
 		if entry.IsDir() {
@@ -307,13 +384,13 @@ func (fp *FilePicker) handleAutocomplete() {
 			fp.currentPath = newPath
 			fp.input.SetValue(fp.inputBasePath())
 			fp.input.CursorEnd()
-			fp.loadDirectory()
+			fp.markNeedsLoad()
 		} else {
 			fp.input.SetValue(entry.Name())
 			fp.applyFilter()
 		}
-		return
+		return nil
 	}
 	// Fallback: try to navigate from typed path
-	fp.handleOpenFromInput()
+	return fp.handleOpenFromInput()
 }

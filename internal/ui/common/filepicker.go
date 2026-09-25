@@ -32,6 +32,11 @@ type FilePicker struct {
 	showKeymapHints   bool
 	primaryAction     string
 	lastContentHeight int // Cached from View() for click handling
+	// needsLoad flags a pending directory read; loadInFlight marks an issued
+	// ReadDir whose result has not landed. Together they keep every fs call
+	// inside tea.Cmd closures off the Update goroutine.
+	needsLoad    bool
+	loadInFlight bool
 }
 
 type filePickerRowHit struct {
@@ -68,7 +73,7 @@ func NewFilePicker(id, startPath string, directoriesOnly bool) *FilePicker {
 		primaryAction:   "Open",
 	}
 
-	fp.loadDirectory()
+	fp.markNeedsLoad()
 	return fp
 }
 
@@ -104,7 +109,19 @@ func (fp *FilePicker) Show() {
 	fp.input.SetValue(fp.inputBasePath())
 	fp.input.CursorEnd()
 	fp.input.Focus()
-	fp.loadDirectory()
+	// A result issued before a Hide+Show pair may never arrive (results are
+	// only routed while visible); clear the in-flight flag so the reload
+	// marked below can issue.
+	fp.loadInFlight = false
+	fp.markNeedsLoad()
+}
+
+// LoadCmd issues the pending directory read if one is due. Callers that can
+// emit a tea.Cmd (e.g. the synchronous open fast path) use it so the first
+// listing does not wait for the next arbitrary message; Update self-issues
+// the same call as the fallback for every other path.
+func (fp *FilePicker) LoadCmd() tea.Cmd {
+	return fp.dueLoadCmd()
 }
 
 // Hide hides the picker
@@ -129,13 +146,43 @@ func (fp *FilePicker) inputBasePath() string {
 	return base
 }
 
-// Update handles messages
+// Update handles messages. After the inner handler runs it issues any due
+// directory read — this is the fallback path that delivers loads for opens
+// (including deferred overlay opens) and navigations whose caller cannot
+// return a cmd.
 func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
+	updated, cmd := fp.update(msg)
+	if load := updated.dueLoadCmd(); load != nil {
+		if cmd == nil {
+			cmd = load
+		} else {
+			cmd = tea.Batch(cmd, load)
+		}
+	}
+	return updated, cmd
+}
+
+func (fp *FilePicker) update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 	if !fp.visible {
 		return fp, nil
 	}
 
 	switch msg := msg.(type) {
+	case directoryLoadedMsg:
+		fp.loadInFlight = false
+		if msg.path != fp.currentPath {
+			// Stale: the user navigated after this read was issued. needsLoad
+			// is still set, so the wrapper issues a fresh read for the new
+			// currentPath.
+			return fp, nil
+		}
+		fp.needsLoad = false
+		fp.finishDirectoryLoad(msg.entries, msg.err)
+		return fp, nil
+
+	case pathResolvedMsg:
+		return fp, fp.applyResolvedPath(msg)
+
 	case tea.MouseWheelMsg:
 		if msg.Button == tea.MouseWheelUp {
 			fp.moveCursor(-1)
@@ -176,12 +223,12 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 							fp.currentPath = parent
 							fp.input.SetValue(fp.inputBasePath())
 							fp.input.CursorEnd()
-							fp.loadDirectory()
+							fp.markNeedsLoad()
 						}
 						return fp, nil
 					case "hidden":
 						fp.showHidden = !fp.showHidden
-						fp.loadDirectory()
+						fp.markNeedsLoad()
 						return fp, nil
 					case "cancel":
 						fp.visible = false
@@ -212,7 +259,9 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
 			// Tab = autocomplete or select first match
-			fp.handleAutocomplete()
+			if cmd := fp.handleAutocomplete(); cmd != nil {
+				return fp, cmd
+			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("down", "ctrl+n"))):
 			if fp.displayCount() > 0 {
@@ -237,7 +286,7 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+h"))):
 			// Toggle hidden files
 			fp.showHidden = !fp.showHidden
-			fp.loadDirectory()
+			fp.markNeedsLoad()
 			return fp, nil
 		}
 	}

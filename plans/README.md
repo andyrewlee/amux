@@ -32,7 +32,7 @@ your row when done.
 | 016 | Add lint-config drift checks to pre-commit hook | P3 | S | — | DONE |
 | 017 | POSIX-safe version compare in `make doctor` | P3 | S | — | DONE |
 | 018 | Delete dead message types + TmuxOps methods | P3 | S | — | DONE |
-| 019 | Move FilePicker directory I/O off the Update goroutine | P3 | M | — | TODO |
+| 019 | Move FilePicker directory I/O off the Update goroutine | P3 | M | — | DONE |
 | 020 | Cheaper change signal for `visibleScreenDigest` | P3 | M | — | DONE |
 | 021 | Rename `sidebar.Model` → `ChangesModel` | P3 | S | — | TODO |
 | 022 | Align the two same-workspace predicates | P3 | S | — | TODO |

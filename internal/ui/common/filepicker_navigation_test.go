@@ -31,6 +31,7 @@ func TestFilePickerApplyFilterClampsCursorAndScroll(t *testing.T) {
 
 	fp := NewFilePicker("id", tmp, true)
 	fp.Show()
+	pumpPicker(fp)
 	fp.cursor = len(fp.filteredIdx) - 1
 	fp.scrollOffset = len(fp.filteredIdx) - 1
 	fp.input.SetValue("alpha")
@@ -55,8 +56,8 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue("")
 
-		if fp.handleOpenFromInput() {
-			t.Fatalf("expected empty input to return false")
+		if cmd := fp.handleOpenFromInput(); cmd != nil {
+			t.Fatalf("expected empty input to issue no command")
 		}
 		if fp.currentPath != tmp {
 			t.Fatalf("expected current path unchanged %q, got %q", tmp, fp.currentPath)
@@ -69,8 +70,8 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue("   ")
 
-		if fp.handleOpenFromInput() {
-			t.Fatalf("expected whitespace-only input to return false")
+		if cmd := fp.handleOpenFromInput(); cmd != nil {
+			t.Fatalf("expected whitespace-only input to issue no command")
 		}
 		if fp.currentPath != tmp {
 			t.Fatalf("expected current path unchanged %q, got %q", tmp, fp.currentPath)
@@ -86,9 +87,7 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue(child)
 
-		if !fp.handleOpenFromInput() {
-			t.Fatalf("expected absolute directory to be opened")
-		}
+		pumpPicker(fp, fp.handleOpenFromInput())
 		if fp.currentPath != child {
 			t.Fatalf("expected current path %q, got %q", child, fp.currentPath)
 		}
@@ -106,9 +105,7 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue("  " + child + "  ")
 
-		if !fp.handleOpenFromInput() {
-			t.Fatalf("expected surrounding whitespace to be trimmed and path opened")
-		}
+		pumpPicker(fp, fp.handleOpenFromInput())
 		if fp.currentPath != child {
 			t.Fatalf("expected current path %q, got %q", child, fp.currentPath)
 		}
@@ -123,9 +120,7 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue("sub")
 
-		if !fp.handleOpenFromInput() {
-			t.Fatalf("expected relative directory to be opened")
-		}
+		pumpPicker(fp, fp.handleOpenFromInput())
 		if fp.currentPath != child {
 			t.Fatalf("expected current path %q, got %q", child, fp.currentPath)
 		}
@@ -144,9 +139,7 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue("~")
 
-		if !fp.handleOpenFromInput() {
-			t.Fatalf("expected ~ to open the home directory")
-		}
+		pumpPicker(fp, fp.handleOpenFromInput())
 		if fp.currentPath != home {
 			t.Fatalf("expected current path %q, got %q", home, fp.currentPath)
 		}
@@ -161,9 +154,7 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue(file)
 
-		if fp.handleOpenFromInput() {
-			t.Fatalf("expected a regular file path to return false")
-		}
+		pumpPicker(fp, fp.handleOpenFromInput())
 		if fp.currentPath != tmp {
 			t.Fatalf("expected current path unchanged %q, got %q", tmp, fp.currentPath)
 		}
@@ -181,9 +172,7 @@ func TestFilePickerHandleOpenFromInput(t *testing.T) {
 		fp.Show()
 		fp.input.SetValue(missing)
 
-		if fp.handleOpenFromInput() {
-			t.Fatalf("expected nonexistent path to return false")
-		}
+		pumpPicker(fp, fp.handleOpenFromInput())
 		if fp.currentPath != tmp {
 			t.Fatalf("expected current path unchanged %q, got %q", tmp, fp.currentPath)
 		}
@@ -197,13 +186,14 @@ func TestFilePickerHandleAutocomplete(t *testing.T) {
 
 		fp := NewFilePicker("id", tmp, true)
 		fp.Show()
+		pumpPicker(fp)
 		// Filtered list has exactly one entry pointing at "alpha"; cursor is 0.
 		if len(fp.filteredIdx) != 1 {
 			t.Fatalf("expected one entry, got %d", len(fp.filteredIdx))
 		}
 		fp.cursor = 0
 
-		fp.handleAutocomplete()
+		pumpPicker(fp, fp.handleAutocomplete())
 
 		want := filepath.Join(tmp, "alpha")
 		if fp.currentPath != want {
@@ -222,12 +212,13 @@ func TestFilePickerHandleAutocomplete(t *testing.T) {
 		// directoriesOnly=false so files appear in the entry list.
 		fp := NewFilePicker("id", tmp, false)
 		fp.Show()
+		pumpPicker(fp)
 		if len(fp.filteredIdx) != 1 {
 			t.Fatalf("expected one entry, got %d", len(fp.filteredIdx))
 		}
 		fp.cursor = 0
 
-		fp.handleAutocomplete()
+		pumpPicker(fp, fp.handleAutocomplete())
 
 		if fp.currentPath != tmp {
 			t.Fatalf("expected current path unchanged %q, got %q", tmp, fp.currentPath)
@@ -244,6 +235,7 @@ func TestFilePickerHandleAutocomplete(t *testing.T) {
 
 		fp := NewFilePicker("id", tmp, false)
 		fp.Show()
+		pumpPicker(fp)
 		if len(fp.entries) != 2 {
 			t.Fatalf("expected two entries, got %d", len(fp.entries))
 		}
@@ -255,7 +247,7 @@ func TestFilePickerHandleAutocomplete(t *testing.T) {
 			}
 		}
 
-		fp.handleAutocomplete()
+		pumpPicker(fp, fp.handleAutocomplete())
 
 		if fp.input.Value() != "apple.txt" {
 			t.Fatalf("expected input %q, got %q", "apple.txt", fp.input.Value())
@@ -276,12 +268,13 @@ func TestFilePickerHandleAutocomplete(t *testing.T) {
 
 		fp := NewFilePicker("id", tmp, true)
 		fp.Show()
+		pumpPicker(fp)
 		// No selectable entry: empty filtered list and out-of-range cursor.
 		fp.filteredIdx = nil
 		fp.cursor = -1
 		fp.input.SetValue(child)
 
-		fp.handleAutocomplete()
+		pumpPicker(fp, fp.handleAutocomplete())
 
 		if fp.currentPath != child {
 			t.Fatalf("expected fallback navigation to %q, got %q", child, fp.currentPath)
@@ -300,7 +293,7 @@ func TestFilePickerHandleAutocomplete(t *testing.T) {
 		fp.input.SetValue("")
 
 		// Must not panic and must not navigate anywhere.
-		fp.handleAutocomplete()
+		pumpPicker(fp, fp.handleAutocomplete())
 
 		if fp.currentPath != tmp {
 			t.Fatalf("expected current path unchanged %q, got %q", tmp, fp.currentPath)
@@ -314,12 +307,13 @@ func TestFilePickerHandleAutocomplete(t *testing.T) {
 
 		fp := NewFilePicker("id", tmp, true)
 		fp.Show()
+		pumpPicker(fp)
 		// One real entry exists, but the cursor points beyond it, so the
 		// selection branch is skipped and the fallback path is taken.
 		fp.cursor = len(fp.filteredIdx)
 		fp.input.SetValue(child)
 
-		fp.handleAutocomplete()
+		pumpPicker(fp, fp.handleAutocomplete())
 
 		if fp.currentPath != child {
 			t.Fatalf("expected fallback navigation to %q, got %q", child, fp.currentPath)
