@@ -115,7 +115,7 @@ type tabActivityState struct {
 	lastVisibleOutput      time.Time
 	pendingVisibleOutput   bool
 	pendingVisibleSeq      uint64
-	activityDigest         [16]byte
+	activityDigest         uint64
 	activityDigestInit     bool
 	lastActivityTagAt      time.Time
 	activityANSIState      ansiActivityState
