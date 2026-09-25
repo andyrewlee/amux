@@ -278,6 +278,30 @@ func (s *PTYSession) WaitForExit(timeout time.Duration) error {
 	}
 }
 
+// Kill hard-kills the app process (SIGKILL) without going through the quit
+// dialog — the unclean-exit fixture: tmux sessions outlive it and any
+// in-flight lifecycle work is abandoned mid-flight, which is exactly what
+// restart recovery is for.
+func (s *PTYSession) Kill() error {
+	if s.cmd == nil || s.cmd.Process == nil {
+		return errors.New("pty session has no process")
+	}
+	return s.cmd.Process.Kill()
+}
+
+// WaitForTermination waits for process exit without asserting a clean status —
+// the counterpart to Kill, where the expected waitErr is a signal error.
+func (s *PTYSession) WaitForTermination(timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-s.procDone:
+		return nil
+	case <-timer.C:
+		return errors.New("timeout waiting for session exit")
+	}
+}
+
 func buildAmuxBinary() (string, func(), error) {
 	if path := os.Getenv("AMUX_E2E_BIN"); path != "" {
 		return path, func() {}, nil
