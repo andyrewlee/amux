@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/testutil"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -378,12 +379,9 @@ func TestTmuxOps_CapturePaneTail_LiveSession(t *testing.T) {
 	// A shell that prints a sentinel and stays alive so the pane is live.
 	gcCreateSession(t, opts, "echoer", "printf 'SENTINEL-LINE\\n'; sleep 300")
 	// Allow the printf to land in the pane buffer.
-	for i := 0; i < 40; i++ {
-		time.Sleep(25 * time.Millisecond)
-		if strings.Contains(gcReadCapture(t, opts, "echoer"), "SENTINEL-LINE") {
-			break
-		}
-	}
+	testutil.Eventually(t, 1*time.Second, 25*time.Millisecond, func() bool {
+		return strings.Contains(gcReadCapture(t, opts, "echoer"), "SENTINEL-LINE")
+	}, "printf output never landed in the echoer pane")
 
 	out, ok := ops.CapturePaneTail("echoer", 50, opts)
 	if !ok {

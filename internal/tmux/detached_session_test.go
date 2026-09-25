@@ -4,23 +4,26 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 // waitForSessionStatus polls RunSessionStatus until pred holds or the deadline
 // passes — tmux reports pane_dead asynchronously after the command exits.
+// The 10s bound absorbs the slow pane_dead reporting observed on the apt CI
+// lane under load (this helper's callers produced that lane's flakes).
 func waitForSessionStatus(t *testing.T, sessionName string, opts Options, pred func(exists, alive bool, exitCode int) bool) (bool, bool, int) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		exists, alive, exitCode, err := RunSessionStatus(sessionName, opts)
-		if err == nil && pred(exists, alive, exitCode) {
-			return exists, alive, exitCode
-		}
-		if time.Now().After(deadline) {
-			return exists, alive, exitCode
-		}
-		time.Sleep(25 * time.Millisecond)
+	type status struct {
+		exists, alive bool
+		exitCode      int
 	}
+	got := testutil.PollUntil(10*time.Second, 25*time.Millisecond, func() (status, bool) {
+		exists, alive, exitCode, err := RunSessionStatus(sessionName, opts)
+		s := status{exists: exists, alive: alive, exitCode: exitCode}
+		return s, err == nil && pred(exists, alive, exitCode)
+	})
+	return got.exists, got.alive, got.exitCode
 }
 
 func TestEnsureDetachedSessionCreatesAndTags(t *testing.T) {

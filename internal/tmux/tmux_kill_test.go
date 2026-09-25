@@ -6,6 +6,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestKillSession_KillsProcessTree(t *testing.T) {
@@ -37,20 +39,13 @@ func TestKillSession_KillsProcessTree(t *testing.T) {
 	}
 
 	// Verify the process group is dead.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		err = syscall.Kill(-pgid, 0)
-		if err == syscall.ESRCH {
-			break
-		}
+	testutil.Eventually(t, 2*time.Second, 10*time.Millisecond, func() bool {
+		err := syscall.Kill(-pgid, 0)
 		if err == syscall.EPERM {
 			t.Skip("signal permissions restricted in this environment")
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("process group %d still alive after KillSession", pgid)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return err == syscall.ESRCH
+	}, "process group %d still alive after KillSession", pgid)
 }
 
 func TestKillSession_ProcessTreeAcrossWindows(t *testing.T) {
@@ -88,19 +83,12 @@ func TestKillSession_ProcessTreeAcrossWindows(t *testing.T) {
 
 	// Verify both process groups are dead.
 	for _, pgid := range pgids {
-		deadline := time.Now().Add(2 * time.Second)
-		for {
-			err = syscall.Kill(-pgid, 0)
-			if err == syscall.ESRCH {
-				break
-			}
+		testutil.Eventually(t, 2*time.Second, 10*time.Millisecond, func() bool {
+			err := syscall.Kill(-pgid, 0)
 			if err == syscall.EPERM {
 				t.Skip("signal permissions restricted in this environment")
 			}
-			if time.Now().After(deadline) {
-				t.Fatalf("process group %d still alive after KillSession", pgid)
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
+			return err == syscall.ESRCH
+		}, "process group %d still alive after KillSession", pgid)
 	}
 }

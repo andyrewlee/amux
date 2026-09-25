@@ -203,26 +203,24 @@ func TestStateWatcher_NotifiesOnRegistryWrite(t *testing.T) {
 
 	go func() { _ = sw.Run(t.Context()) }()
 
-	// Give the watcher a moment to register and emit its startup reconcile.
-	time.Sleep(50 * time.Millisecond)
-
-	// Write to registry
-	if err := os.WriteFile(registryPath, []byte(`["new"]`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	deadline := time.After(2 * time.Second)
-	for {
+	// Registration happens inside Run, so a write issued too early is
+	// silently missed — instead of sleeping a fixed window, rewrite until
+	// the watcher proves it observed one (writes are idempotent here).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := os.WriteFile(registryPath, []byte(`["new"]`), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		select {
 		case reason := <-reasons:
 			if reason == "registry" {
 				return
 			}
 			// Skip the startup reconcile (delivered as "workspaces").
-		case <-deadline:
-			t.Fatal("timed out waiting for registry notification")
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
+	t.Fatal("timed out waiting for registry notification")
 }
 
 func TestStateWatcher_ConstructorIsLazy(t *testing.T) {
