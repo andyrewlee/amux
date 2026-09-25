@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,12 +38,14 @@ func (l Level) String() string {
 	}
 }
 
-// Logger provides structured logging
+// Logger provides structured logging. level and enabled are atomics so the
+// per-call gate in log() can skip the mutex entirely — keypress-hot paths
+// would otherwise contend on it for lines that get dropped anyway.
 type Logger struct {
-	mu       sync.Mutex
+	mu       sync.Mutex // serializes writer only
 	writer   io.Writer
-	level    Level
-	enabled  bool
+	level    atomic.Int32 // stores Level
+	enabled  atomic.Bool
 	filePath string
 }
 
@@ -77,12 +80,13 @@ func Initialize(logDir string, level Level) error {
 		return err
 	}
 
-	defaultLogger = &Logger{
+	l := &Logger{
 		writer:   file,
-		level:    level,
-		enabled:  true,
 		filePath: logPath,
 	}
+	l.level.Store(int32(level))
+	l.enabled.Store(true)
+	defaultLogger = l
 
 	return nil
 }
@@ -165,9 +169,7 @@ func pruneOldLogs(logDir string, retentionDays int) error {
 // SetEnabled enables or disables logging
 func SetEnabled(enabled bool) {
 	if defaultLogger != nil {
-		defaultLogger.mu.Lock()
-		defaultLogger.enabled = enabled
-		defaultLogger.mu.Unlock()
+		defaultLogger.enabled.Store(enabled)
 	}
 }
 
@@ -191,14 +193,21 @@ func ParseLevel(name string) (Level, bool) {
 
 // log writes a log entry
 func log(level Level, format string, args ...any) {
-	if defaultLogger == nil {
+	l := defaultLogger
+	if l == nil {
+		return
+	}
+	// Fast path: the atomic gate drops filtered lines without taking the
+	// mutex — the same check repeats under the lock since SetEnabled can
+	// land between the two.
+	if !l.enabled.Load() || level < Level(l.level.Load()) {
 		return
 	}
 
-	defaultLogger.mu.Lock()
-	defer defaultLogger.mu.Unlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	if !defaultLogger.enabled || level < defaultLogger.level {
+	if !l.enabled.Load() || level < Level(l.level.Load()) {
 		return
 	}
 
