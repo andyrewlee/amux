@@ -58,18 +58,19 @@ install: build
 	fi
 
 test:
-	@packages=$$(go list ./...) || exit 1; \
-	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app|pty)$$') || exit 1; \
-	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
-	go test $$filtered
+	@packages=$$(./scripts/test_pkgs.sh --exclude-app) || exit 1; \
+	test -n "$$packages" || exit 1; \
+	echo "go test $$(printf '%s' "$$packages" | tr '\n' ' ')"; \
+	go test $$packages
 	@$(MAKE) --no-print-directory tmux-skip-check
 
 # test-race mirrors CI's "Test (race)" step: `go test -race` over CI's package
-# set, which excludes only internal/e2e and internal/tmux — the single source
-# for that set is scripts/test_pkgs.sh, shared with .github/workflows/ci.yml.
-# Note this is wider than `make test`/`make devcheck` (their filter also
-# excludes internal/app). Race runs are slow; that is why this is a separate
-# target rather than part of devcheck (same reasoning as verify-loop).
+# set — the bare output of scripts/test_pkgs.sh (excludes internal/tmux, e2e,
+# and pty), shared with .github/workflows/ci.yml. Note this is wider than
+# `make test`/`make devcheck`, which run the script's --exclude-app variant
+# (internal/app is deferred to tmux-skip-check locally). Race runs are slow;
+# that is why this is a separate target rather than part of devcheck (same
+# reasoning as verify-loop).
 test-race:
 	@filtered=$$(./scripts/test_pkgs.sh) || exit 1; \
 	echo "go test -race $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
@@ -120,11 +121,7 @@ ci: devcheck test-race tidy-check govulncheck windows-build
 
 devcheck:
 	go vet ./...
-	@packages=$$(go list ./...) || exit 1; \
-	filtered=$$(printf '%s\n' "$$packages" | grep -v -E '/internal/(tmux|e2e|app|pty)$$') || exit 1; \
-	echo "go test $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
-	go test $$filtered
-	@$(MAKE) --no-print-directory tmux-skip-check
+	$(MAKE) test
 	$(MAKE) lint-config-drift
 	$(MAKE) check-fmt-config
 	$(MAKE) lint
@@ -132,7 +129,8 @@ devcheck:
 # tmux-skip-check is the single `make test`/`make devcheck` execution of the
 # real-tmux package set excluded from the main go test sweep:
 # internal/tmux, internal/e2e, internal/app, and internal/pty. Keep this
-# package list coupled to the exclusion regex above. The -v output exposes
+# package list coupled to scripts/test_pkgs.sh --exclude-app (the sweep's
+# package source). The -v output exposes
 # per-test `--- SKIP:` lines, failures propagate, and skipped real-tmux
 # coverage still prints the same non-fatal NOTE unless STRICT_TMUX=1.
 tmux-skip-check:
@@ -304,6 +302,28 @@ lint-strict-new: check-golangci-version
 	fi
 	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
+# run-strict-lint executes one strict-profile golangci run over the diff
+# selector in $1 (`--new` or `--new-from-rev <rev>`), capturing output for the
+# test-loader fallback. Requires the caller's shell to have GO_CACHE_DIR and
+# GOLANGCI_CACHE_DIR set (lint-ci-parity does so once up front). Kept as a
+# define so the merge-base and fallback branches share the mktemp/trap
+# plumbing exactly.
+define run-strict-lint
+	OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
+	if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) $(1) --timeout=10m >"$$OUTPUT" 2>&1; then \
+		cat "$$OUTPUT"; \
+		if grep -q "no go files to analyze" "$$OUTPUT"; then \
+			echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
+			if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) $(1) --timeout=10m --tests=false; then \
+				exit 1; \
+			fi; \
+		else \
+			exit 1; \
+		fi; \
+	fi; \
+	trap - EXIT INT TERM; rm -f "$$OUTPUT";
+endef
+
 lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored repo-local directory (./.cache/).
 	@command -v $(GOLANGCI) >/dev/null 2>&1 || (echo "golangci-lint is required: run 'make lint-tools' to build the pinned version locally, or install from https://golangci-lint.run/welcome/install/"; exit 1)
 	@BASE_REF="$${BASE_REF:-origin/main}"; \
@@ -314,34 +334,10 @@ lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored rep
 	if git rev-parse --verify "$$BASE_REF" >/dev/null 2>&1; then \
 		BASE=$$(git merge-base HEAD "$$BASE_REF"); \
 		echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
-		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
-		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m >"$$OUTPUT" 2>&1; then \
-				cat "$$OUTPUT"; \
-				if grep -q "no go files to analyze" "$$OUTPUT"; then \
-					echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-					if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new-from-rev "$$BASE" --timeout=10m --tests=false; then \
-						exit 1; \
-					fi; \
-				else \
-					exit 1; \
-				fi; \
-			fi; \
-		trap - EXIT INT TERM; rm -f "$$OUTPUT"; \
+		$(call run-strict-lint,--new-from-rev "$$BASE") \
 	else \
 		echo "Base ref $$BASE_REF not found; falling back to strict lint on current unstaged/staged changes"; \
-		OUTPUT=$$(mktemp); trap 'rm -f "$$OUTPUT"' EXIT INT TERM; \
-		if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m >"$$OUTPUT" 2>&1; then \
-			cat "$$OUTPUT"; \
-			if grep -q "no go files to analyze" "$$OUTPUT"; then \
-				echo "golangci-lint test loader failed locally; retrying with --tests=false"; \
-				if ! GOCACHE="$$GO_CACHE_DIR" GOLANGCI_LINT_CACHE="$$GOLANGCI_CACHE_DIR" $(GOLANGCI) run -c .golangci.strict.yml $(STRICT_RATCHET_LINTERS) --new --timeout=10m --tests=false; then \
-					exit 1; \
-				fi; \
-			else \
-				exit 1; \
-			fi; \
-		fi; \
-		trap - EXIT INT TERM; rm -f "$$OUTPUT"; \
+		$(call run-strict-lint,--new) \
 	fi
 	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 

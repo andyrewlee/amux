@@ -36,7 +36,7 @@ your row when done.
 | 020 | Cheaper change signal for `visibleScreenDigest` | P3 | M | — | DONE |
 | 021 | Rename `sidebar.Model` → `ChangesModel` | P3 | S | — | DONE |
 | 022 | Align the two same-workspace predicates | P3 | S | — | DONE |
-| 023 | Dedupe Makefile recipes + tmux-package exclusion lists | P3 | S | — | TODO |
+| 023 | Dedupe Makefile recipes + tmux-package exclusion lists | P3 | S | — | DONE |
 | 024 | Log-level fast path before the logger mutex | P3 | S | — | DONE |
 | 025 | Docs hygiene: LINTING.md devcheck, hook env vars, make help | P3 | S | — | TODO |
 | 026 | Warn-vs-Error log-level convention + re-level real failures | P3 | M | — | TODO |

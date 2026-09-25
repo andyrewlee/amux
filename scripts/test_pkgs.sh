@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
 # Single source for the "no real tmux required" test package set shared by
-# .github/workflows/ci.yml (Test / Test (race) / macos-build steps) and the
-# Makefile's test-race target. Excludes internal/tmux, internal/e2e, and
-# internal/pty, which need a real tmux server (they run in the tmux-e2e CI
-# job / tmux-skip-check).
+# .github/workflows/ci.yml (Test / Test (race) / macos-build steps), the
+# Makefile's test-race target, and — via --exclude-app — `make
+# test`/`make devcheck`.
 #
-# NOTE: `make test`/`make devcheck` deliberately use a wider filter that also
-# excludes internal/app — tmux-skip-check runs that package separately. This
-# script is the CI package set only; do not use it to replace the devcheck
-# filter without accounting for the app-package split.
+# Bare output excludes internal/tmux, internal/e2e, and internal/pty, which
+# need a real tmux server (they run in the tmux-e2e CI job / tmux-skip-check).
+# --exclude-app additionally drops internal/app: the local sweep defers that
+# package to tmux-skip-check, while CI covers it in the main test job.
 #
 # Race coverage for the excluded real-tmux packages (and the real-tmux tests
 # inside app) lives in `make test-race-tmux` and the tmux-e2e CI job —
-# keep any new real-tmux package on BOTH lists.
+# keep any new real-tmux package in BOTH the default and --exclude-app sets.
 set -euo pipefail
 
-go list ./... | grep -v -E '/internal/(tmux|e2e|pty)$'
+filter='/internal/(tmux|e2e|pty)$'
+case "${1:-}" in
+	"")
+		;;
+	--exclude-app)
+		filter='/internal/(tmux|e2e|app|pty)$'
+		;;
+	*)
+		echo "usage: $0 [--exclude-app]" >&2
+		exit 2
+		;;
+esac
+
+go list ./... | grep -v -E "$filter"

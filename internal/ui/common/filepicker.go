@@ -162,6 +162,7 @@ func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 	return updated, cmd
 }
 
+//nolint:gocyclo,funlen // Message-dispatch switch; each case is a shallow handler, so the size is breadth rather than nested depth.
 func (fp *FilePicker) update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 	if !fp.visible {
 		return fp, nil
