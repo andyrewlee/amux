@@ -241,6 +241,15 @@ func (m *Model) SetAgentStates(states map[string]data.AgentState) tea.Cmd {
 	return nil
 }
 
+// GitStatusUnchanged reports whether a GitStatusResult would leave
+// statusCache identical. requestGitStatusCached hands back the same
+// *git.StatusResult pointer on cache hits, so pointer identity is the
+// change signal — callers can use this to skip a no-op Update (which would
+// still bump contentVersion via the funnel defer).
+func (m *Model) GitStatusUnchanged(root string, status *git.StatusResult) bool {
+	return m.statusCache[root] == status
+}
+
 // InvalidateStatus marks a workspace's cached status stale.
 // Keep dirty status sticky until a fresh clean result arrives to avoid
 // temporary clean flicker between invalidation and refresh.

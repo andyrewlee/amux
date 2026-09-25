@@ -175,6 +175,39 @@ func TestSidebarModelBlurWhenNotFilteringLeavesFilterInputUntouched(t *testing.T
 	}
 }
 
+func TestSetGitStatusDirtyGate(t *testing.T) {
+	m := New()
+	status := &git.StatusResult{Clean: true}
+
+	m.SetGitStatus(status)
+	after := m.ContentVersion()
+
+	// Same pointer (the requestGitStatusCached hit path) → no rebuild/dirty.
+	m.SetGitStatus(status)
+	if m.ContentVersion() != after {
+		t.Fatalf("same-pointer SetGitStatus bumped contentVersion %d → %d", after, m.ContentVersion())
+	}
+
+	// Fresh pointer → rebuild + dirty even with equal content.
+	m.SetGitStatus(&git.StatusResult{Clean: true})
+	if m.ContentVersion() != after+1 {
+		t.Fatalf("new-pointer SetGitStatus did not bump: %d → %d", after, m.ContentVersion())
+	}
+
+	// nil → non-nil transitions both ways still land.
+	m.SetGitStatus(nil)
+	if m.gitStatus != nil {
+		t.Fatal("nil status not stored")
+	}
+	if m.ContentVersion() != after+2 {
+		t.Fatalf("nil transition did not bump: %d → %d", after, m.ContentVersion())
+	}
+	m.SetGitStatus(nil)
+	if m.ContentVersion() != after+2 {
+		t.Fatal("repeated nil bumped contentVersion")
+	}
+}
+
 func TestSetGitStatusFastResultDoesNotPreserveOldLineStats(t *testing.T) {
 	m := New()
 	m.SetGitStatus(&git.StatusResult{

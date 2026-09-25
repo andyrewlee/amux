@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/messages"
 )
 
 // TestSetAgentStatesDirtyGate pins the activity-sync render gate: a sync
@@ -52,6 +54,35 @@ func TestSetActiveWorkspacesDirtyGate(t *testing.T) {
 	m.SetActiveWorkspaces(map[string]bool{"ws-a": true, "ws-b": true})
 	if m.contentVersion != after+1 {
 		t.Fatalf("changed active set did not bump contentVersion: %d → %d", after, m.contentVersion)
+	}
+}
+
+// TestGitStatusResultDirtyGate pins the status-tick gate: the caller checks
+// GitStatusUnchanged before Update, so a same-pointer result (the steady
+// state on every ~3s tick) must report unchanged — and a fresh pointer must
+// report changed so real updates still propagate.
+func TestGitStatusResultDirtyGate(t *testing.T) {
+	m := New()
+	status := &git.StatusResult{Clean: true}
+
+	// Absent cache + non-nil status → changed; Update stores the pointer.
+	if m.GitStatusUnchanged("/repo", status) {
+		t.Fatal("uncached root reported unchanged")
+	}
+	m.Update(messages.GitStatusResult{Root: "/repo", Status: status})
+	if !m.GitStatusUnchanged("/repo", status) {
+		t.Fatal("cached pointer reported changed")
+	}
+	// nil vs a stored non-nil pointer is a real transition (clean → unknown).
+	if m.GitStatusUnchanged("/repo", nil) {
+		t.Fatal("nil after non-nil reported unchanged")
+	}
+	if m.GitStatusUnchanged("/repo", &git.StatusResult{Clean: true}) {
+		t.Fatal("fresh pointer reported unchanged")
+	}
+	// Other roots remain independent.
+	if m.GitStatusUnchanged("/other", status) {
+		t.Fatal("unrelated root reported unchanged")
 	}
 }
 

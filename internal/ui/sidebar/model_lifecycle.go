@@ -103,8 +103,13 @@ func (m *Model) FilterActive() bool {
 	return m.filterMode
 }
 
-// SetGitStatus sets the git status.
+// SetGitStatus sets the git status. Pointer identity is the change signal:
+// requestGitStatusCached returns the same *git.StatusResult on cache hits,
+// so an identical pointer cannot change the rendered list.
 func (m *Model) SetGitStatus(status *git.StatusResult) {
+	if status == m.gitStatus {
+		return
+	}
 	m.gitStatus = status
 	m.rebuildDisplayList()
 	m.markContentDirty()

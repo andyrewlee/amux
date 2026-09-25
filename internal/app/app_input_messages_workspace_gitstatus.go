@@ -8,8 +8,15 @@ import (
 )
 
 func (a *App) handleGitStatusResult(msg messages.GitStatusResult) tea.Cmd {
-	newDashboard, cmd := a.dashboard.Update(msg)
-	a.dashboard = newDashboard
+	var cmd tea.Cmd
+	// The status tick fires every ~3s and usually returns the same cached
+	// pointer. Skipping a no-op Update avoids a spurious contentVersion bump
+	// per tick (errors change nothing either — the dashboard drops them).
+	if msg.Err == nil && !a.dashboard.GitStatusUnchanged(msg.Root, msg.Status) {
+		newDashboard, c := a.dashboard.Update(msg)
+		a.dashboard = newDashboard
+		cmd = c
+	}
 	if a.activeWorkspace != nil && rootsReferToSameWorkspace(msg.Root, a.activeWorkspace.Root) {
 		a.sidebar.SetGitStatus(msg.Status)
 	}
