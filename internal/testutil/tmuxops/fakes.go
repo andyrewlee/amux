@@ -17,16 +17,14 @@ import (
 // which cannot be imported here) and records the kill/tag calls the previous
 // hand-rolled fakes asserted on.
 type FakeTmuxOps struct {
-	EnsureAvailableFunc                  func() error
-	InstallHintFunc                      func() string
-	ActiveAgentSessionsByActivityFunc    func(window time.Duration, opts tmux.Options) ([]tmux.SessionActivity, error)
-	SessionsWithTagsFunc                 func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error)
-	SetSessionTagValueForSessionsFunc    func(sessionNames []string, key, value string, opts tmux.Options) error
-	AllSessionStatesFunc                 func(opts tmux.Options) (map[string]tmux.SessionState, error)
-	AllSessionMetaFunc                   func(opts tmux.Options) (map[string]tmux.SessionMeta, error)
-	SessionStateForFunc                  func(sessionName string, opts tmux.Options) (tmux.SessionState, error)
-	SessionHasClientsFunc                func(sessionName string, opts tmux.Options) (bool, error)
-	SessionCreatedAtFunc                 func(sessionName string, opts tmux.Options) (int64, error)
+	EnsureAvailableFunc               func() error
+	InstallHintFunc                   func() string
+	ActiveAgentSessionsByActivityFunc func(window time.Duration, opts tmux.Options) ([]tmux.SessionActivity, error)
+	SessionsWithTagsFunc              func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error)
+	SetSessionTagValueForSessionsFunc func(sessionNames []string, key, value string, opts tmux.Options) error
+	AllSessionStatesFunc              func(opts tmux.Options) (map[string]tmux.SessionState, error)
+	AllSessionMetaFunc                func(opts tmux.Options) (map[string]tmux.SessionMeta, error)
+
 	KillSessionFunc                      func(sessionName string, opts tmux.Options) error
 	KillSessionsMatchingTagsFunc         func(tags map[string]string, opts tmux.Options) (bool, error)
 	KillSessionsWithPrefixFunc           func(prefix string, opts tmux.Options) error
@@ -38,16 +36,15 @@ type FakeTmuxOps struct {
 	CapturePaneTailCheckedFunc           func(sessionName string, lines int, activePaneLive bool, opts tmux.Options) (string, bool)
 	ContentHashFunc                      func(content string) [16]byte
 
-	mu                     sync.Mutex
-	killedSessions         []string
-	killTagMatches         []map[string]string
-	killTagOpts            []tmux.Options
-	killedPrefixes         []string
-	killedMissingTag       []PrefixTag
-	killedWorkspaceIDs     []string
-	tagValueSets           []TagValueSet
-	sessionsWithTagsCalls  int
-	sessionHasClientsCalls int
+	mu                    sync.Mutex
+	killedSessions        []string
+	killTagMatches        []map[string]string
+	killTagOpts           []tmux.Options
+	killedPrefixes        []string
+	killedMissingTag      []PrefixTag
+	killedWorkspaceIDs    []string
+	tagValueSets          []TagValueSet
+	sessionsWithTagsCalls int
 }
 
 // PrefixTag records one KillSessionsWithPrefixMissingTag call.
@@ -120,30 +117,6 @@ func (f *FakeTmuxOps) AllSessionMeta(opts tmux.Options) (map[string]tmux.Session
 		return f.AllSessionMetaFunc(opts)
 	}
 	return nil, nil
-}
-
-func (f *FakeTmuxOps) SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
-	if f.SessionStateForFunc != nil {
-		return f.SessionStateForFunc(sessionName, opts)
-	}
-	return tmux.SessionState{}, nil
-}
-
-func (f *FakeTmuxOps) SessionHasClients(sessionName string, opts tmux.Options) (bool, error) {
-	f.mu.Lock()
-	f.sessionHasClientsCalls++
-	f.mu.Unlock()
-	if f.SessionHasClientsFunc != nil {
-		return f.SessionHasClientsFunc(sessionName, opts)
-	}
-	return false, nil
-}
-
-func (f *FakeTmuxOps) SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error) {
-	if f.SessionCreatedAtFunc != nil {
-		return f.SessionCreatedAtFunc(sessionName, opts)
-	}
-	return 0, nil
 }
 
 func (f *FakeTmuxOps) KillSession(sessionName string, opts tmux.Options) error {
@@ -321,11 +294,4 @@ func (f *FakeTmuxOps) SessionsWithTagsCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.sessionsWithTagsCalls
-}
-
-// SessionHasClientsCalls returns how many times SessionHasClients ran.
-func (f *FakeTmuxOps) SessionHasClientsCalls() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.sessionHasClientsCalls
 }

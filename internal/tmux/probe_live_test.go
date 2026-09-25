@@ -2,6 +2,8 @@ package tmux
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,9 +156,17 @@ func TestProbeSession_MatchesDedicatedHelpers(t *testing.T) {
 	createSession(t, opts, "probe", "sleep 1.2; echo settled; sleep 60")
 	probe := waitForActivityAfterCreation(t, opts, "probe")
 
-	createdAt, err := SessionCreatedAt("probe", opts)
+	// Independent read of #{session_created}; the package-level SessionCreatedAt
+	// helper was removed, so the test reads the field directly.
+	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", "probe", "#{session_created}")
+	out, err := runTmuxCmdCombined(cmd)
+	cancel()
+	if err != nil {
+		t.Fatalf("display-message session_created: %v", err)
+	}
+	createdAt, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
 	if err != nil || createdAt != probe.CreatedAt {
-		t.Errorf("CreatedAt: probe=%d helper=%d (err %v)", probe.CreatedAt, createdAt, err)
+		t.Errorf("CreatedAt: probe=%d direct=%d (err %v)", probe.CreatedAt, createdAt, err)
 	}
 	// Pin that the two stamps really did diverge, so this test cannot quietly
 	// degrade into comparing one value against itself.

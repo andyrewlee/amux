@@ -3,7 +3,6 @@ package app
 import (
 	"os/exec"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,30 +39,6 @@ func gcShowGlobalOption(t *testing.T, opts tmux.Options, key string) string {
 	args := gcTmuxArgs(opts, "show-options", "-g", "-v", key)
 	out, _ := exec.Command("tmux", args...).Output()
 	return string(out)
-}
-
-// gcSessionCreatedBare reads #{session_created} via a BARE session-name target
-// (no '=' exact-match prefix). On tmux 3.6a the '=' prefix used by the
-// production SessionCreatedAt path fails to expand and yields an empty value,
-// so this helper provides the real, non-zero timestamp needed to cover the
-// non-zero parse path independently of that version quirk. Returns 0 if the
-// value cannot be read or parsed.
-func gcSessionCreatedBare(t *testing.T, opts tmux.Options, session string) int64 {
-	t.Helper()
-	args := gcTmuxArgs(opts, "display-message", "-p", "-t", session, "#{session_created}")
-	out, err := exec.Command("tmux", args...).Output()
-	if err != nil {
-		t.Fatalf("display-message session_created %q: %v", session, err)
-	}
-	raw := strings.TrimSpace(string(out))
-	if raw == "" {
-		return 0
-	}
-	ts, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		t.Fatalf("parse session_created %q for %q: %v", raw, session, err)
-	}
-	return ts
 }
 
 // ---------------------------------------------------------------------------
@@ -138,113 +113,6 @@ func TestTmuxOps_AllSessionStates(t *testing.T) {
 	// A name that was never created must be absent.
 	if _, ok := states["does-not-exist"]; ok {
 		t.Error("AllSessionStates reported a session that was never created")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// SessionStateFor
-// ---------------------------------------------------------------------------
-
-func TestTmuxOps_SessionStateFor_EmptyName(t *testing.T) {
-	// Empty name is the input-validation fast path: zero value, no error, no
-	// tmux invocation required.
-	st, err := tmuxOps{}.SessionStateFor("", tmux.Options{})
-	if err != nil {
-		t.Fatalf("SessionStateFor(\"\") error = %v, want nil", err)
-	}
-	if st.Exists || st.HasLivePane {
-		t.Fatalf("SessionStateFor(\"\") = %+v, want zero value", st)
-	}
-}
-
-func TestTmuxOps_SessionStateFor_LiveAndMissing(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := gcTestServer(t)
-	ops := tmuxOps{}
-
-	gcCreateSession(t, opts, "live-sess", "sleep 300")
-
-	st, err := ops.SessionStateFor("live-sess", opts)
-	if err != nil {
-		t.Fatalf("SessionStateFor(live-sess): %v", err)
-	}
-	if !st.Exists || !st.HasLivePane {
-		t.Fatalf("SessionStateFor(live-sess) = %+v, want Exists+HasLivePane", st)
-	}
-
-	// A session that does not exist: Exists=false, no error.
-	missing, err := ops.SessionStateFor("ghost", opts)
-	if err != nil {
-		t.Fatalf("SessionStateFor(ghost): %v", err)
-	}
-	if missing.Exists || missing.HasLivePane {
-		t.Fatalf("SessionStateFor(ghost) = %+v, want zero value", missing)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// SessionCreatedAt
-// ---------------------------------------------------------------------------
-
-func TestTmuxOps_SessionCreatedAt_EmptyName(t *testing.T) {
-	ts, err := tmuxOps{}.SessionCreatedAt("", tmux.Options{})
-	if err != nil {
-		t.Fatalf("SessionCreatedAt(\"\") error = %v, want nil", err)
-	}
-	if ts != 0 {
-		t.Fatalf("SessionCreatedAt(\"\") = %d, want 0", ts)
-	}
-}
-
-func TestTmuxOps_SessionCreatedAt_ExistingAndMissing(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := gcTestServer(t)
-	ops := tmuxOps{}
-
-	after := time.Now().Unix()
-	gcCreateSession(t, opts, "stamped", "sleep 300")
-
-	// For an existing session the contract is: no error, and a non-negative
-	// timestamp. The exact value comes from tmux's #{session_created}, which on
-	// some tmux versions/detached sessions does not expand under an exact-match
-	// (=) target and yields 0 — so we assert >=0 and that it never exceeds the
-	// real wall clock rather than pinning an exact second. The distinguishing
-	// behavior we lock in is that an existing session does not error.
-	ts, err := ops.SessionCreatedAt("stamped", opts)
-	if err != nil {
-		t.Fatalf("SessionCreatedAt(stamped): %v", err)
-	}
-	if ts < 0 {
-		t.Fatalf("SessionCreatedAt(stamped) = %d, want non-negative", ts)
-	}
-	if ts > time.Now().Unix()+2 {
-		t.Fatalf("SessionCreatedAt(stamped) = %d is in the future", ts)
-	}
-	if ts != 0 && ts < after-60 {
-		t.Fatalf("SessionCreatedAt(stamped) = %d, implausibly far before create time %d", ts, after)
-	}
-
-	// Cover the non-zero parse path explicitly. SessionCreatedAt's '='-prefixed
-	// (exact-match) target does not expand #{session_created} on tmux 3.6a and
-	// returns 0, so reading the same field via a BARE session-name target gives
-	// the real, non-zero timestamp the parser would otherwise consume. Assert it
-	// lands within a few seconds of the create time, locking in that a created
-	// session reports a plausible, parseable timestamp.
-	bare := gcSessionCreatedBare(t, opts, "stamped")
-	if bare <= 0 {
-		t.Fatalf("bare #{session_created} for stamped = %d, want a positive timestamp", bare)
-	}
-	if bare < after-5 || bare > time.Now().Unix()+2 {
-		t.Fatalf("bare #{session_created} = %d, want within a few seconds of create time %d", bare, after)
-	}
-
-	// Missing session: zero timestamp, no error (the guarded !exists path).
-	missing, err := ops.SessionCreatedAt("ghost", opts)
-	if err != nil {
-		t.Fatalf("SessionCreatedAt(ghost): %v", err)
-	}
-	if missing != 0 {
-		t.Fatalf("SessionCreatedAt(ghost) = %d, want 0", missing)
 	}
 }
 

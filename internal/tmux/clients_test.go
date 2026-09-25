@@ -10,10 +10,10 @@ import (
 )
 
 // These tests cover clients.go. The exec-free early-return guards (the
-// sessionName == "" short-circuits in SessionClientCount / SessionHasClients /
-// SessionCreatedAt) are asserted directly without a live tmux server. The
-// subprocess-backed paths — the non-empty-session
-// branches of SessionClientCount / SessionHasClients, and SessionCreatedAt —
+// sessionName == "" short-circuits in SessionClientCount / SessionHasClients)
+// are asserted directly without a live tmux server. The subprocess-backed
+// paths — the non-empty-session
+// branches of SessionClientCount / SessionHasClients —
 // are exercised behind skipIfNoTmux against an isolated test server, matching
 // the convention in tags_test.go and the *_integration_test.go siblings.
 //
@@ -43,16 +43,6 @@ func TestSessionHasClients_EmptySessionName(t *testing.T) {
 	}
 	if has {
 		t.Fatal("expected false for empty session name")
-	}
-}
-
-func TestSessionCreatedAt_EmptySessionName(t *testing.T) {
-	ts, err := SessionCreatedAt("", Options{})
-	if err != nil {
-		t.Fatalf("expected nil error for empty session, got %v", err)
-	}
-	if ts != 0 {
-		t.Fatalf("expected 0 timestamp for empty session, got %d", ts)
 	}
 }
 
@@ -116,32 +106,6 @@ func TestSessionClientCount_Attached(t *testing.T) {
 	}
 	if !has {
 		t.Fatal("expected SessionHasClients to report an attached client")
-	}
-}
-
-// TestSessionCreatedAt_PositiveAndMonotonic confirms two sessions created in
-// sequence both report sane (positive, non-decreasing) creation timestamps.
-func TestSessionCreatedAt_PositiveAndMonotonic(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := testServer(t)
-
-	createSession(t, opts, "ca-first", "sleep 300")
-	time.Sleep(1100 * time.Millisecond) // tmux session_created has second resolution
-	createSession(t, opts, "ca-second", "sleep 300")
-
-	first, err := SessionCreatedAt("ca-first", opts)
-	if err != nil {
-		t.Fatalf("SessionCreatedAt(ca-first): %v", err)
-	}
-	second, err := SessionCreatedAt("ca-second", opts)
-	if err != nil {
-		t.Fatalf("SessionCreatedAt(ca-second): %v", err)
-	}
-	if first <= 0 || second <= 0 {
-		t.Fatalf("expected positive timestamps, got first=%d second=%d", first, second)
-	}
-	if second < first {
-		t.Fatalf("expected ca-second (%d) created no earlier than ca-first (%d)", second, first)
 	}
 }
 

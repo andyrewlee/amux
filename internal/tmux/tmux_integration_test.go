@@ -330,34 +330,6 @@ func TestSessionHasClients_NonexistentSession(t *testing.T) {
 	}
 }
 
-func TestSessionCreatedAt_NonexistentSession(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := testServer(t)
-
-	ts, err := SessionCreatedAt("no-such-session", opts)
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if ts != 0 {
-		t.Fatalf("expected 0 for nonexistent session, got %d", ts)
-	}
-}
-
-func TestSessionCreatedAt_ReturnsTimestamp(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := testServer(t)
-
-	createSession(t, opts, "ts-test", "sleep 300")
-
-	ts, err := SessionCreatedAt("ts-test", opts)
-	if err != nil {
-		t.Fatalf("SessionCreatedAt: %v", err)
-	}
-	if ts <= 0 {
-		t.Fatalf("expected positive timestamp, got %d", ts)
-	}
-}
-
 func TestSessionHasClients_NoClients(t *testing.T) {
 	skipIfNoTmux(t)
 	opts := testServer(t)
