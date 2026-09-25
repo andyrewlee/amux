@@ -37,6 +37,16 @@ func waitForUIContains(t *testing.T, session *PTYSession, needle string, timeout
 	}
 }
 
+// waitForPrefixPalette polls for the prefix palette's footer — the only
+// screen proof the leader byte armed prefix mode. Sending the command key
+// before the palette renders types it into the focused pane as plain input.
+func waitForPrefixPalette(t *testing.T, session *PTYSession) {
+	t.Helper()
+	if err := session.WaitForContains("Esc cancel", prefixArmTimeout); err != nil {
+		t.Fatalf("waiting for prefix palette: %v\n\nScreen:\n%s", err, session.ScreenASCII())
+	}
+}
+
 // waitForUIConsistentlyAbsent waits until needle has remained absent for the
 // full stableFor window. This is for async UI paths where a transient blank or
 // reload frame should not be mistaken for the settled state.

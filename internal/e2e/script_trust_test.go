@@ -66,15 +66,14 @@ func startTrustSession(t *testing.T, repo string) (*PTYSession, tmux.Options, fu
 }
 
 // approveTrustDialog moves the confirm cursor from the default "No" to "Yes"
-// and presses Enter.
+// and presses Enter. It deliberately does NOT wait for the dialog to close:
+// a changed-since-prompt config re-prompts under the same title, so the
+// post-approval screen is the caller's observable. The atomic h+Enter write
+// (same consumer for both bytes) replaces the old fixed settle sleep.
 func approveTrustDialog(t *testing.T, session *PTYSession) {
 	t.Helper()
-	if err := session.SendString("h"); err != nil {
-		t.Fatalf("select Yes in trust dialog: %v", err)
-	}
-	time.Sleep(dialogInputSettle)
-	if err := session.SendString("\r"); err != nil {
-		t.Fatalf("confirm trust: %v", err)
+	if err := session.SendString("h\r"); err != nil {
+		t.Fatalf("approve trust dialog: %v", err)
 	}
 }
 

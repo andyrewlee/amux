@@ -69,17 +69,7 @@ func deleteSelectedWorkspace(t *testing.T, session *PTYSession, workspaceName st
 	sendPrefixCommand(t, session, "h")
 	sendPrefixCommand(t, session, "d")
 	waitForUIContains(t, session, "Delete workspace '"+workspaceName+"' and its branch?", timeout)
-	if err := session.SendString("h"); err != nil {
-		t.Fatalf("select Yes in delete dialog: %v", err)
-	}
-	time.Sleep(dialogInputSettle)
-	if err := session.SendString("h"); err != nil {
-		t.Fatalf("keep Yes selected in delete dialog: %v", err)
-	}
-	time.Sleep(dialogInputSettle)
-	if err := session.SendString("\r"); err != nil {
-		t.Fatalf("confirm delete: %v", err)
-	}
+	confirmDialog(t, session, "Delete workspace '"+workspaceName+"' and its branch?")
 }
 
 func selectWorkspaceRow(t *testing.T, session *PTYSession, workspaceName string, timeout time.Duration) {
