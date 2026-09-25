@@ -56,3 +56,30 @@ func TestFindWorkspaceByID_FallsBackToProjects(t *testing.T) {
 		t.Fatalf("expected name %q, got %q", "feature", found.Name)
 	}
 }
+
+// TestRootsReferToSameWorkspace_Contract pins the PATH-question semantics:
+// canonical root equality with whitespace/casing tolerance, no repo leg
+// (the message carries none). The stricter identity predicate lives in
+// sidebar's sameWorkspaceByCanonicalPaths — see its test for the split.
+func TestRootsReferToSameWorkspace_Contract(t *testing.T) {
+	tmp := t.TempDir()
+
+	for _, tt := range []struct {
+		name  string
+		left  string
+		right string
+		want  bool
+	}{
+		{"exact match", tmp, tmp, true},
+		{"whitespace tolerated", " " + tmp + " ", tmp, true},
+		{"trailing slash canonicalized", tmp + "/", tmp, true},
+		{"different path", tmp, tmp + "-other", false},
+		{"empty left", "", tmp, false},
+		{"empty right", tmp, "", false},
+		{"both empty", "", "", false},
+	} {
+		if got := rootsReferToSameWorkspace(tt.left, tt.right); got != tt.want {
+			t.Errorf("%s: rootsReferToSameWorkspace(%q, %q) = %v, want %v", tt.name, tt.left, tt.right, got, tt.want)
+		}
+	}
+}

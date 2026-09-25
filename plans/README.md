@@ -35,7 +35,7 @@ your row when done.
 | 019 | Move FilePicker directory I/O off the Update goroutine | P3 | M | — | DONE |
 | 020 | Cheaper change signal for `visibleScreenDigest` | P3 | M | — | DONE |
 | 021 | Rename `sidebar.Model` → `ChangesModel` | P3 | S | — | DONE |
-| 022 | Align the two same-workspace predicates | P3 | S | — | TODO |
+| 022 | Align the two same-workspace predicates | P3 | S | — | DONE |
 | 023 | Dedupe Makefile recipes + tmux-package exclusion lists | P3 | S | — | TODO |
 | 024 | Log-level fast path before the logger mutex | P3 | S | — | DONE |
 | 025 | Docs hygiene: LINTING.md devcheck, hook env vars, make help | P3 | S | — | TODO |
