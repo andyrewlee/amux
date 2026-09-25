@@ -184,7 +184,7 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 // "vim", "nvim", "less -R") and is deliberately NOT quoted — only the file
 // path is. The label is the fragment's first token so "less -R" labels "less".
 func (m *Model) viewerLaunch(filePath string) (cmd, label string) {
-	viewer := m.viewerCommand
+	viewer := strings.TrimSpace(m.viewerCommand)
 	if viewer == "" {
 		viewer = "vim"
 	}
