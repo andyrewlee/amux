@@ -41,12 +41,18 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		statusText := ""
 		dirty := false
 		done := false
+		attention := false
 		main := row.MainWorkspace
 		active := m.projectRowActive(row.ActivityWorkspaceID, main)
 		if main != nil {
 			if op := m.busyWorkspaces[main.Root]; op != "" {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame + " " + string(op))
+			} else if row.ActivityWorkspaceID != "" &&
+				m.attentionPending[row.ActivityWorkspaceID] {
+				// Bell attention outranks the active marker — same precedence
+				// as the workspace rows below.
+				attention = true
 			} else if !active &&
 				row.ActivityWorkspaceID != "" &&
 				m.doneBadgeVisible(row.ActivityWorkspaceID) {
@@ -57,6 +63,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 		if statusText != "" {
 			status = " " + statusText
+		} else if attention {
+			status = " " + m.styles.StatusPending.Render("attention")
 		} else if done {
 			status = " " + m.styles.StatusPending.Render("done")
 		}
@@ -107,6 +115,7 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		dirty := false
 		working := false
 		done := false
+		attention := false
 
 		// Check deletion state first
 		if op := m.busyWorkspaces[row.Workspace.Root]; op != "" {
@@ -115,6 +124,10 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
 			frame := common.SpinnerFrame(m.spinnerFrame)
 			statusText = m.styles.StatusPending.Render(frame + " creating")
+		} else if row.ActivityWorkspaceID != "" && m.attentionPending[row.ActivityWorkspaceID] {
+			// Agent-bell attention outranks the working marker: an agent that
+			// rings mid-run (e.g. a permission prompt) needs a look now.
+			attention = true
 		} else if row.ActivityWorkspaceID != "" && m.activeWorkspaceIDs[row.ActivityWorkspaceID] {
 			// Active agents - color change only, no spinner
 			working = true
@@ -126,6 +139,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 		if statusText != "" {
 			status = " " + statusText
+		} else if attention {
+			status = " " + m.styles.StatusPending.Render("attention")
 		} else if done {
 			status = " " + m.styles.StatusPending.Render("done")
 		}

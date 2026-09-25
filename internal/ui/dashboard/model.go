@@ -122,6 +122,7 @@ type Model struct {
 	agentStates        map[string]data.AgentState // Per-workspace semantic agent states
 	doneAcked          map[string]bool            // Workspace IDs whose "done" indicator has been seen by the user
 	donePending        map[string]bool            // Unacked done latch — survives ClassifyState's Done→Idle decay
+	attentionPending   map[string]bool            // Unacked agent-attention latch (BEL) — unlike donePending it survives Working publishes: an agent ringing the bell mid-task still needs a look
 	notifyOnDone       bool                       // Ring a terminal bell on the unacked Working→Done edge
 
 	// Styles
@@ -148,6 +149,7 @@ func New() *Model {
 		activeWorkspaceIDs: make(map[string]bool),
 		doneAcked:          make(map[string]bool),
 		donePending:        make(map[string]bool),
+		attentionPending:   make(map[string]bool),
 		marked:             make(map[string]bool),
 		cursor:             0,
 		focused:            true,
@@ -189,6 +191,53 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 		return
 	}
 	m.activeWorkspaceIDs = active
+	m.markContentDirty()
+}
+
+// ackDone marks a workspace's "done" indicator as seen so it stops rendering —
+// the live Done state, the latched donePending badge, and the BEL attention
+// latch.
+func (m *Model) ackDone(wsID string) {
+	if wsID == "" {
+		return
+	}
+	if m.doneAcked == nil {
+		m.doneAcked = make(map[string]bool)
+	}
+	m.doneAcked[wsID] = true
+	delete(m.donePending, wsID)
+	delete(m.attentionPending, wsID)
+}
+
+// doneBadgeVisible reports whether the attention badge renders for a
+// workspace: the live Done state or the donePending latch (both suppressed
+// once seen via doneAcked), OR the attentionPending latch — which gates only
+// on itself: a bell raised after the user already viewed the workspace must
+// still surface, while ackDone clears it like the others.
+func (m *Model) doneBadgeVisible(wsID string) bool {
+	if m.attentionPending[wsID] {
+		return true
+	}
+	return (m.agentStates[wsID] == data.StateDone || m.donePending[wsID]) &&
+		!m.doneAcked[wsID]
+}
+
+// MarkAttention raises the unacked attention latch for a workspace — the same
+// surface the Working→Done edge uses (badge renders, `n` jumps to the row),
+// cleared when the user views the row via ackDone. Agent-emitted BEL lands
+// here: the agent escalated, so the workspace needs a look even though its
+// activity state may still read Working — hence a distinct latch: donePending
+// is deleted on every Working publish, which would swallow a bell raised
+// during a permission prompt. Repeated marks coalesce — the latch is boolean
+// by design.
+func (m *Model) MarkAttention(wsID string) {
+	if wsID == "" || m.attentionPending[wsID] {
+		return
+	}
+	if m.attentionPending == nil {
+		m.attentionPending = make(map[string]bool)
+	}
+	m.attentionPending[wsID] = true
 	m.markContentDirty()
 }
 

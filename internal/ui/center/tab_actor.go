@@ -103,6 +103,20 @@ type TabInputFailed struct {
 	Err         error
 }
 
+// TabBell is emitted when agent output contains BEL — the agent's escalation
+// signal (Claude Code rings BEL on notification events). The app maps it onto
+// the unacked-attention surface (badge + n jump). BELs coalesce into one edge
+// per drain, so this carries no payload.
+type TabBell struct {
+	TabID       TabID
+	WorkspaceID string
+}
+
+// MarkCriticalExternalMsg marks TabBell as critical: a bell typically lands
+// right after an output burst (the agent finished printing, then escalates) —
+// exactly when the external queue drops non-critical messages.
+func (TabBell) MarkCriticalExternalMsg() {}
+
 func (m *Model) shouldPostWriteRedraw(tab *Tab) bool {
 	return tab != nil && tab.postWriteVisible()
 }

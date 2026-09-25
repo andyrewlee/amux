@@ -156,5 +156,17 @@ func main() {
 		os.Exit(2)
 	}
 
+	// FAKEAGENT_BELL=1 makes the agent emit BEL shortly after the banner —
+	// a stand-in for real agents that ring the terminal bell when they need
+	// attention (e.g. Claude Code's notification events). The delay lands it
+	// in its own PTY chunk, like a real post-startup notification.
+	if os.Getenv("FAKEAGENT_BELL") == "1" {
+		time.Sleep(150 * time.Millisecond)
+		if _, err := os.Stdout.Write([]byte{'\x07'}); err != nil {
+			fmt.Fprintln(os.Stderr, "fakeagent: write bell:", err)
+			os.Exit(2)
+		}
+	}
+
 	_ = recordStream(os.Stdin, log)
 }

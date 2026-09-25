@@ -137,3 +137,74 @@ func TestJumpToNextAttention_SelfIsTarget(t *testing.T) {
 		t.Fatal("landing should ack the badge")
 	}
 }
+
+func TestMarkAttention_BadgeAndJump(t *testing.T) {
+	m, wsA, _ := makeAttentionModel(t)
+
+	// A bell on an idle workspace raises the badge and makes it a jump target.
+	m.MarkAttention(string(wsA.ID()))
+	if !m.doneBadgeVisible(string(wsA.ID())) {
+		t.Fatal("MarkAttention did not surface the badge")
+	}
+	if cmd := m.JumpToNextAttention(); cmd == nil {
+		t.Fatal("marked workspace should be a jump target")
+	}
+	if m.cursor != 3 {
+		t.Fatalf("cursor = %d, want 3 (ws-a row)", m.cursor)
+	}
+	// Landing acks — badge clears.
+	if m.doneBadgeVisible(string(wsA.ID())) {
+		t.Fatal("viewing the row should ack the attention latch")
+	}
+}
+
+func TestMarkAttention_SurvivesWorkingPublish(t *testing.T) {
+	m, wsA, _ := makeAttentionModel(t)
+
+	// The headline case: a permission-prompt bell while the agent still reads
+	// Working. SetAgentStates deletes donePending on Working — attentionPending
+	// must not ride that clear.
+	m.MarkAttention(string(wsA.ID()))
+	m.SetAgentStates(map[string]data.AgentState{string(wsA.ID()): data.StateWorking})
+	m.SetAgentStates(map[string]data.AgentState{string(wsA.ID()): data.StateWorking})
+	if !m.doneBadgeVisible(string(wsA.ID())) {
+		t.Fatal("Working publishes swallowed the attention latch")
+	}
+}
+
+func TestMarkAttention_CoalescesAndAckClears(t *testing.T) {
+	m, wsA, _ := makeAttentionModel(t)
+
+	m.MarkAttention(string(wsA.ID()))
+	m.MarkAttention(string(wsA.ID())) // second bell while flagged = no-op edge
+	if !m.doneBadgeVisible(string(wsA.ID())) {
+		t.Fatal("latch should hold across repeated marks")
+	}
+	m.ackDone(string(wsA.ID()))
+	if m.doneBadgeVisible(string(wsA.ID())) {
+		t.Fatal("ackDone must clear the attention latch")
+	}
+}
+
+func TestMarkAttention_EmptyIDIgnored(t *testing.T) {
+	m, _, _ := makeAttentionModel(t)
+	m.MarkAttention("")
+	if len(m.attentionPending) != 0 {
+		t.Fatal("empty workspace ID must not latch")
+	}
+}
+
+func TestMarkAttention_AfterAckStillFlags(t *testing.T) {
+	m, wsA, _ := makeAttentionModel(t)
+
+	// User views the row (acked), THEN the agent rings — the fresh bell must
+	// surface despite the stale doneAcked latch.
+	m.ackDone(string(wsA.ID()))
+	m.MarkAttention(string(wsA.ID()))
+	if !m.doneBadgeVisible(string(wsA.ID())) {
+		t.Fatal("bell after ack must still surface attention")
+	}
+	if cmd := m.JumpToNextAttention(); cmd == nil {
+		t.Fatal("post-ack bell must remain a jump target")
+	}
+}

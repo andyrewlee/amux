@@ -98,6 +98,9 @@ type VTerm struct {
 	titleVersion     uint64
 	oscWorkingDir    string
 	pendingClipboard []byte
+	// pendingBell records a BEL byte seen since the last TakePendingBell —
+	// the parser-to-tab handoff for the agents' attention/escalation signal.
+	pendingBell bool
 
 	// Selection state for copy/paste highlighting
 	// Uses absolute line numbers (0 = first scrollback line)
@@ -379,6 +382,15 @@ func (v *VTerm) TakePendingClipboard() []byte {
 	return b
 }
 
+// TakePendingBell returns and clears the pending bell flag, set when the
+// stream contained BEL (0x07). BELs coalesce — multiple bells in one parse
+// chunk still report a single edge; the flag is the signal, not a count.
+func (v *VTerm) TakePendingBell() bool {
+	b := v.pendingBell
+	v.pendingBell = false
+	return b
+}
+
 func (v *VTerm) setOSCTitle(s string) {
 	if v.oscTitle == s {
 		return
@@ -389,6 +401,7 @@ func (v *VTerm) setOSCTitle(s string) {
 
 func (v *VTerm) setOSCWorkingDir(s string)    { v.oscWorkingDir = s }
 func (v *VTerm) setPendingClipboard(b []byte) { v.pendingClipboard = b }
+func (v *VTerm) notePendingBell()             { v.pendingBell = true }
 
 // ParserCarryState reports any in-flight parser state from previously flushed
 // PTY bytes. Callers must provide external synchronization.

@@ -109,7 +109,7 @@ button does the same; `Esc` cancels). Commands are short key sequences:
 | `S` | Settings |
 | `K` | cleanup tmux sessions |
 | `h` / `l` | focus pane left / right |
-| `n` | jump the dashboard cursor to the next workspace with a done badge (wraps) |
+| `n` | jump the dashboard cursor to the next workspace needing attention — a done badge or an agent that rang BEL (agents like Claude Code ring it on notification/permission events) |
 | `t a` | new agent tab |
 | `t t` | new terminal tab |
 | `t n` / `t p` | next / previous tab |

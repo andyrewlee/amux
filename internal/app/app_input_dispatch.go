@@ -160,6 +160,8 @@ func (a *App) updateTabMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		*cmds = append(*cmds, a.handlePersistSaveFailed(msg))
 	case center.TabInputFailed:
 		*cmds = append(*cmds, a.handleTabInputFailed(msg)...)
+	case center.TabBell:
+		a.handleTabBell(msg)
 	default:
 		return false
 	}

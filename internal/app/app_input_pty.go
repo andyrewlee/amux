@@ -92,6 +92,13 @@ func (a *App) handleStateWatcherEvent(msg messages.StateWatcherEvent) []tea.Cmd 
 	}
 }
 
+// handleTabBell maps an agent-emitted BEL onto the attention surface: the
+// workspace's unacked badge latches and `n` jumps to it until viewed. The
+// latch coalesces repeated bells, so no debounce is needed here.
+func (a *App) handleTabBell(msg center.TabBell) {
+	a.dashboard.MarkAttention(msg.WorkspaceID)
+}
+
 // handleTabInputFailed handles the TabInputFailed message.
 func (a *App) handleTabInputFailed(msg center.TabInputFailed) []tea.Cmd {
 	var cmds []tea.Cmd

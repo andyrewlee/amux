@@ -18,15 +18,19 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		requestFlush   bool
 		suppressRedraw bool
 		pendingClip    []byte
+		pendingBell    bool
 	)
 	tab.mu.Lock()
 	staleWrite := ev.writeEpoch != tab.actorWriteEpoch
 	if !staleWrite && tab.Terminal != nil {
-		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip = m.applyActorWriteLocked(tab, ev, processedBytes)
+		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip, pendingBell = m.applyActorWriteLocked(tab, ev, processedBytes)
 	}
 	tab.mu.Unlock()
 	if staleWrite {
 		return
+	}
+	if pendingBell && m.msgSink != nil {
+		m.msgSink(TabBell{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
 	}
 	perf.Count("pty_flush_bytes_processed", int64(processedBytes))
 	if filterApplied {
@@ -60,8 +64,9 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 // holds tab.mu and has verified tab.Terminal != nil. It returns the filtered
 // byte count, whether the filter ran, whether the redraw should be suppressed,
 // whether a follow-up flush is needed, the activity tag to publish, and any
-// clipboard payload captured from an OSC 52 write (to be drained off the lock).
-func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64, pendingClip []byte) {
+// clipboard payload captured from an OSC 52 write (to be drained off the lock)
+// plus the pending-bell flag for the same off-lock drain.
+func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64, pendingClip []byte, pendingBell bool) {
 	// The enqueue preview already ran the noise filter against the queued
 	// carry chain, and every non-actor mutation of NoiseTrailing coincides with
 	// an actorWriteEpoch bump (stale-drop above) or happens while no write is
@@ -79,6 +84,7 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 		perf.Count("pty_flush_bytes", int64(len(output)))
 	}
 	pendingClip = tab.Terminal.TakePendingClipboard()
+	pendingBell = tab.Terminal.TakePendingBell()
 	// Activity state intentionally tracks visible terminal mutations only.
 	// Noise-only chunks are filtered above and must not update activity tags.
 	tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, ev.hasMoreBuffered, ev.visibleSeq, output)
@@ -95,7 +101,7 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 	if tab.actorWritesPending == 0 {
 		requestFlush = finalizeActorWriteLocked(tab)
 	}
-	return filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp, pendingClip
+	return filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp, pendingClip, pendingBell
 }
 
 // enqueueActorWrite optimistically advances the actor-write accounting for a
