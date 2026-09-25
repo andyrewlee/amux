@@ -44,7 +44,7 @@ your row when done.
 | 028 | Replace unmaintained atotto/clipboard fallback | P3 | M | — | DONE |
 | 029 | Route agent BEL into the attention surface (Option A: count-based) | P2 | M | — | DONE |
 | 030 | Re-runnable `setup` on demand | P2 | S | — | DONE |
-| 031 | Persist lifecycle-script transcripts across restarts | P3 | M | — | TODO |
+| 031 | Persist lifecycle-script transcripts across restarts | P3 | M | — | DONE |
 | 032 | Run-session picker for concurrent `run` sessions | P3 | M | 004 | TODO |
 | 033 | In-app browser for saved transcripts | P3 | M | — | TODO |
 | 034 | Spike: minimal read-only lifecycle CLI per ORCHESTRATION.md trigger | P3 | M | — | TODO |

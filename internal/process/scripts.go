@@ -136,6 +136,13 @@ type ScriptRunner struct {
 	// were ever found, so the hosted-status sweep can be skipped for
 	// workspaces that have never had one. See run_session.go.
 	runSessionsSeen map[string]struct{}
+	// transcriptRoot is the workspaces-metadata dir under which lifecycle
+	// transcripts persist (write-through on record, fallback on read).
+	// Empty disables persistence. transcriptMu serializes the file writes —
+	// see persistScriptOutputs for why the map is re-gathered under it.
+	// See script_output_store.go.
+	transcriptRoot string
+	transcriptMu   sync.Mutex
 }
 
 type runningScript struct {

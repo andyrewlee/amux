@@ -201,7 +201,9 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
 
 `setup-workspace`, `archive`, and `on-done` each record a bounded tail of
 their combined output on every run — press `O` in the Changes sidebar to view
-the last run of each for the shown workspace. A failing `on-done` hook also
+the last run of each for the shown workspace. Transcripts persist under the
+workspace's metadata dir (`script-transcripts.json`), so `O` still answers
+"why did setup fail" after a restart. A failing `on-done` hook also
 posts a warning toast (it used to be invisible); `R` stays the live surface
 for `run`.
 

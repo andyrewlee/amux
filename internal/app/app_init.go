@@ -121,6 +121,7 @@ func New(version, commit, date string) (*App, error) {
 	registry := data.NewRegistry(cfg.Paths.RegistryPath)
 	workspaces := data.NewWorkspaceStore(cfg.Paths.MetadataRoot)
 	scripts := process.NewScriptRunner(cfg.PortStart, cfg.PortRangeSize)
+	scripts.SetTranscriptMetadataRoot(cfg.Paths.MetadataRoot)
 	workspaceService := workspacesvc.New(registry, workspaces, scripts, cfg.Paths.WorkspacesRoot)
 
 	// Create status manager (used for synchronous status caching only).
