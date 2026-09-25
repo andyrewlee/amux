@@ -3,6 +3,7 @@ package messages
 import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/process"
 )
 
 // WorkspaceCommitted is sent when a commit-all attempt finishes. Err is non-nil
@@ -135,11 +136,18 @@ type WorkspaceCreatedWithWarning struct {
 // ToggleWorkspaceScript requests starting a workspace's `run` script, or
 // stopping it when it is already running. The app owns the ScriptRunner and so
 // decides which of the two applies; the sender only names the workspace.
-//
-// Only `run` is user-triggerable: `setup` fires automatically on workspace
-// creation and `archive` fires on delete, so neither needs a request message.
 type ToggleWorkspaceScript struct {
 	Workspace *data.Workspace
+}
+
+// RerunWorkspaceScript requests re-running a workspace's lifecycle script on
+// demand — today only `setup` is user-triggerable this way (a failed or
+// post-edit setup needs a retry that doesn't require shelve+restore churn).
+// `archive` stays non-triggerable deliberately: it is a destructive teardown
+// hook, not a retryable provisioning step.
+type RerunWorkspaceScript struct {
+	Workspace *data.Workspace
+	Script    process.ScriptType
 }
 
 // WorkspaceScriptStateChanged reports the outcome of a ToggleWorkspaceScript.

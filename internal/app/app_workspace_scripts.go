@@ -26,6 +26,29 @@ func (a *App) handleToggleWorkspaceScript(msg messages.ToggleWorkspaceScript) te
 	return a.workspaceService.ToggleScriptAsync(msg.Workspace)
 }
 
+// handleRerunWorkspaceScript re-runs a lifecycle script on demand — today only
+// setup is reachable this way (the sidebar's `u` key). It reuses
+// RunSetupAsync, so the trust gate applies identically to the create-time run;
+// the completion is tagged Rerun so the handler can confirm a run the user
+// explicitly asked for rather than staying silent like the initial run.
+func (a *App) handleRerunWorkspaceScript(msg messages.RerunWorkspaceScript) tea.Cmd {
+	if msg.Workspace == nil || a.workspaceService == nil || msg.Script != process.ScriptSetup {
+		return nil
+	}
+	inner := a.workspaceService.RunSetupAsync(msg.Workspace)
+	if inner == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		out := inner()
+		if done, ok := out.(messages.WorkspaceSetupComplete); ok {
+			done.Rerun = true
+			return done
+		}
+		return out
+	}
+}
+
 // isActiveWorkspace reports whether ws is the workspace the UI is showing,
 // matching on root the way the rest of the app does so a rebound pointer for
 // the same workspace still counts.

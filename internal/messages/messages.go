@@ -40,6 +40,10 @@ type WorkspaceCreated struct {
 type WorkspaceSetupComplete struct {
 	Workspace *data.Workspace
 	Err       error
+	// Rerun marks the completion of a user-triggered re-run (as opposed to the
+	// automatic create/restore/trust-approval run). The handler uses it to add
+	// user-facing confirmation the silent initial run deliberately lacks.
+	Rerun bool
 }
 
 // WorkspaceCreateFailed is sent when a workspace creation fails

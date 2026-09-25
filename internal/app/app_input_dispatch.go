@@ -310,6 +310,10 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleToggleWorkspaceScript(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case messages.RerunWorkspaceScript:
+		if cmd := a.handleRerunWorkspaceScript(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.WorkspaceScriptStateChanged:
 		if cmd := a.handleWorkspaceScriptStateChanged(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)

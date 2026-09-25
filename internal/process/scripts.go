@@ -172,6 +172,12 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 	}
 }
 
+// RunSetup runs the workspace's setup commands to completion: the repo's
+// setup-workspace list when present (trust-gated like every repo script), else
+// the workspace's own Scripts.Setup field — the same repo-first resolution the
+// other lifecycle scripts use. It is called on workspace create/restore and by
+// the user-triggered re-run key, so it must be safe to run more than once —
+// which is on the script's own idempotency, as with any re-run provisioning.
 func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	if err := validateScriptWorkspace(ws); err != nil {
 		return err
@@ -181,13 +187,23 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		return err
 	}
 
+	// Resolution order matches resolveScriptCommand: the repo's
+	// setup-workspace list wins; the workspace's own Scripts.Setup (typed
+	// into the scripts editor, user input that always runs) fills in when
+	// the repo defines none.
+	commands := config.SetupWorkspace
+	fromRepo := len(commands) > 0
+	if !fromRepo && ws.Scripts.Setup != "" {
+		commands = []string{ws.Scripts.Setup}
+	}
+
 	// Gate repo-supplied commands behind recorded per-repo consent. Until the
 	// user trusts the current content of .amux/workspaces.json, execute nothing
 	// and return the sentinel (fail-closed).
-	if len(config.SetupWorkspace) > 0 && !r.trust.IsTrusted(ws.Repo, raw) {
+	if fromRepo && !r.trust.IsTrusted(ws.Repo, raw) {
 		return &ScriptsNotTrustedError{
 			Repo:       ws.Repo,
-			Command:    config.SetupWorkspace[0],
+			Command:    commands[0],
 			ConfigHash: hashConfig(raw),
 		}
 	}
@@ -197,12 +213,19 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		return err
 	}
 
+	// Neither source defines a setup — nothing to run. The sentinel lets
+	// callers distinguish that from a failure; env was still built above so
+	// the workspace's port allocation behaves exactly as before.
+	if len(commands) == 0 {
+		return fmt.Errorf("%s: %w", ScriptSetup, ErrNoScriptConfigured)
+	}
+
 	// Run each setup command sequentially. Output across all commands lands
 	// in one bounded tail so the recorded transcript (and a failure's error)
 	// covers the whole setup, not just the command that died — stdout was
 	// previously dropped entirely, which hid the failure's own diagnostics.
 	tail := &tailWriter{max: scriptOutputTailBytes}
-	for _, cmdStr := range config.SetupWorkspace {
+	for _, cmdStr := range commands {
 		cmd := exec.Command("sh", "-c", cmdStr)
 		cmd.Dir = ws.Root
 		cmd.Env = env

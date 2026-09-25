@@ -143,7 +143,7 @@ Sidebar (Changes tab, focused):
   `/` filters.
 - `c` commit, `b` branch mode, `e` workspace env, `E` project env, `s`
   scripts, `r` run/stop the workspace run script, `R` run output, `O` script
-  output, `i` workspace status. Inside the live run-output viewer, `a`
+  output, `u` re-run setup, `i` workspace status. Inside the live run-output viewer, `a`
   attaches an interactive tab to the newest alive run session (closing the
   tab detaches — the script keeps running).
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
@@ -175,7 +175,9 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
 }
 ```
 
-- `setup-workspace` — commands run once when a new workspace is created.
+- `setup-workspace` — commands run once when a new workspace is created. If a
+  run fails transiently or you edit the config later, press `u` in the Changes
+  sidebar to run it again (repo-supplied commands re-check trust first).
 - `run` — the command started for a workspace's run script. Press `r` in the
   Changes sidebar to start it, and `r` again to stop it; a `[run]` marker sits
   next to the branch name while it is live. The script runs in its own tmux

@@ -329,8 +329,9 @@ func TestHandleWorkspaceDeleted_ReleasesPortAllocation(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", repo, wsRoot)
 
 	scripts := process.NewScriptRunner(6200, 10)
-	// RunSetup builds the env (and thus allocates the port range) even with no
-	// configured setup commands, mirroring a workspace that has run scripts.
+	// RunSetup builds the env (and thus allocates the port range); a trivial
+	// user-entered setup command keeps this at one fast no-op process.
+	ws.Scripts.Setup = "true"
 	if err := scripts.RunSetup(ws); err != nil {
 		t.Fatalf("RunSetup() error = %v", err)
 	}

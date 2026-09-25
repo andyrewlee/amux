@@ -5,6 +5,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -117,6 +118,8 @@ func (m *ChangesModel) Update(msg tea.Msg) (*ChangesModel, tea.Cmd) {
 			cmds = append(cmds, m.openRunOutput())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("O"))):
 			cmds = append(cmds, m.openScriptOutput())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("u"))):
+			cmds = append(cmds, m.rerunSetupScript())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("i"))):
 			cmds = append(cmds, m.openWorkspaceStatus())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
@@ -288,6 +291,20 @@ func (m *ChangesModel) toggleRunScript() tea.Cmd {
 	ws := m.workspace
 	return func() tea.Msg {
 		return messages.ToggleWorkspaceScript{Workspace: ws}
+	}
+}
+
+// rerunSetupScript asks the app to re-run the workspace's `setup` — the retry
+// for a setup that failed transiently or was edited after creation. The app
+// owns the ScriptRunner, so the request travels as a message like the other
+// script keys; trust re-gating happens inside RunSetup itself.
+func (m *ChangesModel) rerunSetupScript() tea.Cmd {
+	if m.workspace == nil {
+		return nil
+	}
+	ws := m.workspace
+	return func() tea.Msg {
+		return messages.RerunWorkspaceScript{Workspace: ws, Script: process.ScriptSetup}
 	}
 }
 

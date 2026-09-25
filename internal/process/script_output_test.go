@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,64 @@ func TestRunSetup_FailureRecordsTranscriptAndError(t *testing.T) {
 	entry, ok := runner.LastScriptOutputs(ws)[ScriptSetup]
 	if !ok || !strings.Contains(entry.Text, "before-fail") || entry.Err == "" {
 		t.Fatalf("failure transcript = %+v (ok=%v), want output + Err", entry, ok)
+	}
+}
+
+// TestRunSetup_WorkspaceScriptFallback proves the scripts editor's `setup`
+// field actually runs: with no repo setup-workspace config, ws.Scripts.Setup
+// is the fallback command — and as user input it runs without a trust prompt.
+func TestRunSetup_WorkspaceScriptFallback(t *testing.T) {
+	repo := t.TempDir() // deliberately no .amux/workspaces.json
+	runner := NewScriptRunner(6200, 10)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+	ws.Repo = repo
+	ws.Scripts.Setup = "echo user-setup-out"
+
+	if err := runner.RunSetup(ws); err != nil {
+		t.Fatalf("RunSetup() error = %v", err)
+	}
+	entry, ok := runner.LastScriptOutputs(ws)[ScriptSetup]
+	if !ok || !strings.Contains(entry.Text, "user-setup-out") {
+		t.Fatalf("user setup transcript = %+v (ok=%v), want the echoed marker", entry, ok)
+	}
+}
+
+// TestRunSetup_NoScriptConfiguredSentinel makes "nothing to run" distinguishable
+// from failure: neither the repo config nor the workspace's own field defines a
+// setup, so the caller can stay silent on create yet still answer a re-run key.
+func TestRunSetup_NoScriptConfiguredSentinel(t *testing.T) {
+	repo := t.TempDir()
+	runner := NewScriptRunner(6200, 10)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+	ws.Repo = repo
+
+	err := runner.RunSetup(ws)
+	if !errors.Is(err, ErrNoScriptConfigured) {
+		t.Fatalf("RunSetup() error = %v, want ErrNoScriptConfigured", err)
+	}
+	if _, ok := runner.LastScriptOutputs(ws)[ScriptSetup]; ok {
+		t.Fatal("a no-op setup must not leave a transcript entry")
+	}
+}
+
+// TestRunSetup_RepoConfigWinsOverWorkspaceScript pins the resolution order: a
+// repo setup-workspace list shadows the workspace's own field, matching how
+// run/archive resolve in resolveScriptCommand.
+func TestRunSetup_RepoConfigWinsOverWorkspaceScript(t *testing.T) {
+	repo := t.TempDir()
+	writeWorkspaceConfig(t, repo, `{"setup-workspace": ["echo repo-setup-out"]}`)
+	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+	ws.Repo = repo
+	ws.Scripts.Setup = "echo user-setup-out"
+
+	if err := runner.RunSetup(ws); err != nil {
+		t.Fatalf("RunSetup() error = %v", err)
+	}
+	entry := runner.LastScriptOutputs(ws)[ScriptSetup]
+	if !strings.Contains(entry.Text, "repo-setup-out") || strings.Contains(entry.Text, "user-setup-out") {
+		t.Fatalf("transcript = %q, want repo command only", entry.Text)
 	}
 }
 

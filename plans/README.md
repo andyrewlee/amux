@@ -43,7 +43,7 @@ your row when done.
 | 027 | Switch fakeagent to charmbracelet/x/term, drop golang.org/x/term | P3 | S | — | DONE |
 | 028 | Replace unmaintained atotto/clipboard fallback | P3 | M | — | DONE |
 | 029 | Route agent BEL into the attention surface (Option A: count-based) | P2 | M | — | DONE |
-| 030 | Re-runnable `setup` on demand | P2 | S | — | TODO |
+| 030 | Re-runnable `setup` on demand | P2 | S | — | DONE |
 | 031 | Persist lifecycle-script transcripts across restarts | P3 | M | — | TODO |
 | 032 | Run-session picker for concurrent `run` sessions | P3 | M | 004 | TODO |
 | 033 | In-app browser for saved transcripts | P3 | M | — | TODO |

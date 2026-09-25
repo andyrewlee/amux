@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 )
 
 // newRunScriptModel builds a focused Changes view bound to ws with a clean
@@ -75,6 +76,38 @@ func TestRunScriptKeyIgnoredWhileFiltering(t *testing.T) {
 	}
 	if !strings.Contains(m.filterQuery, "r") {
 		t.Fatalf("filter query = %q, want it to contain the typed 'r'", m.filterQuery)
+	}
+}
+
+// TestSetupRerunKeyEmitsRequest asserts 'u' asks the app to re-run setup for
+// the focused workspace — the retry path for a setup that failed or was
+// edited after creation.
+func TestSetupRerunKeyEmitsRequest(t *testing.T) {
+	ws := &data.Workspace{Name: "feature", Root: "/tmp/ws", Branch: "feature"}
+	m := newRunScriptModel(ws)
+
+	_, cmd := m.Update(keyPress('u'))
+	if cmd == nil {
+		t.Fatal("pressing 'u' produced no command")
+	}
+	req, ok := cmd().(messages.RerunWorkspaceScript)
+	if !ok {
+		t.Fatalf("pressing 'u' emitted %T, want messages.RerunWorkspaceScript", cmd())
+	}
+	if req.Workspace != ws || req.Script != process.ScriptSetup {
+		t.Fatalf("rerun request = %+v, want this workspace's setup", req)
+	}
+}
+
+// TestSetupRerunKeyWithoutWorkspaceIsInert mirrors the other script keys: no
+// focused workspace means no request, not a nil-targeted one.
+func TestSetupRerunKeyWithoutWorkspaceIsInert(t *testing.T) {
+	m := newRunScriptModel(nil)
+
+	if _, cmd := m.Update(keyPress('u')); cmd != nil {
+		if msg := cmd(); msg != nil {
+			t.Fatalf("pressing 'u' with no workspace emitted %T", msg)
+		}
 	}
 }
 
