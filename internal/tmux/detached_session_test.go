@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +118,8 @@ func TestFindRunSessionsScopesTagsAndNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindRunSessions() error = %v", err)
 	}
+	// Find order is tmux's — sort before comparing (the package convention).
+	sort.Strings(got)
 	if len(got) != 2 || got[0] != "find-a" || got[1] != "find-b" {
 		t.Fatalf("FindRunSessions() = %v, want [find-a find-b]", got)
 	}
