@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,8 +63,10 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 			return nil
 		}
 		// One batched metadata call replaces a per-session SessionCreatedAt
-		// probe per row.
-		meta, _ := svc.AllSessionMeta(opts)
+		// probe per row — but only when a row actually lacks the
+		// @amux_created_at tag, so steady state skips the fork entirely.
+		var meta map[string]tmux.SessionMeta
+		var metaFetched bool
 		var tabs []data.TabInfo
 		for _, row := range rows {
 			if row.Name == "" {
@@ -85,6 +88,10 @@ func (a *App) discoverWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
 			}
 			if createdAt == 0 {
+				if !metaFetched {
+					meta, _ = svc.AllSessionMeta(opts)
+					metaFetched = true
+				}
 				if m, ok := meta[row.Name]; ok {
 					createdAt = m.CreatedAt
 				}
@@ -194,32 +201,33 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 	}
 }
 
-// sessionsWithWorkspaceTag queries SessionsWithTags once per workspace
-// identity form and merges the rows by session name. Sessions spawned before
-// stable IDs carry whichever path-derived form ws.ID() returned at spawn —
-// matching only the persisted store key would orphan them on restart.
-// wsIDForms must be captured on the Update goroutine (ComputedID does
-// filesystem work).
+// sessionsWithWorkspaceTag issues ONE SessionsWithTags call covering every
+// workspace identity form, then keeps rows whose @amux_workspace tag is in
+// the form set — the per-form queries it replaced were byte-identical
+// list-sessions forks since matching happens client-side anyway. Sessions
+// spawned before stable IDs carry whichever path-derived form ws.ID()
+// returned at spawn — matching only the persisted store key would orphan
+// them on restart. wsIDForms must be captured on the Update goroutine
+// (ComputedID does filesystem work).
 func sessionsWithWorkspaceTag(svc TmuxOps, wsIDForms []string, extraKey, extraValue string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
-	seen := make(map[string]struct{})
-	var out []tmux.SessionTagValues
+	forms := make(map[string]struct{}, len(wsIDForms))
 	for _, form := range wsIDForms {
-		match := map[string]string{
-			"@amux":           "1",
-			"@amux_workspace": form,
-		}
-		if extraKey != "" {
-			match[extraKey] = extraValue
-		}
-		rows, err := svc.SessionsWithTags(match, keys, opts)
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			if _, ok := seen[row.Name]; ok {
-				continue
-			}
-			seen[row.Name] = struct{}{}
+		forms[form] = struct{}{}
+	}
+	match := map[string]string{"@amux": "1"}
+	if extraKey != "" {
+		match[extraKey] = extraValue
+	}
+	if !slices.Contains(keys, "@amux_workspace") {
+		keys = append(slices.Clone(keys), "@amux_workspace")
+	}
+	rows, err := svc.SessionsWithTags(match, keys, opts)
+	if err != nil {
+		return nil, err
+	}
+	var out []tmux.SessionTagValues
+	for _, row := range rows {
+		if _, ok := forms[row.Tags["@amux_workspace"]]; ok {
 			out = append(out, row)
 		}
 	}

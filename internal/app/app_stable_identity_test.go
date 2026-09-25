@@ -86,25 +86,26 @@ func TestCollectKnownWorkspaceIDs_IncludesComputedForm(t *testing.T) {
 	}
 }
 
-// formAwareTagOps answers SessionsWithTags with a row per queried
-// @amux_workspace form, recording every match it saw.
+// formAwareTagOps answers SessionsWithTags like a real list-sessions sweep:
+// one row per live session (two pre-upgrade identity forms plus an unrelated
+// workspace's session), recording every call.
 type formAwareTagOps struct {
 	tmuxops.FakeTmuxOps
-	seen []string
+	rows  []tmux.SessionTagValues
+	calls int
+	seen  []map[string]string
 }
 
 func (f *formAwareTagOps) SessionsWithTags(match map[string]string, _ []string, _ tmux.Options) ([]tmux.SessionTagValues, error) {
-	form := match["@amux_workspace"]
-	f.seen = append(f.seen, form)
-	return []tmux.SessionTagValues{{
-		Name: "amux-" + form + "-sess",
-		Tags: map[string]string{"@amux_workspace": form},
-	}}, nil
+	f.calls++
+	f.seen = append(f.seen, match)
+	return f.rows, nil
 }
 
-// TestSessionsWithWorkspaceTag_MergesAllForms: discovery must query every
-// identity form — pre-upgrade sessions can carry whichever form ws.ID()
-// returned at their spawn time.
+// TestSessionsWithWorkspaceTag_MergesAllForms: discovery must cover every
+// identity form in ONE list-sessions call — pre-upgrade sessions can carry
+// whichever form ws.ID() returned at their spawn time, and unrelated
+// workspaces' sessions must be filtered out client-side.
 func TestSessionsWithWorkspaceTag_MergesAllForms(t *testing.T) {
 	ws, _ := driftedWorkspace(t, true)
 	forms := workspacesvc.WorkspaceIDStrings(ws)
@@ -112,14 +113,27 @@ func TestSessionsWithWorkspaceTag_MergesAllForms(t *testing.T) {
 		t.Fatalf("fixture must yield multiple identity forms, got %v", forms)
 	}
 	ops := &formAwareTagOps{}
+	for _, form := range forms {
+		ops.rows = append(ops.rows, tmux.SessionTagValues{
+			Name: "amux-" + form + "-sess",
+			Tags: map[string]string{"@amux_workspace": form},
+		})
+	}
+	ops.rows = append(ops.rows, tmux.SessionTagValues{
+		Name: "amux-other-workspace-sess",
+		Tags: map[string]string{"@amux_workspace": "someone-else"},
+	})
 	rows, err := sessionsWithWorkspaceTag(ops, forms, "@amux_type", "agent", nil, tmux.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if ops.calls != 1 {
+		t.Fatalf("SessionsWithTags calls = %d, want 1", ops.calls)
+	}
+	if _, ok := ops.seen[0]["@amux_workspace"]; ok {
+		t.Fatalf("match carried @amux_workspace %q — the point is one call for all forms", ops.seen[0]["@amux_workspace"])
+	}
 	if len(rows) != len(forms) {
 		t.Fatalf("rows = %v, want one per form %v", rows, forms)
-	}
-	if len(ops.seen) != len(forms) {
-		t.Fatalf("queried forms = %v, want all of %v", ops.seen, forms)
 	}
 }
