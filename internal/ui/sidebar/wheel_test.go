@@ -8,11 +8,11 @@ import (
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
-// consumableChanges returns a *Model whose changes list has more than one
+// consumableChanges returns a *ChangesModel whose changes list has more than one
 // selectable (non-header) entry, so canConsumeWheel reports true.
-func consumableChanges(t *testing.T) *Model {
+func consumableChanges(t *testing.T) *ChangesModel {
 	t.Helper()
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.SetGitStatus(&git.StatusResult{
 		Clean: false,
@@ -45,7 +45,7 @@ func consumableTree(t *testing.T) *ProjectTree {
 }
 
 func TestChangesCanConsumeWheelWithShortSelectableList(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.SetGitStatus(&git.StatusResult{
 		Clean: false,
@@ -61,7 +61,7 @@ func TestChangesCanConsumeWheelWithShortSelectableList(t *testing.T) {
 }
 
 func TestChangesCanConsumeWheelIgnoresHeaderOnlyOverflow(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 1)
 	m.SetGitStatus(&git.StatusResult{
 		Clean: false,

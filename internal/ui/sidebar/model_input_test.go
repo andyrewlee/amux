@@ -33,9 +33,9 @@ func twoSectionStatus() *git.StatusResult {
 	}
 }
 
-func newInputModel(t *testing.T) *Model {
+func newInputModel(t *testing.T) *ChangesModel {
 	t.Helper()
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.Focus()
 	m.SetGitStatus(twoSectionStatus())
@@ -279,7 +279,7 @@ func TestInputCommitKeyOpensDialogForFocusedWorkspace(t *testing.T) {
 }
 
 func TestInputCommitKeyCleanTreeShowsNote(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.Focus()
 	m.SetWorkspace(&data.Workspace{Name: "feature", Root: "/tmp/ws"})
@@ -328,7 +328,7 @@ func TestInputEnvKeyOpensDialogForFocusedWorkspace(t *testing.T) {
 func TestInputEnvKeyCleanTreeStillOpensDialog(t *testing.T) {
 	// Unlike the commit key, the env key has no git-status precondition: env
 	// vars are independent of the working tree.
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.Focus()
 	ws := &data.Workspace{Name: "feature", Root: "/tmp/ws"}
@@ -357,7 +357,7 @@ func TestInputEnvKeyNoWorkspaceIsNoOp(t *testing.T) {
 }
 
 func TestInputIgnoredWhenUnfocused(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.SetGitStatus(twoSectionStatus())
 	// not focused
@@ -375,7 +375,7 @@ func TestInputStatusKeyRequestsRefreshViaApp(t *testing.T) {
 	// The status key must not call git.GetStatus in the UI layer: status is
 	// shared data owned by the app's cache + dedup. The model emits a
 	// GitStatusRequest; the app's dispatch owns the refresh.
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.Focus()
 	m.SetWorkspace(&data.Workspace{Name: "feature", Root: "/tmp/ws"})

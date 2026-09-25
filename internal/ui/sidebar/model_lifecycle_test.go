@@ -24,7 +24,7 @@ func TestSidebarModelSetShowKeymapHints(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New()
+			m := NewChangesModel()
 			// Establish a known starting point distinct from the value under test.
 			m.SetShowKeymapHints(tt.initial)
 			if m.showKeymapHints != tt.initial {
@@ -40,16 +40,16 @@ func TestSidebarModelSetShowKeymapHints(t *testing.T) {
 }
 
 func TestSidebarModelSetShowKeymapHintsDefaultIsFalse(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	if m.showKeymapHints {
-		t.Fatal("expected showKeymapHints to default to false from New()")
+		t.Fatal("expected showKeymapHints to default to false from NewChangesModel()")
 	}
 }
 
 func TestSidebarModelSetStyles(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 
-	// New() seeds DefaultStyles; sanity-check the baseline before mutating.
+	// NewChangesModel() seeds DefaultStyles; sanity-check the baseline before mutating.
 	if got := m.styles.Title.Value(); got != "" {
 		t.Fatalf("unexpected default Title value %q", got)
 	}
@@ -71,7 +71,7 @@ func TestSidebarModelSetStyles(t *testing.T) {
 }
 
 func TestSidebarModelSetStylesZeroValue(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	// A zero-value Styles is a valid (if blank) assignment; it must not panic
 	// and must replace the prior styles wholesale.
 	m.SetStyles(common.Styles{})
@@ -84,7 +84,7 @@ func TestSidebarModelSetStylesZeroValue(t *testing.T) {
 }
 
 func TestSidebarModelInitReturnsNoCmd(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	if cmd := m.Init(); cmd != nil {
 		t.Fatalf("Init() = %v, want nil", cmd)
 	}
@@ -100,17 +100,17 @@ func TestSidebarModelInitReturnsNoCmd(t *testing.T) {
 func TestSidebarModelFocused(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(m *Model)
+		mutate func(m *ChangesModel)
 		want   bool
 	}{
-		{name: "default unfocused", mutate: func(m *Model) {}, want: false},
-		{name: "after Focus", mutate: func(m *Model) { m.Focus() }, want: true},
-		{name: "after Focus then Blur", mutate: func(m *Model) { m.Focus(); m.Blur() }, want: false},
-		{name: "Blur on already-unfocused stays false", mutate: func(m *Model) { m.Blur() }, want: false},
+		{name: "default unfocused", mutate: func(m *ChangesModel) {}, want: false},
+		{name: "after Focus", mutate: func(m *ChangesModel) { m.Focus() }, want: true},
+		{name: "after Focus then Blur", mutate: func(m *ChangesModel) { m.Focus(); m.Blur() }, want: false},
+		{name: "Blur on already-unfocused stays false", mutate: func(m *ChangesModel) { m.Blur() }, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New()
+			m := NewChangesModel()
 			tt.mutate(m)
 			if got := m.Focused(); got != tt.want {
 				t.Fatalf("Focused() = %v, want %v", got, tt.want)
@@ -120,7 +120,7 @@ func TestSidebarModelFocused(t *testing.T) {
 }
 
 func TestSidebarModelBlurClearsFocus(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.Focus()
 	if !m.Focused() {
 		t.Fatal("precondition failed: expected focused after Focus()")
@@ -133,7 +133,7 @@ func TestSidebarModelBlurClearsFocus(t *testing.T) {
 }
 
 func TestSidebarModelBlurExitsFilterMode(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.Focus()
 	// Simulate the model being in active filter mode with a focused input.
 	m.filterMode = true
@@ -156,7 +156,7 @@ func TestSidebarModelBlurExitsFilterMode(t *testing.T) {
 }
 
 func TestSidebarModelBlurWhenNotFilteringLeavesFilterInputUntouched(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.Focus()
 	// filterMode is false, but the input could carry a stale query value;
 	// Blur must not touch the input when not in filter mode.
@@ -176,7 +176,7 @@ func TestSidebarModelBlurWhenNotFilteringLeavesFilterInputUntouched(t *testing.T
 }
 
 func TestSetGitStatusDirtyGate(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	status := &git.StatusResult{Clean: true}
 
 	m.SetGitStatus(status)
@@ -209,7 +209,7 @@ func TestSetGitStatusDirtyGate(t *testing.T) {
 }
 
 func TestSetGitStatusFastResultDoesNotPreserveOldLineStats(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetGitStatus(&git.StatusResult{
 		Clean:        false,
 		Unstaged:     []git.Change{{Path: "README.md"}},
@@ -235,7 +235,7 @@ func TestSetGitStatusFastResultDoesNotPreserveOldLineStats(t *testing.T) {
 }
 
 func TestRenderBodyHidesLineTotalsWhenStatsUnknown(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.SetGitStatus(&git.StatusResult{
 		Clean:        false,

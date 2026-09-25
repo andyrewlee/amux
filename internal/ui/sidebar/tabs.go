@@ -45,7 +45,7 @@ type tabHit struct {
 // TabbedSidebar wraps the Changes and Project views with tabs
 type TabbedSidebar struct {
 	activeTab   SidebarTab
-	changes     *Model
+	changes     *ChangesModel
 	projectTree *ProjectTree
 	tabHits     []tabHit
 	// tabBarVersion is a monotonic version of every input that shapes the
@@ -74,7 +74,7 @@ type TabbedSidebar struct {
 func NewTabbedSidebar() *TabbedSidebar {
 	return &TabbedSidebar{
 		activeTab:   TabChanges,
-		changes:     New(),
+		changes:     NewChangesModel(),
 		projectTree: NewProjectTree(),
 		styles:      common.DefaultStyles(),
 	}
@@ -328,7 +328,7 @@ func (m *TabbedSidebar) ContentView() string {
 // ContentVersion folds the versions of every input to ContentView: the
 // active tab (tabBarVersion bumps on every activeTab write) and each child
 // model's own content version, which cover their mutation surfaces (see the
-// contentVersion invariants on Model and ProjectTree).
+// contentVersion invariants on ChangesModel and ProjectTree).
 func (m *TabbedSidebar) ContentVersion() uint64 {
 	fp := common.FoldFingerprint(0, m.tabBarVersion)
 	fp = common.FoldFingerprint(fp, m.changes.ContentVersion())
@@ -374,7 +374,7 @@ func (m *TabbedSidebar) Focused() bool {
 }
 
 // SetWorkspace sets the active workspace. It returns the Changes view's
-// ahead/behind refresh command (nil for a no-op rebind); see Model.SetWorkspace.
+// ahead/behind refresh command (nil for a no-op rebind); see ChangesModel.SetWorkspace.
 func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.workspace = ws
 	cmd := m.changes.SetWorkspace(ws)
@@ -437,7 +437,7 @@ func (m *TabbedSidebar) stepTab(delta int) {
 }
 
 // Changes returns the changes model (for direct access if needed)
-func (m *TabbedSidebar) Changes() *Model {
+func (m *TabbedSidebar) Changes() *ChangesModel {
 	return m.changes
 }
 

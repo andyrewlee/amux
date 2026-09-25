@@ -18,8 +18,8 @@ func versionTestWorkspace() *data.Workspace {
 // TestChangesContentVersion_MutationsBump pins the dirty-mark coverage the
 // compose-time content gate relies on for the Changes view.
 func TestChangesContentVersion_MutationsBump(t *testing.T) {
-	newModel := func() *Model {
-		m := New()
+	newModel := func() *ChangesModel {
+		m := NewChangesModel()
 		m.SetSize(40, 20)
 		m.SetWorkspace(versionTestWorkspace())
 		m.Focus()
@@ -28,20 +28,20 @@ func TestChangesContentVersion_MutationsBump(t *testing.T) {
 
 	cases := []struct {
 		name   string
-		mutate func(m *Model)
+		mutate func(m *ChangesModel)
 	}{
-		{"SetGitStatus", func(m *Model) {
+		{"SetGitStatus", func(m *ChangesModel) {
 			m.SetGitStatus(&git.StatusResult{Unstaged: []git.Change{{Path: "f.go", Kind: git.ChangeModified}}})
 		}},
-		{"SetScriptRunning", func(m *Model) { m.SetScriptRunning("/repo/ws", true) }},
-		{"SetShowKeymapHints", func(m *Model) { m.SetShowKeymapHints(true) }},
-		{"SetStyles", func(m *Model) { m.SetStyles(common.DefaultStyles()) }},
-		{"SetSize", func(m *Model) { m.SetSize(60, 20) }},
-		{"Blur", func(m *Model) { m.Blur() }},
-		{"SetWorkspace", func(m *Model) {
+		{"SetScriptRunning", func(m *ChangesModel) { m.SetScriptRunning("/repo/ws", true) }},
+		{"SetShowKeymapHints", func(m *ChangesModel) { m.SetShowKeymapHints(true) }},
+		{"SetStyles", func(m *ChangesModel) { m.SetStyles(common.DefaultStyles()) }},
+		{"SetSize", func(m *ChangesModel) { m.SetSize(60, 20) }},
+		{"Blur", func(m *ChangesModel) { m.Blur() }},
+		{"SetWorkspace", func(m *ChangesModel) {
 			m.SetWorkspace(&data.Workspace{Name: "other", Repo: "/repo", Root: "/repo/other"})
 		}},
-		{"Update keypress", func(m *Model) {
+		{"Update keypress", func(m *ChangesModel) {
 			m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 		}},
 	}

@@ -9,7 +9,9 @@ import (
 )
 
 // Update handles messages.
-func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
+//
+//nolint:gocyclo,funlen // Key-dispatch switch; each branch is a shallow handler, so the size is breadth rather than nested depth.
+func (m *ChangesModel) Update(msg tea.Msg) (*ChangesModel, tea.Cmd) {
 	// Handled messages below mutate cursor/scroll/filter/branch state that
 	// View renders — marking at the funnel guarantees coverage; a message
 	// that early-returns untouched still bumps, which only costs one extra
@@ -129,7 +131,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 // openCurrentItem opens the diff for the currently selected item.
-func (m *Model) openCurrentItem() tea.Cmd {
+func (m *ChangesModel) openCurrentItem() tea.Cmd {
 	if m.cursor < 0 || m.cursor >= len(m.displayItems) {
 		return nil
 	}
@@ -152,7 +154,7 @@ func (m *Model) openCurrentItem() tea.Cmd {
 	}
 }
 
-func (m *Model) rowIndexAt(screenY int) (int, bool) {
+func (m *ChangesModel) rowIndexAt(screenY int) (int, bool) {
 	if !m.branchMode && (m.gitStatus == nil || m.gitStatus.Clean) {
 		return -1, false
 	}
@@ -177,7 +179,7 @@ func (m *Model) rowIndexAt(screenY int) (int, bool) {
 }
 
 // moveCursor moves the cursor, skipping section headers.
-func (m *Model) moveCursor(delta int) {
+func (m *ChangesModel) moveCursor(delta int) {
 	if len(m.displayItems) == 0 {
 		return
 	}
@@ -219,7 +221,7 @@ func (m *Model) moveCursor(delta int) {
 // nothing to commit (git commit on an empty index errors), so it shows a note
 // instead of opening the dialog. Otherwise it emits ShowCommitWorkspaceDialog;
 // the actual git.CommitAll runs only after the user confirms with a message.
-func (m *Model) commitWorkspace() tea.Cmd {
+func (m *ChangesModel) commitWorkspace() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -238,7 +240,7 @@ func (m *Model) commitWorkspace() tea.Cmd {
 // focused workspace. Unlike commitWorkspace, it has no git-status
 // precondition -- env vars are independent of the working tree, so there is
 // nothing to pre-check before showing the dialog.
-func (m *Model) openEnvDialog() tea.Cmd {
+func (m *ChangesModel) openEnvDialog() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -251,7 +253,7 @@ func (m *Model) openEnvDialog() tea.Cmd {
 // openScriptsDialog opens the workspace scripts editor (user-entered
 // setup/run/archive commands + run mode) for the focused workspace — the
 // sibling of openEnvDialog, with the same no-precondition shape.
-func (m *Model) openScriptsDialog() tea.Cmd {
+func (m *ChangesModel) openScriptsDialog() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -264,7 +266,7 @@ func (m *Model) openScriptsDialog() tea.Cmd {
 // openProjectEnvDialog opens the per-project env editor keyed on the
 // focused workspace's repo — same no-precondition shape as openEnvDialog;
 // the app derives the project identity from ws.Repo.
-func (m *Model) openProjectEnvDialog() tea.Cmd {
+func (m *ChangesModel) openProjectEnvDialog() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -279,7 +281,7 @@ func (m *Model) openProjectEnvDialog() tea.Cmd {
 // ScriptRunner, and the mirrored scriptRunning flag is a display hint that can
 // lag a start/stop still in flight, so the app resolves the direction against
 // live state and reports back via WorkspaceScriptStateChanged.
-func (m *Model) toggleRunScript() tea.Cmd {
+func (m *ChangesModel) toggleRunScript() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -292,7 +294,7 @@ func (m *Model) toggleRunScript() tea.Cmd {
 // openRunOutput asks the app to show the workspace's captured run-script
 // output — the live pane tail while running, the post-exit tail after —
 // mirroring the same fire-and-forget shape as the other dialog openers.
-func (m *Model) openRunOutput() tea.Cmd {
+func (m *ChangesModel) openRunOutput() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -305,7 +307,7 @@ func (m *Model) openRunOutput() tea.Cmd {
 // openScriptOutput asks the app to show the workspace's recorded lifecycle
 // script transcripts (setup/archive/on-done) — the sibling surface to run
 // output for the scripts that otherwise have no visible output.
-func (m *Model) openScriptOutput() tea.Cmd {
+func (m *ChangesModel) openScriptOutput() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -318,7 +320,7 @@ func (m *Model) openScriptOutput() tea.Cmd {
 // openWorkspaceStatus asks the app to show the workspace's operational
 // snapshot — port allocation, run state, script config + trust, env key
 // names, lifecycle state — in a read-only dialog.
-func (m *Model) openWorkspaceStatus() tea.Cmd {
+func (m *ChangesModel) openWorkspaceStatus() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -331,7 +333,7 @@ func (m *Model) openWorkspaceStatus() tea.Cmd {
 // refreshStatus asks the app for a git status refresh. Status is shared
 // data — the app owns the cache and dedups concurrent refreshes — so the
 // request travels as a message and the result returns as GitStatusResult.
-func (m *Model) refreshStatus() tea.Cmd {
+func (m *ChangesModel) refreshStatus() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}

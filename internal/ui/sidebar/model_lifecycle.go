@@ -9,24 +9,24 @@ import (
 )
 
 // SetShowKeymapHints controls whether helper text is rendered.
-func (m *Model) SetShowKeymapHints(show bool) {
+func (m *ChangesModel) SetShowKeymapHints(show bool) {
 	m.showKeymapHints = show
 	m.markContentDirty()
 }
 
 // SetStyles updates the component's styles (for theme changes).
-func (m *Model) SetStyles(styles common.Styles) {
+func (m *ChangesModel) SetStyles(styles common.Styles) {
 	m.styles = styles
 	m.markContentDirty()
 }
 
 // Init initializes the sidebar.
-func (m *Model) Init() tea.Cmd {
+func (m *ChangesModel) Init() tea.Cmd {
 	return nil
 }
 
 // SetSize sets the sidebar size.
-func (m *Model) SetSize(width, height int) {
+func (m *ChangesModel) SetSize(width, height int) {
 	if m.width == width && m.height == height {
 		return
 	}
@@ -36,7 +36,7 @@ func (m *Model) SetSize(width, height int) {
 }
 
 // Focus sets the focus state.
-func (m *Model) Focus() {
+func (m *ChangesModel) Focus() {
 	if m.focused {
 		return
 	}
@@ -45,7 +45,7 @@ func (m *Model) Focus() {
 }
 
 // Blur removes focus.
-func (m *Model) Blur() {
+func (m *ChangesModel) Blur() {
 	changed := m.focused || m.filterMode
 	m.focused = false
 	// Exit filter mode when losing focus
@@ -59,14 +59,14 @@ func (m *Model) Blur() {
 }
 
 // Focused returns whether the sidebar is focused.
-func (m *Model) Focused() bool {
+func (m *ChangesModel) Focused() bool {
 	return m.focused
 }
 
 // SetWorkspace sets the active workspace. It returns a command that fetches
 // the ahead/behind badge for the new workspace (nil when ws is nil or this is
 // just a pointer rebind of the same workspace).
-func (m *Model) SetWorkspace(ws *data.Workspace) tea.Cmd {
+func (m *ChangesModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.markContentDirty()
 	if sameWorkspaceByCanonicalPaths(m.workspace, ws) {
 		// Rebind pointer for metadata freshness without resetting UI state.
@@ -99,14 +99,14 @@ func (m *Model) SetWorkspace(ws *data.Workspace) tea.Cmd {
 
 // FilterActive reports whether the Changes view is currently in filter-input
 // mode (used so the tab bar doesn't steal digit keys meant for the filter).
-func (m *Model) FilterActive() bool {
+func (m *ChangesModel) FilterActive() bool {
 	return m.filterMode
 }
 
 // SetGitStatus sets the git status. Pointer identity is the change signal:
 // requestGitStatusCached returns the same *git.StatusResult on cache hits,
 // so an identical pointer cannot change the rendered list.
-func (m *Model) SetGitStatus(status *git.StatusResult) {
+func (m *ChangesModel) SetGitStatus(status *git.StatusResult) {
 	if status == m.gitStatus {
 		return
 	}
@@ -120,7 +120,7 @@ func (m *Model) SetGitStatus(status *git.StatusResult) {
 // the flag and checked at render time: a state change for a workspace the user
 // has since navigated away from updates nothing visible, instead of labeling
 // the current workspace with another one's script state.
-func (m *Model) SetScriptRunning(root string, running bool) {
+func (m *ChangesModel) SetScriptRunning(root string, running bool) {
 	m.scriptRunningRoot = root
 	m.scriptRunning = running
 	m.markContentDirty()
@@ -128,7 +128,7 @@ func (m *Model) SetScriptRunning(root string, running bool) {
 
 // scriptRunningHere reports whether the run-script indicator applies to the
 // workspace currently displayed.
-func (m *Model) scriptRunningHere() bool {
+func (m *ChangesModel) scriptRunningHere() bool {
 	if !m.scriptRunning || m.workspace == nil {
 		return false
 	}

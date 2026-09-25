@@ -14,8 +14,8 @@ import (
 // newRunScriptModel builds a focused Changes view bound to ws with a clean
 // status, which is enough for the branch header (and so the indicator) to
 // render.
-func newRunScriptModel(ws *data.Workspace) *Model {
-	m := New()
+func newRunScriptModel(ws *data.Workspace) *ChangesModel {
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.Focus()
 	m.SetWorkspace(ws)

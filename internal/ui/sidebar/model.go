@@ -20,10 +20,11 @@ type displayItem struct {
 	mode     git.DiffMode // Which diff mode to use for this item
 }
 
-// Model is the Bubbletea model for the sidebar pane
+// ChangesModel is the Bubbletea model for the sidebar's Changes tab content —
+// the changed-files list, not the sidebar itself (that is TabbedSidebar).
 // (rendering lives in model_view.go, input in model_input.go; branch-mode
 // fetch/render helpers live in branch.go).
-type Model struct {
+type ChangesModel struct {
 	// State
 	workspace    *data.Workspace
 	focused      bool
@@ -83,24 +84,24 @@ type Model struct {
 }
 
 // markContentDirty bumps contentVersion; see the field's invariant.
-func (m *Model) markContentDirty() { m.contentVersion++ }
+func (m *ChangesModel) markContentDirty() { m.contentVersion++ }
 
 // ContentVersion returns the monotonic version of the inputs to View. The
 // compose layer in internal/app skips rebuilding the content string while
 // this version and the compose geometry are unchanged.
-func (m *Model) ContentVersion() uint64 { return m.contentVersion }
+func (m *ChangesModel) ContentVersion() uint64 { return m.contentVersion }
 
 // ContentBuildCount reports how many times View has been invoked. Test
 // instrumentation for the compose-time skip gate; not for production use.
-func (m *Model) ContentBuildCount() uint64 { return m.contentBuilds }
+func (m *ChangesModel) ContentBuildCount() uint64 { return m.contentBuilds }
 
-// New creates a new sidebar model.
-func New() *Model {
+// NewChangesModel creates a new Changes-tab content model.
+func NewChangesModel() *ChangesModel {
 	ti := textinput.New()
 	ti.Placeholder = "filter..."
 	ti.CharLimit = 100
 
-	return &Model{
+	return &ChangesModel{
 		styles:      common.DefaultStyles(),
 		filterInput: ti,
 	}
@@ -108,7 +109,7 @@ func New() *Model {
 
 // rebuildDisplayList rebuilds the flat display list from grouped status, or
 // from branchChanges when branch mode is active (see branch.go).
-func (m *Model) rebuildDisplayList() {
+func (m *ChangesModel) rebuildDisplayList() {
 	m.displayItems = nil
 
 	if m.branchMode {
@@ -202,7 +203,7 @@ func (m *Model) rebuildDisplayList() {
 
 // clampCursorToDisplayItems keeps the cursor in bounds and off section
 // headers after displayItems changes shape (rebuild, filter, mode toggle).
-func (m *Model) clampCursorToDisplayItems() {
+func (m *ChangesModel) clampCursorToDisplayItems() {
 	// Reset cursor if it's out of bounds
 	if m.cursor >= len(m.displayItems) {
 		m.cursor = len(m.displayItems) - 1
@@ -220,7 +221,7 @@ func (m *Model) clampCursorToDisplayItems() {
 	}
 }
 
-func (m *Model) listHeaderLines() int {
+func (m *ChangesModel) listHeaderLines() int {
 	if !m.branchMode && (m.gitStatus == nil || m.gitStatus.Clean) {
 		return 0
 	}
@@ -235,7 +236,7 @@ func (m *Model) listHeaderLines() int {
 	return header
 }
 
-func (m *Model) visibleHeight() int {
+func (m *ChangesModel) visibleHeight() int {
 	header := m.listHeaderLines()
 	help := m.helpLineCount()
 	visible := m.height - header - help

@@ -7,7 +7,7 @@ import (
 )
 
 func TestRebuildDisplayListSeparatesSections(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.gitStatus = &git.StatusResult{
 		Staged: []git.Change{
 			{Path: "staged.go", Kind: git.ChangeModified, Staged: true},
@@ -53,7 +53,7 @@ func TestRebuildDisplayListSeparatesSections(t *testing.T) {
 }
 
 func TestRebuildDisplayListUntrackedOnlyShowsUntrackedSection(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.gitStatus = &git.StatusResult{
 		Untracked: []git.Change{
 			{Path: "a.go", Kind: git.ChangeUntracked},
@@ -73,7 +73,7 @@ func TestRebuildDisplayListUntrackedOnlyShowsUntrackedSection(t *testing.T) {
 }
 
 func TestRebuildDisplayListUnstagedOnlyShowsUnstagedSection(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.gitStatus = &git.StatusResult{
 		Unstaged: []git.Change{
 			{Path: "changed.go", Kind: git.ChangeModified},
