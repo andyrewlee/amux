@@ -61,6 +61,16 @@ func (v *VTerm) insertChars(n int) {
 	if v.CursorY >= len(v.Screen) {
 		return
 	}
+	// Clamp n to the cells from the cursor to end of line (xterm ICH
+	// semantics: ICH never affects cells left of the cursor). Without this
+	// a huge param overflows v.CursorX+n negative and the shift loop below
+	// never terminates.
+	if remaining := v.Width - v.CursorX; n > remaining {
+		n = remaining
+	}
+	if n <= 0 {
+		return
+	}
 	line := v.Screen[v.CursorY]
 	normalizeLine(line)
 

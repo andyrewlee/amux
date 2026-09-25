@@ -3,6 +3,7 @@ package vterm
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // rowText extracts visible text from a screen row, skipping continuation
@@ -160,6 +161,52 @@ func TestLineEditInsertChars(t *testing.T) {
 	want := "AB  CDE"
 	if got != want {
 		t.Errorf("row 0 after insertChars = %q, want %q", got, want)
+	}
+}
+
+// TestLineEditInsertCharsHugeParamClamps feeds ICH a param large enough to
+// overflow CursorX+n negative — before the clamp, the shift loop never
+// terminated and the Write hung forever while holding the tab lock.
+func TestLineEditInsertCharsHugeParamClamps(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 3)
+	vt.Write([]byte("ABCDE"))
+	// Cursor to row 1, col 3 (1-indexed) → (row=0, col=2) — inside the text
+	// so the clamped insert visibly shifts "CDE" off the end.
+	vt.Write([]byte("\x1b[1;3H"))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		vt.Write([]byte("\x1b[9223372036854775807@"))
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Write hung on MaxInt64 ICH param")
+	}
+
+	// Clamped to remaining = Width - CursorX = 6 blanks, shifting "CDE" off.
+	if got, want := rowText(vt, 0), "AB"; got != want {
+		t.Errorf("row 0 = %q, want %q", got, want)
+	}
+}
+
+// TestLineEditInsertCharsBeyondWidthClamps verifies a param larger than the
+// cells remaining is clamped to the remaining width, same as the exact-fit
+// param (xterm ICH semantics: cells left of the cursor are never affected).
+func TestLineEditInsertCharsBeyondWidthClamps(t *testing.T) {
+	t.Parallel()
+
+	vt := New(8, 3)
+	vt.Write([]byte("ABCDE"))
+	vt.Write([]byte("\x1b[1;3H"))
+	vt.Write([]byte("\x1b[999@"))
+
+	if got, want := rowText(vt, 0), "AB"; got != want {
+		t.Errorf("row 0 = %q, want %q", got, want)
 	}
 }
 
