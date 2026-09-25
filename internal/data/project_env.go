@@ -66,6 +66,11 @@ func (s *ProjectEnvStore) Set(repoPath string, env map[string]string) error {
 	defer s.mu.Unlock()
 	all, err := s.load()
 	if err != nil {
+		if errors.Is(err, ErrUnsupportedSchemaVersion) {
+			// A newer-schema file is valid data from a newer binary —
+			// refuse the write rather than clobbering it at our version.
+			return err
+		}
 		// A corrupt file is replaced wholesale — Set is the authoritative
 		// write and holding onto unparseable bytes would wedge every future
 		// edit.
@@ -114,7 +119,7 @@ func (s *ProjectEnvStore) load() (map[string]map[string]string, error) {
 			return nil, err
 		}
 		if file.Version > projectEnvFileVersion {
-			return nil, fmt.Errorf("unsupported project-env.json schema version %d (newest known: %d)", file.Version, projectEnvFileVersion)
+			return nil, fmt.Errorf("unsupported project-env.json schema version %d (newest known: %d): %w", file.Version, projectEnvFileVersion, ErrUnsupportedSchemaVersion)
 		}
 		if file.Env == nil {
 			return map[string]map[string]string{}, nil

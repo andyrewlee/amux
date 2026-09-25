@@ -161,6 +161,33 @@ func (t *ScriptTrust) IsTrusted(repoPath string, configContent []byte) bool {
 	return approved == hashConfig(configContent)
 }
 
+// checkVersion reports whether the on-disk registry has a schema version
+// newer than this binary writes. load() intentionally fails closed to an
+// empty map for every failure mode, so Trust must probe the file itself —
+// otherwise a downgrade would overwrite a newer binary's approvals at v1.
+func (t *ScriptTrust) checkVersion() error {
+	raw, err := os.ReadFile(t.path)
+	if err != nil {
+		return nil // missing/unreadable: load() already fails closed
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil // corrupt: replacing it is the designed recovery path
+	}
+	rawVersion, ok := probe["version"]
+	if !ok {
+		return nil // v0 bare map: upgrades on write
+	}
+	var version int
+	if err := json.Unmarshal(rawVersion, &version); err != nil {
+		return nil
+	}
+	if version > scriptTrustFileVersion {
+		return fmt.Errorf("%w: trusted-scripts.json schema %d (newest known: %d)", data.ErrUnsupportedSchemaVersion, version, scriptTrustFileVersion)
+	}
+	return nil
+}
+
 // Trust records configContent as the approved content for repoPath, writing the
 // registry atomically (temp + fsync + rename) the same way the workspace store
 // persists its JSON state.
@@ -176,6 +203,9 @@ func (t *ScriptTrust) Trust(repoPath string, configContent []byte) error {
 		// Mirror IsTrusted's guard: an empty key can never be matched, so
 		// recording one would "succeed" while granting no real trust.
 		return nil
+	}
+	if err := t.checkVersion(); err != nil {
+		return err
 	}
 	entries := t.load()
 	entries[key] = hashConfig(configContent)

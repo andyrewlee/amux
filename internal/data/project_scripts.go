@@ -64,6 +64,11 @@ func (s *ProjectScriptStore) Set(repoPath string, scripts ScriptsConfig) error {
 	defer s.mu.Unlock()
 	all, err := s.load()
 	if err != nil {
+		if errors.Is(err, ErrUnsupportedSchemaVersion) {
+			// A newer-schema file is valid data from a newer binary —
+			// refuse the write rather than clobbering it at our version.
+			return err
+		}
 		// A corrupt file is replaced wholesale — Set is the authoritative
 		// write and holding onto unparseable bytes would wedge every future
 		// edit.
@@ -106,7 +111,7 @@ func (s *ProjectScriptStore) load() (map[string]ScriptsConfig, error) {
 		return nil, err
 	}
 	if file.Version > projectScriptsFileVersion {
-		return nil, fmt.Errorf("unsupported project-scripts.json schema version %d (newest known: %d)", file.Version, projectScriptsFileVersion)
+		return nil, fmt.Errorf("unsupported project-scripts.json schema version %d (newest known: %d): %w", file.Version, projectScriptsFileVersion, ErrUnsupportedSchemaVersion)
 	}
 	if file.Scripts == nil {
 		return map[string]ScriptsConfig{}, nil
