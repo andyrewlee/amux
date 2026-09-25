@@ -8,7 +8,7 @@ require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
-	github.com/atotto/clipboard v0.1.4
+	github.com/atotto/clipboard v0.1.4 // indirect
 	// ultraviolet is Charm's untagged pre-release render engine. Its
 	// pseudo-version is driven by charm.land/lipgloss/v2 (lipgloss requires the
 	// newer pseudo-version; bubbletea's requirement is older and loses under
