@@ -27,6 +27,15 @@ echo "amux pre-commit: running golangci-lint..."
 # harmless and complements the staged-only guard below.
 make lint
 
+echo "amux pre-commit: checking lint config drift..."
+# lint-config-drift and check-fmt-config are devcheck/CI gates that `make lint`
+# does not include — without them here, a drift violation sails through the
+# hook and only fails in CI.
+if ! make lint-config-drift check-fmt-config; then
+  echo "(lint config drift — see Makefile lint-config-drift/check-fmt-config)"
+  exit 1
+fi
+
 echo "amux pre-commit: checking file lengths (max 500 lines)..."
 # NUL-delimited plumbing: --name-only splits on newlines and xargs splits on
 # all whitespace, so a staged "my file.go" would otherwise become bogus args
