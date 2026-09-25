@@ -3,6 +3,8 @@ package process
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -117,6 +119,32 @@ func (r *ScriptRunner) markRunSessionSeen(ws *data.Workspace) {
 	}
 }
 
+// nextRunSuffix picks the smallest free -N suffix (N ≥ 2) for base among the
+// live session names. Smallest-free — not len+1 or max+1 — because a killed
+// middle session leaves a gap (base + base-3 alive), and len+1 would collide
+// on base-3: Ensure is create-unless-present, so a collision silently starts
+// nothing. Reusing dead slots also keeps names dense, which keeps the lexical
+// find order close to creation order for the "newest = last name" helpers.
+func nextRunSuffix(base string, names []string) int {
+	occupied := make(map[int]struct{}, len(names))
+	for _, name := range names {
+		rest, ok := strings.CutPrefix(name, base+"-")
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(rest)
+		if err != nil || n <= 0 {
+			continue
+		}
+		occupied[n] = struct{}{}
+	}
+	for n := 2; ; n++ {
+		if _, taken := occupied[n]; !taken {
+			return n
+		}
+	}
+}
+
 // runScriptHosted is RunScript's session-host path. RunScript's nonconcurrent
 // branch already routed through Stop (which kills all the workspace's run
 // sessions under the host), so this only names the next session — the base
@@ -129,7 +157,7 @@ func (r *ScriptRunner) runScriptHosted(ws *data.Workspace, cmdStr string) error 
 	}
 	name := runSessionBaseName(ws)
 	if len(names) > 0 {
-		name = fmt.Sprintf("%s-%d", name, len(names)+1)
+		name = fmt.Sprintf("%s-%d", name, nextRunSuffix(name, names))
 	}
 	env, err := r.buildScriptEnv(ws)
 	if err != nil {

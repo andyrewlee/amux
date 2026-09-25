@@ -167,6 +167,40 @@ func TestRunScriptHostedConcurrentNamesDistinct(t *testing.T) {
 	}
 }
 
+// TestNextRunSuffix covers the suffix allocator: smallest free ≥2, gaps
+// reused, non-matching and non-numeric names ignored.
+
+// TestRunScriptHostedGapReusesFreeSuffix is the regression: a killed middle
+// session leaves a gap ([base, base-3]); the next run must take base-2, not
+// collide on base-3 — under len(names)+1 it computed 3, Ensure no-oped, and
+// the run silently never started.
+func TestRunScriptHostedGapReusesFreeSuffix(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	host := newFakeRunSessionHost()
+	runner.SetRunHost(host)
+	ws := newHostedWorkspace(t, "concurrent")
+
+	for i := 0; i < 3; i++ {
+		if _, err := runner.RunScript(ws, ScriptRun); err != nil {
+			t.Fatalf("RunScript() #%d error = %v", i, err)
+		}
+	}
+	base := "amux-ws-" + string(ws.ID()) + "-run"
+	if err := host.Kill(base + "-2"); err != nil { // leave the gap: base and base-3 remain
+		t.Fatalf("Kill: %v", err)
+	}
+
+	if _, err := runner.RunScript(ws, ScriptRun); err != nil {
+		t.Fatalf("RunScript() after kill error = %v", err)
+	}
+	if len(host.ensured) != 4 || host.ensured[3] != base+"-2" {
+		t.Fatalf("ensured = %v, want 4th ensure %q-2", host.ensured, base)
+	}
+	if _, ok := host.sessions[base+"-2"]; !ok {
+		t.Fatalf("session %q-2 not created by Ensure", base)
+	}
+}
+
 func TestRunScriptHostedNonconcurrentStopsFirst(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
 	host := newFakeRunSessionHost()
