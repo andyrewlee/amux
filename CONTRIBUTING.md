@@ -88,6 +88,13 @@ Dev-side environment variables:
   (default `--mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1
   --payload-bytes=128`).
 
+E2e fixture isolation: `StartPTYSession` pins `HOME` *and*
+`AMUX_WORKSPACES_ROOT` under the test's temporary home, so a parent shell
+running inside amux cannot redirect fixture worktrees into a real workspace
+root. Tests that deliberately relocate the root may pass an explicit
+`PTYOptions.Env` override — it wins last — but must point it at a test-owned
+temporary directory.
+
 `make doctor` probes the host for everything the above needs: go ≥ the go.mod
 floor, git, a working tmux server, the pre-commit hooks path, and lint tools.
 
