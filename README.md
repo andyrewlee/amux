@@ -176,6 +176,14 @@ agent picker additionally fuzzy-filters as you type (printable keys are
 filter text there); unfiltered pickers like the run-session list take `j`/`k`
 as navigation.
 
+Path pickers (add project, transcript browser) fuzzy-filter the listed rows
+as you type a name, but an explicit path takes precedence over the
+highlighted row: an absolute path, `~`, `~/…`, `./…`, `../…`, or any input
+containing a separator makes `enter` resolve that path directly and `tab`
+navigate into a directory — it never opens an unrelated listed row. A plain
+name (or one more component after the prefilled directory) still filters and
+selects rows.
+
 Set `"ui": { "show_keymap_hints": true }` in `~/.amux/config.json` to show an
 in-app hint bar.
 

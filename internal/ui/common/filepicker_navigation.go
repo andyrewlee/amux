@@ -134,8 +134,10 @@ func (fp *FilePicker) applyFilter() {
 		}
 	}
 
-	// If input looks like an absolute or relative path outside the current directory, don't filter.
-	if rawQuery != "" && (strings.HasPrefix(rawQuery, "/") || strings.HasPrefix(rawQuery, "~") || strings.HasPrefix(rawQuery, ".")) && !withinCurrent {
+	// While typing a path outside the current directory, show every row — the
+	// listing will be replaced on navigation. A simple dotted name like
+	// ".env" is still a filter, not a path.
+	if rawQuery != "" && fp.inputIsExplicitPath(rawQuery) && !withinCurrent {
 		fp.filteredIdx = make([]int, len(fp.entries))
 		for i := range fp.entries {
 			fp.filteredIdx[i] = i
@@ -261,10 +263,54 @@ func (fp *FilePicker) resolveInputPath(input string) (string, bool) {
 	return filepath.Clean(path), true
 }
 
+// typedPath turns trimmed input into the absolute path the resolver stats.
+// "~" expands to the home directory; other non-absolute input joins the
+// current directory. Enter and autocomplete share this so they cannot
+// diverge on what a typed path means.
+func (fp *FilePicker) typedPath(input string) string {
+	path := input
+	if strings.HasPrefix(path, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[1:])
+		}
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(fp.currentPath, path)
+	}
+	return filepath.Clean(path)
+}
+
+// inputIsExplicitPath reports whether trimmed input names a path literally
+// rather than a fuzzy row query. A suffix of the displayed base is still a
+// name filter until it crosses a separator; anything else that spells a
+// location (absolute, ~/, ./, ../, or a nested relative path) is explicit.
+// A leading dot alone does not make a simple name navigation.
+func (fp *FilePicker) inputIsExplicitPath(input string) bool {
+	seps := "/" + string(os.PathSeparator)
+	if strings.HasPrefix(input, fp.inputBasePath()) {
+		// "/base/foo" filters for the "foo" row; "/base/foo/bar" is a path.
+		rest := strings.TrimPrefix(input, fp.inputBasePath())
+		return rest != "" && strings.ContainsAny(rest, seps)
+	}
+	if filepath.IsAbs(input) || input == "~" || strings.HasPrefix(input, "~/") {
+		return true
+	}
+	if input == "." || input == ".." || strings.HasPrefix(input, "./") || strings.HasPrefix(input, "../") {
+		return true
+	}
+	return strings.ContainsAny(input, seps)
+}
+
 // handleEnter handles the enter key
 func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 	baseInput := strings.TrimSpace(fp.input.Value())
 	isBaseInput := fp.isBaseInput(baseInput)
+
+	// An explicit typed path outranks the highlighted row: Enter on it must
+	// resolve that path and never fall back to an unrelated entry when the
+	// stat fails.
+	if baseInput != "" && !isBaseInput && fp.inputIsExplicitPath(baseInput) {
+		return fp, resolvePathCmd(fp.input.Value(), fp.typedPath(baseInput), resolveEnter)
+	}
 
 	// If we have a selected entry, open directories.
 	if len(fp.filteredIdx) > 0 && fp.cursor >= 0 && fp.cursor < len(fp.filteredIdx) {
@@ -292,18 +338,9 @@ func (fp *FilePicker) handleEnter() (*FilePicker, tea.Cmd) {
 
 	// If input looks like a path, try to open/select it.
 	if baseInput != "" && !isBaseInput {
-		path := baseInput
-		if strings.HasPrefix(path, "~") {
-			if home, err := os.UserHomeDir(); err == nil {
-				path = filepath.Join(home, path[1:])
-			}
-		} else if !filepath.IsAbs(path) {
-			path = filepath.Join(fp.currentPath, path)
-		}
-		path = filepath.Clean(path)
 		// The stat runs off the Update goroutine; the result applies itself
 		// via applyResolvedPath unless the input moved on meanwhile.
-		return fp, resolvePathCmd(fp.input.Value(), path, resolveEnter)
+		return fp, resolvePathCmd(fp.input.Value(), fp.typedPath(baseInput), resolveEnter)
 	}
 
 	// Otherwise, select current directory
@@ -362,20 +399,15 @@ func (fp *FilePicker) handleOpenFromInput() tea.Cmd {
 		return nil
 	}
 
-	path := input
-	if strings.HasPrefix(path, "~") {
-		if home, err := os.UserHomeDir(); err == nil {
-			path = filepath.Join(home, path[1:])
-		}
-	} else if !filepath.IsAbs(path) {
-		path = filepath.Join(fp.currentPath, path)
-	}
-	path = filepath.Clean(path)
-
-	return resolvePathCmd(fp.input.Value(), path, resolveOpenDir)
+	return resolvePathCmd(fp.input.Value(), fp.typedPath(input), resolveOpenDir)
 }
 
 func (fp *FilePicker) handleAutocomplete() tea.Cmd {
+	// An explicit typed path skips row selection the same way Enter does;
+	// autocomplete only ever navigates into it (never confirms).
+	if input := strings.TrimSpace(fp.input.Value()); input != "" && !fp.isBaseInput(input) && fp.inputIsExplicitPath(input) {
+		return fp.handleOpenFromInput()
+	}
 	if fp.cursor >= 0 && len(fp.filteredIdx) > 0 && fp.cursor < len(fp.filteredIdx) {
 		entry := fp.entries[fp.filteredIdx[fp.cursor]]
 		if entry.IsDir() {

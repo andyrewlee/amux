@@ -217,6 +217,13 @@ and control bytes are dropped, and a paste never submits, cancels, or toggles
 a row. An orchestrator that pastes multi-line text into an amux dialog should
 split and submit lines itself.
 
+Path pickers (add project, transcript browser) resolve explicit typed paths
+before row selection: an absolute path, `~`, `~/…`, `./…`, `../…`, or any
+input containing a separator makes `enter` resolve that path and `tab`
+navigate a directory, even while unrelated rows are listed. An orchestrator
+can therefore paste a full path and press `enter` without clearing the input
+or the listing first; a plain name still fuzzy-filters and selects rows.
+
 ## Reading state
 
 amux stores per-session metadata as tmux session options (`@amux_*`). Read one
