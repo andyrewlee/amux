@@ -34,6 +34,12 @@ The tmux keys map to environment variables of the same purpose —
 `AMUX_TMUX_SERVER`, `AMUX_TMUX_CONFIG`, `AMUX_TMUX_SYNC_INTERVAL` — which amux
 also accepts directly. A non-empty config value wins over the environment.
 
+The path pickers that accept file or directory input (add project, transcript
+browser) treat typed input two ways: a plain name fuzzy-filters the listed
+rows, while an explicit path — absolute, `~`, `~/…`, `./…`, `../…`, or any
+input containing a separator — is resolved literally, so `enter`/`tab` act on
+the typed path rather than the highlighted row.
+
 ## Environment variables
 
 Variables injected **into** agents (`AMUX_WORKSPACE_*`, `AMUX_PORT`,
