@@ -345,7 +345,7 @@ func TestListShelvedWorkspaces_FiltersAccidentalArchives(t *testing.T) {
 	if err := store.Save(accidental); err != nil {
 		t.Fatalf("Save(accidental) error = %v", err)
 	}
-	shelved := svc.listShelvedWorkspaces(project.Path)
+	shelved := svc.listShelvedWorkspaces(nil, project.Path)
 	if len(shelved) != 1 || shelved[0].Name != "feat" {
 		t.Fatalf("listShelvedWorkspaces = %v, want only the shelved record", shelved)
 	}

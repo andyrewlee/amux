@@ -128,7 +128,9 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 			project.Workspaces = workspaces
 			// Shelf entries ride alongside, not inside, Workspaces — the
 			// sidebar tree and every live-set consumer must never see them.
-			project.ShelvedWorkspaces = s.listShelvedWorkspaces(path)
+			// The shared recordSet serves this too: a second full metadata
+			// scan per project would undo the point of loading it.
+			project.ShelvedWorkspaces = s.listShelvedWorkspaces(recordSet, path)
 			projects = append(projects, *project)
 		}
 

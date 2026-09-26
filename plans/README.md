@@ -30,7 +30,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [043](043-preserve-config-on-invalid-reads.md) | Preserve config on invalid reads | P1 | S | — | DONE |
 | [044](044-support-paste-in-custom-editors.md) | Support paste in custom editors | P2 | S | — | DONE |
 | [045](045-fence-sidebar-reattach-results.md) | Fence sidebar reattachment outcomes | P2 | M | — | DONE |
-| [046](046-reuse-shelved-workspace-snapshot.md) | Reuse metadata snapshots for shelves | P2 | S | — | TODO |
+| [046](046-reuse-shelved-workspace-snapshot.md) | Reuse metadata snapshots for shelves | P2 | S | — | DONE |
 | [047](047-prefer-explicit-filepicker-paths.md) | Honor explicit file-picker paths | P2 | S | — | TODO |
 | [048](048-bound-git-cancellation.md) | Bound Git cancellation and draining | P2 | M | — | TODO |
 | [049](049-preserve-zero-interrupt-delay.md) | Preserve zero interrupt delays | P2 | S | 043 | TODO |
