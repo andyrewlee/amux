@@ -218,6 +218,16 @@ provide universal power-loss immunity (a crash can lose filesystem state that
 was never synced). The guarantees are pathname continuity, atomic
 old-or-new replacement, and a recoverable backup on post-commit errors.
 
+## Diff viewer scrolling model
+
+Not a config knob — documented here because it is part of the behavior users
+observe: the diff viewer's `w` key toggles line wrapping, and with wrap on,
+`j`/`k`/wheel/page keys move through **display rows** (a wrapped long line
+occupies several), not source lines. Every wrapped segment is reachable — the
+footer's position counter and the wheel affordance count display rows.
+`n`/`p` continue to jump between hunk headers, and resizing or toggling wrap
+re-anchors the view to the same source line when possible.
+
 ## Overriding a built-in's command
 
 The same map overrides the built-in agents. For a built-in you only need to set

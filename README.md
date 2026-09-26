@@ -166,6 +166,16 @@ Sidebar (Changes tab, focused):
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).
 
+Diff viewer (opened from Changes with `enter`/`space`/`o`):
+
+- `j`/`k`/arrows and the wheel scroll, `PgUp`/`PgDn` (or `ctrl+u`/`ctrl+d`)
+  page, `g`/`G` jump to the top/bottom. With `w` wrap enabled, scrolling moves
+  display rows so a wrapped line's tail is always reachable; the footer counts
+  display rows, not source lines.
+- `n`/`p` cycle forward/back through diff hunks (still source-line anchored).
+- Resizing or toggling `w` keeps the same source line at the top of the view
+  when possible; `q`/`esc` closes the tab.
+
 Text fields in the env, scripts, and Settings editors accept terminal
 bracketed paste: only the first pasted line is appended to the focused field
 (later lines and control bytes are dropped — these are single-line fields),

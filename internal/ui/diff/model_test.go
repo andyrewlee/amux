@@ -18,15 +18,15 @@ func newModelWithDiff(height, lines int, hunks []git.Hunk) *Model {
 	return m
 }
 
-func TestVisibleHeight(t *testing.T) {
+func TestContentHeight(t *testing.T) {
 	m := &Model{height: 2}
-	if got := m.visibleHeight(); got != 1 {
-		t.Fatalf("expected visible height 1, got %d", got)
+	if got := m.contentHeight(); got != 0 {
+		t.Fatalf("expected content height 0 below the chrome tier, got %d", got)
 	}
 
 	m.height = 10
-	if got := m.visibleHeight(); got != 7 {
-		t.Fatalf("expected visible height 7, got %d", got)
+	if got := m.contentHeight(); got != 7 {
+		t.Fatalf("expected content height 7, got %d", got)
 	}
 }
 

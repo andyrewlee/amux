@@ -375,6 +375,15 @@ running is unsupported until adoption completes: an old binary still
 allocating in memory would keep handing out ranges the new registry cannot
 see. tmux-discovery failure during adoption also defers rather than guessing.
 
+## Diff viewer scroll contract
+
+Tools driving amux via tmux keys can rely on the diff viewer reaching every
+display row: `w` toggles wrap; with wrap on, `j`/`k`/wheel/page keys and the
+footer position counter all operate in display rows (wrapped segments), so a
+long line's tail is always scrollable to. `n`/`p` still navigate hunks in
+source-line order. Resizing or toggling `w` re-anchors the top of the
+viewport to the same source line where possible.
+
 ## Self-update replacement contract
 
 External tooling that relaunches amux by path can rely on the self-update

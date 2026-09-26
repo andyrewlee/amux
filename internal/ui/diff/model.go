@@ -25,7 +25,7 @@ type Model struct {
 	// State
 	loading bool
 	err     error
-	scroll  int  // Scroll offset in lines
+	scroll  int  // Scroll offset in visual rows (see visual_rows.go)
 	hunkIdx int  // Current hunk index for n/p navigation
 	wrap    bool // Whether to wrap long lines
 	focused bool
@@ -51,6 +51,14 @@ type Model struct {
 	viewKey   diffViewKey
 	viewCache string
 	viewValid bool
+
+	// rowsCache memoizes the visual-row layout on (diff, width, wrap,
+	// stylesRev) — scrolling never rebuilds it. rowsBuilt counts builds so
+	// tests can prove scrolling reuses the cache.
+	rowsCache visualRows
+	rowsKey   visualRowsKey
+	rowsValid bool
+	rowsBuilt int
 }
 
 // diffViewKey captures every input View() reads: the loaded data pointers,
@@ -118,6 +126,7 @@ func (m *Model) ResetSource(ws *data.Workspace, change *git.Change, mode git.Dif
 	m.diff = nil
 	m.scroll = 0
 	m.hunkIdx = 0
+	m.invalidateRows()
 }
 
 // loadDiff returns a command that loads the diff asynchronously
@@ -175,6 +184,10 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.diff = msg.diff
+		m.invalidateRows()
+		if limit := m.maxScroll(); m.scroll > limit {
+			m.scroll = limit
+		}
 		return m, nil
 
 	case tea.MouseWheelMsg:
@@ -202,9 +215,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			m.scrollUp(1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("pgdown", "ctrl+d"))):
-			m.scrollDown(common.ScrollDeltaForHeight(m.visibleHeight(), 2))
+			m.scrollDown(common.ScrollDeltaForHeight(m.contentHeight(), 2))
 		case key.Matches(msg, key.NewBinding(key.WithKeys("pgup", "ctrl+u"))):
-			m.scrollUp(common.ScrollDeltaForHeight(m.visibleHeight(), 2))
+			m.scrollUp(common.ScrollDeltaForHeight(m.contentHeight(), 2))
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g", "home"))):
 			m.scroll = 0
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G", "end"))):
@@ -216,9 +229,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 			m.prevHunk()
 
-		// Toggle wrap
+		// Toggle wrap — keep the same source line at the top of the
+		// viewport, clamping its segment to the new wrap count.
 		case key.Matches(msg, key.NewBinding(key.WithKeys("w"))):
+			line, seg := m.rows().anchor(m.scroll)
 			m.wrap = !m.wrap
+			m.scroll = m.clampScroll(m.rows().rowForAnchor(line, seg))
 
 		// Close
 		case key.Matches(msg, key.NewBinding(key.WithKeys("q", "esc"))):
@@ -251,71 +267,82 @@ func (m *Model) scrollToBottom() {
 	m.scroll = m.maxScroll()
 }
 
-// maxScroll returns the maximum scroll offset
+// maxScroll returns the maximum scroll offset in visual rows. A zero content
+// capacity has no scrollable behavior even when rows exist.
 func (m *Model) maxScroll() int {
 	if m.diff == nil {
 		return 0
 	}
-	total := len(m.diff.Lines)
-	visible := m.visibleHeight()
-	if total <= visible {
+	capacity := m.contentHeight()
+	if capacity < 1 {
 		return 0
 	}
-	return total - visible
+	if total := len(m.rows().rows); total > capacity {
+		return total - capacity
+	}
+	return 0
 }
 
-// visibleHeight returns the number of visible lines
-func (m *Model) visibleHeight() int {
-	h := m.height - 3 // Reserve space for header/stats/footer
-	if h < 1 {
-		h = 1
+// clampScroll bounds an offset to the scrollable visual-row range.
+func (m *Model) clampScroll(scroll int) int {
+	if limit := m.maxScroll(); scroll > limit {
+		return limit
+	}
+	if scroll < 0 {
+		return 0
+	}
+	return scroll
+}
+
+// contentHeight returns the display rows available for diff content:
+// heights ≥3 reserve header/stats/footer; smaller heights are all chrome.
+func (m *Model) contentHeight() int {
+	h := m.height - 3
+	if h < 0 {
+		h = 0
 	}
 	return h
 }
 
-// nextHunk moves to the next hunk
+// nextHunk moves to the next hunk's first visual row, wrapping around. The
+// target scroll clamps into the scrollable range while hunkIdx tracks the
+// selected hunk explicitly, so a last hunk whose top lands past maxScroll
+// still advances the cycle instead of getting stuck.
 func (m *Model) nextHunk() {
 	if m.diff == nil || len(m.diff.Hunks) == 0 {
 		return
 	}
+	rows := m.rows()
 
-	// Find next hunk after current scroll position
 	for i, hunk := range m.diff.Hunks {
-		if hunk.StartLine > m.scroll {
+		if rows.topFor(hunk.StartLine) > m.scroll {
 			m.hunkIdx = i
-			m.scroll = hunk.StartLine
+			m.scroll = m.clampScroll(rows.topFor(hunk.StartLine))
 			return
 		}
 	}
 
-	// Wrap to first hunk
 	m.hunkIdx = 0
-	if len(m.diff.Hunks) > 0 {
-		m.scroll = m.diff.Hunks[0].StartLine
-	}
+	m.scroll = m.clampScroll(rows.topFor(m.diff.Hunks[0].StartLine))
 }
 
-// prevHunk moves to the previous hunk
+// prevHunk moves to the previous hunk's first visual row, wrapping around.
 func (m *Model) prevHunk() {
 	if m.diff == nil || len(m.diff.Hunks) == 0 {
 		return
 	}
+	rows := m.rows()
 
-	// Find previous hunk before current scroll position
 	for i := len(m.diff.Hunks) - 1; i >= 0; i-- {
-		hunk := m.diff.Hunks[i]
-		if hunk.StartLine < m.scroll {
+		if rows.topFor(m.diff.Hunks[i].StartLine) < m.scroll {
 			m.hunkIdx = i
-			m.scroll = hunk.StartLine
+			m.scroll = m.clampScroll(rows.topFor(m.diff.Hunks[i].StartLine))
 			return
 		}
 	}
 
-	// Wrap to last hunk
 	m.hunkIdx = len(m.diff.Hunks) - 1
-	if m.hunkIdx >= 0 {
-		m.scroll = m.diff.Hunks[m.hunkIdx].StartLine
-	}
+	m.scroll = m.clampScroll(rows.topFor(m.diff.Hunks[m.hunkIdx].StartLine))
 }
 
 // SetResultWrapper installs a function applied to every async load result
@@ -347,10 +374,23 @@ func (m *Model) Focused() bool {
 	return m.focused
 }
 
-// SetSize sets the component dimensions
+// SetSize sets the component dimensions. A width change re-wraps the visual
+// rows, so the top of the viewport re-anchors to the same source line with
+// its segment clamped to the new segment count; a height-only change keeps
+// the current visual offset and just clamps it to the scrollable range.
 func (m *Model) SetSize(width, height int) {
+	if width == m.width && height == m.height {
+		return
+	}
+	line, seg := m.rows().anchor(m.scroll)
+	widthChanged := width != m.width
 	m.width = width
 	m.height = height
+	if widthChanged {
+		m.scroll = m.clampScroll(m.rows().rowForAnchor(line, seg))
+	} else if limit := m.maxScroll(); m.scroll > limit {
+		m.scroll = limit
+	}
 }
 
 // SetStyles updates the component's styles

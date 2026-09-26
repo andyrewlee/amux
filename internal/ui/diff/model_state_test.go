@@ -152,13 +152,13 @@ func TestSetSize(t *testing.T) {
 	}
 }
 
-// TestSetSizeAffectsVisibleHeight is a behavioral check: resizing should feed
-// through to the derived visibleHeight used by scroll math.
-func TestSetSizeAffectsVisibleHeight(t *testing.T) {
+// TestSetSizeAffectsContentHeight is a behavioral check: resizing should feed
+// through to the derived contentHeight used by scroll math.
+func TestSetSizeAffectsContentHeight(t *testing.T) {
 	m := &Model{}
 	m.SetSize(80, 13)
-	if got := m.visibleHeight(); got != 10 {
-		t.Fatalf("visibleHeight after SetSize = %d, want 10", got)
+	if got := m.contentHeight(); got != 10 {
+		t.Fatalf("contentHeight after SetSize = %d, want 10", got)
 	}
 }
 
