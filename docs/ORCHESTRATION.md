@@ -224,6 +224,14 @@ navigate a directory, even while unrelated rows are listed. An orchestrator
 can therefore paste a full path and press `enter` without clearing the input
 or the listing first; a plain name still fuzzy-filters and selects rows.
 
+Every git invocation amux issues runs in its own process group (Unix;
+leader-only kill on Windows) with a bounded output drain, so deadline
+cancellation terminates spawned descendants and cannot be stalled by a
+lingering child holding the output pipes. The cleanup allowance after a
+deadline is short (sub-second scale), not exact — orchestrators should treat
+the deadline as "deadline plus bounded teardown," not a hard wall-clock
+contract.
+
 ## Reading state
 
 amux stores per-session metadata as tmux session options (`@amux_*`). Read one
