@@ -1,9 +1,6 @@
 package config
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -81,15 +78,13 @@ func saveUISettings(path string, settings UISettings) error {
 		return err
 	}
 
-	payload := map[string]any{}
-	if existing, err := readConfigPath(path); err == nil && len(bytes.TrimSpace(existing)) > 0 {
-		// Refuse to clobber an existing-but-unparseable config: the loader
-		// tolerates malformed JSON (falls back to defaults), so blindly
-		// overwriting here would silently drop unrelated sections the user
-		// hand-edited (e.g. "assistants").
-		if err := json.Unmarshal(existing, &payload); err != nil {
-			return fmt.Errorf("refusing to overwrite malformed config %s: %w", path, err)
-		}
+	// Refuse to clobber an existing-but-unreadable config: the loader
+	// tolerates malformed JSON (falls back to defaults), so saving over an
+	// unreadable or non-object file would silently drop unrelated sections
+	// the user hand-edited (e.g. "assistants").
+	payload, err := readConfigForUpdate(path, readConfigPath)
+	if err != nil {
+		return err
 	}
 
 	ui, ok := payload["ui"].(map[string]any)

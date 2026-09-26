@@ -62,6 +62,14 @@ tab state) loads the record fresh under the workspace lock and rewrites only
 its own fields. External tooling that edits `workspace.json` directly should
 do the same — read-modify-write of only the field it owns.
 
+`~/.amux/config.json` has a deliberately asymmetric contract: startup falls
+back to defaults on malformed content, but amux's own saves refuse an
+unreadable or non-object document rather than rewriting a partial view (a
+missing or empty file is treated as an empty config and written normally).
+External tooling editing the file should keep it a JSON object — a file amux
+cannot parse at save time is preserved untouched, never repaired or
+truncated.
+
 - `<tabPart>` identifies the pane within the workspace. For an interactive agent
   tab it is the tab ID `tab-<prefix>-<counter>` (`internal/ui/center/model_tab.go`,
   `formatTabID`), where `<prefix>` is 4 random bytes hex-encoded **per amux

@@ -286,6 +286,8 @@ project-level environment map in `~/.amux/project-env.json`.
 
 Assistants: the AI agents amux can launch are configured per-user in `~/.amux/config.json`. You can add your own or override a built-in — see [docs/CONFIG.md](docs/CONFIG.md). A launch uses the assistant settings captured when it was requested, so saving new settings affects later launches, not panes already launched or attached.
 
+Saving never clobbers a config file amux cannot read: if `config.json` exists but is unreadable, malformed, or a non-object document, the save is refused and the file is left untouched so hand-edited sections survive. A missing or empty file is written normally — that's absence, not rejection.
+
 ## Platform Support
 
 AMUX requires `tmux` and is supported on Linux/macOS. Windows is not supported.
