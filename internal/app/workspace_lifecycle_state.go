@@ -69,6 +69,11 @@ type workspaceLifecycleState struct {
 	dirty map[string]bool
 	// persistToken is the current persist-debounce generation.
 	persistToken persistToken
+	// persistSeq is the monotonic tab-capture sequence minted on the Update
+	// goroutine (never inside a Cmd): every snapshot that leaves Update
+	// carries a strictly newer sequence, so the service can drop an older
+	// write that runs after a newer one committed.
+	persistSeq uint64
 	// projectsLoadToken is the next load generation to issue; lastApplied is
 	// the highest applied, so handleProjectsLoaded can drop stale reloads.
 	projectsLoadToken            projectsLoadToken

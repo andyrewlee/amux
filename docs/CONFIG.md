@@ -44,7 +44,10 @@ are documented in the README's environment section, which also covers the
 custom env layering — repo `env` (trust-gated, **scripts only**) < project
 env (`~/.amux/project-env.json`, press `E`) < workspace env (press `e`).
 Interactive sessions (agents, sidebar terminals) get the injected vars plus
-the project and workspace layers — never repo `env`, even when trusted. The
+the project and workspace layers — never repo `env`, even when trusted.
+Workspace env edits persist as a field-scoped transaction on
+`workspace.json`: only the `env` map is rewritten, so an `e` edit cannot
+revert a rename, script change, or tab save committed in the meantime. The
 rest:
 
 | Variable                  | Meaning                                                                                    |

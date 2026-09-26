@@ -61,14 +61,18 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 			if s.store == nil {
 				return
 			}
-			fresh, err := s.store.Load(ws.MetadataID())
-			if err != nil || fresh == nil {
-				return
-			}
-			fresh.Shelved = false
-			fresh.Archived = false
-			fresh.ArchivedAt = time.Time{}
-			if err := s.store.Save(fresh); err != nil {
+			// Field transaction: only the flags change — a narrow write can't
+			// resurrect stale fields the caller's snapshot never touched.
+			err := s.store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+				if !fresh.Shelved && !fresh.Archived && fresh.ArchivedAt.IsZero() {
+					return false, nil
+				}
+				fresh.Shelved = false
+				fresh.Archived = false
+				fresh.ArchivedAt = time.Time{}
+				return true, nil
+			})
+			if err != nil {
 				logging.Error("workspace shelve intent rollback failed workspace_id=%s error=%v", wsID, err)
 			}
 		}
@@ -95,19 +99,19 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 		// (listByRepo filters Archived) nor shelved (listShelvedWorkspaces
 		// requires both) — a ghost row pointing at a missing dir.
 		if s.store != nil {
-			fresh, err := s.store.Load(ws.MetadataID())
-			if err != nil || fresh == nil {
-				return fail("mark_shelved", errors.Join(errors.New("load workspace metadata"), err))
-			}
-			fresh.Shelved = true
-			fresh.Archived = true
-			fresh.ArchivedAt = time.Now()
-			if err := s.store.Save(fresh); err != nil {
+			intentAt := time.Now()
+			err := s.store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+				fresh.Shelved = true
+				fresh.Archived = true
+				fresh.ArchivedAt = intentAt
+				return true, nil
+			})
+			if err != nil {
 				return fail("mark_shelved", err)
 			}
 			ws.Shelved = true
 			ws.Archived = true
-			ws.ArchivedAt = fresh.ArchivedAt
+			ws.ArchivedAt = intentAt
 		}
 
 		if err := s.stopWorkspaceScriptsForDelete(ws); err != nil {
@@ -243,15 +247,13 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		}
 
 		if s.store != nil {
-			fresh, err := s.store.Load(ws.MetadataID())
-			if err != nil || fresh == nil {
-				rollback()
-				return fail("unarchive", errors.Join(errors.New("load workspace metadata"), err))
-			}
-			fresh.Archived = false
-			fresh.Shelved = false
-			fresh.ArchivedAt = time.Time{}
-			if err := s.store.Save(fresh); err != nil {
+			err := s.store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+				fresh.Archived = false
+				fresh.Shelved = false
+				fresh.ArchivedAt = time.Time{}
+				return true, nil
+			})
+			if err != nil {
 				rollback()
 				return fail("unarchive", err)
 			}

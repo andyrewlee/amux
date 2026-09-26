@@ -18,17 +18,19 @@ import (
 // internal/process back to reuse its reserved-key list would cycle. See
 // process.IsReservedScriptEnvKey.
 func (s *WorkspaceStore) SetEnv(id WorkspaceID, env map[string]string) error {
-	ws, err := s.Load(id)
+	err := s.Update(id, func(ws *Workspace) (bool, error) {
+		// No-op guard, mirroring Rename's same-name check: writing an
+		// identical map would only rewrite the file and emit a spurious
+		// watch event.
+		if maps.Equal(ws.Env, env) {
+			return false, nil
+		}
+		// Clone before retaining: the caller's map is theirs to mutate or
+		// reuse after this call.
+		ws.Env = maps.Clone(env)
+		return true, nil
+	})
 	if err != nil {
-		return fmt.Errorf("set env for workspace %s: %w", id, err)
-	}
-	// No-op guard, mirroring Rename's same-name check: writing an identical
-	// map would only rewrite the file and emit a spurious watch event.
-	if maps.Equal(ws.Env, env) {
-		return nil
-	}
-	ws.Env = env
-	if err := s.Save(ws); err != nil {
 		return fmt.Errorf("set env for workspace %s: %w", id, err)
 	}
 	return nil

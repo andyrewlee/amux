@@ -31,6 +31,11 @@ type WorkspaceStore interface {
 	LoadMetadataFor(workspace *data.Workspace) (bool, error)
 	UpsertFromDiscovery(workspace *data.Workspace) error
 	Save(workspace *data.Workspace) error
+	// Update runs a locked read-modify-write transaction on the record: the
+	// callback mutates only its fields, never identity or schema. Field
+	// setters and tab persistence go through it so concurrent writers merge
+	// instead of clobbering each other's snapshots.
+	Update(id data.WorkspaceID, fn func(ws *data.Workspace) (changed bool, err error)) error
 	Delete(id data.WorkspaceID) error
 	Rename(id data.WorkspaceID, newName string) error
 	SetEnv(id data.WorkspaceID, env map[string]string) error

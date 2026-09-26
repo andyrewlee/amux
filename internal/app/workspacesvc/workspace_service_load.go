@@ -326,7 +326,17 @@ func (s *Service) archiveWorkspaceRecord(ws *data.Workspace, kind string) bool {
 		ws.Archived = true
 		ws.ArchivedAt = time.Now()
 		if s.store != nil {
-			saveErr = s.store.Save(ws)
+			// Field transaction: only the archive flags change — writing the
+			// caller's whole snapshot could resurrect stale fields a
+			// concurrent setter committed after ws was loaded.
+			saveErr = s.store.Update(ws.MetadataID(), func(stored *data.Workspace) (bool, error) {
+				if stored.Archived {
+					return false, nil
+				}
+				stored.Archived = true
+				stored.ArchivedAt = ws.ArchivedAt
+				return true, nil
+			})
 		}
 	})
 	if !saved {
