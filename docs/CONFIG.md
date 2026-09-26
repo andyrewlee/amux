@@ -126,7 +126,8 @@ key a **non-empty `command`** — that is the only requirement:
 After this, `mytool`:
 
 - **appears in the assistant picker** (the agent-selection dialog), listed after
-  the built-in agents;
+  the built-in agents — arrows/`tab`/`shift+tab` move through the list and any
+  printable key narrows it as a fuzzy filter;
 - is **treated as a chat agent**, exactly like the built-ins.
 
 A custom entry **without** a `command` is dropped (there would be nothing to

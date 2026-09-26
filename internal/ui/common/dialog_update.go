@@ -86,30 +86,31 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				}
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down", "j"))):
-			// j is a navigation key only for unfiltered selects — on filtered
-			// ones it must reach the filter input as typed text.
-			if d.dtype != DialogInput && !(d.dtype == DialogSelect && d.filterEnabled) {
-				maxLen := len(d.options)
-				if d.filterEnabled {
-					maxLen = len(d.filteredIndices)
-				}
-				if maxLen > 0 {
-					d.cursor = (d.cursor + 1) % maxLen
-				}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down"))):
+			// Structural navigation: arrows and Tab move the cursor on every
+			// select — including filtered ones — and never reach the filter
+			// input.
+			if d.moveCursor(1) {
+				return d, nil
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up", "k"))):
-			if d.dtype != DialogInput && !(d.dtype == DialogSelect && d.filterEnabled) {
-				maxLen := len(d.options)
-				if d.filterEnabled {
-					maxLen = len(d.filteredIndices)
-				}
-				if maxLen > 0 {
-					d.cursor--
-					if d.cursor < 0 {
-						d.cursor = maxLen - 1
-					}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up"))):
+			if d.moveCursor(-1) {
+				return d, nil
+			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("j"))):
+			// j/k are printable text on filtered selects — they reach the
+			// filter input below — and navigation only on unfiltered ones.
+			if d.dtype == DialogSelect && !d.filterEnabled && len(d.options) > 0 {
+				d.cursor = (d.cursor + 1) % len(d.options)
+			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("k"))):
+			if d.dtype == DialogSelect && !d.filterEnabled && len(d.options) > 0 {
+				d.cursor--
+				if d.cursor < 0 {
+					d.cursor = len(d.options) - 1
 				}
 			}
 
@@ -156,6 +157,23 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	}
 
 	return d, nil
+}
+
+// moveCursor applies structural up/down navigation (delta ±1) with wraparound.
+// It reports whether the key was consumed — true only for a filtered select,
+// where the key must not fall through to the filter input.
+func (d *Dialog) moveCursor(delta int) bool {
+	if d.dtype == DialogInput {
+		return false
+	}
+	maxLen := len(d.options)
+	if d.filterEnabled {
+		maxLen = len(d.filteredIndices)
+	}
+	if maxLen > 0 {
+		d.cursor = (d.cursor + delta + maxLen) % maxLen
+	}
+	return d.dtype == DialogSelect && d.filterEnabled
 }
 
 func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
