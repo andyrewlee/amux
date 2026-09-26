@@ -114,6 +114,13 @@ numbers, dots, dashes, or underscores (max 100 characters). Names are matched
 case-insensitively (they are lowercased). An entry whose name fails validation
 is ignored.
 
+Settings changes apply to launches requested after the save. A launch already
+dispatched — a new tab, a placeholder restore, a reattach, or a restart — runs
+the `command`/interrupt values captured when it was requested, so editing an
+assistant mid-launch never changes what that launch runs. Attaching to an
+existing tmux session never re-runs the pane's command either: reattach binds
+to the session as it is.
+
 ## Adding a custom assistant
 
 The fastest path is in-app: open **Settings**, Tab to **Assistants**, and press

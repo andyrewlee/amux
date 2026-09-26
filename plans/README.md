@@ -26,7 +26,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [039](039-transactional-workspace-field-updates.md) | Apply ordered field-scoped workspace writes | P1 | M | — | DONE |
 | [040](040-drain-pty-output-before-stop.md) | Drain PTY output before stopping | P1 | M | — | DONE |
 | [041](041-stop-workspace-lifecycle-processes.md) | Cancel and drain lifecycle subprocesses | P1 | L | — | DONE |
-| [042](042-snapshot-assistant-launch-config.md) | Snapshot assistant launch configuration | P1 | M | — | TODO |
+| [042](042-snapshot-assistant-launch-config.md) | Snapshot assistant launch configuration | P1 | M | — | DONE |
 | [043](043-preserve-config-on-invalid-reads.md) | Preserve config on invalid reads | P1 | S | — | TODO |
 | [044](044-support-paste-in-custom-editors.md) | Support paste in custom editors | P2 | S | — | TODO |
 | [045](045-fence-sidebar-reattach-results.md) | Fence sidebar reattachment outcomes | P2 | M | — | TODO |

@@ -284,7 +284,7 @@ Because these commands come from the repository, amux runs them only after you t
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Field writes are transactional and narrow: renaming a workspace, editing its env or scripts, shelving/restoring it, and debounced tab-state saves each rewrite only their own fields inside the record lock, so concurrent edits merge instead of a delayed write resurrecting a stale snapshot. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`, and the
 project-level environment map in `~/.amux/project-env.json`.
 
-Assistants: the AI agents amux can launch are configured per-user in `~/.amux/config.json`. You can add your own or override a built-in — see [docs/CONFIG.md](docs/CONFIG.md).
+Assistants: the AI agents amux can launch are configured per-user in `~/.amux/config.json`. You can add your own or override a built-in — see [docs/CONFIG.md](docs/CONFIG.md). A launch uses the assistant settings captured when it was requested, so saving new settings affects later launches, not panes already launched or attached.
 
 ## Platform Support
 

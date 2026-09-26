@@ -234,6 +234,12 @@ workspace rename does not re-tag a live session, so the value may be stale
 until the next attach/reattach refreshes it. Values pass through a
 control-byte strip and a 128-rune cap before becoming tag values.
 
+Assistant launch settings (`command` plus the interrupt fields from
+`~/.amux/config.json`) are captured when amux dispatches a launch, reattach, or
+restart — a settings save changes only launches requested afterwards, never an
+in-flight spawn. Attaching to an existing session never re-runs the pane
+command: the session's process owns its argv from creation.
+
 Note the unit split: `@amux_created_at` is in seconds; the activity/lease
 timestamps are in milliseconds. amux parses these back with
 `activity.ParseLastOutputAtTag` (`internal/app/activity/fetch.go`). The owner and
