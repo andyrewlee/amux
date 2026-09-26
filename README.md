@@ -63,7 +63,7 @@ Each workspace tracks a repo checkout and its metadata. For local workflows, wor
 Both write actions are available from the UI, each behind an explicit confirmation:
 
 - **Commit** — press `c` in the Changes sidebar to stage everything in the workspace and commit it with a message you type. The commit lands on the workspace's own branch; amux never pushes.
-- **Merge** — press `M` on a workspace row in the dashboard to merge its branch into its base with `git merge --no-ff`. The merge happens in the project's primary checkout, so amux first checks that the base branch is already checked out there and refuses otherwise rather than moving your HEAD. On a conflict it lists the conflicted files and offers to abort; resolving them is yours to do in the terminal.
+- **Merge** — press `M` on a workspace row in the dashboard to merge its branch into its base with `git merge --no-ff`. The merge happens in the project's primary checkout, so amux checks that the base branch is checked out there before asking, then re-verifies it at the moment you confirm — if the checkout moved (or detached) while the dialog was open, the merge refuses rather than landing on the new HEAD or moving it for you. On a conflict it lists the conflicted files and offers to abort; resolving them is yours to do in the terminal.
 
 Note that amux runs git with repository hooks disabled (see `AMUX_ALLOW_GIT_HOOKS` below), so your own `pre-commit` or `pre-merge` hooks will not fire on these actions.
 
