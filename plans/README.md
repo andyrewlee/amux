@@ -36,7 +36,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [049](049-preserve-zero-interrupt-delay.md) | Preserve zero interrupt delays | P2 | S | 043 | DONE |
 | [050](050-scope-hook-skip-flags.md) | Scope hook skip flags | P2 | S | — | DONE |
 | [051](051-share-durable-port-reservations.md) | Share durable port reservations | P2 | L | 039, 041 | DONE |
-| [052](052-publish-semantic-activity-transitions.md) | Publish time-driven activity transitions | P2 | M | — | TODO |
+| [052](052-publish-semantic-activity-transitions.md) | Publish time-driven activity transitions | P2 | M | — | DONE |
 | [053](053-replace-executable-without-path-gap.md) | Replace executable without a pathname gap | P2 | M | — | TODO |
 | [054](054-scroll-wrapped-diff-rows.md) | Scroll wrapped diff display rows | P2 | M | — | TODO |
 | [055](055-load-project-tree-asynchronously.md) | Load the project tree asynchronously | P2 | M | — | TODO |

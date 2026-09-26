@@ -293,6 +293,15 @@ raw timestamp tags above. It is read-only telemetry, written best-effort and
 only when the state actually changes (not on every scan), so a missing or
 momentarily stale value should be tolerated the same way as the other tags.
 
+Transitions driven purely by elapsed time publish too: when `done`'s
+freshness window (~30s) expires on a quiet session, the tag advances to
+`idle` rather than sticking at `done` forever. On amux start or an
+owner-handoff between instances, each session's first observation publishes
+its current value (correcting any stale tag) but never replays an on-done
+hook — the hook only fires on a working→done edge the current owner watched
+happen. Only the scan owner writes these tags; follower instances consume the
+shared workspace snapshot instead.
+
 ## Trust boundary
 
 Every actor able to reach amux's tmux server (`$AMUX_TMUX_SERVER` socket, or a

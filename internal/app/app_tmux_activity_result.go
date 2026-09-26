@@ -77,8 +77,12 @@ func (a *App) updateTmuxActivityOwnershipState(msg tmuxActivityResult) tea.Cmd {
 	}
 
 	// Reset local hysteresis when entering owner mode so we never reuse state
-	// created under an older owner epoch.
+	// created under an older owner epoch. The semantic baseline clears with
+	// it: a new epoch re-observes sessions as first observations, which
+	// republishes current tags but cannot fire on-done (no locally observed
+	// Working edge exists yet).
 	a.tmuxActivity.sessionStates = make(map[string]*activity.SessionState)
+	a.tmuxActivity.agentStateBaseline = make(map[string]activity.AgentState)
 	// Clear follower/shared activity immediately. If the first owner scan fails,
 	// stale follower markers should not remain visible.
 	a.tmuxActivity.activeWorkspaceIDs = make(map[string]bool)
@@ -128,22 +132,36 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	if msg.ActiveWorkspaceIDs == nil {
 		msg.ActiveWorkspaceIDs = make(map[string]bool)
 	}
-	// Compute per-session @amux_agent_state transitions before merging: this
-	// reads a.tmuxActivity.sessionStates as it stood at the end of the previous
-	// scan (the "prev" side of the transition) against msg.UpdatedStates (the
-	// "next" side), which is keyed by session name and therefore gives a clean
-	// (session name, new state) pairing with no workspace-level ambiguity.
-	agentStateChanges := sessionAgentStateChanges(a.tmuxActivity.sessionStates, msg.UpdatedStates, time.Now())
-	// Merge updated hysteresis states back on the main thread.
-	for name, state := range msg.UpdatedStates {
-		a.tmuxActivity.sessionStates[name] = state
+	// Adopt the scan's complete retained session map; it already excludes
+	// pruned sessions and carries scan-side mutations that emitted no update.
+	// Results without it (followers, hand-built) keep the delta merge.
+	if msg.SessionStates != nil {
+		a.tmuxActivity.sessionStates = msg.SessionStates
+	} else {
+		for name, state := range msg.UpdatedStates {
+			a.tmuxActivity.sessionStates[name] = state
+		}
+		for _, name := range msg.RemovedStates {
+			delete(a.tmuxActivity.sessionStates, name)
+		}
 	}
-	// Prune states the scan dropped after they went unseen long enough; this
-	// bounds the otherwise monotonic growth of sessionActivityStates (deleted
-	// workspaces' sessions never reappear in the scan). Delete after the merge so
-	// a same-scan re-add cannot be undone.
-	for _, name := range msg.RemovedStates {
-		delete(a.tmuxActivity.sessionStates, name)
+	// Per-session @amux_agent_state transitions run only for owner scans:
+	// followers consume shared workspace-level state and must not publish
+	// per-session tags or fire session hooks. The comparison is against the
+	// last ACCEPTED semantic value (the baseline), not a reclassified previous
+	// snapshot — only that lets clock-driven transitions (e.g. Done→Idle when
+	// DoneWindow expires with no content change) publish, since the snapshot
+	// alone can never differ from its own reclassification.
+	var agentStateChanges []agentStateTagChange
+	if msg.ScannerOwner {
+		if a.tmuxActivity.agentStateBaseline == nil {
+			a.tmuxActivity.agentStateBaseline = make(map[string]activity.AgentState)
+		}
+		now := msg.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		agentStateChanges = sessionAgentStateChanges(a.tmuxActivity.sessionStates, a.tmuxActivity.agentStateBaseline, now)
 	}
 	prevStates := a.tmuxActivity.agentStates
 	doneCount := countWorkingToDone(prevStates, msg.AgentStates)
@@ -181,21 +199,40 @@ type agentStateTagChange struct {
 	prev        activity.AgentState
 }
 
-// sessionAgentStateChanges classifies each session in updatedStates via
-// activity.ClassifyState (the same deterministic per-session classification
-// ClassifyWorkspaceStates and the dashboard indicators use) both before and
-// after this scan's update, and returns only the sessions whose classification
-// actually changed. This is the coalescing that keeps @amux_agent_state writes
-// bounded to real transitions instead of firing on every ~5s scan tick,
-// mirroring how the working->done toast (countWorkingToDone) only fires on
-// transition.
-func sessionAgentStateChanges(prevStates, updatedStates map[string]*activity.SessionState, now time.Time) []agentStateTagChange {
+// sessionAgentStateChanges classifies every retained session in `current` via
+// activity.ClassifyState at `now` and returns the sessions whose semantic
+// AgentState differs from the baseline — the last value this instance
+// accepted (and therefore published) for that session. It then updates
+// `baseline` in place: accepted values are recorded, first observations are
+// seeded with prev=state (publishing the current tag to correct external
+// drift while guaranteeing no false working→done hook edge), and sessions no
+// longer retained are dropped so a reappearing session re-observes fresh.
+//
+// Evaluating the complete retained set is what makes clock-driven transitions
+// publish: a quiet session emits no update for scans at a time, yet its
+// classification still advances (Done→Idle when DoneWindow expires). The
+// baseline — not a reclassified snapshot — is the only side of the diff that
+// remembers that Done was ever published.
+func sessionAgentStateChanges(current map[string]*activity.SessionState, baseline map[string]activity.AgentState, now time.Time) []agentStateTagChange {
 	var changes []agentStateTagChange
-	for name, next := range updatedStates {
-		prevState := activity.ClassifyState(prevStates[name], now)
-		nextState := activity.ClassifyState(next, now)
+	for name, state := range current {
+		nextState := activity.ClassifyState(state, now)
+		prevState, observed := baseline[name]
+		baseline[name] = nextState
+		if !observed {
+			// First observation under this ownership epoch: publish the
+			// current value (a stale external tag self-corrects) with prev
+			// pinned to the same state so no transition edge is fabricated.
+			changes = append(changes, agentStateTagChange{sessionName: name, state: nextState, prev: nextState})
+			continue
+		}
 		if nextState != prevState {
 			changes = append(changes, agentStateTagChange{sessionName: name, state: nextState, prev: prevState})
+		}
+	}
+	for name := range baseline {
+		if _, retained := current[name]; !retained {
+			delete(baseline, name)
 		}
 	}
 	return changes
