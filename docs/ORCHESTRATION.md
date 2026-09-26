@@ -206,6 +206,13 @@ return, `0x0D`) arrive intact:
    delay between the keystrokes and the Enter in its own send path for the same
    reason.
 
+The same one-line discipline applies inside amux's own editors: the env,
+scripts, and Settings text fields accept terminal bracketed paste but only
+append the **first line** of the payload to the focused field — later lines
+and control bytes are dropped, and a paste never submits, cancels, or toggles
+a row. An orchestrator that pastes multi-line text into an amux dialog should
+split and submit lines itself.
+
 ## Reading state
 
 amux stores per-session metadata as tmux session options (`@amux_*`). Read one

@@ -133,7 +133,11 @@ to the session as it is.
 
 The fastest path is in-app: open **Settings**, Tab to **Assistants**, and press
 **Ctrl+A** to add a name and command (the same validation below applies, and
-interrupt fields default sensibly). To do it in the file instead, give the new
+interrupt fields default sensibly). All in-app text fields — assistant
+name/command, the tmux server/config/sync-interval fields, and the env and
+lifecycle-script editors — accept bracketed paste: only the first pasted line
+is appended to the focused field (later lines and control bytes are dropped),
+and paste never submits, cancels, or toggles a row. To do it in the file instead, give the new
 key a **non-empty `command`** — that is the only requirement:
 
 ```json

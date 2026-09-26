@@ -144,6 +144,9 @@ func (d *EnvDialog) Update(msg tea.Msg) (*EnvDialog, tea.Cmd) {
 	if !d.visible {
 		return d, nil
 	}
+	if pasteMsg, ok := msg.(tea.PasteMsg); ok {
+		return d.handlePaste(pasteMsg), nil
+	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return d, nil
@@ -188,6 +191,24 @@ func (d *EnvDialog) Update(msg tea.Msg) (*EnvDialog, tea.Cmd) {
 		d.appendFocusedText(keyMsg.Text)
 	}
 	return d, nil
+}
+
+// handlePaste appends the first pasted line to the focused field through the
+// same printable-rune filter typed input uses. Paste is text, never a
+// shortcut: it cannot submit, cancel, or toggle add mode.
+func (d *EnvDialog) handlePaste(msg tea.PasteMsg) *EnvDialog {
+	d.notice = ""
+	txt := pasteFirstLine(msg.Content)
+	if !d.adding {
+		d.appendFocusedText(txt)
+		return d
+	}
+	if d.addField == 0 {
+		d.addName += keepRunes(txt, isPrintableFieldRune)
+	} else {
+		d.addValue += keepRunes(txt, isPrintableFieldRune)
+	}
+	return d
 }
 
 // updateAddMode handles input while the two-field add input is open: Tab

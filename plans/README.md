@@ -28,7 +28,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [041](041-stop-workspace-lifecycle-processes.md) | Cancel and drain lifecycle subprocesses | P1 | L | — | DONE |
 | [042](042-snapshot-assistant-launch-config.md) | Snapshot assistant launch configuration | P1 | M | — | DONE |
 | [043](043-preserve-config-on-invalid-reads.md) | Preserve config on invalid reads | P1 | S | — | DONE |
-| [044](044-support-paste-in-custom-editors.md) | Support paste in custom editors | P2 | S | — | TODO |
+| [044](044-support-paste-in-custom-editors.md) | Support paste in custom editors | P2 | S | — | DONE |
 | [045](045-fence-sidebar-reattach-results.md) | Fence sidebar reattachment outcomes | P2 | M | — | TODO |
 | [046](046-reuse-shelved-workspace-snapshot.md) | Reuse metadata snapshots for shelves | P2 | S | — | TODO |
 | [047](047-prefer-explicit-filepicker-paths.md) | Honor explicit file-picker paths | P2 | S | — | TODO |
