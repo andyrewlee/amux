@@ -61,8 +61,17 @@ func RunPTYReader(
 	}
 	beat()
 
-	dataCh := make(chan []byte, cfg.ReadQueueSize)
-	errCh := make(chan error, 1)
+	// readEvent is one Read outcome published on the single ordered stream:
+	// the bytes the call returned plus its error. A real Read may legally
+	// return both, so terminal events can carry data — appending first, then
+	// handling the error, is what keeps the stream's byte order intact. The
+	// producer emits at most one terminal event, always last.
+	type readEvent struct {
+		data     []byte
+		err      error
+		terminal bool
+	}
+	events := make(chan readEvent, cfg.ReadQueueSize)
 
 	safego.Go(cfg.Label, func() {
 		deadliner, deadlineSupported := r.(readDeadliner)
@@ -70,8 +79,16 @@ func RunPTYReader(
 			if deadlineSupported {
 				_ = deadliner.SetReadDeadline(time.Time{})
 			}
-			close(dataCh)
+			close(events)
 		}()
+		publish := func(ev readEvent) bool {
+			select {
+			case events <- ev:
+				return true
+			case <-cancel:
+				return false
+			}
+		}
 		buf := make([]byte, cfg.ReadBufferSize)
 		for {
 			select {
@@ -85,26 +102,29 @@ func RunPTYReader(
 				}
 			}
 			n, err := r.Read(buf)
-			if err != nil {
-				if isReadTimeout(err) {
-					continue
-				}
-				select {
-				case errCh <- err:
-				default:
-				}
-				return
+			var chunk []byte
+			if n > 0 {
+				beat()
+				chunk = make([]byte, n)
+				copy(chunk, buf[:n])
 			}
-			if n == 0 {
+			switch {
+			case isReadTimeout(err):
+				// A deadline poll: a retry signal, not a terminator. Any
+				// bytes the same call returned are still real stream data.
+				if chunk != nil && !publish(readEvent{data: chunk}) {
+					return
+				}
 				continue
-			}
-			beat()
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			select {
-			case dataCh <- chunk:
-			case <-cancel:
+			case err != nil:
+				// Terminal: the bytes and the error are one event so queued
+				// output can never overtake or be overtaken by termination.
+				_ = publish(readEvent{data: chunk, err: err, terminal: true})
 				return
+			case chunk != nil:
+				if !publish(readEvent{data: chunk}) {
+					return
+				}
 			}
 		}
 	})
@@ -135,76 +155,70 @@ func RunPTYReader(
 	defer stopFlushTicker()
 
 	var pending []byte
-	var stoppedErr error
+	// flushPending sends the coalesced remainder and returns whether the send
+	// completed; shared by the terminal paths and the size/tick flushes.
+	flushPending := func() bool {
+		if len(pending) == 0 {
+			return true
+		}
+		if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
+			return false
+		}
+		pending = nil
+		return true
+	}
 
 	for {
 		select {
 		case <-cancel:
 			return
-		case err := <-errCh:
-			beat()
-			stoppedErr = err
-		case data, ok := <-dataCh:
+		case ev, ok := <-events:
 			beat()
 			if !ok {
-				if len(pending) > 0 {
-					if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
-						return
-					}
-				}
-				if stoppedErr == nil {
-					// The inner goroutine sends the real read error on errCh
-					// and then closes dataCh, so both cases can be ready at
-					// once; drain the pending error before assuming clean EOF.
-					select {
-					case e := <-errCh:
-						stoppedErr = e
-					default:
-					}
-				}
-				if stoppedErr == nil {
-					stoppedErr = io.EOF
-				}
-				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
-				return
-			}
-			// Adopt the read chunk when the coalescing buffer is empty: the read
-			// goroutine drops its reference after sending, so ownership transfers
-			// here and the append-copy is only needed when merging.
-			if len(pending) == 0 {
-				pending = data
-			} else {
-				pending = append(pending, data...)
-			}
-			startFlushTicker()
-			if len(pending) >= cfg.MaxPendingBytes {
-				if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
+				// Producer closed without a terminal event (panic unwind or a
+				// cancel-side return): deliver what is still pending, then
+				// report clean EOF as before.
+				if !flushPending() {
 					return
 				}
-				pending = nil
-				if stoppedErr == nil {
-					stopFlushTicker()
-				}
-			}
-			if stoppedErr != nil && len(pending) == 0 {
-				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
+				SendPTYMsg(msgCh, cancel, factory.Stopped(io.EOF))
 				return
+			}
+			// Append the event's bytes before handling its error: a terminal
+			// event can legally carry the stream's final chunk.
+			if len(ev.data) > 0 {
+				// Adopt the read chunk when the coalescing buffer is empty:
+				// the read goroutine drops its reference after sending, so
+				// ownership transfers here and the append-copy is only
+				// needed when merging.
+				if len(pending) == 0 {
+					pending = ev.data
+				} else {
+					pending = append(pending, ev.data...)
+				}
+				startFlushTicker()
+			}
+			if ev.terminal {
+				// Every accepted byte is now in pending — deliver it, then
+				// the one Stopped. Nothing behind this event can arrive.
+				if !flushPending() {
+					return
+				}
+				SendPTYMsg(msgCh, cancel, factory.Stopped(ev.err))
+				return
+			}
+			if len(pending) >= cfg.MaxPendingBytes {
+				if !flushPending() {
+					return
+				}
+				stopFlushTicker()
 			}
 		case <-flushTick:
 			beat()
-			if len(pending) > 0 {
-				if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
-					return
-				}
-				pending = nil
-			}
-			if len(pending) == 0 {
-				stopFlushTicker()
-			}
-			if stoppedErr != nil {
-				SendPTYMsg(msgCh, cancel, factory.Stopped(stoppedErr))
+			if !flushPending() {
 				return
 			}
+			stopFlushTicker()
 		case <-heartbeatTicker.C:
 			beat()
 		}

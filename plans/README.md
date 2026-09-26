@@ -24,7 +24,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [037](037-capture-diff-tab-index.md) | Capture the created diff-tab index | P1 | S | — | DONE |
 | [038](038-merge-persisted-script-output.md) | Merge persisted script output safely | P1 | M | — | DONE |
 | [039](039-transactional-workspace-field-updates.md) | Apply ordered field-scoped workspace writes | P1 | M | — | DONE |
-| [040](040-drain-pty-output-before-stop.md) | Drain PTY output before stopping | P1 | M | — | TODO |
+| [040](040-drain-pty-output-before-stop.md) | Drain PTY output before stopping | P1 | M | — | DONE |
 | [041](041-stop-workspace-lifecycle-processes.md) | Cancel and drain lifecycle subprocesses | P1 | L | — | TODO |
 | [042](042-snapshot-assistant-launch-config.md) | Snapshot assistant launch configuration | P1 | M | — | TODO |
 | [043](043-preserve-config-on-invalid-reads.md) | Preserve config on invalid reads | P1 | S | — | TODO |
