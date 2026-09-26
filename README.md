@@ -119,6 +119,7 @@ button does the same; `Esc` cancels). Commands are short key sequences:
 | `t s` | restart tab |
 | `t y` | copy transcript (scrollback + screen) of the focused terminal tab |
 | `t f` | save the focused terminal tab's full transcript to a file (default `~/.amux/transcripts/`) |
+| `t o` | browse saved transcripts (`~/.amux/transcripts/`) and open one in the file viewer tab |
 | `1`–`9` | jump to center tab by position |
 
 When a center terminal tab is focused, `d` instead scrolls down a page and `u`
@@ -143,8 +144,11 @@ Sidebar (Changes tab, focused):
   `/` filters.
 - `c` commit, `b` branch mode, `e` workspace env, `E` project env, `s`
   scripts, `r` run/stop the workspace run script, `R` run output, `O` script
-  output, `u` re-run setup, `i` workspace status. Inside the live run-output viewer, `a`
-  attaches an interactive tab to the newest alive run session (closing the
+  output, `u` re-run setup, `i` workspace status. When `script_mode: concurrent`
+  has produced multiple run sessions, `R` opens a picker (#1 is the first run,
+  -2/-3/… numbered runs after) listing each session's live/exited status —
+  pick one to view its output. Inside the live run-output viewer, `a`
+  attaches an interactive tab to the viewed session (closing the
   tab detaches — the script keeps running).
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).

@@ -138,61 +138,6 @@ func (a *App) handleRunScriptStatusResult(msg messages.RunScriptStatusResult) te
 	return nil
 }
 
-// handleShowRunScriptOutput opens the read-only viewer with the workspace's
-// current run output — the live pane tail while running, or the
-// remain-on-exit tail after it exits. Under the subprocess fallback (tests
-// without a host) there is nothing to show, so it says so rather than opening
-// an empty dialog. While the session is alive the viewer re-captures the tail
-// on runOutputTickInterval — a poll-follow pair to the dialog's `f` toggle.
-func (a *App) handleShowRunScriptOutput(msg messages.ShowRunScriptOutput) tea.Cmd {
-	if msg.Workspace == nil || a.workspaceService == nil {
-		return nil
-	}
-	// The reads are tmux subprocess calls — never run them on the Update
-	// loop (a wedged tmux would freeze the whole TUI for ~2 timeouts, the
-	// defect class the status-indicator fix addressed). Bump the token
-	// at request time so a second R press invalidates an in-flight open.
-	a.overlays.runOutputToken++
-	token, ws, svc := a.overlays.runOutputToken, msg.Workspace, a.workspaceService
-	return func() tea.Msg {
-		content, alive, _ := svc.RunScriptOutputAndStatus(ws, 400)
-		return runOutputOpenedMsg{token: token, ws: ws, content: content, alive: alive}
-	}
-}
-
-// runOutputOpenedMsg delivers an R-open fetch result: the tail content and
-// whether the run session was alive at fetch time.
-type runOutputOpenedMsg struct {
-	token   int
-	ws      *data.Workspace
-	content string
-	alive   bool
-}
-
-// handleRunOutputOpened applies an open fetch under the token guard — a
-// stale open (superseded by a later R/O press or close) is dropped, not
-// applied to the newer dialog state.
-func (a *App) handleRunOutputOpened(msg runOutputOpenedMsg) tea.Cmd {
-	if msg.token != a.overlays.runOutputToken || msg.ws == nil {
-		return nil
-	}
-	if msg.content == "" {
-		return a.toast.ShowInfo("No run output for " + msg.ws.Name)
-	}
-	a.requestRunOutputOpen(func() {
-		a.overlays.runOutputWorkspace = msg.ws
-		a.overlays.runOutputAttachable = true
-		a.overlays.runOutput = common.NewOutputDialog("Run output — "+msg.ws.Name, msg.content)
-		a.overlays.runOutput.SetAttachHint(true)
-		a.overlays.runOutput.SetSize(a.width, a.height)
-		a.overlays.runOutput.Show()
-	})
-	if msg.alive {
-		return a.scheduleRunOutputTick(a.overlays.runOutputToken)
-	}
-	return nil
-}
-
 // runOutputTickMsg fires the periodic re-capture while the run-output viewer
 // is open. Token matches the dialog instance it was scheduled for — a stale
 // tick (dialog closed or reopened since) is dropped, not re-issued.
@@ -226,8 +171,15 @@ func (a *App) handleRunOutputTick(msg runOutputTickMsg) tea.Cmd {
 		return nil
 	}
 	token, svc := a.overlays.runOutputToken, a.workspaceService
+	session := a.overlays.runOutputSession
 	return func() tea.Msg {
-		content, alive, _ := svc.RunScriptOutputAndStatus(ws, 400)
+		var content string
+		var alive bool
+		if session != "" {
+			content, alive = svc.RunScriptSessionTail(session, 400), svc.RunScriptSessionAlive(session)
+		} else {
+			content, alive, _ = svc.RunScriptOutputAndStatus(ws, 400)
+		}
 		return runOutputRefreshedMsg{token: token, content: content, alive: alive}
 	}
 }
@@ -252,6 +204,7 @@ func (a *App) handleRunOutputRefreshed(msg runOutputRefreshedMsg) tea.Cmd {
 func (a *App) closeRunOutputDialog() {
 	a.overlays.runOutput = nil
 	a.overlays.runOutputWorkspace = nil
+	a.overlays.runOutputSession = ""
 	a.overlays.runOutputAttachable = false
 	a.overlays.runOutputToken++
 }
@@ -431,16 +384,25 @@ func (a *App) handleWorkspaceOnDoneResult(msg messages.WorkspaceOnDoneResult) te
 	)
 }
 
-// attachRunViewerCmd resolves the newest alive run session for ws and reports
-// the target back for dispatch — the lookup is a tmux sweep, so it runs off
-// the UI goroutine.
-func (a *App) attachRunViewerCmd(ws *data.Workspace) tea.Cmd {
+// attachRunViewerCmd re-validates the viewer's pinned run session and reports
+// the attach target back for dispatch — the status read is a tmux call, so it
+// runs off the UI goroutine. The pinned check is load-bearing: a session that
+// exited between enumeration and `a` reports "no live session" rather than
+// attaching a dead pane or silently retargeting a newer session the user
+// wasn't viewing.
+func (a *App) attachRunViewerCmd(ws *data.Workspace, session string) tea.Cmd {
 	svc := a.workspaceService
 	if ws == nil || svc == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		name, ok := svc.RunScriptAttachTarget(ws)
+		var name string
+		var ok bool
+		if session != "" {
+			name, ok = session, svc.RunScriptSessionAlive(session)
+		} else {
+			name, ok = svc.RunScriptAttachTarget(ws)
+		}
 		return runAttachTargetMsg{ws: ws, name: name, ok: ok}
 	}
 }

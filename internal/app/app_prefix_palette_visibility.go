@@ -29,6 +29,11 @@ func (a *App) prefixActionVisible(action string) bool {
 		return a.centerScrollPrefixActive()
 	case "delete_workspace":
 		return a.activeWorkspace != nil && a.activeProject != nil
+	case "browse_transcripts":
+		// The transcript browser opens the file in a workspace-hosted viewer
+		// tab — hide it when there's no workspace to host on.
+		return a.activeWorkspace != nil
+
 	case "next_tab", "prev_tab":
 		switch a.focusedPane {
 		case messages.PaneSidebarTerminal:

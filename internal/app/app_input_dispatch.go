@@ -432,6 +432,10 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		}
 	case common.OutputDialogResult:
 		a.closeRunOutputDialog()
+	case runSessionsEnumeratedMsg:
+		if cmd := a.handleRunSessionsEnumerated(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case runOutputOpenedMsg:
 		if cmd := a.handleRunOutputOpened(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)

@@ -114,3 +114,35 @@ One paragraph in `docs/ORCHESTRATION.md` under the Option-B section: what the re
 - The revisit trigger stays in force: `ls` answers enumeration; `create`/`shelve` remain gated on a named requirement.
 - `tea.Cmd`-shaped `workspacesvc` methods stay as-is — extracting a cmd-free core is a refactor justified only by the write path landing.
 - If `ls` ships: its JSON schema is a compat surface — version it (`"version": 1` field) from day one.
+
+## Spike verdict — 2026-09-26 (executed on `advisor/all-plans`)
+
+**Verdict: don't build.** The doc's revisit gate — "a specific orchestrator
+requirement demonstrably unmet by tmux; name that requirement" — is not met:
+no orchestrator consumer exists in the project or the request that spawned
+this plan. Convenience is explicitly insufficient.
+
+Spike answers:
+
+1. **Candidate unmet requirement**: "enumerate workspaces including ones with
+   no live tmux session." It is the only real gap — shelved/archived/dead
+   workspaces mint no sessions, so `@amux_workspace` sweeps never see them.
+   But it is not *demonstrably* unmet: `~/.amux/projects.json` and
+   `~/.amux/workspaces-metadata/<id>.json` are plain JSON on disk, and
+   `data.NewWorkspaceStore(home).ListAll()` reads them without the app, with
+   no write lock (per-workspace flocks guard only mutation paths). Live-state
+   joins are `tmux list-sessions -F` on the documented tags.
+2. **Standalone readability**: yes — verified `WorkspaceStore.ListAll`,
+   `Registry.Projects`, and record fields (`Archived`, `Shelved`,
+   `ArchivedAt`, `Repo`, `Root`, script config) are all public API + plain
+   JSON. No secrets or app-held locks gate reads.
+3. **Write-path shape**: `workspacesvc` is `tea.Cmd`-shaped end to end — a
+   future create/shelve CLI needs a cmd-free core extracted first. That
+   refactor stays gated on a named requirement, unchanged.
+
+**When a real consumer names the requirement**: either (a) document the
+projects.json + tmux-tags read pattern as a compat surface, or (b) if the
+on-disk schema isn't acceptable as a contract, land `amux ls --json`
+(versioned `"version": 1`) reading `data.NewWorkspaceStore` +
+`tmux.FindRunSessions` — read-only, no TUI init, in a new `cmd/amux/ls.go`.
+Either way the trigger record lives here, not in a shipped surface.

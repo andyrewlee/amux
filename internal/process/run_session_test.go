@@ -18,6 +18,7 @@ type fakeRunSessionHost struct {
 	findCalls []string // workspaceID per Find call
 	findErr   error
 	ensureErr error
+	findExtra []string // names Find returns that sessions lacks (vanished)
 }
 
 type fakeRunSession struct {
@@ -82,6 +83,9 @@ func (f *fakeRunSessionHost) Find(workspaceID string) ([]string, error) {
 			names = append(names, name)
 		}
 	}
+	// findExtra injects names Find returns but Status/Tail don't know — a
+	// session that vanished between the sweep and the status read.
+	names = append(names, f.findExtra...)
 	sort.Strings(names)
 	return names, nil
 }

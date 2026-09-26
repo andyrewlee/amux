@@ -13,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/supervisor"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/center"
@@ -48,6 +49,10 @@ const (
 	DialogQuit               = "quit"
 	DialogCleanupTmux        = "cleanup_tmux"
 	DialogSaveTranscript     = "save_transcript"
+	// DialogBrowseTranscripts is the FilePicker ID for browsing saved
+	// transcripts — distinct from DialogAddProject so the confirm routes to
+	// the file viewer, not project creation.
+	DialogBrowseTranscripts = "browse_transcripts"
 )
 
 // prefixTimeoutMsg is sent when the prefix mode timer expires.
@@ -242,6 +247,9 @@ type dialogContext struct {
 	// dialog opened — the terminal keeps scrolling while the dialog is up, so
 	// the bytes must be snapshotted at open, not read again on confirm.
 	transcript string
+	// runSessions carries the picker's enumerated sessions so the result
+	// handler maps the dialog's Index back to a session entry.
+	runSessions []process.RunSessionEntry
 }
 
 // pendingWorkspaceCreateState is the create-workspace→agent-picker handoff:

@@ -186,6 +186,9 @@ func (d *Dialog) renderOptionsLines(baseLine int) []string {
 	if d.id == AgentPickerDialogID {
 		return d.renderAgentPickerOptions(baseLine)
 	}
+	if d.id == RunSessionPickerDialogID {
+		return d.renderSessionPickerOptions(baseLine)
+	}
 	return []string{d.renderHorizontalOptionsLine(baseLine)}
 }
 

@@ -38,9 +38,13 @@ var appDialogHandlers = map[string]dialogResultHandler{
 	// AgentPickerDialogID is the runtime ID emitted by common.NewAgentPicker;
 	// the App owns assistant selection, so it must route here, not a component.
 	common.AgentPickerDialogID: dialogResultAgentPicker,
-	DialogQuit:                 dialogResultQuit,
-	DialogCleanupTmux:          dialogResultCleanupTmux,
-	DialogSaveTranscript:       dialogResultSaveTranscript,
+	// RunSessionPickerDialogID is the runtime ID emitted by
+	// common.NewRunSessionPicker; the App owns the session→viewer handoff.
+	common.RunSessionPickerDialogID: dialogResultRunSessionPicker,
+	DialogQuit:                      dialogResultQuit,
+	DialogCleanupTmux:               dialogResultCleanupTmux,
+	DialogSaveTranscript:            dialogResultSaveTranscript,
+	DialogBrowseTranscripts:         dialogResultBrowseTranscripts,
 }
 
 // appDialogIDList is the registered-ID list in deterministic-enough form for

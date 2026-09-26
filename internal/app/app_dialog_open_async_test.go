@@ -84,14 +84,22 @@ func TestShowRunScriptOutput_DoesNotBlockOnHost(t *testing.T) {
 		t.Fatal("dialog must not open before the fetch resolves")
 	}
 
-	// The fetch cmd does the host reads off-loop.
+	// The enumerate cmd does the host reads off-loop, then the tail fetch —
+	// both stages stay off the Update goroutine.
 	done := make(chan tea.Msg, 1)
 	go func() { done <- cmd() }()
 	close(host.gate)
-	msg := <-done
-	opened, ok := msg.(runOutputOpenedMsg)
+	enum, ok := (<-done).(runSessionsEnumeratedMsg)
 	if !ok {
-		t.Fatalf("fetch emitted %T, want runOutputOpenedMsg", msg)
+		t.Fatalf("open cmd emitted %T, want runSessionsEnumeratedMsg", <-done)
+	}
+	fetch := h.app.handleRunSessionsEnumerated(enum)
+	if fetch == nil {
+		t.Fatal("single-session enumeration should yield a tail fetch")
+	}
+	opened, ok := fetch().(runOutputOpenedMsg)
+	if !ok {
+		t.Fatalf("fetch emitted %T, want runOutputOpenedMsg", fetch())
 	}
 	if host.calls.Load() == 0 {
 		t.Fatal("fetch cmd never invoked the host")
@@ -167,12 +175,12 @@ func TestRunOutputOpened_StaleTokenDropped(t *testing.T) {
 	first := h.app.handleShowRunScriptOutput(messages.ShowRunScriptOutput{Workspace: ws})
 	_ = h.app.handleShowRunScriptOutput(messages.ShowRunScriptOutput{Workspace: ws}) // bumps token
 
-	msg, ok := first().(runOutputOpenedMsg)
+	enum, ok := first().(runSessionsEnumeratedMsg)
 	if !ok {
-		t.Fatalf("fetch emitted %T, want runOutputOpenedMsg", first())
+		t.Fatalf("open cmd emitted %T, want runSessionsEnumeratedMsg", first())
 	}
-	if cmd := h.app.handleRunOutputOpened(msg); cmd != nil {
-		t.Fatal("stale open must be dropped, not applied")
+	if cmd := h.app.handleRunSessionsEnumerated(enum); cmd != nil {
+		t.Fatal("stale enumeration must be dropped before the tail fetch")
 	}
 	if h.app.overlays.runOutput != nil {
 		t.Fatal("stale open opened a dialog")

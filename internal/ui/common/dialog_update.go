@@ -86,8 +86,10 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				}
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down"))):
-			if d.dtype != DialogInput {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down", "j"))):
+			// j is a navigation key only for unfiltered selects — on filtered
+			// ones it must reach the filter input as typed text.
+			if d.dtype != DialogInput && !(d.dtype == DialogSelect && d.filterEnabled) {
 				maxLen := len(d.options)
 				if d.filterEnabled {
 					maxLen = len(d.filteredIndices)
@@ -97,8 +99,8 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				}
 			}
 
-		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up"))):
-			if d.dtype != DialogInput {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up", "k"))):
+			if d.dtype != DialogInput && !(d.dtype == DialogSelect && d.filterEnabled) {
 				maxLen := len(d.options)
 				if d.filterEnabled {
 					maxLen = len(d.filteredIndices)

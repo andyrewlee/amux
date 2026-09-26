@@ -62,6 +62,10 @@ type Dialog struct {
 	filterInput     textinput.Model
 	filteredIndices []int // indices into options
 
+	// sessionRowLive flags each option row's liveness for the run-session
+	// picker's vertical renderer; nil for every other select dialog.
+	sessionRowLive []bool
+
 	// Layout
 	width      int
 	height     int

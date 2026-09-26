@@ -178,6 +178,35 @@ func (s *Service) ReleaseWorkspacePort(ws *data.Workspace) {
 	s.scripts.ReleaseWorkspace(ws)
 }
 
+// RunSessionList enumerates the workspace's hosted run sessions with
+// liveness, base-first then numeric suffix — the run-session picker's row
+// set. Nil under the subprocess fallback.
+func (s *Service) RunSessionList(ws *data.Workspace) []process.RunSessionEntry {
+	if s == nil || s.scripts == nil {
+		return nil
+	}
+	return s.scripts.RunSessionList(ws)
+}
+
+// RunScriptSessionTail returns up to lines of the NAMED run session's pane —
+// the picker-targeted sibling of RunScriptOutput (which always tails newest).
+func (s *Service) RunScriptSessionTail(name string, lines int) string {
+	if s == nil || s.scripts == nil || name == "" {
+		return ""
+	}
+	return s.scripts.RunSessionTail(name, lines)
+}
+
+// RunScriptSessionAlive reports whether the NAMED run session's pane is still
+// running — the attach-path's recheck for a session that may have exited
+// between picker enumeration and selection.
+func (s *Service) RunScriptSessionAlive(name string) bool {
+	if s == nil || s.scripts == nil || name == "" {
+		return false
+	}
+	return s.scripts.RunSessionAlive(name)
+}
+
 // RunScriptAttachTarget returns the newest alive hosted run-session name for
 // interactive attach; false under the subprocess fallback, a nil service, or
 // when nothing is alive.

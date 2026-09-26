@@ -1,5 +1,66 @@
 # Implementation Plans
 
+Latest batch: **25 handoffs (035–059)** from the 2026-09-26 deep audit at
+`7c530ee`, including the existing dirty working tree. The user selected all 22
+confirmed findings and both product directions; verification found one additional
+test-isolation defect, covered by 059. Only plans were written; no implementation
+or commit/push is included. [Full audit and evidence](2026-09-26-deep-audit.md).
+
+Start with **059 + 036**, then continue in the table order. 059 isolates e2e
+worktrees; 036 repairs a reproduced picker regression blocking the baseline.
+Neither should be marked DONE until the combined baseline is verified. Until
+059 lands, prefix any command reaching e2e with `env -u AMUX_WORKSPACES_ROOT`.
+Each new plan has its own `7c530ee` drift check covering committed changes and
+the working tree. Preserve user edits; never stash/reset/clean them to obtain a
+clean baseline. All rows below mean plans ready for an executor, not fixes shipped.
+
+## 2026-09-26 execution order and status
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|---|---|---|---|---|---|
+| [059](059-isolate-e2e-workspace-root.md) | Isolate e2e workspace roots | P1 | S | — | TODO |
+| [036](036-restore-filtered-picker-navigation.md) | Restore filtered-picker navigation | P1 | S | —; validate with 059 | TODO |
+| [035](035-recheck-merge-destination.md) | Recheck the approved merge destination | P1 | S | — | TODO |
+| [037](037-capture-diff-tab-index.md) | Capture the created diff-tab index | P1 | S | — | TODO |
+| [038](038-merge-persisted-script-output.md) | Merge persisted script output safely | P1 | M | — | TODO |
+| [039](039-transactional-workspace-field-updates.md) | Apply ordered field-scoped workspace writes | P1 | M | — | TODO |
+| [040](040-drain-pty-output-before-stop.md) | Drain PTY output before stopping | P1 | M | — | TODO |
+| [041](041-stop-workspace-lifecycle-processes.md) | Cancel and drain lifecycle subprocesses | P1 | L | — | TODO |
+| [042](042-snapshot-assistant-launch-config.md) | Snapshot assistant launch configuration | P1 | M | — | TODO |
+| [043](043-preserve-config-on-invalid-reads.md) | Preserve config on invalid reads | P1 | S | — | TODO |
+| [044](044-support-paste-in-custom-editors.md) | Support paste in custom editors | P2 | S | — | TODO |
+| [045](045-fence-sidebar-reattach-results.md) | Fence sidebar reattachment outcomes | P2 | M | — | TODO |
+| [046](046-reuse-shelved-workspace-snapshot.md) | Reuse metadata snapshots for shelves | P2 | S | — | TODO |
+| [047](047-prefer-explicit-filepicker-paths.md) | Honor explicit file-picker paths | P2 | S | — | TODO |
+| [048](048-bound-git-cancellation.md) | Bound Git cancellation and draining | P2 | M | — | TODO |
+| [049](049-preserve-zero-interrupt-delay.md) | Preserve zero interrupt delays | P2 | S | 043 | TODO |
+| [050](050-scope-hook-skip-flags.md) | Scope hook skip flags | P2 | S | — | TODO |
+| [051](051-share-durable-port-reservations.md) | Share durable port reservations | P2 | L | 039, 041 | TODO |
+| [052](052-publish-semantic-activity-transitions.md) | Publish time-driven activity transitions | P2 | M | — | TODO |
+| [053](053-replace-executable-without-path-gap.md) | Replace executable without a pathname gap | P2 | M | — | TODO |
+| [054](054-scroll-wrapped-diff-rows.md) | Scroll wrapped diff display rows | P2 | M | — | TODO |
+| [055](055-load-project-tree-asynchronously.md) | Load the project tree asynchronously | P2 | M | — | TODO |
+| [056](056-clean-up-fakeagent-build-directory.md) | Clean up the shared fakeagent fixture | P3 | S | — | TODO |
+| [057](057-spike-script-output-search.md) | Spike: search retained script output | P3 | S | 038 | TODO |
+| [058](058-spike-workspace-recovery-diagnostics.md) | Spike: workspace recovery diagnostics | P3 | S | 039, 041, 048 | TODO |
+
+**Dependencies and coordination:**
+
+- 049 requires 043's strict config-save boundary.
+- 051 requires 039's storage/locking foundation and must preserve 041's lifecycle ownership; implement 041 before 051.
+- 057 is a plans-only search design spike; finalize its handoff after 038.
+- 058 is a plans-only recovery design spike; finalize after 039, 041, and 048.
+- 040 and 045 address separate reader-ordering and attachment-generation defects; both need their own regressions.
+- Coordinate 038/039/041/051 in process/data/service files; coordinate 036/044/047 in common UI and 037/042 in center launch code. Shared documentation edits should be merged, not overwritten.
+- Substantive implementations require devcheck and strict-new lint. Concurrency changes need race coverage; input/tmux changes need verify-loop and real-tmux checks; render changes need harness presets and a quiescent strict perf check. Each plan lists its exact gates.
+- A failed or skipped required gate is not DONE. Record the exact blocker rather than weakening tests or folding unrelated repairs into a plan.
+
+**Verification baseline:** govulncheck, strict-new lint, ordinary lint/config-drift/formatter checks, and verify-loop passed. Full devcheck failed in e2e. An isolated rerun passed overlay queuing and shelve/restore but reproduced `TestWorkspaceCreateAgentsHaveDistinctSessions` creating two Claude sessions instead of Claude + Codex (036). The unsanitized launcher inherited the actual workspace root (059). No full isolated devcheck, race sweep, or performance benchmark is claimed.
+
+**Coverage:** the new audit swept all Go packages and all nine advisory categories, with deep reads concentrated on lifecycle/storage/process, UI async boundaries, PTY/tmux/update/config, and e2e tooling. It was not a line-by-line read of every file. Live real-agent workflows, prolonged fuzzing, power-loss injection, Windows runtime, other tmux/OS versions, upstream dependency implementations, full Git-history secret scanning, and fleet performance were not experimentally audited. See the audit for rejections and limits.
+
+## 2026-09-25 batch (historical)
+
 Generated by a deep `/improve` audit on 2026-09-25 against commit `af432f7`
 (post-merge of the 5-PR refactor stack + the `containsASCIIFold` fix). Six
 read-only auditors covered the ~195K-LOC Go codebase; every finding below was
@@ -45,9 +106,9 @@ your row when done.
 | 029 | Route agent BEL into the attention surface (Option A: count-based) | P2 | M | — | DONE |
 | 030 | Re-runnable `setup` on demand | P2 | S | — | DONE |
 | 031 | Persist lifecycle-script transcripts across restarts | P3 | M | — | DONE |
-| 032 | Run-session picker for concurrent `run` sessions | P3 | M | 004 | TODO |
-| 033 | In-app browser for saved transcripts | P3 | M | — | TODO |
-| 034 | Spike: minimal read-only lifecycle CLI per ORCHESTRATION.md trigger | P3 | M | — | TODO |
+| 032 | Run-session picker for concurrent `run` sessions | P3 | M | 004 | DONE |
+| 033 | In-app browser for saved transcripts | P3 | M | — | DONE |
+| 034 | Spike: minimal read-only lifecycle CLI per ORCHESTRATION.md trigger | P3 | M | — | REJECTED — spike verdict recorded in plan file: no named orchestrator requirement; on-disk stores + tmux tags already cover enumeration |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -75,8 +136,8 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - **`appendScrollbackDeltaMatchStart` quadratic path** — unreachable under default `history-limit`, bounded when reached.
 - **tmux command injection via session names/paths/env** — verified clean: every interpolated value is `shellutil.ShellQuote`d or argv-passed; `paneLaunchCommand` keeps values in positional params; amux doesn't use `send-keys` internally.
 - **Script-trust bypass** — SHA-256 content pinning, fail-closed load, `TrustRepoScriptsIfHash` closes the prompt race.
-- **Update/install chain** — minisign+SHA-256 verified chain, bounded downloads, `os.OpenRoot` confinement, atomic replace.
-- **PTY reader lifecycle / reattach pinning / overflow** — bounded queues, generation guards, carry-trim.
+- **Update/install chain** — signature, checksum, download bounds, and archive confinement remain sound in the reviewed code. The earlier blanket atomic-replace conclusion is revised by plan 053: two renames leave a pathname gap.
+- **PTY reader lifecycle / reattach pinning / overflow** — the earlier blanket rejection was too broad. Plans 040 and 045 address queued-output loss and missing sidebar generations; center generation guards and bounded overflow remain distinct existing defenses.
 - **OSC52 / PTY-trace exfiltration** — env-gated, size-capped, sanitized filenames, 0600.
 - **Workspace/registry traversal or torn writes** — `validateWorkspaceID`, per-ID flocks, `os.OpenRoot`, `fsatomic`.
 - **Chrome filter data loss** — tightly bounded heuristic.
