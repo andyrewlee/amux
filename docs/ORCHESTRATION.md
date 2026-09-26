@@ -141,7 +141,11 @@ runSessionBaseName(...)          => "amux-ws-9f8e7d6c5b4a3210-run"
 ## Discovering sessions
 
 Do not construct tab names; enumerate the live sessions on amux's tmux server
-and filter by prefix and tags.
+and filter by prefix and tags. Attaches are fenced per tab: only the newest
+in-flight attach's outcome is applied, so a client from an abandoned or
+superseded attach is closed instead of replacing the live terminal — an
+orchestrator that triggers its own attach does not need to serialize against
+amux's.
 
 Resolve the server name the way amux does (`tmux.DefaultOptions`,
 `internal/tmux/tmux.go`):

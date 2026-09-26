@@ -24,24 +24,26 @@ func (m *TerminalModel) tabBySession(wsID, sessionName string) *TerminalTab {
 	return nil
 }
 
-func shouldAttachExistingTerminalTab(tab *TerminalTab) bool {
+// shouldAttachExistingTerminalTab begins an automatic attach attempt on the
+// tab when it is eligible, returning the attempt's epoch. A user-detached,
+// already-live, or already-attaching tab is skipped without side effects.
+func shouldAttachExistingTerminalTab(tab *TerminalTab) (epoch uint64, ok bool) {
 	if tab == nil || tab.State == nil {
-		return false
+		return 0, false
 	}
 	ts := tab.State
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if ts.Reattach.InFlight {
-		return false
-	}
 	if ts.UserDetached {
-		return false
+		return 0, false
 	}
 	if ts.Running && ts.Terminal != nil && ts.VTerm != nil && !ts.Detached {
-		return false
+		return 0, false
 	}
-	ts.beginReattachLocked()
-	return true
+	if !ts.beginReattachLocked() {
+		return 0, false
+	}
+	return ts.reattachEpoch, true
 }
 
 // AddTabsFromSessionInfos ensures tabs exist for the provided tmux sessions, optionally attaching.
@@ -57,8 +59,10 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 		}
 		existing := m.tabBySession(wsID, session.Name)
 		if existing != nil {
-			if session.Attach && shouldAttachExistingTerminalTab(existing) {
-				cmds = append(cmds, m.attachToSession(ws, existing.ID, session.Name, session.DetachExisting, "reattach"))
+			if session.Attach {
+				if epoch, ok := shouldAttachExistingTerminalTab(existing); ok {
+					cmds = append(cmds, m.attachToSession(ws, existing.ID, session.Name, session.DetachExisting, "reattach", epoch))
+				}
 			}
 			continue
 		}
@@ -77,12 +81,17 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 			m.tabs.ActiveByWorkspace[wsID] = 0
 		}
 		if session.Attach {
+			var epoch uint64
 			if tab.State != nil {
 				tab.State.mu.Lock()
-				tab.State.beginReattachLocked()
+				if tab.State.beginReattachLocked() {
+					epoch = tab.State.reattachEpoch
+				}
 				tab.State.mu.Unlock()
 			}
-			cmds = append(cmds, m.attachToSession(ws, tabID, session.Name, session.DetachExisting, "reattach"))
+			if epoch != 0 {
+				cmds = append(cmds, m.attachToSession(ws, tabID, session.Name, session.DetachExisting, "reattach", epoch))
+			}
 		}
 	}
 	m.refreshTerminalSize()
