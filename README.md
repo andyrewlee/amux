@@ -159,6 +159,11 @@ Sidebar (Changes tab, focused):
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).
 
+Text fields in the env, scripts, and Settings editors accept terminal
+bracketed paste: only the first pasted line is appended to the focused field
+(later lines and control bytes are dropped — these are single-line fields),
+and paste never submits, cancels, or toggles a row.
+
 Picker keys: arrows and `tab`/`shift+tab` navigate every list picker. The
 agent picker additionally fuzzy-filters as you type (printable keys are
 filter text there); unfiltered pickers like the run-session list take `j`/`k`

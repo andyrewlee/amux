@@ -71,6 +71,14 @@ func (d *ScriptsDialog) Update(msg tea.Msg) (*ScriptsDialog, tea.Cmd) {
 	if !d.visible {
 		return d, nil
 	}
+	if pasteMsg, ok := msg.(tea.PasteMsg); ok {
+		// Paste is text only — the mode row is a toggle, so it ignores paste
+		// entirely rather than risk a pasted space flipping it.
+		if d.cursor != 4 {
+			d.appendFocusedText(pasteFirstLine(pasteMsg.Content))
+		}
+		return d, nil
+	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return d, nil
