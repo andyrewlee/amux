@@ -126,8 +126,13 @@ func (s *Service) removeProjectMetadata(repoPath string, knownWorkspaces ...data
 		if ws == nil || s.scripts == nil {
 			continue
 		}
-		if err := s.scripts.Stop(ws); err != nil {
+		// Drain lifecycle work (setup/on-done) plus the run script before the
+		// metadata goes — same teardown discipline as delete/shelve.
+		guard, err := s.scripts.BeginTeardown(ws)
+		if err != nil {
 			logging.Warn("Project removed, but scripts could not be stopped for workspace %s: %v", ws.Name, err)
+		} else {
+			guard.Finish(true)
 		}
 		s.scripts.ReleaseWorkspace(ws)
 	}

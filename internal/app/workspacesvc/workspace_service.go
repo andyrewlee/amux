@@ -259,9 +259,16 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 			return failMsg
 		}
 
-		if err := s.stopWorkspaceScriptsForDelete(ws); err != nil {
+		// Teardown gate: seize lifecycle admission, drain every local lifecycle
+		// process (in-flight setup, detached on-done hooks) and stop the run
+		// script BEFORE anything is removed — the tree must not go away while a
+		// child is still writing it. The gate rejects new starts until Finish.
+		guard, err := s.beginWorkspaceTeardown(ws)
+		if err != nil {
 			return fail("stop_scripts", err)
 		}
+		removed := false
+		defer func() { guard.Finish(removed) }()
 
 		// The archive script is the workspace's teardown hook, so it runs here:
 		// after the run script has been stopped (nothing is still writing) and
@@ -275,7 +282,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 		// after "this delete will definitely proceed" and before "the directory
 		// the script needs is gone", so archive scripts should be written to
 		// tolerate a repeat rather than assume exactly-once.
-		archiveWarning := s.runArchiveScriptForDelete(ws)
+		archiveWarning := s.runArchiveScriptForDelete(ws, guard)
 
 		// Validation passed, so this delete will proceed. Write a durable tombstone
 		// FIRST so that if the process quits/crashes between here and the metadata
@@ -289,6 +296,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 		if failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail); failMsg != nil {
 			return failMsg
 		}
+		removed = true
 		warning := archiveWarning
 		if s.store != nil {
 			if err := s.deleteWorkspaceMetadata(ws); err != nil {

@@ -99,6 +99,12 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		return nil, err
 	}
 
+	// A held teardown gate rejects new starts: a run launched while removal is
+	// pending would survive the teardown's hosted-session kill entirely.
+	if err := r.lifecycle.checkAdmission(scriptWorkspaceKey(ws)); err != nil {
+		return nil, err
+	}
+
 	// Check for existing process in non-concurrent mode
 	if ws.ScriptMode == "nonconcurrent" {
 		if err := r.Stop(ws); !isBenignStopError(err) {
@@ -167,9 +173,17 @@ var archiveTimeout = 2 * time.Minute
 // escalation is abandoned rather than waited on, because the caller is a
 // workspace delete and a delete must never be able to hang forever.
 //
-// It takes over the workspace's single tracking slot for its duration, so the
-// caller must have stopped any run script first (the delete path does).
+// While a workspace's teardown gate is held, only the owning TeardownGuard may
+// invoke archive — TeardownGuard.RunArchive calls runArchive with that guard.
+// Outside teardown, RunArchive admits freely.
 func (r *ScriptRunner) RunArchive(ws *data.Workspace) error {
+	return r.runArchive(ws, nil)
+}
+
+func (r *ScriptRunner) runArchive(ws *data.Workspace, guard *TeardownGuard) error {
+	if err := r.lifecycle.checkArchiveAdmission(scriptWorkspaceKey(ws), guard); err != nil {
+		return err
+	}
 	cmdStr, err := r.resolveScriptCommand(ws, ScriptArchive)
 	if err != nil {
 		return err
@@ -196,13 +210,6 @@ func (r *ScriptRunner) RunArchive(ws *data.Workspace) error {
 		return fmt.Errorf("starting archive script: %s: %w", cmdStr, err)
 	}
 
-	running := &runningScript{
-		cmd:  cmd,
-		done: make(chan struct{}),
-	}
-	key := scriptWorkspaceKey(ws)
-	r.setRunningEntry(key, running)
-
 	// Wait in the background so the timeout can win the race: cmd.Wait cannot be
 	// interrupted, so the timer kills the process group and Wait then returns.
 	waitErr := make(chan error, 1)
@@ -226,9 +233,6 @@ func (r *ScriptRunner) RunArchive(ws *data.Workspace) error {
 		reaped = r.reapAfterTimeout(cmd, waitErr)
 	}
 
-	close(running.done)
-	r.finishRunningEntry(key, running)
-
 	// The tail is only safe to read once cmd.Wait joined its copier — see
 	// the reaped flag's race note above.
 	tailText := ""
@@ -251,13 +255,13 @@ func (r *ScriptRunner) RunArchive(ws *data.Workspace) error {
 // crosses the working→done edge.
 //
 // Unlike RunArchive it never blocks the caller (the edge fires inside the
-// scan pipeline) and it is deliberately untracked: the hook is a one-shot
-// notification, not the workspace's `run` process, so it must not occupy the
-// running slot that Stop/IsRunning/concurrent-mode manage. It shares the
-// resolve+trust front half with every other script type: a repo-supplied
-// on-done is gated identically to run/archive (it executes on a lifecycle
-// edge with no user keystroke), while ws.Scripts.OnDone is user input and
-// always runs.
+// scan pipeline). It is tracked on the lifecycle coordinator's own on-done set
+// — deliberately out of the run-script slot that Stop/RunActive/concurrent-
+// mode manage — so workspace teardown can drain it before the directory goes
+// away. It shares the resolve+trust front half with every other script type:
+// a repo-supplied on-done is gated identically to run/archive (it executes on
+// a lifecycle edge with no user keystroke), while ws.Scripts.OnDone is user
+// input and always runs.
 //
 // env is BuildEnv plus AMUX_SESSION naming the session that finished. Errors
 // resolve as: ErrNoScriptConfigured → nil (most workspaces have no hook);
@@ -293,13 +297,25 @@ func (r *ScriptRunner) RunOnDone(ws *data.Workspace, sessionName string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting on-done hook: %s: %w", cmdStr, err)
 	}
+	// Admission after Start, atomically: a teardown landing between resolve
+	// and spawn rejects the registration, and the just-started child is
+	// killed and reaped inline so it cannot outlive the removal.
+	key := scriptWorkspaceKey(ws)
+	proc, ok := r.lifecycle.admitOnDone(key, cmd)
+	if !ok {
+		_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
+		_ = cmd.Wait()
+		return ErrWorkspaceTeardown
+	}
 	safego.Go("process.on_done_wait", func() {
+		defer close(proc.done)
 		err := cmd.Wait()
 		r.recordScriptOutput(ws, ScriptOnDone, tail.String(), err)
 		if err != nil {
 			slog.Debug("on-done hook exited non-zero", "command", cmdStr, "error", err)
 			r.notifyScriptExit(ws, ScriptOnDone, err)
 		}
+		r.lifecycle.finishOnDone(key, proc)
 	})
 	return nil
 }

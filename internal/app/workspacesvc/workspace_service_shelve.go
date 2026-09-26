@@ -114,14 +114,22 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 			ws.ArchivedAt = intentAt
 		}
 
-		if err := s.stopWorkspaceScriptsForDelete(ws); err != nil {
+		// Teardown gate: seize lifecycle admission, drain every local lifecycle
+		// process (in-flight setup, detached on-done hooks) and stop the run
+		// script BEFORE the worktree is removed — it must not go away while a
+		// child is still writing it. The gate rejects new starts until Finish.
+		guard, err := s.beginWorkspaceTeardown(ws)
+		if err != nil {
 			clearShelveIntent()
 			return fail("stop_scripts", err)
 		}
+		removed := false
+		defer func() { guard.Finish(removed) }()
+
 		// The archive script is the "worktree is about to disappear" hook —
-		// shelving removes the worktree too, so it runs here on the same
-		// best-effort terms as delete.
-		archiveWarning := s.runArchiveScriptForDelete(ws)
+		// shelving removes the worktree too, so it runs here under the held
+		// gate on the same best-effort terms as delete.
+		archiveWarning := s.runArchiveScriptForDelete(ws, guard)
 
 		var stageFail tea.Msg
 		func() {
@@ -135,6 +143,7 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 			clearShelveIntent()
 			return stageFail
 		}
+		removed = true
 
 		// Worktree is gone: the shelf is real from here on, so the intent flags
 		// stay even if session teardown reports an error.

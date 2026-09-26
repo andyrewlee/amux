@@ -81,10 +81,18 @@ func (s *Service) LastScriptOutputs(ws *data.Workspace) map[process.ScriptType]p
 }
 
 // RunOnDoneScript fires the workspace's on-done script for a session; a nil
-// runner is a no-op.
+// runner is a no-op. A teardown-gate rejection is swallowed: the edge fired
+// while the workspace was already being removed, so a skipped hook is the
+// expected outcome — not an error worth a toast.
 func (s *Service) RunOnDoneScript(ws *data.Workspace, sessionName string) error {
 	if s == nil || s.scripts == nil || ws == nil {
 		return nil
 	}
-	return s.scripts.RunOnDone(ws, sessionName)
+	if err := s.scripts.RunOnDone(ws, sessionName); err != nil {
+		if errors.Is(err, process.ErrWorkspaceTeardown) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
