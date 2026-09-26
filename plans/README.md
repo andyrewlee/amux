@@ -37,7 +37,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [050](050-scope-hook-skip-flags.md) | Scope hook skip flags | P2 | S | — | DONE |
 | [051](051-share-durable-port-reservations.md) | Share durable port reservations | P2 | L | 039, 041 | DONE |
 | [052](052-publish-semantic-activity-transitions.md) | Publish time-driven activity transitions | P2 | M | — | DONE |
-| [053](053-replace-executable-without-path-gap.md) | Replace executable without a pathname gap | P2 | M | — | TODO |
+| [053](053-replace-executable-without-path-gap.md) | Replace executable without a pathname gap | P2 | M | — | DONE |
 | [054](054-scroll-wrapped-diff-rows.md) | Scroll wrapped diff display rows | P2 | M | — | TODO |
 | [055](055-load-project-tree-asynchronously.md) | Load the project tree asynchronously | P2 | M | — | TODO |
 | [056](056-clean-up-fakeagent-build-directory.md) | Clean up the shared fakeagent fixture | P3 | S | — | TODO |

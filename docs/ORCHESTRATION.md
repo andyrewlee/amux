@@ -375,6 +375,22 @@ running is unsupported until adoption completes: an old binary still
 allocating in memory would keep handing out ranges the new registry cannot
 see. tmux-discovery failure during adoption also defers rather than guessing.
 
+## Self-update replacement contract
+
+External tooling that relaunches amux by path can rely on the self-update
+install never vacating the installed pathname: the running executable is
+backed up by copy (never moved), the verified replacement is renamed over the
+live path in a single same-directory rename, and the directory is synced
+around the transition. A kill before the rename leaves the old binary; a kill
+after it leaves the new binary. If the post-replacement directory sync fails,
+amux keeps the complete old backup at the reported path and prints the quoted
+`mv` recovery command — it never silently rolls the live binary back.
+
+This is a single-process contract: concurrent self-updates are not serialized
+against each other, and no update scheme on a POSIX filesystem can guarantee
+the new entry survives a power loss that lands between the rename and the
+sync — the backup exists so that failure mode is recoverable.
+
 ## Option B: a minimal CLI (recorded, not recommended)
 
 If the tmux contract above proves insufficient for a concrete orchestration need,

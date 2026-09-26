@@ -201,6 +201,23 @@ The built-in agents each render with a dedicated brand color. A custom
 primary color. This is purely cosmetic; the assistant is fully functional
 otherwise.
 
+## Self-update install guarantees
+
+When the in-app self-update applies a verified release, the executable at its
+installed pathname is never absent mid-update: the current binary is copied
+to a random backup path (not moved), the staged replacement lands via one
+same-directory rename over the live path, and the directory is synced before
+and after that rename. Every failure before the rename leaves the old binary
+in place; a failure during the post-replacement directory sync leaves the new
+binary installed and keeps the backup — the reported error names the backup
+path and prints a quoted `mv` command for manual recovery.
+
+Two things this does not promise: it is not a multi-process transactional
+update (two concurrent `amux update` runs can race each other), and it cannot
+provide universal power-loss immunity (a crash can lose filesystem state that
+was never synced). The guarantees are pathname continuity, atomic
+old-or-new replacement, and a recoverable backup on post-commit errors.
+
 ## Overriding a built-in's command
 
 The same map overrides the built-in agents. For a built-in you only need to set

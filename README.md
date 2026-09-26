@@ -189,7 +189,12 @@ in-app hint bar.
 
 **Self-update**: amux checks for a new release at startup; when one is
 available a self-update item appears in Settings (`C-Space S`). Updates are
-minisign-verified before being applied.
+minisign-verified before being applied. The install step never leaves the
+binary path empty: it backs the current executable up by copy, then replaces
+it with a single atomic rename — if the update is interrupted, either the old
+or the new binary is reachable at the installed path. In the rare case the
+post-replacement durability check fails, the error names the retained backup
+and the `mv` command to restore it.
 
 ## Configuration
 
