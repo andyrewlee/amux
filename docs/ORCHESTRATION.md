@@ -156,7 +156,9 @@ Resolve the server name the way amux does (`tmux.DefaultOptions`,
 amux itself sets these env vars from config
 (`UI.TmuxServer` / `UI.TmuxConfigPath`, `internal/app/app_init.go`), so an
 orchestrator launched in the same environment as amux should honor whatever is
-already set and only fall back to the defaults above.
+already set and only fall back to the defaults above. (`AMUX_SKIP_LINT` /
+`AMUX_SKIP_HARNESS` are contributor git-hook escapes documented in
+CONTRIBUTING.md — the app ignores them.)
 
 List sessions and their tags in one call, mirroring amux's own reader
 (`internal/tmux/tags.go`):

@@ -72,6 +72,12 @@ rest:
 | `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output (harness/CI use).                                       |
 | `AMUX_E2E_BIN`            | Path to a prebuilt binary for `internal/e2e` tests (test-only).                            |
 
+`AMUX_SKIP_LINT` and `AMUX_SKIP_HARNESS` are contributor git-hook flags, not
+runtime configuration — the amux process never reads them, and each removes
+only its named gate in `.githooks/` (lint still runs formatting, drift, and
+file-length checks; harness still runs lint, e2e, and the tmux probe). See
+CONTRIBUTING.md.
+
 ## The `assistants` map
 
 amux ships a built-in roster of AI coding agents, but you are not limited to it.

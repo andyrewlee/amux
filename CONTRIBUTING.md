@@ -78,10 +78,13 @@ Dev-side environment variables:
   `make soak` bullet above).
 - `AMUX_E2E_BIN` — point `internal/e2e` tests at a prebuilt binary instead of
   the per-run build.
-- `AMUX_SKIP_LINT=1` — skip the golangci-lint steps in the pre-commit and
-  pre-push hooks. Scoped escape hatch — prefer it over `--no-verify`, which
-  would also disable formatting, file-length, and harness checks.
-- `AMUX_SKIP_HARNESS=1` — skip the pre-push harness run.
+- `AMUX_SKIP_LINT=1` — skip only the golangci-lint steps in the pre-commit
+  and pre-push hooks (`make lint` / `make lint-ci-parity`). Every other gate
+  still runs: formatting, lint-config-drift, check-fmt-config, the staged
+  file-length guard, the harness, and the e2e suite. Scoped escape hatch —
+  prefer it over `--no-verify`, which would also disable all of those.
+- `AMUX_SKIP_HARNESS=1` — skip only the pre-push harness run; strict lint,
+  the e2e suite, and the missing-tmux warning still apply.
 - `AMUX_LINT_BASE_REF=<ref>` — override the pre-push strict-lint base ref
   (default `origin/main`).
 - `AMUX_HARNESS_CENTER_ARGS="..."` — override the pre-push harness args
