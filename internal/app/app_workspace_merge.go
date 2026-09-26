@@ -166,8 +166,11 @@ func (a *App) handleShowMergeWorkspaceDialog(msg messages.ShowMergeWorkspaceDial
 }
 
 // mergeWorkspaceAsync performs the merge off the UI goroutine. It merges into
-// whatever the primary checkout has checked out — the precondition in
-// handleMergeWorkspace already established that this is the base branch.
+// whatever the primary checkout has checked out — which is why the command
+// re-verifies the destination first: the dialog's precondition ran before
+// the user confirmed, and the checkout may have moved while it was open. The
+// approved base is immutable command input — a mismatch refuses rather than
+// silently merging into the new HEAD or re-deriving a different target.
 func (a *App) mergeWorkspaceAsync(ws *data.Workspace, base string) tea.Cmd {
 	if ws == nil {
 		return nil
@@ -176,10 +179,27 @@ func (a *App) mergeWorkspaceAsync(ws *data.Workspace, base string) tea.Cmd {
 	if merge == nil {
 		merge = git.MergeWorkspaceBranch
 	}
+	resolveHead := a.checkedOutBranch
 	ctx := a.ctx
 	repo := ws.Repo
 	branch := ws.Branch
 	return func() tea.Msg {
+		if strings.TrimSpace(base) == "" {
+			return refusal(ws, "Cannot merge: no approved base branch")
+		}
+		head, err := resolveHead(repo)
+		if err != nil {
+			return messages.MergeWorkspaceRefused{
+				Workspace: ws,
+				Reason:    "Cannot merge: the primary checkout has no branch checked out (detached HEAD)",
+				Err:       err,
+			}
+		}
+		if head != base {
+			return refusal(ws, fmt.Sprintf(
+				"Cannot merge: %s moved to '%s' since the dialog opened; expected '%s'. Check out '%s' there and retry.",
+				ws.Repo, head, base, base))
+		}
 		return messages.WorkspaceMerged{
 			Workspace: ws,
 			Base:      base,

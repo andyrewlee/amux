@@ -166,6 +166,56 @@ func TestMergeWorkspace_EndToEndRefusesWrongBranch(t *testing.T) {
 	}
 }
 
+// TestMergeWorkspace_EndToEndRefusesMovedDestination pins the execution-time
+// recheck against a real repo: the dialog approved merging into main, the
+// primary checkout moved to another branch while the dialog was open, and the
+// confirmed merge must refuse rather than land on the new HEAD.
+func TestMergeWorkspace_EndToEndRefusesMovedDestination(t *testing.T) {
+	repo, ws := mergeIntegrationRepo(t)
+	mainBefore := testutil.RunGit(t, repo, "rev-parse", "main")
+
+	app := newIntegrationMergeApp()
+	cmd := app.handleMergeWorkspace(messages.MergeWorkspace{Workspace: ws})
+	dialogReq, ok := cmd().(messages.ShowMergeWorkspaceDialog)
+	if !ok {
+		t.Fatalf("preflight was refused instead of confirming: %q", refusalReason(cmd))
+	}
+	if dialogReq.Base != "main" {
+		t.Fatalf("approved base = %q, want main", dialogReq.Base)
+	}
+
+	// Move the primary checkout off the approved base while the dialog is up.
+	testutil.RunGit(t, repo, "checkout", "-b", "hotfix")
+	headBefore := testutil.RunGit(t, repo, "rev-parse", "HEAD")
+
+	app.handleShowMergeWorkspaceDialog(dialogReq)
+	mergeCmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: true}, app.dlg)
+	if mergeCmd == nil {
+		t.Fatal("confirming the dialog produced no command")
+	}
+	refused, ok := mergeCmd().(messages.MergeWorkspaceRefused)
+	if !ok {
+		t.Fatalf("moved destination produced %T, want MergeWorkspaceRefused", mergeCmd())
+	}
+	if !strings.Contains(refused.Reason, "hotfix") || !strings.Contains(refused.Reason, "main") {
+		t.Fatalf("refusal %q should name the moved-to branch and the approved base", refused.Reason)
+	}
+
+	// Neither ref moved and nothing landed anywhere.
+	if after := testutil.RunGit(t, repo, "rev-parse", "main"); after != mainBefore {
+		t.Fatal("the refused merge still advanced main")
+	}
+	if after := testutil.RunGit(t, repo, "rev-parse", "HEAD"); after != headBefore {
+		t.Fatal("the refused merge advanced the moved checkout's HEAD")
+	}
+	if got := testutil.RunGit(t, repo, "symbolic-ref", "--short", "HEAD"); got != "hotfix" {
+		t.Fatalf("the refused merge moved HEAD to %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "feature.txt")); !os.IsNotExist(err) {
+		t.Fatal("the refused merge still wrote the branch's files")
+	}
+}
+
 // TestMergeWorkspace_EndToEndConflictThenAbort exercises the conflict lifecycle
 // against a real repo: the merge stops, amux lists the files and offers Abort,
 // and confirming the abort restores the pre-merge state.
