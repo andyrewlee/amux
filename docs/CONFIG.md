@@ -40,6 +40,11 @@ rows, while an explicit path — absolute, `~`, `~/…`, `./…`, `../…`, or a
 input containing a separator — is resolved literally, so `enter`/`tab` act on
 the typed path rather than the highlighted row.
 
+Git invocations enforce their deadlines against the whole process group on
+Unix (leader-only on Windows) plus a short bounded output drain: a canceled
+git child cannot keep a worktree lock or an inherited output pipe open
+indefinitely.
+
 ## Environment variables
 
 Variables injected **into** agents (`AMUX_WORKSPACE_*`, `AMUX_PORT`,
