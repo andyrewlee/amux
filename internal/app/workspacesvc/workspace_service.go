@@ -3,6 +3,7 @@ package workspacesvc
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -378,9 +379,27 @@ func (s *Service) archiveDeletedWorkspaceMetadata(ws *data.Workspace) error {
 	if s == nil || s.store == nil || ws == nil {
 		return nil
 	}
+	archivedAt := time.Now()
+	// Field transaction when the record still exists — the delete failure
+	// that brought us here can leave the dir partially removed, and only the
+	// archive flags should change on whatever survived.
+	err := s.store.Update(ws.MetadataID(), func(stored *data.Workspace) (bool, error) {
+		stored.Archived = true
+		stored.ArchivedAt = archivedAt
+		return true, nil
+	})
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("archive deleted workspace metadata: %w", err)
+	}
+	// The record is gone entirely: fall back to archiving the snapshot, the
+	// pre-Update behavior, so the delete's error path still leaves a record
+	// that reports what happened.
 	archived := *ws
 	archived.Archived = true
-	archived.ArchivedAt = time.Now()
+	archived.ArchivedAt = archivedAt
 	if err := s.store.Save(&archived); err != nil {
 		return fmt.Errorf("archive deleted workspace metadata: %w", err)
 	}

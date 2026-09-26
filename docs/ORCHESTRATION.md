@@ -55,6 +55,13 @@ amux-<workspaceID>-<tabPart>
   (`internal/data/workspace.go`) — 16 lowercase hex characters for anything
   minted by current amux, and in practice **never contains `-`** (sanitize
   would rewrite anything else anyway).
+
+Metadata updates are field transactions, not whole-record writes: each
+mutator (rename, env, scripts, shelve/restore/archive flags, debounced
+tab state) loads the record fresh under the workspace lock and rewrites only
+its own fields. External tooling that edits `workspace.json` directly should
+do the same — read-modify-write of only the field it owns.
+
 - `<tabPart>` identifies the pane within the workspace. For an interactive agent
   tab it is the tab ID `tab-<prefix>-<counter>` (`internal/ui/center/model_tab.go`,
   `formatTabID`), where `<prefix>` is 4 random bytes hex-encoded **per amux

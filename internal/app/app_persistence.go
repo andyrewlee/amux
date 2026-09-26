@@ -10,6 +10,73 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// Tab persistence is deliberately narrow: only OpenTabs and ActiveTabIndex
+// are ever written from this path, through Service.SaveWorkspaceTabs'
+// locked field transaction. A debounced snapshot is captured on the Update
+// goroutine and its command can run long after — a whole-Workspace save
+// would resurrect whatever stale fields that capture happened to carry over
+// a concurrent rename/env/script/lifecycle write.
+//
+// Ordering is by capture sequence (a.lifecycle.persistSeq, minted only on
+// Update): a newer capture always wins even if two commands run in reverse
+// order, and a superseded write is a benign no-op — never an error and never
+// re-dirtied.
+
+// tabPersistSnapshot is the immutable capture a persist command carries out
+// of Update: which workspace, which capture generation, the copied tab
+// state, and — only for the service's missing-record create path — a clone
+// of the workspace itself. Persisting a workspace that has no metadata yet
+// is creation, not a field update, so the clone backs a full Save there.
+type tabPersistSnapshot struct {
+	wsID      string
+	seq       uint64
+	tabs      []data.TabInfo
+	activeIdx int
+	fallback  *data.Workspace
+}
+
+// captureTabSnapshot mints the next persist sequence and snapshots the
+// workspace's tab state. Must run on the Update goroutine — the sequence is
+// only meaningful if it is assigned in Update order.
+func (a *App) captureTabSnapshot(ws *data.Workspace, wsID string) tabPersistSnapshot {
+	tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
+	ws.OpenTabs = tabs
+	ws.ActiveTabIndex = activeIdx
+	a.lifecycle.persistSeq++
+	return tabPersistSnapshot{
+		wsID:      wsID,
+		seq:       a.lifecycle.persistSeq,
+		tabs:      tabs,
+		activeIdx: activeIdx,
+		fallback:  snapshotWorkspaceForSave(ws),
+	}
+}
+
+// persistOneTabSnapshot writes one captured snapshot through the service's
+// ordered narrow write and returns whether it committed. Runs wherever the
+// caller is — Update goroutine (shutdown flush) or a Cmd goroutine
+// (debounce) — the service owns the ordering/locking.
+func (a *App) persistOneTabSnapshot(snap tabPersistSnapshot) (committed bool, err error) {
+	wrote := false
+	var saveErr error
+	ran := a.runUnlessWorkspaceMutationInFlight(snap.wsID, func() {
+		wrote, saveErr = a.workspaceService.SaveWorkspaceTabs(
+			snap.fallback, snap.seq, snap.tabs, snap.activeIdx)
+	})
+	if !ran {
+		// Mutation began between capture and execution — nothing was written
+		// and nothing failed; the mutation's own resolution path requeues.
+		return false, nil
+	}
+	if saveErr != nil {
+		return false, saveErr
+	}
+	if wrote {
+		a.markLocalWorkspaceSaveForID(snap.wsID)
+	}
+	return wrote, nil
+}
+
 // persistAllWorkspacesNow saves all workspace tab state synchronously.
 // Called before shutdown to ensure tabs are persisted before they are closed.
 // This intentionally skips mutation-in-flight workspaces. Saving during a
@@ -25,17 +92,15 @@ func (a *App) persistAllWorkspacesNow() {
 			if a.isWorkspaceMutationInFlight(wsID) {
 				continue
 			}
-			tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
-			if len(tabs) == 0 && !a.center.HasWorkspaceState(wsID) {
+			snap := a.captureTabSnapshot(ws, wsID)
+			if len(snap.tabs) == 0 && !a.center.HasWorkspaceState(wsID) {
 				continue
 			}
-			ws.OpenTabs = tabs
-			ws.ActiveTabIndex = activeIdx
-			snap := snapshotWorkspaceForSave(ws)
-			if err := a.workspaceService.Save(snap); err != nil {
+			// Shutdown waits behind any in-flight narrow write for this
+			// workspace — the service's per-ID lock provides that ordering —
+			// but never blocks on an unrelated workspace's write.
+			if _, err := a.persistOneTabSnapshot(snap); err != nil {
 				logging.Error("Failed to persist workspace on shutdown: %v", err)
-			} else {
-				a.markLocalWorkspaceSaveForID(string(snap.ID()))
 			}
 		}
 	}
@@ -108,8 +173,9 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 		return nil
 	}
 
-	// Collect snapshots for all dirty workspaces
-	var snapshots []*data.Workspace
+	// Collect immutable tab snapshots for all dirty workspaces — capture
+	// sequence minted here, on Update, so command order can't reorder writes.
+	var snapshots []tabPersistSnapshot
 	processed := make(map[string]bool, len(a.lifecycle.dirty))
 	for wsID := range a.lifecycle.dirty {
 		if a.isWorkspaceMutationInFlight(wsID) {
@@ -122,11 +188,7 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 			processed[wsID] = true
 			continue
 		}
-		// Update in-memory state from center tabs
-		tabs, activeIdx := a.center.GetTabsInfoForWorkspace(wsID)
-		ws.OpenTabs = tabs
-		ws.ActiveTabIndex = activeIdx
-		snapshots = append(snapshots, snapshotWorkspaceForSave(ws))
+		snapshots = append(snapshots, a.captureTabSnapshot(ws, wsID))
 		processed[wsID] = true
 	}
 	// Clear only workspaces processed above; keep in-flight delete markers dirty.
@@ -137,28 +199,16 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	if len(snapshots) == 0 {
 		return nil
 	}
-	service := a.workspaceService
 	return func() tea.Msg {
 		var failedIDs []string
 		for _, snap := range snapshots {
-			wsID := string(snap.ID())
-			var saveErr error
-			saved := a.runUnlessWorkspaceMutationInFlight(wsID, func() {
-				saveErr = service.Save(snap)
-			})
-			if !saved {
-				continue
-			}
-			if saveErr != nil {
-				logging.Error("Failed to save workspace tabs: %v", saveErr)
+			_, err := a.persistOneTabSnapshot(snap)
+			if err != nil {
+				logging.Error("Failed to save workspace tabs: %v", err)
 				// Do not touch a.lifecycle.dirty here — this runs in a Cmd
 				// goroutine, not on the Update loop. Report the failure via a
 				// message so handlePersistSaveFailed can re-dirty safely.
-				failedIDs = append(failedIDs, wsID)
-			} else {
-				// Marker bookkeeping is intentionally outside delete-state guard.
-				// Delete safety is enforced by the guarded Save above.
-				a.markLocalWorkspaceSaveForID(wsID)
+				failedIDs = append(failedIDs, snap.wsID)
 			}
 		}
 		if len(failedIDs) == 0 {
