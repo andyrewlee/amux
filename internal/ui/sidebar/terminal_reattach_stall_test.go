@@ -79,10 +79,10 @@ func TestSidebarSweepStalledReattachesReleasesOnlyStaleLocks(t *testing.T) {
 
 	// A released terminal must become eligible for the next attach sweep,
 	// which is how it recovers without the user doing anything.
-	if !shouldAttachExistingTerminalTab(stalled) {
+	if _, ok := shouldAttachExistingTerminalTab(stalled); !ok {
 		t.Fatal("expected the swept terminal to be eligible for reattach")
 	}
-	if shouldAttachExistingTerminalTab(fresh) {
+	if _, ok := shouldAttachExistingTerminalTab(fresh); ok {
 		t.Fatal("expected a terminal still within the timeout to stay locked")
 	}
 }

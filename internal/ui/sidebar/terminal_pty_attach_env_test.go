@@ -38,7 +38,7 @@ func TestSidebarTerminalSessionEnv(t *testing.T) {
 	if _, ok := m.createTerminalTab(ws)().(SidebarTerminalCreated); !ok {
 		t.Fatal("createTerminalTab did not return SidebarTerminalCreated")
 	}
-	if _, ok := m.attachToSession(ws, TerminalTabID("t"), "session-1", true, "restart")().(SidebarTerminalReattachResult); !ok {
+	if _, ok := m.attachToSession(ws, TerminalTabID("t"), "session-1", true, "restart", 1)().(SidebarTerminalReattachResult); !ok {
 		t.Fatal("attachToSession did not return SidebarTerminalReattachResult")
 	}
 
@@ -78,7 +78,7 @@ func TestSidebarTerminalSessionEnvError(t *testing.T) {
 	if !ok || !errors.Is(created.Err, sentinel) {
 		t.Fatalf("createTerminalTab = %v, want SidebarTerminalCreateFailed wrapping %v", created, sentinel)
 	}
-	reattach, ok := m.attachToSession(ws, TerminalTabID("t"), "session-1", true, "restart")().(SidebarTerminalReattachFailed)
+	reattach, ok := m.attachToSession(ws, TerminalTabID("t"), "session-1", true, "restart", 1)().(SidebarTerminalReattachFailed)
 	if !ok || !errors.Is(reattach.Err, sentinel) {
 		t.Fatalf("attachToSession = %v, want SidebarTerminalReattachFailed wrapping %v", reattach, sentinel)
 	}

@@ -76,6 +76,10 @@ func (SidebarTerminalCreateFailed) MarkCriticalExternalMsg() {}
 type SidebarTerminalReattachResult struct {
 	WorkspaceID string
 	TabID       TerminalTabID
+	// Epoch is the reattach generation this result was dispatched under; a
+	// result from a superseded or invalidated attempt is dropped and its
+	// Terminal closed rather than overwriting the newer attachment.
+	Epoch       uint64
 	Terminal    *pty.Terminal
 	SessionName string
 	CaptureCols int
@@ -91,9 +95,12 @@ func (SidebarTerminalReattachResult) MarkCriticalExternalMsg() {}
 type SidebarTerminalReattachFailed struct {
 	WorkspaceID string
 	TabID       TerminalTabID
-	Err         error
-	Stopped     bool
-	Action      string
+	// Epoch is the reattach generation this failure was dispatched under;
+	// see SidebarTerminalReattachResult.
+	Epoch   uint64
+	Err     error
+	Stopped bool
+	Action  string
 }
 
 // MarkCriticalExternalMsg marks SidebarTerminalReattachFailed as critical —

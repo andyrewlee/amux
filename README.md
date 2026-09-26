@@ -128,6 +128,13 @@ button does the same; `Esc` cancels). Commands are short key sequences:
 | `t o` | browse saved transcripts (`~/.amux/transcripts/`) and open one in the file viewer tab |
 | `1`–`9` | jump to center tab by position |
 
+Detach, reattach, and restart are fenced per attach attempt: only the latest
+attempt's outcome applies to a tab, an explicit `t d` while an attach is in
+flight wins over the pending result, a duplicate `t r` reports "already in
+progress" instead of spawning a second client, and an attach that stalls past
+its timeout is released so it can be retried safely — a late result from the
+abandoned attempt is discarded, not applied over the newer terminal.
+
 When a center terminal tab is focused, `d` instead scrolls down a page and `u`
 scrolls up — the palette shows the substitute meanings in that context. Prefix +
 prefix again sends a literal `Ctrl-Space` (NUL) to the focused terminal.

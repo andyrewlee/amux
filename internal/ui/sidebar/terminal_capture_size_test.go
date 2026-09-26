@@ -23,16 +23,14 @@ func TestReattach_UsesCaptureSizeBeforeResizingForHistoryOnly(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 
+	state := &TerminalState{
+		SessionName: "session-1",
+		Running:     false,
+		Detached:    true,
+		VTerm:       vterm.New(currentWidth, currentHeight),
+	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{
-			ID: tabID,
-			State: &TerminalState{
-				SessionName: "session-1",
-				Running:     false,
-				Detached:    true,
-				VTerm:       vterm.New(currentWidth, currentHeight),
-			},
-		},
+		{ID: tabID, State: state},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
@@ -40,6 +38,8 @@ func TestReattach_UsesCaptureSizeBeforeResizingForHistoryOnly(t *testing.T) {
 	_, _ = m.Update(SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
+		Terminal:    &pty.Terminal{},
 		SessionName: "session-1",
 		CaptureCols: captureWidth,
 		CaptureRows: captureHeight,
@@ -253,7 +253,8 @@ func TestHandleReattachResult_UsesSnapshotSizeBeforeSidebarLayout(t *testing.T) 
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 	m.workspace = ws
-	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: &TerminalState{SessionName: "session-1"}}}
+	state := &TerminalState{SessionName: "session-1"}
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 
 	var gotRows, gotCols uint16
@@ -265,6 +266,7 @@ func TestHandleReattachResult_UsesSnapshotSizeBeforeSidebarLayout(t *testing.T) 
 	_, _ = m.Update(SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
 		SessionName: "session-1",
 		Terminal:    &pty.Terminal{},
 		SessionRestoreCapture: ptyio.SessionRestoreCapture{

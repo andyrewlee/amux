@@ -160,17 +160,31 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 	ts.mu.Lock()
 	running := ts.Running
 	sessionName := ts.SessionName
+	began := !running && ts.beginReattachLocked()
+	if began {
+		// An explicit reattach is consent to attach again — the attempt's own
+		// outcome now owns clearing the flag.
+		ts.UserDetached = false
+	}
+	epoch := ts.reattachEpoch
 	ts.mu.Unlock()
 	if running {
 		return func() tea.Msg {
 			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
 		}
 	}
+	if !began {
+		// An attach is already in flight; say so rather than silently
+		// dispatching a second one — its late result would be rejected anyway.
+		return func() tea.Msg {
+			return messages.Toast{Message: "Reattach already in progress", Level: messages.ToastInfo}
+		}
+	}
 	ws := m.workspace
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
-	return m.attachToSession(ws, tab.ID, sessionName, true, "reattach")
+	return m.attachToSession(ws, tab.ID, sessionName, true, "reattach", epoch)
 }
 
 // RestartActiveTab starts a fresh tmux session for the active terminal tab.
@@ -193,12 +207,63 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
+	// detachState invalidates any in-flight attach before the new attempt
+	// begins, so its late result cannot overwrite the restarted terminal.
 	m.detachState(ts, false)
 	_ = tmux.KillSession(sessionName, m.tmuxOpts)
-	return m.attachToSession(ws, tab.ID, sessionName, true, "restart")
+	ts.mu.Lock()
+	began := ts.beginReattachLocked()
+	epoch := ts.reattachEpoch
+	ts.mu.Unlock()
+	if !began {
+		return nil
+	}
+	return m.attachToSession(ws, tab.ID, sessionName, true, "restart", epoch)
 }
 
-func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName string, detachExisting bool, action string) tea.Cmd {
+// attachFailure builds the epoch-stamped failure result for an attach
+// attempt: every early exit reports the attempt it was dispatched under so a
+// superseded attempt's failure is dropped rather than applied.
+func attachFailure(wsID string, tabID TerminalTabID, epoch uint64, action string, err error, stopped bool) SidebarTerminalReattachFailed {
+	return SidebarTerminalReattachFailed{
+		WorkspaceID: wsID,
+		TabID:       tabID,
+		Epoch:       epoch,
+		Err:         err,
+		Stopped:     stopped,
+		Action:      action,
+	}
+}
+
+// reattachTargetCheck validates a "reattach" target: the session must exist,
+// be attachable, and be owned by this workspace. Dead-session policy is
+// ptyio.SessionAttachable and ownership is ptyio.SessionOwned, both shared
+// with center. A foreign session squatting the name reports Stopped so the
+// user restarts explicitly — restart kills the squatter before recreating.
+// Returns nil when the session may be attached.
+func reattachTargetCheck(ws *data.Workspace, sessionName string, opts tmux.Options, wsID string, tabID TerminalTabID, epoch uint64) *SidebarTerminalReattachFailed {
+	state, err := sessionStateForFn(sessionName, opts)
+	if err != nil {
+		f := attachFailure(wsID, tabID, epoch, "reattach", err, false)
+		return &f
+	}
+	if !ptyio.SessionAttachable(state) {
+		f := attachFailure(wsID, tabID, epoch, "reattach", errors.New("tmux session ended"), true)
+		return &f
+	}
+	owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
+	if ownErr != nil {
+		f := attachFailure(wsID, tabID, epoch, "reattach", ownErr, false)
+		return &f
+	}
+	if !owned {
+		f := attachFailure(wsID, tabID, epoch, "reattach", errors.New("tmux session is not owned by this workspace"), true)
+		return &f
+	}
+	return nil
+}
+
+func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName string, detachExisting bool, action string, epoch uint64) tea.Cmd {
 	if ws == nil {
 		return nil
 	}
@@ -213,63 +278,14 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 	envFn := m.sessionEnvProvider
 	return func() tea.Msg {
 		if shellErr != nil {
-			return SidebarTerminalReattachFailed{
-				WorkspaceID: wsID,
-				TabID:       tabID,
-				Err:         shellErr,
-				Action:      action,
-			}
+			return attachFailure(wsID, tabID, epoch, action, shellErr, false)
 		}
 		if err := ensureTmuxAvailableFn(); err != nil {
-			return SidebarTerminalReattachFailed{
-				WorkspaceID: wsID,
-				TabID:       tabID,
-				Err:         err,
-				Action:      action,
-			}
+			return attachFailure(wsID, tabID, epoch, action, err, false)
 		}
 		if action == "reattach" {
-			state, err := sessionStateForFn(sessionName, opts)
-			if err != nil {
-				return SidebarTerminalReattachFailed{
-					WorkspaceID: wsID,
-					TabID:       tabID,
-					Err:         err,
-					Action:      action,
-				}
-			}
-			// Dead-session policy is ptyio.SessionAttachable, shared with
-			// center: reattach only attaches to a live session.
-			if !ptyio.SessionAttachable(state) {
-				return SidebarTerminalReattachFailed{
-					WorkspaceID: wsID,
-					TabID:       tabID,
-					Err:         errors.New("tmux session ended"),
-					Stopped:     true,
-					Action:      action,
-				}
-			}
-			// Ownership policy is ptyio.SessionOwned, also shared: the live
-			// session must carry our tags. A foreign session squatting the
-			// name reports Stopped so the user restarts explicitly — restart
-			// kills the squatter by name before recreating.
-			owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
-			if ownErr != nil {
-				return SidebarTerminalReattachFailed{
-					WorkspaceID: wsID,
-					TabID:       tabID,
-					Err:         ownErr,
-					Action:      action,
-				}
-			}
-			if !owned {
-				return SidebarTerminalReattachFailed{
-					WorkspaceID: wsID,
-					TabID:       tabID,
-					Err:         errors.New("tmux session is not owned by this workspace"),
-					Stopped:     true,
-					Action:      action,
-				}
+			if failed := reattachTargetCheck(ws, sessionName, opts, wsID, tabID, epoch); failed != nil {
+				return *failed
 			}
 		}
 		tags := ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, action != "reattach")
@@ -288,12 +304,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		if envFn != nil {
 			env, err = envFn(ws)
 			if err != nil {
-				return SidebarTerminalReattachFailed{
-					WorkspaceID: wsID,
-					TabID:       tabID,
-					Err:         err,
-					Action:      action,
-				}
+				return attachFailure(wsID, tabID, epoch, action, err, false)
 			}
 		}
 		env = append(env, "COLORTERM=truecolor")
@@ -314,12 +325,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			if action == "reattach" {
 				ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
 			}
-			return SidebarTerminalReattachFailed{
-				WorkspaceID: wsID,
-				TabID:       tabID,
-				Err:         err,
-				Action:      action,
-			}
+			return attachFailure(wsID, tabID, epoch, action, err, false)
 		}
 		if action == "reattach" {
 			scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows = ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
@@ -334,6 +340,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		return SidebarTerminalReattachResult{
 			WorkspaceID: wsID,
 			TabID:       tabID,
+			Epoch:       epoch,
 			Terminal:    term,
 			SessionName: sessionName,
 			CaptureCols: captureCols,

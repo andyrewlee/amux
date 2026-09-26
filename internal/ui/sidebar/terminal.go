@@ -45,9 +45,14 @@ type TerminalState struct {
 	UserDetached bool
 	// Reattach is the reattach lock+stamp shared with center agent tabs;
 	// see ptyio.ReattachGuard for the sweep contract.
-	Reattach    ptyio.ReattachGuard
-	SessionName string
-	mu          sync.Mutex
+	Reattach ptyio.ReattachGuard
+	// reattachEpoch increments on every beginReattachLocked acquisition and
+	// every invalidateReattachLocked so a reattach result can be matched to
+	// the attempt that produced it; a stale attempt's late outcome is
+	// rejected instead of overwriting the newer terminal. Guarded by mu.
+	reattachEpoch uint64
+	SessionName   string
+	mu            sync.Mutex
 
 	// ptyio.State holds the shared PTY buffering/reader/restart/snapshot
 	// bookkeeping (locking owned by mu, as documented on the type).

@@ -127,7 +127,10 @@ dispatched — a new tab, a placeholder restore, a reattach, or a restart — ru
 the `command`/interrupt values captured when it was requested, so editing an
 assistant mid-launch never changes what that launch runs. Attaching to an
 existing tmux session never re-runs the pane's command either: reattach binds
-to the session as it is.
+to the session as it is. Sidebar terminal attaches are fenced per attempt as
+well: only the newest in-flight attach's outcome is applied, an explicit
+detach during an attach wins, and a stalled attempt is released for safe
+retry rather than letting its late result replace the newer terminal.
 
 ## Adding a custom assistant
 

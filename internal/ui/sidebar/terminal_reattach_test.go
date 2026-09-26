@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -15,15 +16,13 @@ func TestReattachPrependsScrollbackWhenCaptureExcludesScreen(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 
+	state := &TerminalState{
+		SessionName: "session-1",
+		Running:     false,
+		Detached:    true,
+	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{
-			ID: tabID,
-			State: &TerminalState{
-				SessionName: "session-1",
-				Running:     false,
-				Detached:    true,
-			},
-		},
+		{ID: tabID, State: state},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
@@ -31,6 +30,8 @@ func TestReattachPrependsScrollbackWhenCaptureExcludesScreen(t *testing.T) {
 	msg := SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
+		Terminal:    &pty.Terminal{},
 		SessionName: "session-1",
 		SessionRestoreCapture: ptyio.SessionRestoreCapture{
 			ScrollbackCapture: []byte("line-1\nline-2\n"),
@@ -58,18 +59,16 @@ func TestReattachHistoryOnlyResizesExistingVTermBeforeRecordingSize(t *testing.T
 	tabID := generateTerminalTabID()
 	oldWidth, oldHeight := 6, 2
 
+	state := &TerminalState{
+		SessionName: "session-1",
+		Running:     false,
+		Detached:    true,
+		VTerm:       vterm.New(oldWidth, oldHeight),
+		lastWidth:   oldWidth,
+		lastHeight:  oldHeight,
+	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{
-			ID: tabID,
-			State: &TerminalState{
-				SessionName: "session-1",
-				Running:     false,
-				Detached:    true,
-				VTerm:       vterm.New(oldWidth, oldHeight),
-				lastWidth:   oldWidth,
-				lastHeight:  oldHeight,
-			},
-		},
+		{ID: tabID, State: state},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
@@ -77,6 +76,8 @@ func TestReattachHistoryOnlyResizesExistingVTermBeforeRecordingSize(t *testing.T
 	msg := SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
+		Terminal:    &pty.Terminal{},
 		SessionName: "session-1",
 		SessionRestoreCapture: ptyio.SessionRestoreCapture{
 			ScrollbackCapture: []byte("line-1\nline-2\n"),
@@ -108,16 +109,14 @@ func TestReattachLoadsPaneCapture(t *testing.T) {
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 
+	state := &TerminalState{
+		SessionName: "session-1",
+		Running:     false,
+		Detached:    true,
+		VTerm:       term,
+	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{
-			ID: tabID,
-			State: &TerminalState{
-				SessionName: "session-1",
-				Running:     false,
-				Detached:    true,
-				VTerm:       term,
-			},
-		},
+		{ID: tabID, State: state},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
@@ -125,6 +124,8 @@ func TestReattachLoadsPaneCapture(t *testing.T) {
 	msg := SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
+		Terminal:    &pty.Terminal{},
 		SessionName: "session-1",
 		SessionRestoreCapture: ptyio.SessionRestoreCapture{
 			ScrollbackCapture: []byte("line-1\nline-2\n"),
@@ -163,16 +164,14 @@ func TestReattachReconcilesPostAttachHistoryAfterFullPaneRestore(t *testing.T) {
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 
+	state := &TerminalState{
+		SessionName: "session-1",
+		Running:     false,
+		Detached:    true,
+		VTerm:       vterm.New(20, 2),
+	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{
-			ID: tabID,
-			State: &TerminalState{
-				SessionName: "session-1",
-				Running:     false,
-				Detached:    true,
-				VTerm:       vterm.New(20, 2),
-			},
-		},
+		{ID: tabID, State: state},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
@@ -180,6 +179,8 @@ func TestReattachReconcilesPostAttachHistoryAfterFullPaneRestore(t *testing.T) {
 	msg := SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
+		Terminal:    &pty.Terminal{},
 		SessionName: "session-1",
 		SessionRestoreCapture: ptyio.SessionRestoreCapture{
 			ScrollbackCapture:           []byte("history\nscreen zero\nscreen one\nscreen two\n"),
@@ -297,16 +298,14 @@ func TestReattachBlankPaneCaptureClearsStaleFrame(t *testing.T) {
 	term := vterm.New(20, 2)
 	term.LoadPaneCapture([]byte("old history\nstale one\nstale two\n"))
 
+	state := &TerminalState{
+		SessionName: "session-1",
+		Running:     false,
+		Detached:    true,
+		VTerm:       term,
+	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{
-			ID: tabID,
-			State: &TerminalState{
-				SessionName: "session-1",
-				Running:     false,
-				Detached:    true,
-				VTerm:       term,
-			},
-		},
+		{ID: tabID, State: state},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
@@ -314,6 +313,8 @@ func TestReattachBlankPaneCaptureClearsStaleFrame(t *testing.T) {
 	msg := SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
+		Terminal:    &pty.Terminal{},
 		SessionName: "session-1",
 		SessionRestoreCapture: ptyio.SessionRestoreCapture{
 			CaptureFullPane:   true,
@@ -353,16 +354,14 @@ func TestReattachPreservesExistingAltScreenStateWithoutSnapshotModes(t *testing.
 	term.SavedCursorY = 1
 	term.SavedStyle = vterm.Style{Bold: true}
 
+	state := &TerminalState{
+		SessionName: "session-1",
+		Running:     false,
+		Detached:    true,
+		VTerm:       term,
+	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{
-			ID: tabID,
-			State: &TerminalState{
-				SessionName: "session-1",
-				Running:     false,
-				Detached:    true,
-				VTerm:       term,
-			},
-		},
+		{ID: tabID, State: state},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 	m.workspace = ws
@@ -370,6 +369,8 @@ func TestReattachPreservesExistingAltScreenStateWithoutSnapshotModes(t *testing.
 	msg := SidebarTerminalReattachResult{
 		WorkspaceID: wsID,
 		TabID:       tabID,
+		Epoch:       beginAttachAttempt(t, state),
+		Terminal:    &pty.Terminal{},
 		SessionName: "session-1",
 		SessionRestoreCapture: ptyio.SessionRestoreCapture{
 			ScrollbackCapture: []byte("one\ntwo\nthree"),

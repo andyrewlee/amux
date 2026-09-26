@@ -71,7 +71,7 @@ func TestAttachToSession_SharedClientFallsBackToHistoryOnly(t *testing.T) {
 	m.height = 5
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-shared"), "session-shared", false, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-shared"), "session-shared", false, "reattach", 1)()
 	reattach, ok := msg.(SidebarTerminalReattachResult)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)
@@ -146,7 +146,7 @@ func TestAttachToSession_SnapshotIneligibleFallsBackWithoutResize(t *testing.T) 
 	m.height = 5
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-ineligible"), "session-ineligible", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-ineligible"), "session-ineligible", true, "reattach", 1)()
 	reattach, ok := msg.(SidebarTerminalReattachResult)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)
@@ -197,7 +197,7 @@ func TestAttachToSession_AttachFailureRollsBackBootstrapResize(t *testing.T) {
 	m.height = 5
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-rollback"), "session-rollback", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-rollback"), "session-rollback", true, "reattach", 1)()
 	failed, ok := msg.(SidebarTerminalReattachFailed)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachFailed, got %T", msg)
