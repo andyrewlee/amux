@@ -124,9 +124,14 @@ The value fields (all optional) are:
 | `interrupt_count`    | number | Number of Ctrl-C signals amux sends to interrupt the agent.         |
 | `interrupt_delay_ms` | number | Delay, in milliseconds, between those Ctrl-C signals.               |
 
-Defaults applied when a value is kept: `interrupt_count` falls back to `1` if it
-is missing or not positive, and `interrupt_delay_ms` falls back to `0` if it is
-missing or negative.
+Defaults applied when a value is kept: on a **built-in** entry an omitted field
+inherits that built-in's default (Claude's `interrupt_delay_ms` is `200`); on a
+**custom** entry `interrupt_count` falls back to `1` if missing or not positive
+and `interrupt_delay_ms` to `0` if missing or negative. An explicit
+`"interrupt_delay_ms": 0` is meaningful — it disables the spacing between
+Ctrl-C signals — and it stays zero: saves write the effective value, so a
+zero-delay override survives a Settings edit and reload instead of silently
+inheriting the built-in delay again.
 
 Assistant names must start with a letter or number and may contain only letters,
 numbers, dots, dashes, or underscores (max 100 characters). Names are matched

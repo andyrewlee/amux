@@ -273,6 +273,10 @@ Assistant launch settings (`command` plus the interrupt fields from
 restart — a settings save changes only launches requested afterwards, never an
 in-flight spawn. Attaching to an existing session never re-runs the pane
 command: the session's process owns its argv from creation.
+`interrupt_delay_ms` only spaces the Ctrl-C signals inside one interrupt
+sequence; it is unrelated to the text-then-CR submit pacing above. An
+explicit `0` is a real setting and is serialized on save — it does not
+silently revert to the built-in default.
 
 Note the unit split: `@amux_created_at` is in seconds; the activity/lease
 timestamps are in milliseconds. amux parses these back with
