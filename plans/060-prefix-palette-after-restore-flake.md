@@ -8,18 +8,44 @@
 - Screen at timeout: normal dashboard, `shelveme ?` row — no palette, no visible dialog.
 - Failure runs take longer overall (30–58s vs ~20s pass), consistent with an extra wait/timeout upstream slowing the sequence.
 
-## Working hypotheses (unverified)
+## Root cause (confirmed via instrumented run)
 
-1. **Swallowed keypress**: `a.err` (recovered panic or error overlay) or a pending modal consumes the `\x00` leader byte in `handleKeyPress`/`handlePreSwitchInput` before `isPrefixKey` runs. `enterPrefix` itself is unconditional, so a key that reaches it always arms. The `?` row badge may hint the restore left a pending/in-flight state.
-2. **Queued overlay storm**: restore emits async results; a stuck `pendingOverlayOpens` entry could keep `overlayBusy` true and starve the palette arm path.
-3. **Input routing race**: restore re-binds focus to the center pane; if a terminal-focused pane eats NUL before the global prefix check, the palette never arms — but earlier arms in the same test suggest the trigger is the restore-completion interleaving, not plain focus.
+Two chained defects, captured in the app log of a failing run:
 
-## Suggested approach
+1. **Identity-drift guard hole** — `markWorkspaceMutationInFlight` marked each
+   form of `WorkspaceIdentitySet` independently and accepted the mark when ANY
+   form succeeded. `ComputedID` flips when the worktree dir appears
+   (`NormalizePath` resolves `/var`→`/private/var` only for existing paths),
+   so a `RestoreWorkspace` request dispatched after restore #1's
+   `git worktree add` created the dir — but before its completion released
+   the mark — carried a fresh ComputedID that marked cleanly alongside the
+   still-marked storeID. Two restores ran **concurrently**; #2's
+   `worktree add` lost the race ("branch already exists" / "path already
+   exists").
+2. **Error eats a keypress** — the #2 failure surfaced as `a.err`, and
+   `handleKeyPress` consumes the next key to dismiss the overlay. The test's
+   NUL leader byte was that keypress; the palette never armed.
 
-1. Reproduce with the app log captured: modify `waitForPrefixPalette` locally (don't commit) to dump `readLogTail(t, home)` on timeout, or make the failure path always include the log tail.
-2. Check for `panic in app.Update` / `a.err` entries in the log at the failure point — a recovered panic would explain exactly one swallowed keypress.
-3. If no panic: trace whether `prefixActive` was set and cleared immediately (`prefixTimeoutMsg` race) or the byte never arrived.
-4. Fix the root cause — not the test timeout. If it's a lost keypress on the modal/err path, the fix belongs in input routing, not `prefixArmTimeout`.
+The e2e restore loop presses Enter every poll interval until the worktree
+appears, so post-completion presses are guaranteed under load — this is also
+a real production defect (double-Enter on a shelved row could run
+concurrent `git worktree add`s and show a spurious internal error).
+
+## Fix
+
+- `workspaceLifecycleState.markMutatingWorkspaceIDs`: atomic set-wide
+  mark — reject when ANY identity form or the root bridge is already
+  mutating; all-or-nothing marking with rollback on a failed transition.
+- `Service.RestoreWorkspace`: after snapshot validation, consult the store —
+  if the record is already live, return `WorkspaceRestoreSkipped` (a benign
+  no-op success) instead of re-running worktree add / setup / toasts.
+- `handleWorkspaceRestoreSkipped`: release the guard and spinner, reload
+  projects, advance a bulk drain as a success.
+- e2e: the step-3 prefix arm keeps the log dump on failure permanently.
+
+Not in scope: shelve/delete have the same theoretical stale-duplicate
+exposure, but their key cadence is gated by confirm dialogs and no flake was
+observed there.
 
 ## Verification
 

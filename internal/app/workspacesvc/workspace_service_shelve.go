@@ -170,6 +170,24 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		if !ws.Archived || !ws.Shelved {
 			return fail("validate_shelved", errors.New("workspace is not shelved"))
 		}
+		// The request's snapshot flags passed validation, but they can be
+		// stale: a second Enter racing this restore's own completion still
+		// carries the pre-restore row. The store is authoritative — if the
+		// record is already live, this is a duplicate: skip rather than
+		// adopt/fail on the worktree the first restore just recreated.
+		if s.store != nil {
+			for _, id := range WorkspaceMetadataIDs(ws) {
+				fresh, err := s.store.Load(id)
+				if err != nil || fresh == nil {
+					continue
+				}
+				if !fresh.Shelved || !fresh.Archived {
+					logging.Info("workspace restore skipped: record already live workspace_id=%s workspace_root=%s", wsID, ws.Root)
+					return messages.WorkspaceRestoreSkipped{Project: project, Workspace: ws, WorkspaceIDs: stampedIDs}
+				}
+				break
+			}
+		}
 		projectPath := data.NormalizePath(project.Path)
 		if projectPath == "" || data.NormalizePath(ws.Repo) != projectPath {
 			return fail("validate_repo_match", fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path))
