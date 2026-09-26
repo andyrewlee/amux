@@ -33,7 +33,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [046](046-reuse-shelved-workspace-snapshot.md) | Reuse metadata snapshots for shelves | P2 | S | — | DONE |
 | [047](047-prefer-explicit-filepicker-paths.md) | Honor explicit file-picker paths | P2 | S | — | DONE |
 | [048](048-bound-git-cancellation.md) | Bound Git cancellation and draining | P2 | M | — | DONE |
-| [049](049-preserve-zero-interrupt-delay.md) | Preserve zero interrupt delays | P2 | S | 043 | TODO |
+| [049](049-preserve-zero-interrupt-delay.md) | Preserve zero interrupt delays | P2 | S | 043 | DONE |
 | [050](050-scope-hook-skip-flags.md) | Scope hook skip flags | P2 | S | — | TODO |
 | [051](051-share-durable-port-reservations.md) | Share durable port reservations | P2 | L | 039, 041 | TODO |
 | [052](052-publish-semantic-activity-transitions.md) | Publish time-driven activity transitions | P2 | M | — | TODO |

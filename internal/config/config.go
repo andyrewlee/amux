@@ -307,12 +307,17 @@ func saveAssistants(path string, assistants map[string]AssistantConfig) error {
 
 	out := make(map[string]any, len(assistants))
 	for name, cfg := range assistants {
-		entry := map[string]any{"command": cfg.Command}
+		// interrupt_delay_ms is always written: the loader distinguishes an
+		// absent field (inherit the built-in default) from an explicit zero
+		// (no spacing), so omitting a resolved zero would restore the
+		// built-in delay on the next load. Zero counts stay omitted because
+		// the loader coerces a present-but-zero count back to 1 anyway.
+		entry := map[string]any{
+			"command":            cfg.Command,
+			"interrupt_delay_ms": cfg.InterruptDelayMs,
+		}
 		if cfg.InterruptCount > 0 {
 			entry["interrupt_count"] = cfg.InterruptCount
-		}
-		if cfg.InterruptDelayMs > 0 {
-			entry["interrupt_delay_ms"] = cfg.InterruptDelayMs
 		}
 		out[name] = entry
 	}
