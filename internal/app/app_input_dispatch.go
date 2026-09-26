@@ -286,6 +286,8 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleWorkspaceRestoreFailed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case messages.WorkspaceRestoreSkipped:
+		*cmds = append(*cmds, a.handleWorkspaceRestoreSkipped(msg)...)
 	case messages.WorkspaceCommitted:
 		if cmd := a.handleWorkspaceCommitted(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)

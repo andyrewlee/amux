@@ -90,13 +90,16 @@ func TestRestoreWorkspace_DoesNotResurrectSessions(t *testing.T) {
 			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 	}
-	svc, project, ws, _ := newShelveHarness(t, mock)
+	svc, project, ws, store := newShelveHarness(t, mock)
 	svc.killWorkspaceSessions = func(wsID string) error {
 		t.Fatalf("restore must not touch session teardown, got kill for %s", wsID)
 		return nil
 	}
 	ws.Archived = true
 	ws.Shelved = true
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
 	if _, ok := svc.RestoreWorkspace(project, ws)().(messages.WorkspaceRestored); !ok {
 		t.Fatal("restore failed")
 	}
@@ -176,13 +179,40 @@ func TestRestoreWorkspace_RecreatesFromKeptBranch(t *testing.T) {
 	}
 }
 
+func TestRestoreWorkspace_SkipsWhenRecordAlreadyLive(t *testing.T) {
+	// A stale duplicate restore — e.g. a second Enter racing the first
+	// restore's completion — carries a snapshot that still says shelved while
+	// the store record was already unarchived. The op must skip benignly
+	// rather than re-running worktree add against the restored dir.
+	var createCalls int
+	svc, project, ws, _ := newShelveHarness(t, &testutil.FakeGitOps{
+		CreateWorkspaceFunc: func(_, _, _, _ string) error {
+			createCalls++
+			return nil
+		},
+	})
+	// Snapshot claims shelved; the store record stayed live.
+	ws.Archived = true
+	ws.Shelved = true
+	msg := svc.RestoreWorkspace(project, ws)()
+	if _, ok := msg.(messages.WorkspaceRestoreSkipped); !ok {
+		t.Fatalf("duplicate restore of a live record = %T, want WorkspaceRestoreSkipped", msg)
+	}
+	if createCalls != 0 {
+		t.Fatal("skipped restore must not run worktree add")
+	}
+}
+
 func TestRestoreWorkspace_RejectsUnshelvedAndExistingRoot(t *testing.T) {
-	svc, project, ws, _ := newShelveHarness(t, &testutil.FakeGitOps{})
+	svc, project, ws, store := newShelveHarness(t, &testutil.FakeGitOps{})
 	if _, ok := svc.RestoreWorkspace(project, ws)().(messages.WorkspaceRestoreFailed); !ok {
 		t.Fatal("restoring a live workspace must fail")
 	}
 	ws.Archived = true
 	ws.Shelved = true
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
 	if err := os.MkdirAll(ws.Root, 0o755); err != nil {
 		t.Fatalf("mkdir ws root: %v", err)
 	}

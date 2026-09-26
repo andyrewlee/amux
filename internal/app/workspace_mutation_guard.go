@@ -1,7 +1,6 @@
 package app
 
 import (
-	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 )
 
@@ -14,18 +13,12 @@ func (a *App) markWorkspaceMutationInFlight(ws *data.Workspace, mutating bool) b
 	if ws == nil {
 		return false
 	}
-	// Iterate the canonical identity set — ws.ID() drifts when the worktree
+	// Set-wide atomic mark/probe — the identity set drifts when the worktree
 	// dir appears/disappears (NormalizePath resolves symlinks only for
-	// existing paths), so the unmark can see a different ID than the mark
-	// did. The root bridge in markMutatingWorkspace covers the common case,
-	// but marking all forms keeps phases consistent under drift.
-	marked := false
-	for _, id := range workspacesvc.WorkspaceMetadataIDs(ws) {
-		if a.lifecycle.markMutatingWorkspace(string(id), ws.Root, mutating) {
-			marked = true
-		}
-	}
-	return marked
+	// existing paths). A per-form loop would accept a request carrying the
+	// post-drift form alongside a marked one, running two lifecycle ops
+	// concurrently; the atomic form rejects when ANY form is in flight.
+	return a.lifecycle.markMutatingWorkspaceIDs(ws, mutating)
 }
 
 func (a *App) isWorkspaceMutationInFlight(wsID string) bool {

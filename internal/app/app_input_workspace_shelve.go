@@ -197,6 +197,27 @@ func (a *App) handleWorkspaceRestored(msg messages.WorkspaceRestored) []tea.Cmd 
 	return cmds
 }
 
+// handleWorkspaceRestoreSkipped completes a restore that found the record
+// already live — a stale duplicate (a second Enter racing the first
+// restore's completion). The workspace is in the desired state, so the op
+// is a no-op success: release the guard and spinner, converge the row via a
+// reload, and advance any bulk drain.
+func (a *App) handleWorkspaceRestoreSkipped(msg messages.WorkspaceRestoreSkipped) []tea.Cmd {
+	if msg.Workspace == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	a.markWorkspaceMutationInFlight(msg.Workspace, false)
+	if cmd := a.dashboard.SetWorkspaceBusy(msg.Workspace.Root, dashboard.WorkspaceOpRestore, false); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, a.loadProjects())
+	if cmd := a.bulkFinished(msg.Workspace, true); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return cmds
+}
+
 // restoredToastCmd is the per-row "Restored X" toast — suppressed while a
 // bulk restore drains, since the batch emits one summary toast at the end
 // instead of N row toasts (same rule as shelve).

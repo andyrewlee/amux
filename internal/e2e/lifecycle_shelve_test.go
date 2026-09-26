@@ -122,8 +122,18 @@ func TestShelveRestorePurgeLifecycle(t *testing.T) {
 	// Step 3: re-shelve, then purge. Restore may have moved focus to the
 	// center pane; return to the dashboard, re-shelve, then D on the shelved
 	// row (the purge path — same delete dialog, tolerates the absent
-	// worktree).
-	sendPrefixCommand(t, session, "h")
+	// worktree). The prefix arm is sent by hand (not sendPrefixCommand) so a
+	// failure can include the app log — this is where lifecycle error
+	// overlays used to swallow the prefix byte.
+	if err := session.SendBytes([]byte{0}); err != nil {
+		t.Fatalf("send prefix: %v", err)
+	}
+	if err := session.WaitForContains("Esc cancel", prefixArmTimeout); err != nil {
+		t.Fatalf("waiting for prefix palette: %v\n\nLog:\n%s", err, readLogTail(t, home))
+	}
+	if err := session.SendString("h"); err != nil {
+		t.Fatalf("send command: %v", err)
+	}
 	if err := session.SendString("S"); err != nil {
 		t.Fatalf("re-open shelve dialog: %v", err)
 	}

@@ -3,7 +3,6 @@ package app
 import (
 	"sync"
 
-	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
@@ -232,57 +231,6 @@ func (w *workspaceLifecycleState) isMutatingLocked(wsID, root string) bool {
 		return markedID != "" && w.phases[markedID] == lifecycleMutating
 	}
 	return false
-}
-
-func (w *workspaceLifecycleState) isMutatingWorkspace(wsID, root string) bool {
-	if wsID == "" && root == "" {
-		return false
-	}
-	w.phaseMu.RLock()
-	defer w.phaseMu.RUnlock()
-	return w.isMutatingLocked(wsID, root)
-}
-
-// isMutatingWorkspaceIDs probes the workspace's FULL identity set plus the
-// root bridge — a mutation marked under any form (pre/post-drift ComputedID,
-// MetadataID, storeID) is found regardless of which form this workspace
-// value resolves to right now.
-func (w *workspaceLifecycleState) isMutatingWorkspaceIDs(ws *data.Workspace) bool {
-	if ws == nil {
-		return false
-	}
-	w.phaseMu.RLock()
-	defer w.phaseMu.RUnlock()
-	for _, id := range data.WorkspaceIdentityStrings(ws) {
-		if w.isMutatingLocked(id, "") {
-			return true
-		}
-	}
-	return w.isMutatingLocked("", ws.Root)
-}
-
-// runUnlessMutatingWorkspaceIDs is the set-wide counterpart of
-// runUnlessMutating: the check and fn run under the same phaseMu hold, so a
-// mutation marked mid-flight between the probe and the store write can't
-// slip past. Used by the service's rescan/import guards.
-func (w *workspaceLifecycleState) runUnlessMutatingWorkspaceIDs(ws *data.Workspace, fn func()) bool {
-	if ws == nil {
-		return false
-	}
-	w.phaseMu.RLock()
-	defer w.phaseMu.RUnlock()
-	for _, id := range data.WorkspaceIdentityStrings(ws) {
-		if w.isMutatingLocked(id, "") {
-			return false
-		}
-	}
-	if w.isMutatingLocked("", ws.Root) {
-		return false
-	}
-	if fn != nil {
-		fn()
-	}
-	return true
 }
 
 // snapshotPhase returns a copy of the IDs currently in the given phase. The

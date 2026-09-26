@@ -97,3 +97,16 @@ type WorkspaceRestoreFailed struct {
 	// WorkspaceIDs: see WorkspaceDeleted.WorkspaceIDs.
 	WorkspaceIDs []string
 }
+
+// WorkspaceRestoreSkipped signals a restore request found the record already
+// live — a stale duplicate, e.g. a second Enter racing the first restore's
+// completion while its shelved-row snapshot was still on screen. It is a
+// benign no-op: the workspace is already in the desired state, so the handler
+// releases the lifecycle guard without re-running setup or surfacing an
+// error.
+type WorkspaceRestoreSkipped struct {
+	Project   *data.Project
+	Workspace *data.Workspace
+	// WorkspaceIDs: see WorkspaceDeleted.WorkspaceIDs.
+	WorkspaceIDs []string
+}
