@@ -84,6 +84,14 @@ scripts run under amux's teardown ordering: delete/shelve cancels and drains
 in-flight setup and on-done hooks, stops the run script, then runs `archive`
 before the worktree is removed.)
 
+Loading is tolerant, but **saving is strict**: when amux persists a section
+(UI settings or assistants) it first reads the existing document and refuses
+to write if that document is unreadable, malformed, or a non-object root such
+as a top-level `null`. A save that proceeded on a partial view could silently
+drop sections it does not own, so the error is surfaced and the file is left
+untouched instead. A missing or empty file is still treated as an empty
+config and written normally — missing is not the same as rejected.
+
 ## The `assistants` schema
 
 The config schema has an `assistants` object. Each **key** is the assistant
