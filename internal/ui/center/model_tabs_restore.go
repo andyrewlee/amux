@@ -2,6 +2,7 @@ package center
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -124,6 +125,19 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 	attachWidth := tm.Width
 	attachHeight := tm.Height
 	opts := m.tmuxOpts
+	assistantCfg, cfgOK := assistantConfigSnapshot(m.config, assistant)
+	if !cfgOK {
+		err := fmt.Errorf("unknown agent type: %s", assistant)
+		return func() tea.Msg {
+			return ptyTabReattachFailed{
+				WorkspaceID: string(ws.ID()),
+				TabID:       tabID,
+				Epoch:       epoch,
+				Err:         err,
+				Action:      "reattach",
+			}
+		}
+	}
 	return func() tea.Msg {
 		state, err := sessionStateForFn(sessionName, opts)
 		if err != nil {
@@ -171,7 +185,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, false)
 		bootstrap := ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
-		agent, err := createAgentWithTagsFn(
+		agent, err := createAgentWithConfigFn(
 			m.agentManager,
 			ws,
 			appPty.AgentType(assistant),
@@ -179,6 +193,7 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 			ptyRows,
 			ptyCols,
 			tags,
+			assistantCfg,
 		)
 		if err != nil {
 			ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)

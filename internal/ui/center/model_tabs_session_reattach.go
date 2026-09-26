@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
@@ -17,19 +18,20 @@ import (
 // et al.); tests that override any of them must not use t.Parallel within
 // this package.
 var (
-	sessionStateForFn     = tmux.SessionStateFor
-	sessionOwnedFn        = ptyio.SessionOwned
-	killSessionFn         = tmux.KillSession
-	capturePaneFn         = tmux.CapturePane
-	createAgentWithTagsFn = func(
+	sessionStateForFn       = tmux.SessionStateFor
+	sessionOwnedFn          = ptyio.SessionOwned
+	killSessionFn           = tmux.KillSession
+	capturePaneFn           = tmux.CapturePane
+	createAgentWithConfigFn = func(
 		manager *appPty.AgentManager,
 		ws *data.Workspace,
 		agentType appPty.AgentType,
 		sessionName string,
 		rows, cols uint16,
 		tags tmux.SessionTags,
+		cfg config.AssistantConfig,
 	) (*appPty.Agent, error) {
-		return manager.CreateAgentWithTags(ws, agentType, sessionName, rows, cols, tags)
+		return manager.CreateAgentWithConfig(ws, agentType, sessionName, rows, cols, tags, cfg)
 	}
 )
 
@@ -88,7 +90,8 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			}
 		}
 	}
-	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+	assistantCfg, ok := m.config.Assistants[tab.Assistant]
+	if !ok {
 		tab.mu.Lock()
 		tab.endReattachLocked()
 		tab.mu.Unlock()
@@ -162,7 +165,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, false)
 		bootstrap := ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
-		agent, err := createAgentWithTagsFn(
+		agent, err := createAgentWithConfigFn(
 			m.agentManager,
 			ws,
 			appPty.AgentType(assistant),
@@ -170,6 +173,7 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 			ptyRows,
 			ptyCols,
 			tags,
+			assistantCfg,
 		)
 		if err != nil {
 			ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
@@ -218,7 +222,8 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	if m.config == nil || m.config.Assistants == nil {
 		return nil
 	}
-	if _, ok := m.config.Assistants[tab.Assistant]; !ok {
+	assistantCfg, ok := m.config.Assistants[tab.Assistant]
+	if !ok {
 		return nil
 	}
 	tab.mu.Lock()
@@ -269,14 +274,14 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		// KillSession is synchronous: it calls cmd.Run() which blocks until the
 		// tmux server processes the kill and returns. By the time it completes,
 		// the session is fully removed from tmux's perspective.
-		// The subsequent CreateAgentWithTags uses `new-session -Ads` which is
+		// The subsequent CreateAgentWithConfig uses `new-session -Ads` which is
 		// atomic (attach-if-exists, create-if-not), providing an additional
 		// safety net in the unlikely event of cleanup lag.
 		_ = killSessionFn(sessionName, tmuxOpts)
 
 		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, true)
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
-		agent, err := createAgentWithTagsFn(
+		agent, err := createAgentWithConfigFn(
 			m.agentManager,
 			ws,
 			appPty.AgentType(assistant),
@@ -284,6 +289,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 			ptyRows,
 			ptyCols,
 			tags,
+			assistantCfg,
 		)
 		if err != nil {
 			return ptyTabReattachFailed{

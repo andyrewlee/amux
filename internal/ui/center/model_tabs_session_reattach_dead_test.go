@@ -3,6 +3,7 @@ package center
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -21,13 +22,14 @@ func TestReattachActiveTab_DeadSessionRefused(t *testing.T) {
 		return nil
 	}
 	createCalls := 0
-	createAgentWithTagsFn = func(
+	createAgentWithConfigFn = func(
 		manager *appPty.AgentManager,
 		ws *data.Workspace,
 		agentType appPty.AgentType,
 		sessionName string,
 		rows, cols uint16,
 		tags tmux.SessionTags,
+		cfg config.AssistantConfig,
 	) (*appPty.Agent, error) {
 		createCalls++
 		return &appPty.Agent{Session: sessionName}, nil
@@ -81,13 +83,14 @@ func TestReattachActiveTab_DeadSessionRefused(t *testing.T) {
 func TestReattachActiveTab_ForeignSessionRefused(t *testing.T) {
 	restoreReattachSeams(t)
 	createCalls := 0
-	createAgentWithTagsFn = func(
+	createAgentWithConfigFn = func(
 		manager *appPty.AgentManager,
 		ws *data.Workspace,
 		agentType appPty.AgentType,
 		sessionName string,
 		rows, cols uint16,
 		tags tmux.SessionTags,
+		cfg config.AssistantConfig,
 	) (*appPty.Agent, error) {
 		createCalls++
 		return &appPty.Agent{Session: sessionName}, nil

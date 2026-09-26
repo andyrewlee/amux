@@ -26,7 +26,7 @@ func restoreReattachSeams(t *testing.T) {
 	oldCapturePaneFullData := ptyio.CapturePaneFullDataFn
 	oldCapturePaneHistoryData := ptyio.CapturePaneHistoryDataFn
 	oldCapturePane := capturePaneFn
-	oldCreateAgentWithTags := createAgentWithTagsFn
+	oldCreateAgentWithConfig := createAgentWithConfigFn
 	oldCreateRunAttach := createRunAttachFn
 	// Ownership defaults to owned: the reattach tests exercise
 	// dead/attachable session states, not the shared-server squatting check —
@@ -41,7 +41,7 @@ func restoreReattachSeams(t *testing.T) {
 		ptyio.CapturePaneFullDataFn = oldCapturePaneFullData
 		ptyio.CapturePaneHistoryDataFn = oldCapturePaneHistoryData
 		capturePaneFn = oldCapturePane
-		createAgentWithTagsFn = oldCreateAgentWithTags
+		createAgentWithConfigFn = oldCreateAgentWithConfig
 		createRunAttachFn = oldCreateRunAttach
 	})
 }
