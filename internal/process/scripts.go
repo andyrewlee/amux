@@ -143,6 +143,10 @@ type ScriptRunner struct {
 	// See script_output_store.go.
 	transcriptRoot string
 	transcriptMu   sync.Mutex
+	// transcriptLoadHook is a test seam that runs between the disk read and
+	// the memory fold in LastScriptOutputs — the window where a concurrent
+	// record used to be clobbered by stale hydration.
+	transcriptLoadHook func()
 }
 
 type runningScript struct {
