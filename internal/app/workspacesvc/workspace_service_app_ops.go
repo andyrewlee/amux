@@ -64,11 +64,25 @@ func (s *Service) WorkspaceScriptsTrusted(repoPath string) (bool, error) {
 }
 
 // WorkspaceScriptPort returns the run-script port allocated to the workspace.
+// Memory-only — see ScriptRunner.PortAllocated; the authoritative persisted
+// interval for status display is WorkspacePortInterval.
 func (s *Service) WorkspaceScriptPort(ws *data.Workspace) (int, bool) {
 	if s == nil || s.scripts == nil || ws == nil {
 		return 0, false
 	}
 	return s.scripts.PortAllocated(ws)
+}
+
+// WorkspacePortInterval is the authoritative read of the workspace's reserved
+// port range: base, inclusive end, whether a reservation exists, and any
+// registry read failure. It never allocates — viewing status cannot create a
+// reservation. In durable mode this hits the shared registry, so it belongs
+// on the async fetch path, not the Update loop.
+func (s *Service) WorkspacePortInterval(ws *data.Workspace) (base, end int, found bool, err error) {
+	if s == nil || s.scripts == nil || ws == nil {
+		return 0, 0, false, nil
+	}
+	return s.scripts.PortInterval(ws)
 }
 
 // LastScriptOutputs returns the runner's recorded lifecycle-script

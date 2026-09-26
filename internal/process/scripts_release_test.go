@@ -3,6 +3,7 @@ package process
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -121,5 +122,68 @@ func TestScriptRunnerPendingReleaseDoesNotApplyToReplacementRun(t *testing.T) {
 
 	if _, ok := runner.portAllocator.GetPort(ws.Root); !ok {
 		t.Fatal("stale pending release from deleted workspace must not release replacement workspace port")
+	}
+}
+
+// TestScriptRunnerDurableReleaseRetainsInterval proves the durable contract at
+// the runner surface: ReleaseWorkspace — including a release parked behind a
+// live consumer — never frees the reservation for another workspace, and a
+// freshly constructed runner on the same state home still sees it.
+func TestScriptRunnerDurableReleaseRetainsInterval(t *testing.T) {
+	home, meta := t.TempDir(), t.TempDir()
+
+	newRunner := func() *ScriptRunner {
+		r := NewScriptRunner(6200, 10)
+		store := data.NewPortReservationStore(home)
+		if err := store.Initialize(nil); err != nil {
+			t.Fatalf("Initialize: %v", err)
+		}
+		r.SetPortReservationStore(store)
+		return r
+	}
+	runnerA := newRunner()
+
+	wsA := savedWorkspace(t, meta, "a")
+	wsB := savedWorkspace(t, meta, "b")
+
+	envA, err := runnerA.BuildSessionEnv(wsA)
+	if err != nil {
+		t.Fatalf("BuildSessionEnv(a): %v", err)
+	}
+	portA := envSliceToMap(envA)["AMUX_PORT"]
+
+	// Release parked behind a live run — then the run finishes, firing the
+	// real drain path (finishRunningEntry → ReleasePort). Durable mode must
+	// retain regardless.
+	rs := &runningScript{}
+	key := scriptWorkspaceKey(wsA)
+	runnerA.setRunningEntry(key, rs)
+	runnerA.ReleaseWorkspace(wsA)       // parks the release against rs
+	runnerA.finishRunningEntry(key, rs) // drains the park → durable no-op
+
+	// A second runner on the same home still sees A's reservation and gives B
+	// a disjoint range — the parked release freed nothing.
+	runnerB := newRunner()
+	base, end, found, err := runnerB.PortInterval(wsA)
+	if err != nil || !found {
+		t.Fatalf("runner B PortInterval(a) = found %v err %v, want true/nil", found, err)
+	}
+	if strconv.Itoa(base) != portA || end != base+9 {
+		t.Fatalf("registry interval = %d-%d, want surviving base %s with width 10", base, end, portA)
+	}
+	envB, err := runnerB.BuildSessionEnv(wsB)
+	if err != nil {
+		t.Fatalf("BuildSessionEnv(b): %v", err)
+	}
+	if envSliceToMap(envB)["AMUX_PORT"] == portA {
+		t.Fatalf("b was handed a's retained range %s — release leaked across instances", portA)
+	}
+	// A's own env stays its original interval.
+	envA2, err := runnerB.BuildSessionEnv(wsA)
+	if err != nil {
+		t.Fatalf("BuildSessionEnv(a via B): %v", err)
+	}
+	if envSliceToMap(envA2)["AMUX_PORT"] != portA {
+		t.Fatalf("a's interval moved after restart-style reserve")
 	}
 }

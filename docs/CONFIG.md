@@ -58,8 +58,19 @@ Interactive sessions (agents, sidebar terminals) get the injected vars plus
 the project and workspace layers — never repo `env`, even when trusted.
 Workspace env edits persist as a field-scoped transaction on
 `workspace.json`: only the `env` map is rewritten, so an `e` edit cannot
-revert a rename, script change, or tab save committed in the meantime. The
-rest:
+revert a rename, script change, or tab save committed in the meantime.
+
+`AMUX_PORT`/`AMUX_PORT_RANGE` are durable reservations, not per-process draws:
+the first spawn commits the workspace's interval to
+`~/.amux/port-reservations.json` (keyed by its persisted metadata ID, never a
+path hash) and every process sharing that state home reuses it. The compiled
+base/width defaults shape only new reservations — intervals already committed
+keep their original bounds, reservations are never reclaimed, and a corrupt or
+newer-schema registry fails closed (spawns and the `i` status view surface the
+error rather than guessing). Deleting the registry while sessions exist orphans
+their ranges — treat it as live state.
+
+The rest:
 
 | Variable                  | Meaning                                                                                    |
 |---------------------------|--------------------------------------------------------------------------------------------|

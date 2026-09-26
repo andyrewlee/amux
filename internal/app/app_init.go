@@ -187,6 +187,15 @@ func New(version, commit, date string) (*App, error) {
 	app.ctx = ctx
 	app.tmuxOptions = tmuxOpts
 	app.instanceID = newInstanceID(cfg.Paths.Home)
+	// Durable port reservations: one registry per state home, shared by every
+	// amux instance pointed at it. First adoption is guarded — surviving amux
+	// sessions on the configured tmux server refuse adoption rather than mint
+	// a registry that could hand their ranges away (see port_reservations.go).
+	// A refusal never blocks startup; the instance degrades to the pre-durable
+	// per-process allocator. This must finish before the runner's environment
+	// providers are exposed below.
+	app.initDurablePortReservations(data.NewPortReservationStore(cfg.Paths.Home),
+		portReservationGuard(tmuxOpts, app.instanceID), scripts)
 	app.supervisor = supervisor.New(ctx)
 	app.installSupervisorErrorHandler()
 	// Route PTY messages through the app-level pump.

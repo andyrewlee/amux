@@ -198,6 +198,16 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 	return r
 }
 
+// SetPortReservationStore installs the shared durable port-reservation
+// registry on the runner's allocator. The app wires it once at startup,
+// before any environment provider or spawn is exposed — after it, every
+// setup/run/archive/on-done spawn, every agent/viewer, and every sidebar
+// session draws its AMUX_PORT range from the same cross-instance registry,
+// keyed by the workspace's persisted metadata ID.
+func (r *ScriptRunner) SetPortReservationStore(store *data.PortReservationStore) {
+	r.portAllocator.SetDurableStore(store)
+}
+
 // RunSetup runs the workspace's setup commands to completion: the repo's
 // setup-workspace list when present (trust-gated like every repo script), else
 // the workspace's own Scripts.Setup field — the same repo-first resolution the

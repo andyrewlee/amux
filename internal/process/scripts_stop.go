@@ -113,12 +113,27 @@ func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
 
 // PortAllocated reports the port base allocated for the workspace, and whether
 // one is currently held. It mirrors PortAllocator.GetPort so callers (and the
-// delete path's tests) can observe release without reaching into the allocator.
+// delete path's tests) can observe release without reaching into the
+// allocator. Memory-only by contract: it never performs registry I/O, so a
+// durable reservation committed by another instance is invisible here — the
+// authoritative interval read is PortInterval.
 func (r *ScriptRunner) PortAllocated(ws *data.Workspace) (int, bool) {
 	if validateScriptWorkspace(ws) != nil || r.portAllocator == nil {
 		return 0, false
 	}
 	return r.portAllocator.GetPort(ws.Root)
+}
+
+// PortInterval is the authoritative non-allocating read of the workspace's
+// reserved port range: the durable registry when one is configured (returning
+// the actual stored interval, whose width may differ from the current
+// configured size), the in-memory map otherwise. It performs disk I/O in
+// durable mode — callers on the Update loop route it through a tea.Cmd.
+func (r *ScriptRunner) PortInterval(ws *data.Workspace) (base, end int, found bool, err error) {
+	if validateScriptWorkspace(ws) != nil || r.portAllocator == nil {
+		return 0, 0, false, nil
+	}
+	return r.portAllocator.LookupWorkspaceInterval(ws)
 }
 
 // ReleaseWorkspace releases the workspace's port allocation once no script is
@@ -127,6 +142,12 @@ func (r *ScriptRunner) PortAllocated(ws *data.Workspace) (int, bool) {
 // is still running so a release can never strand a live script's port; the
 // caller (workspace delete) tears scripts down first. The allocator is keyed by
 // the raw ws.Root (see EnvBuilder.PortRange), so release uses ws.Root directly.
+//
+// Durable mode (SetPortReservationStore installed) deliberately retains the
+// reservation: the registry record outlives every consumer — including this
+// release — so a workspace's range survives delete/quit/crash rather than
+// being handed to a different ID. The parking machinery below still runs, but
+// the allocator's durable release is a no-op by design.
 func (r *ScriptRunner) ReleaseWorkspace(ws *data.Workspace) {
 	if validateScriptWorkspace(ws) != nil {
 		return

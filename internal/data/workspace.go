@@ -145,6 +145,16 @@ func (w Workspace) MetadataID() WorkspaceID {
 	return w.ID()
 }
 
+// StoredID returns the persisted metadata store key, if this workspace was
+// loaded from (or successfully saved to) the workspace store. Unlike ID and
+// MetadataID it never falls back to the path-derived identity: a computed ID
+// drifts with NormalizePath resolution and an unsaved workspace has no record
+// to anchor durable ownership to. Durable cross-process state (e.g. port
+// reservations) keys on StoredID only — never on a recomputed path hash.
+func (w Workspace) StoredID() (WorkspaceID, bool) {
+	return w.storeID, w.storeID != ""
+}
+
 // WorkspaceIdentitySet returns the deduped identity forms under which a
 // workspace's durable artifacts (tmux session names, tags, marks) may have
 // been stamped: the persisted store key, the live ID, and the computed

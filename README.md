@@ -248,7 +248,9 @@ posts a warning toast (it used to be invisible); `R` stays the live surface
 for `run`.
 
 For the full operational picture press `i` in the Changes sidebar: a
-read-only snapshot of the workspace's allocated port range, run-session
+read-only snapshot of the workspace's reserved port range (read live from the
+durable registry — a workspace with no reservation yet, or a corrupt registry,
+says so rather than guessing), run-session
 state, script config (repo vs. yours) and its trust verdict, custom env key
 names (never values), lifecycle state, and open tabs.
 
@@ -273,6 +275,18 @@ prompt described below.
 | `ROOT_WORKSPACE_PATH` | The source repository root (also shown in the example above) |
 | `AMUX_PORT` | An allocated per-workspace port — bind dev servers here to avoid collisions across parallel workspaces |
 | `AMUX_PORT_RANGE` | The `start-end` port range allocated to this workspace |
+
+Port assignments are durable: the first spawn that needs a workspace's range
+commits it to `~/.amux/port-reservations.json` under the workspace's persisted
+ID, and every later spawn — run/setup/archive/on-done scripts, agent sessions,
+sidebar terminals, after a quit, crash, or a second amux instance on the same
+state home — receives exactly that interval rather than a fresh draw. The
+configured base/width shapes only new reservations; an interval minted under
+earlier settings keeps its original bounds. Reservations are never reclaimed
+in this release — a workspace keeps its range even after its sessions end — and
+when no disjoint interval remains, amux reports a typed exhaustion error
+instead of silently reusing one. Treat the registry as live state: do not
+delete `port-reservations.json` while any amux session exists.
 
 On top of those injected values, custom environment layers in for all script
 spawns (`setup-workspace`, `run`, `on-done`, `archive`), lowest to highest

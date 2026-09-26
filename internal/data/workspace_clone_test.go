@@ -58,4 +58,7 @@ func TestWorkspaceClone_ValueFieldsVerbatim(t *testing.T) {
 	if clone.ID() != src.ID() || clone.Name != src.Name || clone.Shelved != src.Shelved {
 		t.Fatalf("clone lost value fields: %+v vs %+v", clone, src)
 	}
+	if id, ok := clone.StoredID(); !ok || id != src.storeID {
+		t.Fatalf("clone StoredID = (%q, %v), want (%q, true)", id, ok, src.storeID)
+	}
 }

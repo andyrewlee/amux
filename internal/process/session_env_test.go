@@ -3,6 +3,8 @@ package process
 import (
 	"errors"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 // TestBuildSessionEnv_IncludesInjectedAndUserLayers pins the interactive
@@ -128,6 +130,27 @@ func TestBuildSessionEnv_PortExhaustionReturnsError(t *testing.T) {
 	}
 	if _, err := runner.BuildSessionEnv(ws); !errors.Is(err, ErrPortRangeExhausted) {
 		t.Fatalf("exhausted BuildSessionEnv() error = %v, want ErrPortRangeExhausted", err)
+	}
+}
+
+// TestBuildSessionEnv_DurableRefusesUnsavedWorkspace proves the durable
+// session env surfaces the metadata-persistence error — an interactive spawn
+// never silently keys a durable reservation on a drifting root path.
+func TestBuildSessionEnv_DurableRefusesUnsavedWorkspace(t *testing.T) {
+	home := t.TempDir()
+	runner := NewScriptRunner(6200, 10)
+	store := data.NewPortReservationStore(home)
+	if err := store.Initialize(nil); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	runner.SetPortReservationStore(store)
+
+	ws := newHostedWorkspace(t, "nonconcurrent") // never saved — no storeID
+	if _, err := runner.BuildSessionEnv(ws); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
+		t.Fatalf("BuildSessionEnv(unsaved) error = %v, want ErrWorkspaceMetadataNotPersisted", err)
+	}
+	if _, err := runner.buildScriptEnv(ws); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
+		t.Fatalf("buildScriptEnv(unsaved) error = %v, want ErrWorkspaceMetadataNotPersisted", err)
 	}
 }
 

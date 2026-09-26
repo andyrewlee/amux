@@ -325,6 +325,47 @@ Residual race: between the ownership check and the tmux client command's own
 closing that window needs the ownership test inside the generated tmux shell
 script and is documented rather than implemented.
 
+## Port reservations (durable registry)
+
+Every workspace gets `AMUX_PORT`/`AMUX_PORT_RANGE` from a durable registry at
+`~/.amux/port-reservations.json`, shared by every amux process pointed at that
+state home. The contract an orchestrator can rely on:
+
+- **Owner**: the registry owns ranges; app processes and tmux sessions are only
+  consumers. A reservation is committed under the workspace's persisted
+  metadata ID (`@amux_workspace` on its sessions) *before* the session's env is
+  built — never under a path-derived ID, which drifts when roots move.
+- **Stability**: re-spawns, restarts, and concurrent instances all read the
+  committed interval verbatim. Intervals minted under earlier port settings
+  keep their original bounds — current settings shape only new reservations.
+- **No reclamation**: reservations survive release, workspace teardown, quits,
+  and crashes. A stale release can never hand a live session's range to another
+  workspace. There is no TTL and no liveness-based reuse in this release.
+- **Exhaustion/corruption fail closed**: a saturated space reports a typed
+  exhaustion error; malformed, overlapping, or newer-schema bytes are left
+  untouched and surfaced as errors — never silently accepted or rewritten.
+- **Do not delete the registry while any amux session exists**: removing it
+  orphans the ranges live sessions still hold, and the next launch would mint
+  overlapping reservations. There is intentionally no reset command.
+
+**First-upgrade adoption.** A tmux session left behind by a pre-registry amux
+holds a range the new registry cannot see, so while the registry file is
+missing each launch performs a guarded adoption: startup inspects the
+configured tmux server and defers adoption if any session it cannot prove
+foreign might hold an untracked range (any `amux-`-named or `@amux`-tagged
+session whose `@amux_instance` is absent or shares this state home's
+namespace). Deferral is never fatal — amux opens normally, warns once, and
+allocates per-process exactly as pre-registry versions did; the registry is
+created on a later launch while no ambiguous amux sessions remain. To opt in
+immediately, quit amux and stop all amux tmux sessions once, then relaunch.
+The check never runs after the registry exists and never kills sessions,
+and never deletes metadata. Two limitations are on the operator: the guard can
+only inspect the **configured** tmux server — sessions on custom `tmux -L`
+servers or `AMUX_TMUX_SERVER` sockets are invisible to it — and mixed-version
+running is unsupported until adoption completes: an old binary still
+allocating in memory would keep handing out ranges the new registry cannot
+see. tmux-discovery failure during adoption also defers rather than guessing.
+
 ## Option B: a minimal CLI (recorded, not recommended)
 
 If the tmux contract above proves insufficient for a concrete orchestration need,

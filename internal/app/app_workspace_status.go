@@ -52,7 +52,10 @@ type workspaceStatus struct {
 //
 // The run-session status read is a tmux subprocess — it runs inside the
 // returned cmd, off the Update loop (same defect class as the R-open path;
-// a wedged tmux would otherwise freeze the whole TUI for a timeout).
+// a wedged tmux would otherwise freeze the whole TUI for a timeout). The port
+// interval read is a durable-registry read in production — the same off-loop
+// placement applies, and it must NOT allocate: viewing status observes, it
+// does not reserve.
 func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cmd {
 	ws := msg.Workspace
 	if ws == nil || a.workspaceService == nil {
@@ -60,32 +63,49 @@ func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cm
 	}
 	a.overlays.runOutputToken++
 	token, svc := a.overlays.runOutputToken, a.workspaceService
+	snap := ws.Clone() // async closure convention — the live model may mutate
 	return func() tea.Msg {
-		alive, lastExit := svc.RunScriptStatus(ws)
-		return workspaceStatusReadyMsg{token: token, ws: ws, runAlive: alive, runLastExit: lastExit}
+		alive, lastExit := svc.RunScriptStatus(&snap)
+		base, end, found, portErr := svc.WorkspacePortInterval(&snap)
+		return workspaceStatusReadyMsg{
+			token: token, ws: ws, runAlive: alive, runLastExit: lastExit,
+			portBase: base, portEnd: end, portFound: found, portErr: portErr,
+		}
 	}
 }
 
 // workspaceStatusReadyMsg delivers the off-loop portion of the status
-// snapshot — the run-session read. Everything else buildWorkspaceStatus
-// gathers is cheap in-memory/file state applied back on the loop.
+// snapshot — the run-session read and the durable port-interval read.
+// Everything else buildWorkspaceStatus gathers is cheap in-memory/file state
+// applied back on the loop.
 type workspaceStatusReadyMsg struct {
 	token       int
 	ws          *data.Workspace
 	runAlive    bool
 	runLastExit int
+	portBase    int
+	portEnd     int
+	portFound   bool
+	portErr     error
 }
 
 // handleWorkspaceStatusReady applies the fetched runner status under the
 // shared dialog token — a stale read (a later dialog open bumped it) is
-// dropped, not applied.
+// dropped, not applied. A failed port read surfaces through the toast path
+// rather than opening the dialog with a guessed or blank range.
 func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 	if msg.token != a.overlays.runOutputToken || msg.ws == nil {
 		return nil
 	}
+	if msg.portErr != nil {
+		return a.toast.ShowError("Cannot read port reservation: " + msg.portErr.Error())
+	}
 	st := a.buildWorkspaceStatus(msg.ws)
 	st.runAlive = msg.runAlive
 	st.runLastExit = msg.runLastExit
+	if msg.portFound {
+		st.portBase, st.portEnd, st.portAllocated = msg.portBase, msg.portEnd, true
+	}
 	content := renderWorkspaceStatus(st)
 	a.requestRunOutputOpen(func() {
 		a.overlays.runOutputWorkspace = msg.ws
@@ -133,18 +153,16 @@ func (a *App) buildWorkspaceStatus(ws *data.Workspace) workspaceStatus {
 	return st
 }
 
-// fillRunnerStatus reads the port reservation, run-session state, repo
-// script config + trust verdict, and recorded lifecycle outputs from the
-// runner — extracted to keep buildWorkspaceStatus under the complexity cap.
+// fillRunnerStatus reads the repo script config + trust verdict and recorded
+// lifecycle outputs from the runner — extracted to keep buildWorkspaceStatus
+// under the complexity cap. The port range is NOT read here: the durable
+// registry read runs off-loop in the open cmd and arrives on
+// workspaceStatusReadyMsg, so a stored interval's actual (possibly
+// config-divergent) end is what renders.
 func (a *App) fillRunnerStatus(st *workspaceStatus, ws *data.Workspace) {
-	if base, ok := a.workspaceService.WorkspaceScriptPort(ws); ok {
-		st.portBase, st.portAllocated = base, true
-		if a.config != nil {
-			st.portEnd = base + a.config.PortRangeSize - 1
-		}
-	}
-	// runAlive/runLastExit are filled by handleWorkspaceStatusReady — the
-	// tmux status read runs off-loop in the open cmd.
+	// runAlive/runLastExit and the port interval are filled by
+	// handleWorkspaceStatusReady — the tmux/registry reads run off-loop in
+	// the open cmd.
 	if cfg, err := a.workspaceService.ScriptConfig(ws.Repo); err == nil && cfg != nil {
 		st.repoConfig = len(cfg.SetupWorkspace) > 0 || cfg.RunScript != "" ||
 			cfg.ArchiveScript != "" || cfg.OnDoneScript != "" || len(cfg.Env) > 0
