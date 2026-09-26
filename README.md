@@ -153,6 +153,11 @@ Sidebar (Changes tab, focused):
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).
 
+Picker keys: arrows and `tab`/`shift+tab` navigate every list picker. The
+agent picker additionally fuzzy-filters as you type (printable keys are
+filter text there); unfiltered pickers like the run-session list take `j`/`k`
+as navigation.
+
 Set `"ui": { "show_keymap_hints": true }` in `~/.amux/config.json` to show an
 in-app hint bar.
 
