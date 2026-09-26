@@ -212,7 +212,11 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
 their combined output on every run — press `O` in the Changes sidebar to view
 the last run of each for the shown workspace. Transcripts persist under the
 workspace's metadata dir (`script-transcripts.json`), so `O` still answers
-"why did setup fail" after a restart. A failing `on-done` hook also
+"why did setup fail" after a restart; writes merge latest-per-type across
+amux processes, so a restarted amux recording one hook can't erase the
+others. Persistence is best effort — a corrupt or newer-schema envelope is
+left untouched rather than overwritten, and transcripts are never written for
+a workspace whose record is gone. A failing `on-done` hook also
 posts a warning toast (it used to be invisible); `R` stays the live surface
 for `run`.
 

@@ -46,13 +46,10 @@ func (w *tailWriter) String() string {
 
 // ScriptOutput is the recorded tail of one lifecycle-script run — what the
 // script emitted and how it finished. Err is the Wait error's text
-// (empty on success). The JSON tags back the persisted transcript envelope
-// (script_output_store.go); field names stay stable for the schema.
-type ScriptOutput struct {
-	Text       string    `json:"text"`
-	Err        string    `json:"error,omitempty"`
-	FinishedAt time.Time `json:"finished_at"`
-}
+// (empty on success). It aliases the data package's durable transcript
+// record: the persisted envelope schema (script_output_store.go) is owned
+// there, and the shared type keeps the JSON field names stable.
+type ScriptOutput = data.ScriptTranscript
 
 // scriptOutputKey scopes the record to a workspace+type so a workspace's
 // last setup, archive, and on-done transcripts coexist.
@@ -97,19 +94,28 @@ func (r *ScriptRunner) LastScriptOutputs(ws *data.Workspace) map[ScriptType]Scri
 		}
 	}
 	r.mu.Unlock()
-	// Disk fallback fills types memory lacks — memory always wins because it
-	// holds this process's freshest run. Loaded entries are folded back into
-	// lastOutput so subsequent reads stay on the fast path.
+	// Disk fallback fills types memory lacks. The fold re-reads lastOutput
+	// under r.mu and compares FinishedAt rather than trusting the pre-read
+	// copy — a record landing between the disk read and here is newer and
+	// must survive hydration.
 	if missing := missingScriptTypes(out); len(missing) > 0 {
-		for st, entry := range r.loadScriptOutputs(ws) {
-			if _, have := out[st]; have {
-				continue
-			}
-			out[st] = entry
-			r.mu.Lock()
-			r.lastOutput[scriptOutputKey(ws, st)] = entry
-			r.mu.Unlock()
+		disk := r.loadScriptOutputs(ws)
+		if hook := r.transcriptLoadHook; hook != nil {
+			hook()
 		}
+		r.mu.Lock()
+		for st, entry := range disk {
+			key := scriptOutputKey(ws, st)
+			cur, have := r.lastOutput[key]
+			if !have || cur.FinishedAt.Before(entry.FinishedAt) {
+				r.lastOutput[key] = entry
+				cur = entry
+			}
+			if prev, seen := out[st]; !seen || prev.FinishedAt.Before(cur.FinishedAt) {
+				out[st] = cur
+			}
+		}
+		r.mu.Unlock()
 	}
 	return out
 }
