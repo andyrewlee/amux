@@ -77,6 +77,12 @@ dashboard section — `Enter` on a shelved row restores it (recreates the
 worktree and re-runs `setup-workspace`), and `D` purges it for good (deletes
 the branch and the record behind a confirmation).
 
+Delete and shelve share one teardown order: any in-flight `setup-workspace`
+sequence and detached `on-done` hooks are canceled and drained first, the `run`
+script is stopped, and only then does `archive` run and the worktree go away —
+a lifecycle subprocess can never outlive the directory it writes into. While
+teardown is in progress the workspace refuses new lifecycle starts.
+
 For cleaning up a fleet at once, `space` marks a workspace row (`●`) and
 `esc` clears marks; `S` with marks present shelves the marked set after one
 confirmation listing the names — each workspace shelves sequentially through
@@ -202,11 +208,12 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
   finished when amux started does not trigger the hook.
 - `archive` — the command run when a workspace is archived, i.e. just before its
   worktree is deleted. It runs to completion (up to two minutes) in the worktree
-  while that directory still exists, after the run script has been stopped. It
-  is best-effort: if it fails or the repo isn't trusted yet, amux warns you and
-  deletes the workspace anyway, so a broken archive script can never strand a
-  workspace. Write it to tolerate running twice — if the delete itself fails
-  after the script has run, retrying the delete runs it again.
+  while that directory still exists, after every lifecycle subprocess has been
+  stopped and drained. It is best-effort: if it fails or the repo isn't trusted
+  yet, amux warns you and deletes the workspace anyway, so a broken archive
+  script can never strand a workspace. Write it to tolerate running twice — if
+  the delete itself fails after the script has run, retrying the delete runs it
+  again.
 
 `setup-workspace`, `archive`, and `on-done` each record a bounded tail of
 their combined output on every run — press `O` in the Changes sidebar to view

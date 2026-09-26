@@ -79,7 +79,10 @@ amux reads a single user config file at:
 The file is optional. A missing file, malformed JSON, or a broken `assistants`
 section falls back to the built-in defaults; a valid `assistants` section is
 merged on top of them. (This is per-user global config, distinct from the
-per-project `.amux/workspaces.json` described in the README.)
+per-project `.amux/workspaces.json` described in the README — whose lifecycle
+scripts run under amux's teardown ordering: delete/shelve cancels and drains
+in-flight setup and on-done hooks, stops the run script, then runs `archive`
+before the worktree is removed.)
 
 ## The `assistants` schema
 

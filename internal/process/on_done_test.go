@@ -49,10 +49,16 @@ func TestRunOnDone_DoesNotOccupyRunningSlot(t *testing.T) {
 		t.Fatalf("RunOnDone() error = %v", err)
 	}
 	// The hook is a one-shot notification, not the workspace's run process:
-	// it must never register in the running map that Stop/IsRunning manage.
-	if runner.IsRunning(ws) {
-		t.Fatal("IsRunning() = true while only an on-done hook is executing")
+	// it must never register in the run-only query the badge/toggle use.
+	if runner.RunActive(ws) {
+		t.Fatal("RunActive() = true while only an on-done hook is executing")
 	}
+	// But it IS live local lifecycle work — teardown and port release must
+	// see it, so the broad IsRunning query reports it.
+	if !runner.IsRunning(ws) {
+		t.Fatal("IsRunning() = false while a tracked on-done hook is executing")
+	}
+	t.Cleanup(func() { runner.StopAll() })
 }
 
 func TestRunOnDone_RepoHookTrustGated(t *testing.T) {

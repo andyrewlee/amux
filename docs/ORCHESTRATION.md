@@ -81,6 +81,15 @@ amux-ws-<workspaceID>-run-<N>    (concurrent runs, N = 2, 3, …)
 Run sessions carry `@amux_workspace` and `@amux_type=run` tags but **no
 `@amux_tab`** — they host a detached command, not a tab.
 
+**Lifecycle teardown ordering** (for orchestrators that drive deletion):
+workspace delete/shelve seizes a per-workspace admission gate, cancels and
+drains every local lifecycle process (in-flight `setup-workspace` sequences,
+detached `on-done` hooks), kills hosted run sessions and the local run slot,
+then runs `archive` and removes the worktree — in that order. A child writing
+into the tree never outlives the tree's removal, and while the gate is held
+the runner rejects new lifecycle starts (`ErrWorkspaceTeardown`). External
+tooling must not remove a workspace's directory without the same ordering.
+
 Worked example — workspace ID `9f8e7d6c5b4a3210`, tab ID `tab-1a2b3c4d-5`:
 
 ```

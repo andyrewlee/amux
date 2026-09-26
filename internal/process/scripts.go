@@ -136,6 +136,14 @@ type ScriptRunner struct {
 	// were ever found, so the hosted-status sweep can be skipped for
 	// workspaces that have never had one. See run_session.go.
 	runSessionsSeen map[string]struct{}
+	// lifecycle tracks local lifecycle work — the workspace's single
+	// admitted setup sequence and its detached on-done hooks — plus the
+	// teardown gate service removal holds across stop→archive→remove.
+	// Setup does not occupy the `running` map: that map is run-scripts only,
+	// so a re-run request can no longer overwrite the tracked slot, and a
+	// stale run-script monitor can never clear a live setup entry.
+	// See lifecycle_coordinator.go.
+	lifecycle *lifecycleCoordinator
 	// transcriptRoot is the workspaces-metadata dir under which lifecycle
 	// transcripts persist (write-through on record, fallback on read).
 	// Empty disables persistence. transcriptMu serializes the file writes —
@@ -171,7 +179,7 @@ func (r *ScriptRunner) setRunningEntry(key string, running *runningScript) {
 // NewScriptRunner creates a new script runner
 func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 	ports := NewPortAllocator(portStart, portRange)
-	return &ScriptRunner{
+	r := &ScriptRunner{
 		portAllocator:    ports,
 		envBuilder:       NewEnvBuilder(ports),
 		running:          make(map[string]*runningScript),
@@ -180,7 +188,14 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		runSessionsSeen:  make(map[string]struct{}),
 		killProcessGroup: KillProcessGroup,
 		trust:            defaultScriptTrust(),
+		lifecycle:        newLifecycleCoordinator(),
 	}
+	// Route coordinator kills through the runner's injectable seam so a test
+	// that swaps r.killProcessGroup also observes teardown drains.
+	r.lifecycle.killGroup = func(pid int, opts KillOptions) error {
+		return r.killProcessGroup(pid, opts)
+	}
+	return r
 }
 
 // RunSetup runs the workspace's setup commands to completion: the repo's
@@ -231,12 +246,30 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		return fmt.Errorf("%s: %w", ScriptSetup, ErrNoScriptConfigured)
 	}
 
+	// Admission: one setup sequence per workspace. A second request reports
+	// ErrSetupBusy (informational — the first run is authoritative) instead
+	// of overwriting the tracked slot; a held teardown gate rejects with
+	// ErrWorkspaceTeardown so nothing new starts while removal is pending.
+	key := scriptWorkspaceKey(ws)
+	ticket, err := r.lifecycle.admitSetup(key)
+	if err != nil {
+		return err
+	}
+	defer r.lifecycle.finishSetup(key, ticket)
+
 	// Run each setup command sequentially. Output across all commands lands
 	// in one bounded tail so the recorded transcript (and a failure's error)
 	// covers the whole setup, not just the command that died — stdout was
 	// previously dropped entirely, which hid the failure's own diagnostics.
 	tail := &tailWriter{max: scriptOutputTailBytes}
 	for _, cmdStr := range commands {
+		// The ticket's context spans the whole sequence: teardown cancels it
+		// once, which aborts the in-flight command AND every queued command —
+		// a stale sequence must never start its next step after teardown.
+		if err := ticket.ctx.Err(); err != nil {
+			r.recordScriptOutput(ws, ScriptSetup, tail.String(), err)
+			return fmt.Errorf("setup canceled: %w", err)
+		}
 		cmd := exec.Command("sh", "-c", cmdStr)
 		cmd.Dir = ws.Root
 		cmd.Env = env
@@ -250,18 +283,28 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		if err := cmd.Start(); err != nil {
 			return err
 		}
-		running := &runningScript{
-			cmd:  cmd,
-			done: make(chan struct{}),
+		// Register the started process atomically with a generation check:
+		// a teardown landing between admission and Start invalidates the
+		// ticket, and the just-spawned child is killed and reaped here so it
+		// never outlives the teardown gate.
+		if !r.lifecycle.registerCmd(key, ticket, cmd) {
+			_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
+			_ = cmd.Wait()
+			err := ticket.ctx.Err()
+			if err == nil {
+				err = ErrWorkspaceTeardown
+			}
+			r.recordScriptOutput(ws, ScriptSetup, tail.String(), err)
+			return fmt.Errorf("setup canceled: %w", err)
 		}
-		key := scriptWorkspaceKey(ws)
-		r.setRunningEntry(key, running)
 
 		err := cmd.Wait()
-		close(running.done)
-		r.finishRunningEntry(key, running)
+		r.lifecycle.clearCmd(key, ticket, cmd)
 		if err != nil {
 			r.recordScriptOutput(ws, ScriptSetup, tail.String(), err)
+			if ticket.ctx.Err() != nil {
+				return fmt.Errorf("setup canceled: %w", ticket.ctx.Err())
+			}
 			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, tail.String(), err)
 		}
 	}

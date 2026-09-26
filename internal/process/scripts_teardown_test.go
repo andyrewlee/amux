@@ -3,6 +3,7 @@
 package process
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -276,4 +277,152 @@ func TestScriptRunner_NonconcurrentRestartKeepsNewEntry(t *testing.T) {
 	if runner.IsRunning(ws) {
 		t.Fatal("expected run #2 entry cleared after Stop")
 	}
+}
+
+// setupProcessPID returns the PID of the workspace's in-flight setup command,
+// or 0. In-package access to the coordinator snapshot — the assertions need a
+// real pid to prove the child died, not just that tracking cleared.
+func setupProcessPID(r *ScriptRunner, ws *data.Workspace) int {
+	key := scriptWorkspaceKey(ws)
+	r.lifecycle.mu.Lock()
+	defer r.lifecycle.mu.Unlock()
+	st := r.lifecycle.states[key]
+	if st == nil || st.setup == nil || st.setup.cmd == nil || st.setup.cmd.Process == nil {
+		return 0
+	}
+	return st.setup.cmd.Process.Pid
+}
+
+// TestBeginTeardown_DrainsSetupBeforeReturning is the regression test for the
+// audit's core defect: Stop used to kill only the run slot, returning while a
+// setup's local process kept writing into the worktree that delete then
+// removed. BeginTeardown must cancel, kill, and reap the in-flight setup
+// command before it returns — and the owning RunSetup call must exit.
+func TestBeginTeardown_DrainsSetupBeforeReturning(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	readyPath := filepath.Join(t.TempDir(), "setup-started")
+
+	// Setup blocks until killed; the ready file proves the process is live
+	// before teardown begins so the drain has something real to reap.
+	writeWorkspaceConfig(t, repo, `{"setup-workspace": ["touch `+readyPath+`; sleep 30"]}`)
+	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	setupDone := make(chan error, 1)
+	go func() { setupDone <- runner.RunSetup(ws) }()
+	testutil.Eventually(t, 3*time.Second, 10*time.Millisecond, func() bool {
+		_, err := os.Stat(readyPath)
+		return err == nil
+	}, "setup command never started")
+
+	pid := setupProcessPID(runner, ws)
+	if pid == 0 {
+		t.Fatal("in-flight setup command not tracked by the coordinator")
+	}
+	t.Cleanup(func() { _ = ForceKillProcess(pid) })
+
+	guard, err := runner.BeginTeardown(ws)
+	if err != nil {
+		t.Fatalf("BeginTeardown() error = %v", err)
+	}
+	defer guard.Finish(true)
+
+	// Teardown returned only after the child was actually reaped — not just
+	// after its map entry cleared.
+	if !processGone(pid) {
+		t.Fatalf("setup process (pid %d) still alive after BeginTeardown returned", pid)
+	}
+	select {
+	case err := <-setupDone:
+		if err == nil {
+			t.Fatal("canceled setup returned nil error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunSetup never returned after teardown canceled it")
+	}
+	if runner.IsRunning(ws) {
+		t.Fatal("IsRunning() = true after teardown drained setup")
+	}
+}
+
+// TestBeginTeardown_DrainsOnDone proves detached on-done hooks are inside the
+// drain boundary: the hook tracks itself in the coordinator and teardown
+// waits for it.
+func TestBeginTeardown_DrainsOnDone(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	readyPath := filepath.Join(t.TempDir(), "hook-started")
+
+	runner := NewScriptRunner(6200, 10)
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+	ws.Scripts.OnDone = "touch " + readyPath + "; sleep 30"
+
+	if err := runner.RunOnDone(ws, "amux-x-tab-1"); err != nil {
+		t.Fatalf("RunOnDone() error = %v", err)
+	}
+	testutil.Eventually(t, 3*time.Second, 10*time.Millisecond, func() bool {
+		_, err := os.Stat(readyPath)
+		return err == nil
+	}, "on-done hook never started")
+	if !runner.IsRunning(ws) {
+		t.Fatal("IsRunning() = false while on-done hook in flight")
+	}
+
+	guard, err := runner.BeginTeardown(ws)
+	if err != nil {
+		t.Fatalf("BeginTeardown() error = %v", err)
+	}
+	defer guard.Finish(true)
+	if runner.IsRunning(ws) {
+		t.Fatal("IsRunning() = true after teardown drained on-done hook")
+	}
+}
+
+// TestBeginTeardown_FailedDrainReleasesGate proves a teardown that cannot
+// kill its children aborts the removal AND re-opens admission: the surviving
+// workspace stays usable rather than being stuck behind a half-held gate.
+func TestBeginTeardown_FailedDrainReleasesGate(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	readyPath := filepath.Join(t.TempDir(), "setup-started")
+
+	writeWorkspaceConfig(t, repo, `{"setup-workspace": ["touch `+readyPath+`; sleep 30"]}`)
+	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	setupDone := make(chan error, 1)
+	go func() { setupDone <- runner.RunSetup(ws) }()
+	testutil.Eventually(t, 3*time.Second, 10*time.Millisecond, func() bool {
+		_, err := os.Stat(readyPath)
+		return err == nil
+	}, "setup command never started")
+	pid := setupProcessPID(runner, ws)
+	t.Cleanup(func() {
+		if pid != 0 {
+			_ = ForceKillProcess(pid)
+		}
+	})
+
+	killErr := errors.New("kill failed")
+	runner.killProcessGroup = func(int, KillOptions) error { return killErr }
+
+	// The surviving setup keeps its Wait pending until the drain's escalation
+	// timeout — shorten it so the failure path stays fast.
+	prevTimeout := scriptStopTimeout
+	scriptStopTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { scriptStopTimeout = prevTimeout })
+
+	if _, err := runner.BeginTeardown(ws); !errors.Is(err, killErr) {
+		t.Fatalf("BeginTeardown() = %v, want the drain failure", err)
+	}
+	// Gate released: a fresh teardown can proceed once the killer recovers.
+	runner.killProcessGroup = KillProcessGroup
+	guard, err := runner.BeginTeardown(ws)
+	if err != nil {
+		t.Fatalf("retry BeginTeardown() = %v, want success after gate release", err)
+	}
+	guard.Finish(true)
 }

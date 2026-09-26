@@ -224,7 +224,7 @@ func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (names []string, an
 // running→stopped transition into a "exited with status N" notice.
 func (r *ScriptRunner) RunScriptStatus(ws *data.Workspace) (anyAlive bool, lastExit int) {
 	if !r.RunHosted() {
-		return r.IsRunning(ws), -1
+		return r.RunActive(ws), -1
 	}
 	_, alive, exit := r.runSessionsHosted(ws)
 	return alive, exit
@@ -255,7 +255,7 @@ func (r *ScriptRunner) RunScriptOutputAndStatus(ws *data.Workspace, lines int) (
 		return "", false, -1
 	}
 	if !r.RunHosted() {
-		return "", r.IsRunning(ws), -1
+		return "", r.RunActive(ws), -1
 	}
 	names, alive, exit := r.runSessionsHosted(ws)
 	if len(names) > 0 {

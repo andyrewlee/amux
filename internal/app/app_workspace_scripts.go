@@ -323,6 +323,12 @@ func (a *App) handleWorkspaceScriptStateChanged(msg messages.WorkspaceScriptStat
 		cmds = append(cmds, a.toast.ShowWarning(
 			"No run script configured (set \"run\" in .amux/workspaces.json)"))
 
+	case errors.Is(msg.Err, process.ErrWorkspaceTeardown):
+		// The toggle raced a teardown — the removal reports its own outcome,
+		// but the key press did nothing so say so.
+		cmds = append(cmds, a.toast.ShowInfo(fmt.Sprintf(
+			"Cannot start run script: %s is being removed", msg.Workspace.Name)))
+
 	case errors.Is(msg.Err, process.ErrScriptsNotTrusted):
 		var trustErr *process.ScriptsNotTrustedError
 		var configHash string

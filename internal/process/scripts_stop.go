@@ -1,13 +1,18 @@
 package process
 
 import (
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
 )
 
-// Stop stops the running script for a workspace
+// Stop stops the workspace's `run` script: under the host it kills every
+// hosted run session, otherwise it kills the local run process tracked in the
+// running map. It deliberately does NOT touch coordinator-tracked lifecycle
+// work (setup sequences, on-done hooks) — teardown that precedes directory
+// removal goes through BeginTeardown, which owns both.
 func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	if err := validateScriptWorkspace(ws); err != nil {
 		return err
@@ -67,19 +72,16 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 	return nil
 }
 
-// IsRunning checks if a script is running for a workspace
-func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
+// RunActive reports whether the workspace's `run` script is live — a hosted
+// session under the host, or a tracked local run process otherwise. Lifecycle
+// work (setup sequences, on-done hooks) does not count: the run toggle and the
+// sidebar's [run] badge must not light up just because setup is in flight.
+func (r *ScriptRunner) RunActive(ws *data.Workspace) bool {
 	if validateScriptWorkspace(ws) != nil {
 		return false
 	}
 	if r.RunHosted() {
 		_, alive, _ := r.runSessionsHosted(ws)
-		if !alive {
-			// The last session died without a wait-monitor to notice (there is
-			// none under the host) — drain a parked port release here, where
-			// the app's periodic indicator sync is guaranteed to look.
-			r.sweepPendingRelease(scriptWorkspaceKey(ws))
-		}
 		return alive
 	}
 	key := scriptWorkspaceKey(ws)
@@ -87,6 +89,26 @@ func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
 	defer r.mu.Unlock()
 	_, ok := r.running[key]
 	return ok
+}
+
+// IsRunning reports whether the workspace has ANY tracked work in flight: a
+// live run, a setup sequence, or an on-done hook. This is the query port
+// release and teardown checks must use — under the hosted backend the old
+// run-session-only query could not see local lifecycle subprocesses at all,
+// so a workspace could be released/removed while setup was still writing.
+func (r *ScriptRunner) IsRunning(ws *data.Workspace) bool {
+	if validateScriptWorkspace(ws) != nil {
+		return false
+	}
+	key := scriptWorkspaceKey(ws)
+	lifecycleLive := r.lifecycle.live(key)
+	runAlive := r.RunActive(ws)
+	if !runAlive && !lifecycleLive {
+		// Nothing alive anywhere — drain a parked port release here, where
+		// the app's periodic indicator sync is guaranteed to look.
+		r.sweepPendingRelease(key)
+	}
+	return runAlive || lifecycleLive
 }
 
 // PortAllocated reports the port base allocated for the workspace, and whether
@@ -124,13 +146,19 @@ func (r *ScriptRunner) ReleaseWorkspace(ws *data.Workspace) {
 		}
 		return
 	}
+	lifecycleLive := r.lifecycle.live(key)
 	r.mu.Lock()
 	running, isRunning := r.running[key]
 	if isRunning {
 		r.pendingRelease[key] = pendingPortRelease{root: ws.Root, running: running}
+	} else if lifecycleLive {
+		// Coordinator-tracked work (setup/on-done) holds no runningScript
+		// marker — park a nil-marked release, swept by IsRunning's
+		// nothing-alive observation once the lifecycle work finishes.
+		r.pendingRelease[key] = pendingPortRelease{root: ws.Root}
 	}
 	r.mu.Unlock()
-	if isRunning {
+	if isRunning || lifecycleLive {
 		return
 	}
 	if r.portAllocator != nil {
@@ -154,7 +182,40 @@ func (r *ScriptRunner) sweepPendingRelease(key string) {
 	}
 }
 
-// StopAll stops all running scripts
+// BeginTeardown seizes the workspace's lifecycle admission gate, cancels and
+// drains every coordinator-tracked local process (the setup sequence and any
+// on-done hooks), and stops the workspace's run script (hosted sessions and
+// the local run slot alike). It returns the guard the caller must hold across
+// stop→archive→remove: while held, new lifecycle admissions are rejected, so
+// nothing can start writing mid-removal.
+//
+// On any drain or stop failure the gate is released and the error returned —
+// the caller must abort the destructive work, leaving the surviving workspace
+// usable. Finish(removed) ends the operation.
+func (r *ScriptRunner) BeginTeardown(ws *data.Workspace) (*TeardownGuard, error) {
+	if err := validateScriptWorkspace(ws); err != nil {
+		return nil, err
+	}
+	key := scriptWorkspaceKey(ws)
+	snap, err := r.lifecycle.beginTeardown(key)
+	if err != nil {
+		return nil, err
+	}
+	drainErr := r.lifecycle.drainSnapshot(key, snap)
+	runErr := r.Stop(ws)
+	if runErr != nil && isBenignStopError(runErr) {
+		runErr = nil
+	}
+	if drainErr != nil || runErr != nil {
+		r.lifecycle.releaseTeardown(key)
+		return nil, errors.Join(drainErr, runErr)
+	}
+	return &TeardownGuard{coord: r.lifecycle, runner: r, key: key}, nil
+}
+
+// StopAll stops every local run script and drains all lifecycle work (setup
+// sequences and on-done hooks across every workspace). Hosted run sessions
+// are deliberately untouched — they persist across quit by design.
 func (r *ScriptRunner) StopAll() {
 	r.mu.Lock()
 	running := make([]*runningScript, 0, len(r.running))
@@ -163,6 +224,12 @@ func (r *ScriptRunner) StopAll() {
 	}
 	r.running = make(map[string]*runningScript)
 	r.mu.Unlock()
+
+	for _, snap := range r.lifecycle.stopAllSnapshots() {
+		if err := r.lifecycle.drainSnapshot("", snap); err != nil {
+			slog.Debug("lifecycle drain during StopAll", "error", err)
+		}
+	}
 
 	for _, entry := range running {
 		if entry.cmd != nil && entry.cmd.Process != nil {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -226,6 +227,21 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 			if msg.Rerun && msg.Workspace != nil {
 				return a.toast.ShowInfo("No setup script configured for " + msg.Workspace.Name)
 			}
+			return nil
+		}
+		// A second setup request while one is in flight is informational, not
+		// an error — the first run is authoritative and still going.
+		if errors.Is(msg.Err, process.ErrSetupBusy) {
+			if msg.Workspace != nil {
+				return a.toast.ShowInfo("Setup already running for " + msg.Workspace.Name)
+			}
+			return nil
+		}
+		// A teardown rejection means the workspace was being removed — the
+		// delete/shelve already reports its own outcome. Same for a setup the
+		// teardown gate canceled mid-flight: deliberate cancellation is not a
+		// failure worth an error toast.
+		if errors.Is(msg.Err, process.ErrWorkspaceTeardown) || errors.Is(msg.Err, context.Canceled) {
 			return nil
 		}
 		// Distinguish a trust skip (the repo's .amux/workspaces.json scripts were
