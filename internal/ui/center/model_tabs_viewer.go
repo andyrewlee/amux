@@ -170,12 +170,13 @@ func (m *Model) createDiffTab(change *git.Change, mode git.DiffMode, ws *data.Wo
 	wrapDiffResults(dv, wsID, tab.ID)
 
 	m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)
-	m.setActiveTabIdxForWorkspace(wsID, len(m.tabs.ByWorkspace[wsID])-1)
+	createdIdx := len(m.tabs.ByWorkspace[wsID]) - 1
+	m.setActiveTabIdxForWorkspace(wsID, createdIdx)
 	m.noteTabsChanged()
 
 	return common.SafeBatch(
 		dv.Init(),
-		func() tea.Msg { return messages.TabCreated{Index: m.tabs.ActiveByWorkspace[wsID], Name: displayName} },
+		func() tea.Msg { return messages.TabCreated{Index: createdIdx, Name: displayName} },
 	)
 }
 

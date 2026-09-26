@@ -21,7 +21,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [059](059-isolate-e2e-workspace-root.md) | Isolate e2e workspace roots | P1 | S | — | DONE |
 | [036](036-restore-filtered-picker-navigation.md) | Restore filtered-picker navigation | P1 | S | —; validate with 059 | DONE |
 | [035](035-recheck-merge-destination.md) | Recheck the approved merge destination | P1 | S | — | DONE |
-| [037](037-capture-diff-tab-index.md) | Capture the created diff-tab index | P1 | S | — | TODO |
+| [037](037-capture-diff-tab-index.md) | Capture the created diff-tab index | P1 | S | — | DONE |
 | [038](038-merge-persisted-script-output.md) | Merge persisted script output safely | P1 | M | — | TODO |
 | [039](039-transactional-workspace-field-updates.md) | Apply ordered field-scoped workspace writes | P1 | M | — | TODO |
 | [040](040-drain-pty-output-before-stop.md) | Drain PTY output before stopping | P1 | M | — | TODO |
