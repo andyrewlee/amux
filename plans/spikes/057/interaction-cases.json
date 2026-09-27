@@ -1,0 +1,137 @@
+{
+  "decision": "GO",
+  "cases": [
+    {
+      "id": "open-edit-mode",
+      "given": "a searchable OutputDialog (script-output flavor) is open in browse mode with content loaded",
+      "input": "press /",
+      "expected": "the dialog enters query-edit mode, the footer shows the query echo starting with /, no close result is emitted, and following state is unchanged"
+    },
+    {
+      "id": "literal-command-chars-in-query",
+      "given": "the dialog is in query-edit mode",
+      "input": "type the characters f j k g a n into the query",
+      "expected": "all six characters are appended literally to the query; no scroll, no follow toggle, no next-match, and no attach side effect occurs"
+    },
+    {
+      "id": "attach-key-isolation",
+      "given": "a live-run OutputDialog (runOutputAttachable=true) is open in query-edit mode",
+      "input": "press a",
+      "expected": "the letter a is appended to the query and no attachRunViewerCmd is enqueued — the app-level attach intercept is gated on !Editing()"
+    },
+    {
+      "id": "attach-still-works-while-browsing",
+      "given": "a live-run OutputDialog (runOutputAttachable=true) is open in browse mode with an accepted query",
+      "input": "press a",
+      "expected": "the app intercept fires and enqueues the attach command for the pinned session, unchanged from current behavior"
+    },
+    {
+      "id": "accept-jumps-to-first-match",
+      "given": "a dialog showing 10 lines where the query error matches lines 3 and 8, viewport showing lines 1-5",
+      "input": "type error then press enter",
+      "expected": "the dialog stays open (no OutputDialogResult), exits edit mode, scrolls so the first match is centered/highlighted, the footer shows match 1/2, and follow disengages because the jump is a manual scroll"
+    },
+    {
+      "id": "enter-in-browse-still-closes",
+      "given": "a dialog in browse mode (no query editing active)",
+      "input": "press enter",
+      "expected": "the dialog closes and emits OutputDialogResult{} exactly as today — accepting a query is the only new Enter behavior and it only applies while editing"
+    },
+    {
+      "id": "esc-exits-edit-then-closes",
+      "given": "a dialog in query-edit mode with a partially typed query",
+      "input": "press esc, then press esc again",
+      "expected": "the first esc leaves edit mode and returns to browse mode (query retained); the second esc closes the dialog and emits OutputDialogResult{}"
+    },
+    {
+      "id": "next-prev-cycle",
+      "given": "an accepted query with 4 matches, currently on match 2",
+      "input": "press n then press N",
+      "expected": "n selects match 3 and centers it; N returns to match 2 — wrap is not triggered for interior moves"
+    },
+    {
+      "id": "wrap-indicator",
+      "given": "an accepted query with 4 matches, currently on match 4",
+      "input": "press n",
+      "expected": "selection wraps to match 1, the view centers it, and the footer shows match 1/4 (wrapped) for that jump"
+    },
+    {
+      "id": "no-match-feedback",
+      "given": "a dialog whose sanitized lines contain no occurrence of panic",
+      "input": "open search, type panic, press enter",
+      "expected": "the dialog stays open, the footer shows 0 matches with the query retained, the viewport does not scroll, and n/N are inert"
+    },
+    {
+      "id": "empty-query-clears",
+      "given": "a dialog in query-edit mode with an empty query (or a query deleted to empty)",
+      "input": "press enter",
+      "expected": "edit mode exits, the match list and query are cleared, no scroll occurs, and the footer returns to the normal browse help"
+    },
+    {
+      "id": "duplicate-lines-distinct-matches",
+      "given": "content where the identical line retrying in 500ms appears three times",
+      "input": "search for retrying and press n twice after accepting",
+      "expected": "each of the three identical occurrences is a distinct match and n visits match 2 then match 3"
+    },
+    {
+      "id": "refresh-recomputes-matches",
+      "given": "a live-run dialog with an accepted query and 2 matches while the session is alive",
+      "input": "a runOutputRefreshedMsg arrives whose new tail contains 3 occurrences",
+      "expected": "SetContent recomputes the match list against the new sanitized snapshot; the footer now reports 3 matches and selection moves to the nearest surviving match if the previously selected line shifted"
+    },
+    {
+      "id": "refresh-evicts-selected-match",
+      "given": "a live-run dialog showing match 1/1 for a line near the top of the tail",
+      "input": "a refresh arrives in which the tail has advanced past the matched line so no occurrences remain",
+      "expected": "the footer shows 0 matches with the query retained, the viewport clamps to valid content instead of pointing at evicted lines, and no stale highlight is rendered"
+    },
+    {
+      "id": "evicted-history-not-searchable",
+      "given": "a run tail where earlier lines have already been dropped by the bounded 400-line capture or the 64 KiB transcript bound",
+      "input": "search for a string that only appeared in the evicted portion",
+      "expected": "the search reports 0 matches — matches only ever index the current sanitized d.lines snapshot; the UI never implies access to dropped history"
+    },
+    {
+      "id": "follow-pause-and-resume",
+      "given": "a live-run dialog in follow mode at the bottom",
+      "input": "open search, accept a query that matches an earlier line, then press f",
+      "expected": "accepting the match jumps the view and disengages follow; pressing f in browse mode re-engages follow, scrolls to the bottom, and retains the query and match list"
+    },
+    {
+      "id": "paste-into-query",
+      "given": "a dialog in query-edit mode",
+      "input": "deliver a tea.PasteMsg containing EADDRINUSE followed by a newline and a second line",
+      "expected": "the paste is consumed by the overlay (does not fall through to the focused terminal), and the query receives the pasted text with the newline terminating the paste — equivalent to typing then pressing enter"
+    },
+    {
+      "id": "paste-falls-through-when-browsing",
+      "given": "a dialog in browse mode",
+      "input": "deliver a tea.PasteMsg",
+      "expected": "the paste is not consumed by the overlay (consumePaste=false), preserving today's fall-through-to-terminal behavior for the run-output flavor"
+    },
+    {
+      "id": "unicode-content-match",
+      "given": "content containing the line failed — エラー: disk full",
+      "input": "search for エラー and accept",
+      "expected": "the match is found and highlighted using rune-span offsets; the correct display cells are highlighted with no byte-offset misalignment"
+    },
+    {
+      "id": "narrow-layout",
+      "given": "a dialog sized to a very narrow width (below the footer help width) with an accepted query",
+      "input": "resize smaller, then press n",
+      "expected": "the query echo truncates with an ellipsis rather than overflowing, and match navigation still centers the matched line correctly"
+    },
+    {
+      "id": "non-searchable-flavor-unchanged",
+      "given": "the workspace-status flavor dialog (searchable=false) is open",
+      "input": "press /",
+      "expected": "nothing happens — / is unbound in a non-searchable dialog and the dialog stays in browse mode"
+    },
+    {
+      "id": "section-header-searchable",
+      "given": "the composite script-output view with a section header '== setup — failed — exit 1 ==' style line",
+      "input": "search for failed",
+      "expected": "the section header line matches like any other line, letting users jump straight to the failed script's section"
+    }
+  ]
+}
