@@ -1,7 +1,6 @@
 package process
 
 import (
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -374,19 +373,28 @@ func TestBuildEnvLayers_DurableTwoRunnersShareReservation(t *testing.T) {
 	}
 }
 
-// TestBuildEnvMap_DurableRefusesUnsaved proves the durable env map surfaces
-// the metadata-persistence error rather than minting a path-keyed range.
-func TestBuildEnvMap_DurableRefusesUnsaved(t *testing.T) {
+// TestBuildEnvMap_DurableDegradesUnsaved proves a workspace with no persisted
+// metadata ID still gets env — the allocator degrades to the transient
+// root-keyed map rather than surfacing an unactionable error.
+func TestBuildEnvMap_DurableDegradesUnsaved(t *testing.T) {
 	home := t.TempDir()
 	p := durableAllocator(t, home, 6200, 10)
 	builder := NewEnvBuilder(p)
 	ws := &data.Workspace{Name: "unsaved", Repo: t.TempDir(), Root: t.TempDir()}
 
-	if _, err := builder.BuildEnvMap(ws); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
-		t.Fatalf("BuildEnvMap(unsaved) error = %v, want ErrWorkspaceMetadataNotPersisted", err)
+	m, err := builder.BuildEnvMap(ws)
+	if err != nil {
+		t.Fatalf("BuildEnvMap(unsaved) error = %v, want transient fallback", err)
 	}
-	if _, err := builder.BuildEnv(ws); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
-		t.Fatalf("BuildEnv(unsaved) error = %v, want ErrWorkspaceMetadataNotPersisted", err)
+	if m["AMUX_PORT"] != "6200" || m["AMUX_PORT_RANGE"] != "6200-6209" {
+		t.Fatalf("BuildEnvMap(unsaved) ports = %q/%q, want 6200/6200-6209", m["AMUX_PORT"], m["AMUX_PORT_RANGE"])
+	}
+	env, err := builder.BuildEnv(ws)
+	if err != nil {
+		t.Fatalf("BuildEnv(unsaved) error = %v, want transient fallback", err)
+	}
+	if got := envSliceMap(env)["AMUX_PORT"]; got != "6200" {
+		t.Fatalf("BuildEnv(unsaved) AMUX_PORT = %q, want 6200", got)
 	}
 }
 

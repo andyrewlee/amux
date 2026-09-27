@@ -70,7 +70,11 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 		}
 		s.applyWorkspaceDefaults(discovered)
 		if discovered.ID() == storedID {
-			return s.saveWorkspaceLocked(storedID, discovered)
+			if err := s.saveWorkspaceLocked(storedID, discovered); err != nil {
+				return err
+			}
+			discovered.storeID = storedID
+			return nil
 		}
 		return s.Save(discovered)
 	}
@@ -101,7 +105,14 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 		// Common case: discovery did not change Repo/Root, so the canonical ID is
 		// unchanged. Write in place while still holding the flock — the entire
 		// load-merge-save is atomic, eliminating the lost-update window.
-		return s.saveWorkspaceLocked(storedID, &merged)
+		if err := s.saveWorkspaceLocked(storedID, &merged); err != nil {
+			return err
+		}
+		// Reflect the live key onto the caller's object — a caller that keeps
+		// using `discovered` after the merge (env building, port reservation)
+		// otherwise sees a workspace with no stored identity at all.
+		discovered.storeID = storedID
+		return nil
 	}
 
 	// Rename case: Repo/Root changed, so the merged record lives under a new ID.
@@ -114,6 +125,8 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 	if err := s.Save(&merged); err != nil {
 		return err
 	}
+	// Same live-key reflection as the in-place branch above.
+	discovered.storeID = merged.storeID
 	// Save may keep storedID when the "new" key is only normalization drift
 	// (the worktree dir's existence flipping NormalizePath's symlink
 	// resolution) — the old dir is the live record then, so only delete it

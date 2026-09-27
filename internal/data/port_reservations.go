@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 	"unicode"
 
 	"github.com/andyrewlee/amux/internal/fsatomic"
@@ -173,28 +171,13 @@ func (s *PortReservationStore) Lookup(workspaceID string) (base, end int, found 
 	return base, end, found, nil
 }
 
-// lockTransientRetries bounds the retry on a spurious ENOENT from the lock
-// acquisition. On macOS, openat-under-os.Root (registry_lock_open.go) can
-// intermittently report ENOENT on a live directory while sibling tempdir
-// churn is in flight — a measured kernel/vnode-cache race, not a missing file.
-// mkdirAllPrivate inside lockRegistryFile already guarantees the directory
-// exists, so an ENOENT here is transient by construction; a genuinely deleted
-// state home still fails closed after the retries run out.
-const lockTransientRetries = 20
-
 // withLock serializes fn under the registry flock — exclusive for writes and
 // initialization, shared for pure reads. The same lock ordering applies to
-// Initialize and every reservation transaction.
+// Initialize and every reservation transaction. Spurious-ENOENT retry lives
+// inside lockRegistryFile (registry_lock_open.go) so every store — not just
+// this one — rides out the macOS openat-under-os.Root race.
 func (s *PortReservationStore) withLock(shared bool, fn func() error) error {
-	var lockFile *os.File
-	var err error
-	for try := 0; try < lockTransientRetries; try++ {
-		lockFile, err = lockRegistryFile(s.lockPath, shared)
-		if !errors.Is(err, fs.ErrNotExist) {
-			break
-		}
-		time.Sleep(time.Duration(try+1) * time.Millisecond)
-	}
+	lockFile, err := lockRegistryFile(s.lockPath, shared)
 	if err != nil {
 		return err
 	}

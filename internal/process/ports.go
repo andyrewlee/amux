@@ -2,21 +2,14 @@ package process
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 // ErrPortRangeExhausted reports that no valid, non-overlapping port range remains.
 var ErrPortRangeExhausted = errors.New("port allocator exhausted")
-
-// ErrWorkspaceMetadataNotPersisted reports that a workspace has no persisted
-// metadata record to key a durable port reservation on. Durable allocation
-// refuses the fallback to a path-derived identity — a computed ID drifts with
-// NormalizePath resolution, so keying on it would let a moved workspace lose
-// its range and let two records collide on one.
-var ErrWorkspaceMetadataNotPersisted = errors.New("workspace has no persisted metadata record")
 
 // PortAllocator manages port allocation for workspaces. It runs in one of two
 // modes:
@@ -76,7 +69,15 @@ func (p *PortAllocator) ReserveWorkspace(ws *data.Workspace) (port, rangeEnd int
 	}
 	id, ok := ws.StoredID()
 	if !ok {
-		return 0, 0, fmt.Errorf("%w: %q cannot reserve a port range — save the workspace's metadata or restart amux", ErrWorkspaceMetadataNotPersisted, ws.Name)
+		// No persisted metadata ID means no durable key — a transient store
+		// error during load or a never-saved record. Degrade to the in-memory
+		// allocator (the pre-registry contract) instead of blocking every
+		// spawn behind an unactionable error: this process's map cannot
+		// contradict a live registry record because the registry never handed
+		// this workspace an interval. A later successful metadata load
+		// restores the durable path under the real stored ID.
+		logging.Warn("workspace %q has no persisted metadata record; using transient port allocation", ws.Name)
+		return p.PortRange(ws.Root)
 	}
 	base, end, err := durable.Reserve(string(id), p.portStart, p.rangeSize)
 	if errors.Is(err, data.ErrPortReservationsExhausted) {
@@ -99,8 +100,8 @@ func (p *PortAllocator) ReserveWorkspace(ws *data.Workspace) (port, rangeEnd int
 // LookupWorkspaceInterval reports the workspace's reserved interval without
 // allocating one. Durable mode reads the registry — real I/O, which is why it
 // lives on the async status fetch rather than the synchronous getters — and an
-// unsaved workspace simply reports not-found. Transient mode reads the
-// in-memory map.
+// unsaved workspace reports whatever the transient fallback allocated (or
+// not-found before it spawns). Transient mode reads the in-memory map.
 func (p *PortAllocator) LookupWorkspaceInterval(ws *data.Workspace) (base, end int, found bool, err error) {
 	if ws == nil {
 		return 0, 0, false, nil
@@ -116,6 +117,9 @@ func (p *PortAllocator) LookupWorkspaceInterval(ws *data.Workspace) (base, end i
 	}
 	id, ok := ws.StoredID()
 	if !ok {
+		if port, found := p.GetPort(ws.Root); found {
+			return port, port + p.rangeSize - 1, true, nil
+		}
 		return 0, 0, false, nil
 	}
 	return durable.Lookup(string(id))

@@ -133,10 +133,10 @@ func TestBuildSessionEnv_PortExhaustionReturnsError(t *testing.T) {
 	}
 }
 
-// TestBuildSessionEnv_DurableRefusesUnsavedWorkspace proves the durable
-// session env surfaces the metadata-persistence error — an interactive spawn
-// never silently keys a durable reservation on a drifting root path.
-func TestBuildSessionEnv_DurableRefusesUnsavedWorkspace(t *testing.T) {
+// TestBuildSessionEnv_DurableDegradesUnsavedWorkspace proves a workspace with
+// no persisted metadata ID still gets session env — the allocator degrades to
+// the transient in-memory map rather than blocking the interactive spawn.
+func TestBuildSessionEnv_DurableDegradesUnsavedWorkspace(t *testing.T) {
 	home := t.TempDir()
 	runner := NewScriptRunner(6200, 10)
 	store := data.NewPortReservationStore(home)
@@ -146,11 +146,19 @@ func TestBuildSessionEnv_DurableRefusesUnsavedWorkspace(t *testing.T) {
 	runner.SetPortReservationStore(store)
 
 	ws := newHostedWorkspace(t, "nonconcurrent") // never saved — no storeID
-	if _, err := runner.BuildSessionEnv(ws); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
-		t.Fatalf("BuildSessionEnv(unsaved) error = %v, want ErrWorkspaceMetadataNotPersisted", err)
+	env, err := runner.BuildSessionEnv(ws)
+	if err != nil {
+		t.Fatalf("BuildSessionEnv(unsaved) error = %v, want transient fallback", err)
 	}
-	if _, err := runner.buildScriptEnv(ws); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
-		t.Fatalf("buildScriptEnv(unsaved) error = %v, want ErrWorkspaceMetadataNotPersisted", err)
+	if got := envSliceMap(env)["AMUX_PORT"]; got != "6200" {
+		t.Fatalf("BuildSessionEnv(unsaved) AMUX_PORT = %q, want transient 6200", got)
+	}
+	scriptEnv, err := runner.buildScriptEnv(ws)
+	if err != nil {
+		t.Fatalf("buildScriptEnv(unsaved) error = %v, want transient fallback", err)
+	}
+	if got := envSliceMap(scriptEnv)["AMUX_PORT"]; got != "6200" {
+		t.Fatalf("buildScriptEnv(unsaved) AMUX_PORT = %q, want transient 6200", got)
 	}
 }
 

@@ -353,6 +353,11 @@ state home. The contract an orchestrator can rely on:
 - **Exhaustion/corruption fail closed**: a saturated space reports a typed
   exhaustion error; malformed, overlapping, or newer-schema bytes are left
   untouched and surfaced as errors — never silently accepted or rewritten.
+- **Missing metadata degrades, never blocks**: a workspace object with no
+  persisted ID (a transient store error during load, or a never-saved record)
+  falls back to the per-process allocator for that spawn — the pre-registry
+  contract — and logs a warning. No registry record is minted under a
+  path-derived key; the durable path resumes on the next successful load.
 - **Do not delete the registry while any amux session exists**: removing it
   orphans the ranges live sessions still hold, and the next launch would mint
   overlapping reservations. There is intentionally no reset command.

@@ -376,22 +376,32 @@ func TestPortAllocator_DurableReleaseRetains(t *testing.T) {
 	}
 }
 
-// TestPortAllocator_DurableUnsavedWorkspaceRefused pins the fail-closed
-// identity contract: with no persisted store key there is no durable key —
-// refusing the spawn beats silently keying on a drifting root path.
-func TestPortAllocator_DurableUnsavedWorkspaceRefused(t *testing.T) {
+// TestPortAllocator_DurableUnsavedWorkspaceDegrades pins the degrade
+// contract: with no persisted store key there is no durable key, so the
+// allocator falls back to the root-keyed in-memory map rather than blocking
+// the spawn — a transient store error during load must not wedge the
+// workspace for the rest of the session. The durable registry stays
+// untouched: no phantom record is minted under a drifting computed ID.
+func TestPortAllocator_DurableUnsavedWorkspaceDegrades(t *testing.T) {
 	home := t.TempDir()
 	p := durableAllocator(t, home, 6200, 10)
 	ws := &data.Workspace{Name: "unsaved", Repo: t.TempDir(), Root: t.TempDir()}
 
-	if _, _, err := p.ReserveWorkspace(ws); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
-		t.Fatalf("ReserveWorkspace(unsaved) error = %v, want ErrWorkspaceMetadataNotPersisted", err)
+	base, end, err := p.ReserveWorkspace(ws)
+	if err != nil {
+		t.Fatalf("ReserveWorkspace(unsaved) error = %v, want transient fallback", err)
 	}
-	// The transient path is untouched: without a durable store the same
-	// unsaved workspace still allocates by root.
-	transient := NewPortAllocator(6200, 10)
-	if _, _, err := transient.ReserveWorkspace(ws); err != nil {
-		t.Fatalf("transient ReserveWorkspace(unsaved) = %v, want nil", err)
+	if base != 6200 || end != 6209 {
+		t.Fatalf("transient fallback interval = %d-%d, want 6200-6209", base, end)
+	}
+	if port, ok := p.GetPort(ws.Root); !ok || port != base {
+		t.Fatalf("in-memory map missing transient base: got %d,%v want %d,true", port, ok, base)
+	}
+	// The status lookup reports the transient interval truthfully, and the
+	// registry itself still holds no record for the unsaved workspace.
+	lb, le, found, err := p.LookupWorkspaceInterval(ws)
+	if err != nil || !found || lb != base || le != end {
+		t.Fatalf("LookupWorkspaceInterval(unsaved) = (%d,%d,%v,%v), want (%d,%d,true,nil)", lb, le, found, err, base, end)
 	}
 }
 

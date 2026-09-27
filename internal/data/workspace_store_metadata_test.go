@@ -341,6 +341,43 @@ func TestWorkspaceStore_UpsertFromDiscovery_StoreWinsAndClearsArchived(t *testin
 	}
 }
 
+// TestWorkspaceStore_UpsertFromDiscovery_ReflectsStoreID pins the merge path's
+// identity contract: the caller's `discovered` object must come back carrying
+// the live store key, or downstream consumers (durable port reservations,
+// env building) see a workspace with no persisted identity at all.
+func TestWorkspaceStore_UpsertFromDiscovery_ReflectsStoreID(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	stored := &Workspace{Name: "ws", Branch: "b", Repo: "/repo", Root: "/root"}
+	if err := store.Save(stored); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	storedID, ok := stored.StoredID()
+	if !ok {
+		t.Fatal("saved workspace lacks StoredID")
+	}
+
+	// Merge path: the stored record exists, so discovery reconciles rather
+	// than saving a fresh record — and must still stamp the caller's object.
+	discovered := &Workspace{Name: "ws", Branch: "b2", Repo: "/repo", Root: "/root"}
+	if err := store.UpsertFromDiscovery(discovered); err != nil {
+		t.Fatalf("UpsertFromDiscovery() error = %v", err)
+	}
+	if id, ok := discovered.StoredID(); !ok || id != storedID {
+		t.Fatalf("discovered StoredID = (%q, %v), want (%q, true)", id, ok, storedID)
+	}
+
+	// Fresh-record path: no stored workspace — Save mints the ID directly.
+	fresh := &Workspace{Name: "new", Branch: "b", Repo: "/repo2", Root: "/root2"}
+	if err := store.UpsertFromDiscovery(fresh); err != nil {
+		t.Fatalf("UpsertFromDiscovery(fresh) error = %v", err)
+	}
+	if _, ok := fresh.StoredID(); !ok {
+		t.Fatal("fresh discovered workspace lacks StoredID after upsert")
+	}
+}
+
 func TestWorkspaceStore_UpsertFromDiscovery_LegacyKeySurvivesRebind(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(root)

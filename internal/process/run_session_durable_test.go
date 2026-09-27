@@ -1,7 +1,6 @@
 package process
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -12,8 +11,7 @@ import (
 // its env from the durable registry: the session's captured env carries the
 // committed interval, a second runner on the same state home sees the same
 // interval rather than allocating a second range, and an unsaved workspace
-// fails closed with ErrWorkspaceMetadataNotPersisted before any session is
-// created.
+// degrades to transient allocation instead of failing closed.
 func TestRunScriptHostedUsesDurableReservation(t *testing.T) {
 	home, meta := t.TempDir(), t.TempDir()
 	newRunner := func() (*ScriptRunner, *fakeRunSessionHost) {
@@ -52,12 +50,17 @@ func TestRunScriptHostedUsesDurableReservation(t *testing.T) {
 		t.Fatalf("second instance session env = %v, want alpha's retained interval", sessB.env)
 	}
 
-	// Unsaved workspace: fail closed, no session minted.
+	// Unsaved workspace: degrades to transient allocation, session still mints.
 	unsaved := newHostedWorkspace(t, "concurrent")
-	if _, err := runnerB.RunScript(unsaved, ScriptRun); !errors.Is(err, ErrWorkspaceMetadataNotPersisted) {
-		t.Fatalf("RunScript(unsaved) = %v, want ErrWorkspaceMetadataNotPersisted", err)
+	if _, err := runnerB.RunScript(unsaved, ScriptRun); err != nil {
+		t.Fatalf("RunScript(unsaved) = %v, want transient fallback", err)
 	}
-	if len(hostB.ensured) != 1 {
-		t.Fatalf("unsaved workspace created %d sessions, want 1 (only the saved ws's)", len(hostB.ensured))
+	if len(hostB.ensured) != 2 {
+		t.Fatalf("ensured sessions = %d, want 2 (saved ws + degraded unsaved ws)", len(hostB.ensured))
+	}
+	sessU := hostB.sessions[hostB.ensured[1]]
+	envJoinedU := "\n" + strings.Join(sessU.env, "\n") + "\n"
+	if !strings.Contains(envJoinedU, "\nAMUX_PORT=") {
+		t.Fatalf("degraded session env lacks AMUX_PORT: %v", sessU.env)
 	}
 }
