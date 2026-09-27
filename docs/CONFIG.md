@@ -228,6 +228,16 @@ footer's position counter and the wheel affordance count display rows.
 `n`/`p` continue to jump between hunk headers, and resizing or toggling wrap
 re-anchors the view to the same source line when possible.
 
+## Project tree loading model
+
+Not a config knob — documented here because it is observable behavior: the
+sidebar's Project tab loads directories asynchronously. `l`/`enter` expansion,
+`r` refresh, `.` hidden-file toggle, and workspace switches return instantly
+and fill rows in as reads complete; a pending directory shows `…`, a failed
+one shows a brief error retried via `r`. The number of concurrent directory
+reads is a fixed internal bound — there is no setting for it, and nothing in
+the config or session files records tree state.
+
 ## Overriding a built-in's command
 
 The same map overrides the built-in agents. For a built-in you only need to set

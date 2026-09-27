@@ -375,6 +375,21 @@ running is unsupported until adoption completes: an old binary still
 allocating in memory would keep handing out ranges the new registry cannot
 see. tmux-discovery failure during adoption also defers rather than guessing.
 
+## Project tree loading contract
+
+The sidebar's Project tab reads directories asynchronously: switching
+workspaces, expanding a directory, and pressing `r`/`enter`/`l` all return
+immediately and populate rows as reads complete. A directory still loading
+shows a muted `…` marker; a failed read shows a short sanitized error with an
+`r`-to-retry hint — an unreadable directory never masquerades as an empty one.
+
+Orchestration-relevant guarantees: a refresh preserves expansion and cursor by
+path (a deleted directory's subtree simply drops out), the view never mixes
+two workspaces' contents (late results from a previous workspace are
+discarded), and reads are bounded so a wedged mount delays its directories
+rather than the whole UI. There is no configuration or session surface for the
+queue; keyboard and mouse actions are unchanged.
+
 ## Diff viewer scroll contract
 
 Tools driving amux via tmux keys can rely on the diff viewer reaching every

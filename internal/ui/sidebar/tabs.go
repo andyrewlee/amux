@@ -119,6 +119,14 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 		m.changes, cmd = m.changes.Update(msg)
 		return m, cmd
 
+	case ProjectTreeDirectoryLoaded:
+		// Async directory reads are background results, not input: route
+		// them to the tree even when the Changes tab is active or the
+		// sidebar is blurred, or an in-flight listing would be lost.
+		var cmd tea.Cmd
+		m.projectTree, cmd = m.projectTree.Update(msg)
+		return m, cmd
+
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft && msg.Y == 0 {
 			// Check if click is in tab bar
@@ -373,13 +381,15 @@ func (m *TabbedSidebar) Focused() bool {
 	return m.focused
 }
 
-// SetWorkspace sets the active workspace. It returns the Changes view's
-// ahead/behind refresh command (nil for a no-op rebind); see ChangesModel.SetWorkspace.
+// SetWorkspace sets the active workspace. It batches the Changes view's
+// ahead/behind refresh with the project tree's async root load (nil for a
+// no-op rebind); see ChangesModel.SetWorkspace and ProjectTree.SetWorkspace.
 func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.workspace = ws
-	cmd := m.changes.SetWorkspace(ws)
-	m.projectTree.SetWorkspace(ws)
-	return cmd
+	return common.SafeBatch(
+		m.changes.SetWorkspace(ws),
+		m.projectTree.SetWorkspace(ws),
+	)
 }
 
 // SetGitStatus sets the git status (forwards to changes view)

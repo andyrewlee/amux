@@ -23,9 +23,19 @@ type projectTreeNode struct {
 	Depth    int
 	Children []*projectTreeNode
 	Parent   *projectTreeNode
+
+	// pendingRequest is the in-flight directory read for this node (0 =
+	// none). It is both the loading marker and the staleness token: a result
+	// applies only while it still matches the delivered RequestID.
+	pendingRequest uint64
+	// loadErr is a sanitized, generation-scoped load failure marker rendered
+	// under the node; empty means none.
+	loadErr string
 }
 
-// ProjectTree is a nerdtree-like file browser
+// ProjectTree is a nerdtree-like file browser. All directory I/O happens in
+// returned commands producing ProjectTreeDirectoryLoaded; Update owns every
+// node mutation.
 type ProjectTree struct {
 	workspace    *data.Workspace
 	root         *projectTreeNode
@@ -40,6 +50,31 @@ type ProjectTree struct {
 	showHidden      bool
 
 	styles common.Styles
+
+	// Async directory loading (see project_tree_load.go):
+	// generation invalidates every outstanding job on workspace switch,
+	// refresh, or root rebase; executing holds running jobs (the concurrency
+	// cap's source of truth) keyed by request ID; loadQueue is FIFO pending
+	// work; pendingRoot is the shadow root a refresh is loading while the old
+	// tree stays visible.
+	generation    uint64
+	nextRequestID uint64
+	executing     map[uint64]projectTreeLoadJob
+	loadQueue     []projectTreeLoadJob
+	pendingRoot   *projectTreeNode
+	rootErr       string
+	// pendingExpanded/pendingSelectedPath carry expansion and selection
+	// intent across an in-flight reload; navVersion records the cursor
+	// movement counter at refresh start so a user navigation while loading
+	// keeps the result from yanking selection back.
+	pendingExpanded     map[string]bool
+	pendingSelectedPath string
+	navVersion          uint64
+	refreshNavVersion   uint64
+
+	// readDir is the per-model filesystem seam (default os.ReadDir),
+	// snapshotted into each issued command.
+	readDir func(string) ([]os.DirEntry, error)
 
 	// contentVersion is a monotonic version of every input that shapes View
 	// output. INVARIANT: every update path that changes what View renders
@@ -68,6 +103,8 @@ func NewProjectTree() *ProjectTree {
 	return &ProjectTree{
 		styles:     common.DefaultStyles(),
 		showHidden: true,
+		executing:  map[uint64]projectTreeLoadJob{},
+		readDir:    defaultReadDir,
 	}
 }
 
@@ -95,6 +132,14 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 	// early-returns untouched still bumps, which only costs one extra
 	// build. (See the contentVersion invariant.)
 	defer m.markContentDirty()
+
+	// Directory load results land regardless of focus: they are async
+	// responses, not input, and hiding them behind the focus guard would
+	// strand in-flight reads when the user blurs mid-load.
+	if msg, ok := msg.(ProjectTreeDirectoryLoaded); ok {
+		return m, m.applyDirectoryLoaded(msg)
+	}
+
 	if !m.focused {
 		return m, nil
 	}
@@ -118,6 +163,7 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 				return m, nil
 			}
 			m.cursor = idx
+			m.navVersion++
 			return m, m.handleEnter()
 		}
 
@@ -134,8 +180,7 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 			if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
 				node := m.flatNodes[m.cursor]
 				if node.IsDir && !node.Expanded {
-					m.expandNode(node)
-					m.rebuildFlatList()
+					return m, m.expandNode(node)
 				}
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("h", "left"))):
@@ -143,13 +188,13 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 			if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
 				node := m.flatNodes[m.cursor]
 				if node.IsDir && node.Expanded {
-					node.Expanded = false
-					m.rebuildFlatList()
+					m.collapseNode(node)
 				} else if node.Parent != nil {
 					// Find and move to parent
 					for i, n := range m.flatNodes {
 						if n == node.Parent {
 							m.cursor = i
+							m.navVersion++
 							break
 						}
 					}
@@ -158,10 +203,10 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("."))):
 			// Toggle hidden files
 			m.showHidden = !m.showHidden
-			m.reloadTree()
+			return m, m.reloadTree()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			// Refresh tree
-			m.reloadTree()
+			return m, m.reloadTree()
 		}
 	}
 
@@ -178,12 +223,10 @@ func (m *ProjectTree) handleEnter() tea.Cmd {
 	if node.IsDir {
 		// Toggle expansion
 		if node.Expanded {
-			node.Expanded = false
-		} else {
-			m.expandNode(node)
+			m.collapseNode(node)
+			return nil
 		}
-		m.rebuildFlatList()
-		return nil
+		return m.expandNode(node)
 	}
 
 	// File selected - open in vim via center pane
@@ -197,42 +240,61 @@ func (m *ProjectTree) handleEnter() tea.Cmd {
 	}
 }
 
-// expandNode loads children for a directory node
-func (m *ProjectTree) expandNode(node *projectTreeNode) {
+// expandNode marks a directory open and queues the asynchronous read that
+// fills its children. The row reflects the expanded/loading state
+// immediately; children appear when the result applies.
+func (m *ProjectTree) expandNode(node *projectTreeNode) tea.Cmd {
 	if !node.IsDir || node.Expanded {
-		return
+		return nil
 	}
+	node.Expanded = true
+	node.loadErr = ""
+	m.rebuildFlatList()
+	return m.enqueueLoad(node)
+}
 
-	entries, err := os.ReadDir(node.Path)
-	if err != nil {
-		return
+// collapseNode closes a directory and invalidates every pending request under
+// it: queued reads for hidden descendants are dropped by the scheduler, while
+// reads already running keep their job IDs (and a bounded slot) until their
+// results arrive and are discarded as stale.
+func (m *ProjectTree) collapseNode(node *projectTreeNode) {
+	node.Expanded = false
+	node.loadErr = ""
+	var invalidate func(n *projectTreeNode)
+	invalidate = func(n *projectTreeNode) {
+		n.pendingRequest = 0
+		for _, child := range n.Children {
+			invalidate(child)
+		}
 	}
+	invalidate(node)
+	m.rebuildFlatList()
+}
 
-	node.Children = nil
+// installChildren converts an immutable load result into child nodes on the
+// Update goroutine — hidden-file filtering and the directory-first,
+// case-insensitive sort happen here so a result can never reorder the tree
+// out from under the reader.
+func (m *ProjectTree) installChildren(node *projectTreeNode, entries []ProjectTreeEntry) {
 	var dirs, files []*projectTreeNode
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if !m.showHidden && strings.HasPrefix(name, ".") {
+	for _, e := range entries {
+		if !m.showHidden && strings.HasPrefix(e.Name, ".") {
 			continue
 		}
-
 		child := &projectTreeNode{
-			Name:   name,
-			Path:   filepath.Join(node.Path, name),
-			IsDir:  entry.IsDir(),
+			Name:   e.Name,
+			Path:   filepath.Join(node.Path, e.Name),
+			IsDir:  e.IsDir,
 			Depth:  node.Depth + 1,
 			Parent: node,
 		}
-
-		if entry.IsDir() {
+		if e.IsDir {
 			dirs = append(dirs, child)
 		} else {
 			files = append(files, child)
 		}
 	}
 
-	// Sort directories and files separately
 	sort.Slice(dirs, func(i, j int) bool {
 		return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name)
 	})
@@ -240,9 +302,7 @@ func (m *ProjectTree) expandNode(node *projectTreeNode) {
 		return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
 	})
 
-	// Directories first, then files
 	node.Children = append(dirs, files...)
-	node.Expanded = true
 }
 
 // rebuildFlatList flattens the visible tree nodes
@@ -278,74 +338,6 @@ func (m *ProjectTree) rebuildFlatList() {
 	}
 }
 
-// reloadTree reloads the entire tree from disk, preserving which directories
-// were expanded and the cursor position so a refresh (or hidden-toggle) picks up
-// new files without collapsing the whole view back to the top level.
-func (m *ProjectTree) reloadTree() {
-	if m.workspace == nil {
-		m.root = nil
-		m.flatNodes = nil
-		return
-	}
-
-	expanded := m.collectExpandedPaths()
-	selectedPath := ""
-	if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
-		selectedPath = m.flatNodes[m.cursor].Path
-	}
-
-	m.root = &projectTreeNode{
-		Name:   filepath.Base(m.workspace.Root),
-		Path:   m.workspace.Root,
-		IsDir:  true,
-		Depth:  -1, // Root is at depth -1 so children are at 0
-		Parent: nil,
-	}
-
-	m.expandNode(m.root)
-	m.restoreExpansion(m.root, expanded)
-	m.rebuildFlatList()
-
-	if selectedPath != "" {
-		for i, node := range m.flatNodes {
-			if node.Path == selectedPath {
-				m.cursor = i
-				break
-			}
-		}
-	}
-}
-
-// collectExpandedPaths returns the set of directory paths currently expanded.
-func (m *ProjectTree) collectExpandedPaths() map[string]bool {
-	expanded := map[string]bool{}
-	if m.root == nil {
-		return expanded
-	}
-	var collect func(n *projectTreeNode)
-	collect = func(n *projectTreeNode) {
-		if n.IsDir && n.Expanded {
-			expanded[n.Path] = true
-		}
-		for _, child := range n.Children {
-			collect(child)
-		}
-	}
-	collect(m.root)
-	return expanded
-}
-
-// restoreExpansion re-expands directories (by path) that were expanded before a
-// reload and still exist on disk.
-func (m *ProjectTree) restoreExpansion(node *projectTreeNode, expanded map[string]bool) {
-	for _, child := range node.Children {
-		if child.IsDir && expanded[child.Path] {
-			m.expandNode(child)
-			m.restoreExpansion(child, expanded)
-		}
-	}
-}
-
 func (m *ProjectTree) visibleHeight() int {
 	help := m.helpLineCount()
 	visible := m.height - help
@@ -375,6 +367,7 @@ func (m *ProjectTree) moveCursor(delta int) {
 	if len(m.flatNodes) == 0 {
 		return
 	}
+	m.navVersion++
 
 	newCursor := m.cursor + delta
 	if newCursor < 0 {
@@ -417,28 +410,4 @@ func (m *ProjectTree) Blur() {
 // Focused returns whether the tree is focused
 func (m *ProjectTree) Focused() bool {
 	return m.focused
-}
-
-// SetWorkspace sets the active workspace
-func (m *ProjectTree) SetWorkspace(ws *data.Workspace) {
-	m.markContentDirty()
-	if sameWorkspaceByCanonicalPaths(m.workspace, ws) {
-		// Rebind pointer for metadata freshness without resetting navigation state.
-		oldRoot := ""
-		if m.workspace != nil {
-			oldRoot = m.workspace.Root
-		}
-		m.workspace = ws
-		if ws != nil && oldRoot != "" && filepath.Clean(oldRoot) != filepath.Clean(ws.Root) {
-			if !m.rebaseTreePaths(oldRoot, ws.Root) {
-				// Fallback for mixed-form paths where rebasing isn't computable.
-				m.reloadTree()
-			}
-		}
-		return
-	}
-	m.workspace = ws
-	m.cursor = 0
-	m.scrollOffset = 0
-	m.reloadTree()
 }

@@ -166,6 +166,14 @@ Sidebar (Changes tab, focused):
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).
 
+Sidebar (Project tab, focused):
+
+- `j`/`k` or arrows move, `l`/`h` (or arrows) expand/collapse directories,
+  `enter`/`o` opens a file in the center pane, `.` toggles hidden files, `r`
+  refreshes. Directory reads run in the background — a loading directory shows
+  a `…` marker and a failed read shows a short error you can retry with `r` —
+  so a slow filesystem never freezes input or other panes.
+
 Diff viewer (opened from Changes with `enter`/`space`/`o`):
 
 - `j`/`k`/arrows and the wheel scroll, `PgUp`/`PgDn` (or `ctrl+u`/`ctrl+d`)

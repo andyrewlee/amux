@@ -168,7 +168,7 @@ func TestProjectTreeSetWorkspaceCanonicalMatchDifferentIDPreservesState(t *testi
 	tree := NewProjectTree()
 	ws1 := data.NewWorkspace("feature", "feature", "main", relRepo, relRoot)
 	ws2 := data.NewWorkspace("feature", "feature", "main", absRepo, absRoot)
-	tree.SetWorkspace(ws1)
+	pumpTree(t, tree, tree.SetWorkspace(ws1))
 	if len(tree.flatNodes) < 2 {
 		t.Fatalf("expected >= 2 nodes after initial load, got %d", len(tree.flatNodes))
 	}
