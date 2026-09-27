@@ -1,0 +1,103 @@
+{
+  "decision": "GO",
+  "cases": [
+    {
+      "id": "status-no-tombstone",
+      "given": "a healthy workspace with no .deleting marker under any of its metadata IDs",
+      "action": "open the status dialog (i)",
+      "expected": "the dialog renders identically to today — no cleanup section at all; absence of the section is the no-pending-cleanup signal",
+      "may_mutate": false
+    },
+    {
+      "id": "status-tombstone-root-present",
+      "given": "a workspace whose store record has a .deleting marker and whose worktree root still exists on disk (a delete that failed before removal)",
+      "action": "open the status dialog",
+      "expected": "a cleanup section renders 'interrupted — worktree still present; workspace remains usable' with a pointer to warn-level delete logs; no finish/clear/retry call is issued",
+      "may_mutate": false
+    },
+    {
+      "id": "status-tombstone-root-gone",
+      "given": "a workspace surfaced by finishInterruptedDelete: marker exists, root is gone, the branch or metadata cleanup is outstanding",
+      "action": "open the status dialog",
+      "expected": "a cleanup section renders 'pending — worktree already removed, retry automatic on next load' plus the log pointer; the dialog performs no mutation",
+      "may_mutate": false
+    },
+    {
+      "id": "status-alias-id-tombstone",
+      "given": "a workspace whose legacy alias metadata ID carries the .deleting marker while the canonical MetadataID does not",
+      "action": "open the status dialog",
+      "expected": "the cleanup section still renders — the probe checks every ID in WorkspaceMetadataIDs(ws), mirroring finishInterruptedDelete",
+      "may_mutate": false
+    },
+    {
+      "id": "status-no-longer-present",
+      "given": "a stored workspace record whose root was deleted out-of-band with no tombstone",
+      "action": "open the status dialog",
+      "expected": "no cleanup section renders (no tombstone means no amux-tracked pending cleanup); the plain path field still shows the absent root honestly as its stored value",
+      "may_mutate": false
+    },
+    {
+      "id": "status-probe-read-failure",
+      "given": "the cleanup probe (marker stat / root stat) cannot distinguish absence from error by signature",
+      "action": "open the status dialog on a workspace with missing identity fields or an unreadable store",
+      "expected": "the cleanup section renders 'unknown — could not read recovery state' rather than guessing pending/clean; the rest of the snapshot still renders",
+      "may_mutate": false
+    },
+    {
+      "id": "stale-result-delivery",
+      "given": "a status open is in flight when the user opens a different dialog (bumping runOutputToken) or closes and reopens status",
+      "action": "deliver the workspaceStatusReadyMsg carrying cleanup probe results after the token advanced",
+      "expected": "the stale result is dropped — no dialog opens and no state mutates; identical fencing to the existing port/run reads",
+      "may_mutate": false
+    },
+    {
+      "id": "selected-workspace-changed-mid-open",
+      "given": "the workspace is deleted or replaced after the status open captured ws.Clone() but before the result arrives",
+      "action": "the off-loop probe returns for the cloned snapshot",
+      "expected": "the rendered cleanup section describes the workspace as captured at open; the token fence still applies; no mutation touches the live workspace",
+      "may_mutate": false
+    },
+    {
+      "id": "branch-cleanup-failure-state",
+      "given": "a tombstoned workspace whose root is gone but whose branch deletion keeps failing (non-not-found error) — the surfaced-row case",
+      "action": "open the status dialog",
+      "expected": "cleanup section shows pending-with-root-gone text; the surfaced workspace row remains visible; the section does not claim the branch specifically failed (that stage is not recorded)",
+      "may_mutate": false
+    },
+    {
+      "id": "session-metadata-cleanup-pending",
+      "given": "a tombstoned workspace suppressed from the list because session-kill or metadata-delete failed — invisible between loads",
+      "action": "open the status dialog if the row is reachable, else observe that the row is absent",
+      "expected": "if reachable, the pending text renders; if the row is suppressed by finishInterruptedDelete returning true, there is no status surface — the log is the record (documented limitation)",
+      "may_mutate": false
+    },
+    {
+      "id": "retry-boundary-root-reappears",
+      "given": "a tombstoned workspace whose root has reappeared or was recreated between the marker write and now",
+      "action": "any diagnostic or hypothetical retry path evaluates the workspace",
+      "expected": "no destructive action is ever permitted against a live root — DirExists(root) aborts before any removal step, matching finishInterruptedDelete's pin; v1 exposes no retry action at all",
+      "may_mutate": false
+    },
+    {
+      "id": "retry-boundary-identity-drift",
+      "given": "a workspace whose stamped alias set and recomputed identity differ (legacy vs canonical metadata ID)",
+      "action": "the cleanup probe runs over the workspace",
+      "expected": "the probe uses the same WorkspaceMetadataIDs alias set as the recovery path, so a tombstone under either form is detected and no identity assumption is fabricated",
+      "may_mutate": false
+    },
+    {
+      "id": "env-privacy-preserved",
+      "given": "a workspace with repo/project/workspace custom env vars whose values may hold secrets, plus a pending cleanup state",
+      "action": "open the status dialog",
+      "expected": "env rendering remains key-names-only and the cleanup section adds no new data fields derived from env or script content",
+      "may_mutate": false
+    },
+    {
+      "id": "no-retry-action-in-v1",
+      "given": "a tombstoned workspace with pending cleanup and a user who wants to force the retry now",
+      "action": "the user presses keys inside the status dialog",
+      "expected": "the dialog remains strictly read-only — every key keeps its existing OutputDialog meaning; no retry/force-delete affordance exists in v1",
+      "may_mutate": false
+    }
+  ]
+}

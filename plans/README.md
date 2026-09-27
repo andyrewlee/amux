@@ -42,7 +42,7 @@ clean baseline. All rows below mean plans ready for an executor, not fixes shipp
 | [055](055-load-project-tree-asynchronously.md) | Load the project tree asynchronously | P2 | M | — | DONE |
 | [056](056-clean-up-fakeagent-build-directory.md) | Clean up the shared fakeagent fixture | P3 | S | — | DONE |
 | [057](057-spike-script-output-search.md) | Spike: search retained script output | P3 | S | 038 | DONE — GO verdict; build handoff in `plans/spikes/057/` |
-| [058](058-spike-workspace-recovery-diagnostics.md) | Spike: workspace recovery diagnostics | P3 | S | 039, 041, 048 | TODO |
+| [058](058-spike-workspace-recovery-diagnostics.md) | Spike: workspace recovery diagnostics | P3 | S | 039, 041, 048 | DONE — GO verdict (read-only); handoff in `plans/spikes/058/` |
 | [060](060-prefix-palette-after-restore-flake.md) | Prefix palette intermittently fails after restore | P1 | M | — | DONE — identity-drift mutation guard + stale-duplicate restore skip |
 
 **Dependencies and coordination:**
