@@ -147,3 +147,30 @@ func TestDetachedSessionKillRemovesFromFindAndStatus(t *testing.T) {
 		t.Fatalf("FindRunSessions() = %v after kill, want empty", got)
 	}
 }
+
+// TestParseDeadPaneBannerStatus pins the tmux <3.3 fallback: when a dead pane
+// has no pane_dead_status format, the exit code is recovered from the
+// remain-on-exit banner text.
+func TestParseDeadPaneBannerStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want int
+		ok   bool
+	}{
+		{"nonzero exit", "job output\nPane is dead (status 7)\n", 7, true},
+		{"zero exit", "done\nPane is dead (status 0)\n", 0, true},
+		{"banner without status stays unknown", "Pane is dead\n", 0, false},
+		{"no banner", "some output\n", 0, false},
+		{"last banner wins", "Pane is dead (status 3)\nPane is dead (status 9)\n", 9, true},
+		{"nonnumeric status rejected", "Pane is dead (status x)\n", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseDeadPaneBannerStatus(tc.text)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("parseDeadPaneBannerStatus(%q) = (%d, %v), want (%d, %v)", tc.text, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}

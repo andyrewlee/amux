@@ -92,9 +92,47 @@ func RunSessionStatus(sessionName string, opts Options) (exists, alive bool, exi
 	if dead {
 		if code, cerr := strconv.Atoi(strings.TrimSpace(fields[2])); cerr == nil {
 			exitCode = code
+		} else if code, ok := deadPaneBannerStatus(sessionName, opts); ok {
+			// pane_dead_status does not exist before tmux 3.3; the
+			// remain-on-exit banner still prints "(status N)" on older
+			// servers, so fall back to parsing it from the dead pane.
+			exitCode = code
 		}
 	}
 	return true, !dead, exitCode, nil
+}
+
+// deadPaneBannerStatus reads the exit code from the remain-on-exit banner
+// rendered inside the dead pane ("Pane is dead (status 7)") — the fallback
+// for tmux versions without the pane_dead_status format (< 3.3). The extra
+// capture only runs when a dead pane reported no status, so newer servers
+// never pay for it.
+func deadPaneBannerStatus(sessionName string, opts Options) (int, bool) {
+	out, ok := RunSessionTail(sessionName, 10, opts)
+	if !ok {
+		return 0, false
+	}
+	return parseDeadPaneBannerStatus(out)
+}
+
+// parseDeadPaneBannerStatus extracts the exit code from the last
+// "Pane is dead (status N)" line in captured pane text.
+func parseDeadPaneBannerStatus(paneText string) (int, bool) {
+	const marker = "Pane is dead (status "
+	idx := strings.LastIndex(paneText, marker)
+	if idx < 0 {
+		return 0, false
+	}
+	rest := paneText[idx+len(marker):]
+	end := strings.IndexByte(rest, ')')
+	if end <= 0 {
+		return 0, false
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(rest[:end]))
+	if err != nil {
+		return 0, false
+	}
+	return code, true
 }
 
 // RunSessionTail captures up to lines of the named session's pane content,
