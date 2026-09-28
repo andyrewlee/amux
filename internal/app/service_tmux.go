@@ -37,18 +37,6 @@ func (tmuxOps) AllSessionMeta(opts tmux.Options) (map[string]tmux.SessionMeta, e
 	return tmux.AllSessionMeta(opts)
 }
 
-func (tmuxOps) SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error) {
-	return tmux.SessionStateFor(sessionName, opts)
-}
-
-func (tmuxOps) SessionHasClients(sessionName string, opts tmux.Options) (bool, error) {
-	return tmux.SessionHasClients(sessionName, opts)
-}
-
-func (tmuxOps) SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error) {
-	return tmux.SessionCreatedAt(sessionName, opts)
-}
-
 func (tmuxOps) KillSession(sessionName string, opts tmux.Options) error {
 	return tmux.KillSession(sessionName, opts)
 }

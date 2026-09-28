@@ -59,17 +59,21 @@ func TestDiscoverWorkspaceTabsFromTmux_Success(t *testing.T) {
 	ws := producerWorkspace()
 	// An already-known session must be filtered out of the result.
 	ws.OpenTabs = []data.TabInfo{{SessionName: "amux-known"}}
+	metaCalls := 0
 	app := &App{
 		tmuxAvailable: true,
 		tmuxService: &tmuxops.FakeTmuxOps{
 			SessionsWithTagsFunc: func(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+				wsID := string(ws.ID())
 				return []tmux.SessionTagValues{
-					{Name: "amux-known", Tags: map[string]string{"@amux_assistant": "claude"}},
-					{Name: "amux-new-b", Tags: map[string]string{"@amux_assistant": "codex", "@amux_created_at": "200"}},
-					{Name: "amux-new-a", Tags: map[string]string{"@amux_assistant": "claude", "@amux_created_at": "100"}},
+					{Name: "amux-known", Tags: map[string]string{"@amux_workspace": wsID, "@amux_assistant": "claude"}},
+					{Name: "amux-new-b", Tags: map[string]string{"@amux_workspace": wsID, "@amux_assistant": "codex", "@amux_created_at": "200"}},
+					{Name: "amux-new-a", Tags: map[string]string{"@amux_workspace": wsID, "@amux_assistant": "claude", "@amux_created_at": "100"}},
+					{Name: "amux-foreign", Tags: map[string]string{"@amux_workspace": "other-ws", "@amux_assistant": "claude"}},
 				}, nil
 			},
 			AllSessionMetaFunc: func(tmux.Options) (map[string]tmux.SessionMeta, error) {
+				metaCalls++
 				return map[string]tmux.SessionMeta{}, nil
 			},
 		},
@@ -92,6 +96,55 @@ func TestDiscoverWorkspaceTabsFromTmux_Success(t *testing.T) {
 	}
 	if res.Tabs[0].CreatedAt != 100 || res.Tabs[0].Status != "running" {
 		t.Fatalf("tab = %+v, want CreatedAt=100 Status=running", res.Tabs[0])
+	}
+	// Every row carried @amux_created_at (or was filtered) — the batched meta
+	// fetch must not have fired.
+	if metaCalls != 0 {
+		t.Fatalf("AllSessionMeta calls = %d, want 0 (all rows had created_at)", metaCalls)
+	}
+}
+
+// TestDiscoverWorkspaceTabsFromTmux_LazyMetaFetch: a row missing
+// @amux_created_at triggers exactly one batched AllSessionMeta fetch; rows
+// that already carry the tag never consult it.
+func TestDiscoverWorkspaceTabsFromTmux_LazyMetaFetch(t *testing.T) {
+	ws := producerWorkspace()
+	metaCalls := 0
+	app := &App{
+		tmuxAvailable: true,
+		tmuxService: &tmuxops.FakeTmuxOps{
+			SessionsWithTagsFunc: func(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+				wsID := string(ws.ID())
+				return []tmux.SessionTagValues{
+					{Name: "amux-tagged", Tags: map[string]string{"@amux_workspace": wsID, "@amux_created_at": "100"}},
+					{Name: "amux-untagged", Tags: map[string]string{"@amux_workspace": wsID}},
+					{Name: "amux-untagged-2", Tags: map[string]string{"@amux_workspace": wsID}},
+				}, nil
+			},
+			AllSessionMetaFunc: func(tmux.Options) (map[string]tmux.SessionMeta, error) {
+				metaCalls++
+				return map[string]tmux.SessionMeta{
+					"amux-untagged": {CreatedAt: 50},
+				}, nil
+			},
+		},
+	}
+	res, ok := app.discoverWorkspaceTabsFromTmux(ws)().(tmuxTabsDiscoverResult)
+	if !ok {
+		t.Fatal("expected tmuxTabsDiscoverResult")
+	}
+	if metaCalls != 1 {
+		t.Fatalf("AllSessionMeta calls = %d, want exactly 1 lazy fetch", metaCalls)
+	}
+	gotCreated := map[string]int64{}
+	for _, tab := range res.Tabs {
+		gotCreated[tab.SessionName] = tab.CreatedAt
+	}
+	if gotCreated["amux-untagged"] != 50 {
+		t.Fatalf("untagged CreatedAt = %d, want 50 from meta", gotCreated["amux-untagged"])
+	}
+	if gotCreated["amux-tagged"] != 100 {
+		t.Fatalf("tagged CreatedAt = %d, want 100 from tag", gotCreated["amux-tagged"])
 	}
 }
 
@@ -136,9 +189,10 @@ func TestDiscoverSidebarTerminalsFromTmux_Success(t *testing.T) {
 		tmuxAvailable: true,
 		tmuxService: &tmuxops.FakeTmuxOps{
 			SessionsWithTagsFunc: func(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+				wsID := string(ws.ID())
 				return []tmux.SessionTagValues{
-					{Name: "amux-term-live", Tags: map[string]string{"@amux_instance": "inst-1", "@amux_created_at": "50"}},
-					{Name: "amux-term-dead", Tags: map[string]string{"@amux_instance": "inst-1"}},
+					{Name: "amux-term-live", Tags: map[string]string{"@amux_workspace": wsID, "@amux_instance": "inst-1", "@amux_created_at": "50"}},
+					{Name: "amux-term-dead", Tags: map[string]string{"@amux_workspace": wsID, "@amux_instance": "inst-1"}},
 				}, nil
 			},
 			AllSessionStatesFunc: func(tmux.Options) (map[string]tmux.SessionState, error) {

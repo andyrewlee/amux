@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -92,6 +94,52 @@ func TestClearCreatingWorkspaceIdentitySet(t *testing.T) {
 		if st.phase(id) == lifecycleCreating {
 			t.Fatalf("creating phase leaked under identity %s", id)
 		}
+	}
+}
+
+// TestMarkMutatingWorkspaceIDsRejectsDriftedOverlap covers the restore race:
+// the worktree dir appearing mid-mutation flips NormalizePath's symlink
+// resolution, so a request snapshot taken after the dir exists carries a
+// ComputedID the original mark never stamped. The mark must reject on ANY
+// in-flight identity form (here the stable storeID), not accept the fresh
+// form — otherwise two worktree mutations run concurrently.
+func TestMarkMutatingWorkspaceIDsRejectsDriftedOverlap(t *testing.T) {
+	st := newWorkspaceLifecycleState()
+	realDir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	store := data.NewWorkspaceStore(t.TempDir())
+	ws := data.NewWorkspace("feat", "feat", "main", realDir, filepath.Join(link, "feat"))
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	preDrift := ws.ComputedID()
+	if !st.markMutatingWorkspaceIDs(ws, true) {
+		t.Fatal("initial mark rejected")
+	}
+	// The leaf appearing resolves the symlinked parent — ComputedID changes.
+	if err := os.MkdirAll(ws.Root, 0o755); err != nil {
+		t.Fatalf("mkdir worktree root: %v", err)
+	}
+	postDrift := ws.ComputedID()
+	if postDrift == preDrift {
+		t.Skip("workspace root does not traverse a symlink — no drift to exercise")
+	}
+	if st.markMutatingWorkspaceIDs(ws, true) {
+		t.Fatal("mark under a partially drifted identity set was accepted")
+	}
+	// The in-flight op still owns the workspace: unmarking through the
+	// drifted set releases every stamped form plus the root bridge.
+	if !st.markMutatingWorkspaceIDs(ws, false) {
+		t.Fatal("unmark rejected")
+	}
+	if st.isMutatingWorkspaceIDs(ws) {
+		t.Fatal("unmark left a residue phase")
+	}
+	if !st.markMutatingWorkspaceIDs(ws, true) {
+		t.Fatal("post-release mark rejected — phase leaked")
 	}
 }
 

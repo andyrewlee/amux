@@ -8,7 +8,7 @@ require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
-	github.com/atotto/clipboard v0.1.4
+	github.com/atotto/clipboard v0.1.4 // indirect
 	// ultraviolet is Charm's untagged pre-release render engine. Its
 	// pseudo-version is driven by charm.land/lipgloss/v2 (lipgloss requires the
 	// newer pseudo-version; bubbletea's requirement is older and loses under
@@ -22,7 +22,6 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	golang.org/x/term v0.46.0
 )
 
 require (

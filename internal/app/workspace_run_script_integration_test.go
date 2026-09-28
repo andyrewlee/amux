@@ -13,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/testutil"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
@@ -164,13 +165,9 @@ func TestRunScriptIndicatorClearsWhenTheScriptExitsOnItsOwn(t *testing.T) {
 	}
 
 	// Let the script exit by itself; nothing notifies the app.
-	deadline := time.Now().Add(5 * time.Second)
-	for scripts.IsRunning(ws) && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if scripts.IsRunning(ws) {
-		t.Fatal("setup: the run script never exited on its own")
-	}
+	testutil.Eventually(t, 5*time.Second, 10*time.Millisecond, func() bool {
+		return !scripts.IsRunning(ws)
+	}, "setup: the run script never exited on its own")
 	if !runIndicatorVisible(sb) {
 		t.Fatal("setup: the indicator cleared without a reconcile, so this test proves nothing")
 	}
@@ -194,12 +191,8 @@ func TestRunScriptIndicatorClearsWhenTheScriptExitsOnItsOwn(t *testing.T) {
 // waitForFile polls for path, giving a spawned process a moment to create it.
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("the run script never created %s; it did not actually execute", path)
+	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool {
+		_, err := os.Stat(path)
+		return err == nil
+	}, "the run script never created %s; it did not actually execute", path)
 }

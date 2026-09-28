@@ -196,6 +196,9 @@ func (m *TerminalModel) teardownTabState(ts *TerminalState, reason string) (sess
 	if ts.Terminal != nil {
 		closeTerminalForSidebar(ts.Terminal, reason)
 	}
+	// An attach in flight for this tab must not apply after teardown: bump
+	// the epoch so its late result is rejected and its client closed.
+	ts.invalidateReattachLocked()
 	ts.Running = false
 	ts.RestartBackoff = 0
 	ts.mu.Unlock()
@@ -217,6 +220,9 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	}
 	m.stopPTYReader(ts)
 	ts.mu.Lock()
+	// Invalidate any in-flight attach so its late outcome cannot resurrect a
+	// detached tab; a user detach is a decision the attach must not reverse.
+	ts.invalidateReattachLocked()
 	term := ts.Terminal
 	ts.Terminal = nil
 	ts.Running = false
@@ -235,7 +241,7 @@ func (m *TerminalModel) SendToTerminal(s string) {
 	ts := m.getTerminal()
 	if ts != nil && ts.Terminal != nil {
 		if err := ts.Terminal.SendString(s); err != nil {
-			logging.Warn("Sidebar SendToTerminal failed: %v", err)
+			logging.Error("Sidebar SendToTerminal failed: %v", err)
 			ts.mu.Lock()
 			ts.Running = false
 			ts.Detached = true

@@ -212,3 +212,33 @@ func TestHandleToggleWorkspaceScript_NilWorkspaceIsInert(t *testing.T) {
 		t.Fatal("expected no command when no workspace is selected")
 	}
 }
+
+// TestHandleWorkspaceSetupComplete_BusyAndTeardownOutcomes pins the two new
+// admission outcomes as informational rather than errors: a duplicate setup
+// request reports the in-flight run, and a teardown rejection stays silent
+// because the removal itself reports its outcome.
+func TestHandleWorkspaceSetupComplete_BusyAndTeardownOutcomes(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+
+	t.Run("busy setup reports in-flight run", func(t *testing.T) {
+		app := &App{toast: common.NewToastModel()}
+		cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
+			Workspace: ws, Rerun: true, Err: process.ErrSetupBusy,
+		})
+		if cmd == nil {
+			t.Fatal("busy setup produced no toast")
+		}
+		if !strings.Contains(app.toast.View(), "Setup already running") {
+			t.Fatalf("expected an 'already running' toast, got %q", app.toast.View())
+		}
+	})
+
+	t.Run("teardown rejection is silent", func(t *testing.T) {
+		app := &App{toast: common.NewToastModel()}
+		if cmd := app.handleWorkspaceSetupComplete(messages.WorkspaceSetupComplete{
+			Workspace: ws, Err: process.ErrWorkspaceTeardown,
+		}); cmd != nil {
+			t.Fatal("teardown-rejected setup must not toast or error")
+		}
+	})
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,50 @@ var (
 	fakeAgentErr  error
 )
 
+// fakeAgentBuildDirPrefix marks the directories this test process creates and
+// owns for the shared fakeagent binary; the cleanup guard keys on it.
+const fakeAgentBuildDirPrefix = "amux-fakeagent-"
+
+// buildFakeAgentBinary owns the fakeagent build directory lifecycle: it creates
+// an amux-fakeagent-* directory under destRoot, runs the injected build step,
+// and removes the directory immediately if the build fails. On success the
+// directory is kept — the binary is process-shared, so process-level cleanup
+// (cleanupBuiltFakeAgent from TestMain) removes it after every test finishes.
+// It never creates or deletes caller-owned directories.
+func buildFakeAgentBinary(destRoot string, runBuild func(outPath string) error) (string, error) {
+	dir, err := os.MkdirTemp(destRoot, fakeAgentBuildDirPrefix+"*")
+	if err != nil {
+		return "", err
+	}
+	out := filepath.Join(dir, "fakeagent")
+	if err := runBuild(out); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return out, nil
+}
+
+// cleanupBuiltFakeAgent removes the shared fakeagent build directory after all
+// tests in the process finish. It is a no-op when no binary was built and
+// refuses paths outside the owned naming convention.
+func cleanupBuiltFakeAgent() error {
+	return cleanupOwnedFakeAgentDir(fakeAgentPath)
+}
+
+// cleanupOwnedFakeAgentDir removes the directory containing binPath after
+// checking it carries this process's owned naming convention. An empty path is
+// a no-op; an unrelated directory is refused, never removed.
+func cleanupOwnedFakeAgentDir(binPath string) error {
+	if binPath == "" {
+		return nil
+	}
+	dir := filepath.Dir(binPath)
+	if !strings.HasPrefix(filepath.Base(dir), fakeAgentBuildDirPrefix) {
+		return fmt.Errorf("refusing to remove unexpected fakeagent directory %q", dir)
+	}
+	return os.RemoveAll(dir)
+}
+
 // buildFakeAgent compiles internal/e2e/fakeagent once per test binary and returns
 // the resulting executable path. Reused by the full close-the-loop E2E test.
 func buildFakeAgent(t *testing.T) string {
@@ -29,16 +74,16 @@ func buildFakeAgent(t *testing.T) string {
 			fakeAgentErr = err
 			return
 		}
-		dir, err := os.MkdirTemp("", "amux-fakeagent-*")
+		out, err := buildFakeAgentBinary(os.TempDir(), func(outPath string) error {
+			cmd := exec.Command("go", "build", "-o", outPath, "./internal/e2e/fakeagent")
+			cmd.Dir = root
+			if combined, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("build fakeagent: %w\n%s", err, combined)
+			}
+			return nil
+		})
 		if err != nil {
 			fakeAgentErr = err
-			return
-		}
-		out := filepath.Join(dir, "fakeagent")
-		cmd := exec.Command("go", "build", "-o", out, "./internal/e2e/fakeagent")
-		cmd.Dir = root
-		if combined, err := cmd.CombinedOutput(); err != nil {
-			fakeAgentErr = fmt.Errorf("build fakeagent: %w\n%s", err, combined)
 			return
 		}
 		fakeAgentPath = out

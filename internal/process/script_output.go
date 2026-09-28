@@ -46,12 +46,10 @@ func (w *tailWriter) String() string {
 
 // ScriptOutput is the recorded tail of one lifecycle-script run — what the
 // script emitted and how it finished. Err is the Wait error's text
-// (empty on success).
-type ScriptOutput struct {
-	Text       string
-	Err        string
-	FinishedAt time.Time
-}
+// (empty on success). It aliases the data package's durable transcript
+// record: the persisted envelope schema (script_output_store.go) is owned
+// there, and the shared type keeps the JSON field names stable.
+type ScriptOutput = data.ScriptTranscript
 
 // scriptOutputKey scopes the record to a workspace+type so a workspace's
 // last setup, archive, and on-done transcripts coexist.
@@ -73,6 +71,9 @@ func (r *ScriptRunner) recordScriptOutput(ws *data.Workspace, scriptType ScriptT
 	r.mu.Lock()
 	r.lastOutput[scriptOutputKey(ws, scriptType)] = entry
 	r.mu.Unlock()
+	// Write-through outside r.mu: the fs write must not extend its hold time,
+	// and its own errors degrade to warnings inside.
+	r.persistScriptOutputs(ws)
 }
 
 // LastScriptOutputs returns every recorded lifecycle transcript for the
@@ -87,13 +88,49 @@ func (r *ScriptRunner) LastScriptOutputs(ws *data.Workspace) map[ScriptType]Scri
 	}
 	prefix := scriptWorkspaceKey(ws) + "|"
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	for key, entry := range r.lastOutput {
 		if rest, ok := strings.CutPrefix(key, prefix); ok {
 			out[ScriptType(rest)] = entry
 		}
 	}
+	r.mu.Unlock()
+	// Disk fallback fills types memory lacks. The fold re-reads lastOutput
+	// under r.mu and compares FinishedAt rather than trusting the pre-read
+	// copy — a record landing between the disk read and here is newer and
+	// must survive hydration.
+	if missing := missingScriptTypes(out); len(missing) > 0 {
+		disk := r.loadScriptOutputs(ws)
+		if hook := r.transcriptLoadHook; hook != nil {
+			hook()
+		}
+		r.mu.Lock()
+		for st, entry := range disk {
+			key := scriptOutputKey(ws, st)
+			cur, have := r.lastOutput[key]
+			if !have || cur.FinishedAt.Before(entry.FinishedAt) {
+				r.lastOutput[key] = entry
+				cur = entry
+			}
+			if prev, seen := out[st]; !seen || prev.FinishedAt.Before(cur.FinishedAt) {
+				out[st] = cur
+			}
+		}
+		r.mu.Unlock()
+	}
 	return out
+}
+
+// missingScriptTypes lists the lifecycle types absent from the set — the
+// fallback's trigger, so a workspace with only a setup transcript in memory
+// still picks up a persisted archive tail.
+func missingScriptTypes(have map[ScriptType]ScriptOutput) []ScriptType {
+	var missing []ScriptType
+	for _, st := range []ScriptType{ScriptSetup, ScriptArchive, ScriptOnDone} {
+		if _, ok := have[st]; !ok {
+			missing = append(missing, st)
+		}
+	}
+	return missing
 }
 
 // SetScriptExitListener installs the callback for asynchronous lifecycle

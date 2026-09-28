@@ -36,6 +36,11 @@ func (s *Service) RemoveProject(project *data.Project) tea.Cmd {
 	}
 }
 
+// stopProjectScripts drains every workspace's lifecycle work (in-flight setup,
+// on-done hooks, the run script — hosted sessions included) before the
+// project's metadata is removed. Each workspace's teardown gate is held for
+// the duration of its drain and released immediately after: remove keeps the
+// worktrees, so the gate does not need to outlive the stop.
 func (s *Service) stopProjectScripts(workspaces []data.Workspace) error {
 	if s == nil || s.scripts == nil {
 		return nil
@@ -46,9 +51,13 @@ func (s *Service) stopProjectScripts(workspaces []data.Workspace) error {
 		if !s.scripts.IsRunning(ws) {
 			continue
 		}
-		if err := s.scripts.Stop(ws); err != nil {
+		guard, err := s.scripts.BeginTeardown(ws)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("stop scripts for workspace %s: %w", ws.Name, err))
+			continue
 		}
+		// The worktree is kept — release admission rather than drop state.
+		guard.Finish(false)
 	}
 	return errors.Join(errs...)
 }

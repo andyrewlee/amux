@@ -13,10 +13,16 @@ make devcheck
 This runs:
 
 - `go vet ./...`
-- `go test` on all packages except `internal/tmux`, `internal/e2e`, and
-  `internal/app` (those run separately via a real-tmux skip check)
-- `golangci-lint run`
-- file length guard (`*.go` files must be <= 500 lines)
+- `make test` — `go test` on all packages except `internal/tmux`,
+  `internal/e2e`, `internal/app`, and `internal/pty` (the package list comes
+  from `scripts/test_pkgs.sh --exclude-app`), followed by `tmux-skip-check`,
+  which runs the excluded real-tmux packages and warns when they skip
+- `lint-config-drift` — fails if `.golangci.strict.yml` drops lines present
+  in `.golangci.yml`
+- `check-fmt-config` — fails if the Makefile `LOCAL_PREFIXES` no longer
+  mirrors `.golangci.yml`'s local-prefixes
+- `make lint` — `golangci-lint run`, `golangci-lint fmt --diff`, and the file
+  length guard (`*.go` files must be <= 500 lines)
 
 CI enforces the same lint checks in `.github/workflows/ci.yml`.
 

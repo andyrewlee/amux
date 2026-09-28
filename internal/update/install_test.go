@@ -2,12 +2,11 @@ package update
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/andyrewlee/amux/internal/shellutil"
 )
 
 func TestInstallBinary(t *testing.T) {
@@ -171,7 +170,10 @@ func TestInstallBinaryNonExecutableSourceInstallsExecutable(t *testing.T) {
 	}
 }
 
-func TestInstallBinaryBackupFails(t *testing.T) {
+// TestInstallBinaryBackupCopyFailsPreservesTarget: the backup is a COPY — a
+// failure leaves the live pathname holding the old binary, with the staged
+// file cleaned up and no partial backup left behind.
+func TestInstallBinaryBackupCopyFailsPreservesTarget(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	srcPath := filepath.Join(tmpDir, "new-amux")
@@ -183,30 +185,25 @@ func TestInstallBinaryBackupFails(t *testing.T) {
 		t.Fatalf("Failed to create dest: %v", err)
 	}
 
-	injected := errors.New("injected backup failure")
-	t.Cleanup(func() { renameFile = os.Rename })
-	var backupPath string
-	renameFile = func(oldpath, newpath string) error {
-		// Fail the backup-create rename: current binary -> .bak
-		if oldpath == destPath && isInstallBackupPath(tmpDir, filepath.Base(destPath), newpath) {
-			backupPath = newpath
-			return injected
+	injected := errors.New("injected backup source failure")
+	originalOpenSource := openCopySourceFile
+	t.Cleanup(func() { openCopySourceFile = originalOpenSource })
+	openCopySourceFile = func(name string) (io.ReadCloser, error) {
+		if name == destPath {
+			return nil, injected
 		}
-		return os.Rename(oldpath, newpath)
+		return originalOpenSource(name)
 	}
 
 	err := InstallBinary(srcPath, destPath)
-	if err == nil {
-		t.Fatal("InstallBinary() should have failed when backup rename fails")
+	if !errors.Is(err, injected) {
+		t.Fatalf("InstallBinary() error = %v, want wrapped backup-copy cause", err)
 	}
 	if !strings.Contains(err.Error(), "backing up current binary") {
 		t.Errorf("Expected error to mention backing up, got: %v", err)
 	}
-	if backupPath == "" {
-		t.Fatal("expected test to observe generated backup path")
-	}
 
-	// Current binary still exists with original content
+	// Live pathname never moved: still the old binary.
 	content, readErr := os.ReadFile(destPath)
 	if readErr != nil {
 		t.Fatalf("Current binary should still exist: %v", readErr)
@@ -215,13 +212,14 @@ func TestInstallBinaryBackupFails(t *testing.T) {
 		t.Errorf("Expected current binary to remain 'old', got %q", string(content))
 	}
 
-	// No backup file should exist
-	if _, statErr := os.Stat(destPath + ".bak"); !os.IsNotExist(statErr) {
-		t.Error("No fixed backup file should exist after backup rename failure")
-	}
+	// No staged or backup temp files remain.
+	assertNoInstallTemps(t, tmpDir, filepath.Base(destPath))
 }
 
-func TestInstallBinarySwapFailsRestoreSucceeds(t *testing.T) {
+// TestInstallBinaryRenameFailsPreservesTarget: the sole replacement rename
+// fails — the old binary was never moved, so there is nothing to restore;
+// the error wraps the cause and both temp files are cleaned up.
+func TestInstallBinaryRenameFailsPreservesTarget(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	srcPath := filepath.Join(tmpDir, "new-amux")
@@ -233,106 +231,51 @@ func TestInstallBinarySwapFailsRestoreSucceeds(t *testing.T) {
 		t.Fatalf("Failed to create dest: %v", err)
 	}
 
-	injected := errors.New("injected swap failure")
+	injected := errors.New("injected rename failure")
 	t.Cleanup(func() { renameFile = os.Rename })
-	var stagedPath string
+	var calls [][2]string
 	renameFile = func(oldpath, newpath string) error {
-		// Fail only the swap: staged -> current binary. Restore is allowed.
+		calls = append(calls, [2]string{oldpath, newpath})
 		if newpath == destPath && isInstallStagedPath(tmpDir, oldpath) {
-			stagedPath = oldpath
 			return injected
 		}
 		return os.Rename(oldpath, newpath)
 	}
 
 	err := InstallBinary(srcPath, destPath)
-	if err == nil {
-		t.Fatal("InstallBinary() should have failed when swap rename fails")
-	}
-	if !strings.Contains(err.Error(), "previous binary restored") {
-		t.Errorf("Expected error to mention restore, got: %v", err)
+	if !errors.Is(err, injected) {
+		t.Fatalf("InstallBinary() error = %v, want wrapped rename cause", err)
 	}
 
-	// Target restored to original content
 	content, readErr := os.ReadFile(destPath)
 	if readErr != nil {
-		t.Fatalf("Target should be restored: %v", readErr)
+		t.Fatalf("Current binary should still exist: %v", readErr)
 	}
 	if string(content) != "old" {
-		t.Errorf("Expected target restored to 'old', got %q", string(content))
+		t.Errorf("Expected current binary to remain 'old', got %q", string(content))
 	}
-
-	// Staged file cleaned up by defer
-	if stagedPath == "" {
-		t.Fatal("expected test to observe generated staged path")
+	// Exactly one rename was attempted — there is no restore path to exercise.
+	if len(calls) != 1 {
+		t.Fatalf("rename calls = %v, want exactly the staged→target attempt", calls)
 	}
-	if _, statErr := os.Stat(stagedPath); !os.IsNotExist(statErr) {
-		t.Error("Staged file should have been cleaned up")
-	}
+	assertNoInstallTemps(t, tmpDir, filepath.Base(destPath))
 }
 
-func TestInstallBinarySwapFailsRestoreFails(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	srcPath := filepath.Join(tmpDir, "new-amux")
-	if err := os.WriteFile(srcPath, []byte("new"), 0o755); err != nil {
-		t.Fatalf("Failed to create source: %v", err)
+// assertNoInstallTemps fails when the install's staging or backup temp files
+// still exist in dir.
+func assertNoInstallTemps(t *testing.T, dir, base string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", dir, err)
 	}
-	destPath := filepath.Join(tmpDir, "amux")
-	if err := os.WriteFile(destPath, []byte("old"), 0o755); err != nil {
-		t.Fatalf("Failed to create dest: %v", err)
-	}
-
-	swapErr := errors.New("injected swap failure")
-	restoreErr := errors.New("injected restore failure")
-	t.Cleanup(func() { renameFile = os.Rename })
-	var stagedPath string
-	var backupPath string
-	renameFile = func(oldpath, newpath string) error {
-		// Fail the swap (staged -> current) and the restore (backup -> current).
-		if newpath == destPath && isInstallStagedPath(tmpDir, oldpath) {
-			stagedPath = oldpath
-			return swapErr
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".amux-upgrade-new-") || strings.HasPrefix(e.Name(), "."+base+".bak-") {
+			t.Errorf("leftover install temp file: %s", e.Name())
 		}
-		if newpath == destPath && isInstallBackupPath(tmpDir, filepath.Base(destPath), oldpath) {
-			backupPath = oldpath
-			return restoreErr
-		}
-		return os.Rename(oldpath, newpath)
-	}
-
-	err := InstallBinary(srcPath, destPath)
-	if err == nil {
-		t.Fatal("InstallBinary() should have failed when both swap and restore fail")
-	}
-	if stagedPath == "" {
-		t.Fatal("expected test to observe generated staged path")
-	}
-	if backupPath == "" {
-		t.Fatal("expected test to observe generated backup path")
-	}
-	if !strings.Contains(err.Error(), backupPath) {
-		t.Errorf("Expected error to name backup path %q, got: %v", backupPath, err)
-	}
-	wantHint := "mv " + shellutil.ShellQuote(backupPath) + " " + shellutil.ShellQuote(destPath)
-	if !strings.Contains(err.Error(), wantHint) {
-		t.Errorf("Expected error to include quoted manual recovery hint %q, got: %v", wantHint, err)
-	}
-
-	// Backup file still holds the original binary content
-	content, readErr := os.ReadFile(backupPath)
-	if readErr != nil {
-		t.Fatalf("Backup file should still exist: %v", readErr)
-	}
-	if string(content) != "old" {
-		t.Errorf("Expected backup to retain 'old', got %q", string(content))
 	}
 }
 
 func isInstallStagedPath(dir, path string) bool {
 	return filepath.Dir(path) == dir && strings.HasPrefix(filepath.Base(path), ".amux-upgrade-new-")
-}
-
-func isInstallBackupPath(dir, base, path string) bool {
-	return filepath.Dir(path) == dir && strings.HasPrefix(filepath.Base(path), "."+base+".bak-")
 }

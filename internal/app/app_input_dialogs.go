@@ -269,6 +269,24 @@ func dialogResultSaveTranscript(a *App, result common.DialogResult, dlg dialogCo
 	}
 }
 
+// dialogResultBrowseTranscripts opens the picked transcript in the
+// configured file-viewer tab, hosted on the active workspace (the gate in
+// browseTranscriptsCommand guarantees one was selected at open time; the
+// nil-check covers the workspace being deleted while the picker was up).
+func dialogResultBrowseTranscripts(a *App, result common.DialogResult, _ dialogContext) tea.Cmd {
+	path := strings.TrimSpace(result.Value)
+	if path == "" {
+		return nil
+	}
+	ws := a.activeWorkspace
+	if ws == nil {
+		return a.toast.ShowWarning("Select a workspace to host the transcript viewer")
+	}
+	return func() tea.Msg {
+		return messages.OpenFileInVim{Path: path, Workspace: ws}
+	}
+}
+
 func dialogResultRemoveProject(_ *App, _ common.DialogResult, dlg dialogContext) tea.Cmd {
 	if dlg.project == nil {
 		return nil
@@ -434,4 +452,20 @@ func (a *App) handleOpenFileInVim(msg messages.OpenFileInVim) tea.Cmd {
 	newCenter, cmd := a.center.Update(msg)
 	a.center = newCenter
 	return cmd
+}
+
+// dialogResultRunSessionPicker opens the run-output viewer pinned to the
+// picked session. dlg.runSessions is the enumeration the picker's Index
+// addresses; a vanished or never-recorded selection reports rather than
+// panicking.
+func dialogResultRunSessionPicker(a *App, result common.DialogResult, dlg dialogContext) tea.Cmd {
+	if !result.Confirmed {
+		return nil
+	}
+	if result.Index < 0 || result.Index >= len(dlg.runSessions) || dlg.workspace == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: errors.New("run session selection out of range"), Context: errorContext(errorServiceDialog, "selecting run session")}
+		}
+	}
+	return a.fetchRunOutputCmd(a.overlays.runOutputToken, dlg.workspace, dlg.runSessions[result.Index])
 }

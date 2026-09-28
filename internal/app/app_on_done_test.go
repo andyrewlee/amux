@@ -3,12 +3,14 @@ package app
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/ui/dashboard"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -141,6 +143,173 @@ func TestOnDoneHookCmd_ErrorReportsOnce(t *testing.T) {
 	}
 	if res.SessionName != session || res.Err == nil {
 		t.Fatalf("result = %+v, want session %q with error", res, session)
+	}
+}
+
+// onDoneActivityApp builds an App with both the on-done workspace registry and
+// owner-capable tmux-activity bookkeeping, so tests can drive full
+// handleTmuxActivityResult/applyTmuxActivityPayload sequences.
+func onDoneActivityApp(ws *data.Workspace) *App {
+	return &App{
+		projects:  []data.Project{{Workspaces: []data.Workspace{*ws}}},
+		dashboard: dashboard.New(),
+		tmuxActivity: tmuxActivityState{
+			sessionStates:      map[string]*activity.SessionState{},
+			agentStateBaseline: map[string]activity.AgentState{},
+			activeWorkspaceIDs: map[string]bool{},
+			agentStates:        map[string]activity.AgentState{},
+			settled:            true,
+		},
+	}
+}
+
+// TestOnDoneHook_FirstObservationDoneDoesNotFire proves the restart case end
+// to end: an owner scan that first observes an already-finished agent
+// publishes the done tag but cannot fire the hook — there is no locally
+// observed Working edge to complete.
+func TestOnDoneHook_FirstObservationDoneDoesNotFire(t *testing.T) {
+	ws := &data.Workspace{Name: "ws", Repo: "/repo", Root: "/repo/ws"}
+	fires := stubOnDoneHook(t, nil)
+	recorded := fakeSetAgentStateTag(t, nil)
+	app := onDoneActivityApp(ws)
+	session := "amux-" + string(ws.ID()) + "-tab-1"
+	now := time.Now()
+
+	drainCmd(app.applyTmuxActivityPayload(tmuxActivityResult{
+		ScannerOwner:       true,
+		Now:                now,
+		ActiveWorkspaceIDs: map[string]bool{},
+		AgentStates:        map[string]activity.AgentState{},
+		SessionStates: map[string]*activity.SessionState{
+			session: {Initialized: true, LastWorkingAt: now},
+		},
+	}))
+
+	if len(*fires) != 0 {
+		t.Fatalf("first-observation done must not fire the hook, got %#v", *fires)
+	}
+	if len(*recorded) != 1 || (*recorded)[0].value != "done" {
+		t.Fatalf("first observation must still publish the done tag, got %#v", *recorded)
+	}
+}
+
+// TestOnDoneHook_ObservedWorkingToDoneFiresOnce drives the genuine edge:
+// Working is accepted first (published, no hook), the next scan sees Done, and
+// the hook fires exactly once — a repeat quiet scan does not refire.
+func TestOnDoneHook_ObservedWorkingToDoneFiresOnce(t *testing.T) {
+	ws := &data.Workspace{Name: "ws", Repo: "/repo", Root: "/repo/ws"}
+	fires := stubOnDoneHook(t, nil)
+	app := onDoneActivityApp(ws)
+	session := "amux-" + string(ws.ID()) + "-tab-1"
+	t0 := time.Now()
+
+	ownerScan := func(now time.Time, st *activity.SessionState) tmuxActivityResult {
+		return tmuxActivityResult{
+			ScannerOwner:       true,
+			Now:                now,
+			ActiveWorkspaceIDs: map[string]bool{},
+			AgentStates:        map[string]activity.AgentState{},
+			SessionStates:      map[string]*activity.SessionState{session: st},
+		}
+	}
+	drainCmd(app.applyTmuxActivityPayload(ownerScan(t0, &activity.SessionState{
+		Initialized: true, Score: activity.ScoreThreshold, LastWorkingAt: t0,
+	})))
+	if len(*fires) != 0 {
+		t.Fatalf("working first-observation must not fire, got %#v", *fires)
+	}
+
+	drainCmd(app.applyTmuxActivityPayload(ownerScan(t0.Add(time.Second), &activity.SessionState{
+		Initialized: true, LastWorkingAt: t0.Add(time.Second),
+	})))
+	if len(*fires) != 1 || (*fires)[0].sessionName != session {
+		t.Fatalf("working→done edge must fire the hook exactly once, got %#v", *fires)
+	}
+
+	drainCmd(app.applyTmuxActivityPayload(ownerScan(t0.Add(2*time.Second), &activity.SessionState{
+		Initialized: true, LastWorkingAt: t0.Add(time.Second),
+	})))
+	if len(*fires) != 1 {
+		t.Fatalf("steady done must not refire, got %#v", *fires)
+	}
+}
+
+// TestOnDoneHook_OwnerEpochResetDoesNotReplay proves a follower→owner epoch
+// transition clears the semantic baseline: the post-transition first
+// observation republishes the tag but cannot replay a prior epoch's on-done.
+func TestOnDoneHook_OwnerEpochResetDoesNotReplay(t *testing.T) {
+	ws := &data.Workspace{Name: "ws", Repo: "/repo", Root: "/repo/ws"}
+	fires := stubOnDoneHook(t, nil)
+	app := onDoneActivityApp(ws)
+	app.tmuxActivity.ownershipSet = true
+	app.tmuxActivity.scannerOwner = true
+	app.tmuxActivity.ownerEpoch = 1
+	session := "amux-" + string(ws.ID()) + "-tab-1"
+	t0 := time.Now()
+	app.tmuxActivity.agentStateBaseline[session] = activity.StateDone
+	app.tmuxActivity.sessionStates[session] = &activity.SessionState{Initialized: true, LastWorkingAt: t0}
+	app.tmuxActivity.token = 3
+
+	// New ownership epoch: baseline + hysteresis reset inside the same result
+	// handler, then this scan's payload applies — the session classifies Done
+	// as a first observation, which must not fire.
+	app.tmuxActivity.scanInFlight = true
+	app.handleTmuxActivityResult(tmuxActivityResult{
+		Token:              3,
+		RoleKnown:          true,
+		ScannerOwner:       true,
+		ScannerEpoch:       2,
+		Now:                t0.Add(time.Second),
+		ActiveWorkspaceIDs: map[string]bool{},
+		AgentStates:        map[string]activity.AgentState{},
+		SessionStates:      map[string]*activity.SessionState{session: {Initialized: true, LastWorkingAt: t0}},
+	})
+
+	if len(*fires) != 0 {
+		t.Fatalf("post-transition first observation must not replay on-done, got %#v", *fires)
+	}
+	if got := app.tmuxActivity.agentStateBaseline[session]; got != activity.StateDone {
+		t.Fatalf("baseline must reseed to the observed state, got %v", got)
+	}
+}
+
+// TestOnDoneHook_PruneThenReappearIsFreshObservation proves a pruned session's
+// baseline entry is dropped, so a session that disappears and reappears (new
+// tab, recycled name) cannot inherit a fabricated Working edge — but a real
+// new working cycle on it still fires once.
+func TestOnDoneHook_PruneThenReappearIsFreshObservation(t *testing.T) {
+	ws := &data.Workspace{Name: "ws", Repo: "/repo", Root: "/repo/ws"}
+	fires := stubOnDoneHook(t, nil)
+	app := onDoneActivityApp(ws)
+	session := "amux-" + string(ws.ID()) + "-tab-1"
+	t0 := time.Now()
+	app.tmuxActivity.agentStateBaseline[session] = activity.StateWorking
+	app.tmuxActivity.sessionStates[session] = &activity.SessionState{Score: activity.ScoreThreshold}
+
+	// The session leaves the retained set entirely (pruned): baseline drops.
+	drainCmd(app.applyTmuxActivityPayload(tmuxActivityResult{
+		ScannerOwner:       true,
+		Now:                t0,
+		ActiveWorkspaceIDs: map[string]bool{},
+		AgentStates:        map[string]activity.AgentState{},
+		SessionStates:      map[string]*activity.SessionState{},
+	}))
+	if _, ok := app.tmuxActivity.agentStateBaseline[session]; ok {
+		t.Fatal("baseline must drop pruned sessions")
+	}
+
+	// Reappearing already-done: first observation, no hook.
+	drainCmd(app.applyTmuxActivityPayload(tmuxActivityResult{
+		ScannerOwner:       true,
+		Now:                t0.Add(time.Second),
+		ActiveWorkspaceIDs: map[string]bool{},
+		AgentStates:        map[string]activity.AgentState{},
+		SessionStates: map[string]*activity.SessionState{
+			session: {Initialized: true, LastWorkingAt: t0},
+		},
+	}))
+	if len(*fires) != 0 {
+		t.Fatalf("reappeared session's first done observation must not fire, got %#v", *fires)
 	}
 }
 

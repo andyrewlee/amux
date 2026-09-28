@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -89,6 +90,18 @@ func truncateDisplayName(name string) string {
 	return common.TruncateLeftCells(name, maxWidth, "...", 0)
 }
 
+// assistantConfigSnapshot copies the assistant's launch config on the calling
+// (UI) goroutine. Every dispatched spawn command must close over this value —
+// the AgentManager's convenience lookup reads a shared map that Settings
+// writes on the UI goroutine, so resolving inside a tea.Cmd races it.
+func assistantConfigSnapshot(cfg *config.Config, assistant string) (config.AssistantConfig, bool) {
+	if cfg == nil {
+		return config.AssistantConfig{}, false
+	}
+	c, ok := cfg.Assistants[assistant]
+	return c, ok
+}
+
 // createAgentTab creates a new agent tab
 func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
 	return m.createAgentTabWithSession(assistant, ws, "", "", true)
@@ -98,6 +111,13 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 	if ws == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating agent"}
+		}
+	}
+	assistantCfg, ok := assistantConfigSnapshot(m.config, assistant)
+	if !ok {
+		err := fmt.Errorf("unknown agent type: %s", assistant)
+		return func() tea.Msg {
+			return messages.Error{Err: err, Context: "creating agent"}
 		}
 	}
 
@@ -127,7 +147,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			ProjectName:   data.ProjectNameForRepo(ws.Repo),
 		}
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
-		agent, err := m.agentManager.CreateAgentWithTags(ws, appPty.AgentType(assistant), sessionName, ptyRows, ptyCols, tags)
+		agent, err := createAgentWithConfigFn(m.agentManager, ws, appPty.AgentType(assistant), sessionName, ptyRows, ptyCols, tags, assistantCfg)
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)
 			return messages.Error{Err: err, Context: "creating agent"}
@@ -289,7 +309,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 					return
 				}
 				if err := agentTerm.SendString(string(data)); err != nil {
-					logging.Warn("Response write failed for tab %s: %v", tabID, err)
+					logging.Error("Response write failed for tab %s: %v", tabID, err)
 					if m.msgSink != nil {
 						m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 					}
@@ -359,7 +379,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				return
 			}
 			if err := agentTerm.SendString(string(data)); err != nil {
-				logging.Warn("Response write failed for tab %s: %v", tabID, err)
+				logging.Error("Response write failed for tab %s: %v", tabID, err)
 				if m.msgSink != nil {
 					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 				}

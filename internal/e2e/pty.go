@@ -98,15 +98,7 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 	cmd.Dir = root
 	// creack/pty sets Setsid=true; Setpgid here can cause EPERM on start (macOS/BSD).
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.Env = append(stripGitEnv(os.Environ()),
-		"HOME="+home,
-		"TERM=xterm-256color",
-		"AMUX_PROFILE=0",
-		"AMUX_PROFILE_INTERVAL_MS=0",
-	)
-	if len(opts.Env) > 0 {
-		cmd.Env = append(cmd.Env, opts.Env...)
-	}
+	cmd.Env = childEnv(os.Environ(), home, opts.Env)
 
 	ptyRows, ptyCols, _ := appPty.WinsizeFromInts(opts.Height, opts.Width)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
@@ -272,6 +264,30 @@ func (s *PTYSession) WaitForExit(timeout time.Duration) error {
 		if s.waitErr != nil {
 			return fmt.Errorf("wait for session process: %w", s.waitErr)
 		}
+		return nil
+	case <-timer.C:
+		return errors.New("timeout waiting for session exit")
+	}
+}
+
+// Kill hard-kills the app process (SIGKILL) without going through the quit
+// dialog — the unclean-exit fixture: tmux sessions outlive it and any
+// in-flight lifecycle work is abandoned mid-flight, which is exactly what
+// restart recovery is for.
+func (s *PTYSession) Kill() error {
+	if s.cmd == nil || s.cmd.Process == nil {
+		return errors.New("pty session has no process")
+	}
+	return s.cmd.Process.Kill()
+}
+
+// WaitForTermination waits for process exit without asserting a clean status —
+// the counterpart to Kill, where the expected waitErr is a signal error.
+func (s *PTYSession) WaitForTermination(timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-s.procDone:
 		return nil
 	case <-timer.C:
 		return errors.New("timeout waiting for session exit")

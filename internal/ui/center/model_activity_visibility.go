@@ -1,7 +1,7 @@
 package center
 
 import (
-	"crypto/sha256"
+	"hash/fnv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -194,7 +194,7 @@ func (m *Model) noteVisibleActivityLockedWithOutput(
 	return sessionName, now.UnixMilli(), true
 }
 
-func visibleScreenDigest(term *vterm.VTerm) [16]byte {
+func visibleScreenDigest(term *vterm.VTerm) uint64 {
 	if term == nil {
 		return visibleDigestHash(nil)
 	}
@@ -205,9 +205,11 @@ func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 	// Feed each row's runes straight into the hash instead of building a
 	// full-screen string first: the byte stream is identical (same UTF-8
 	// encoding, same trailing-blank trimming, same '\n' per row), but this
-	// avoids two full-screen allocations on every PTY flush.
+	// avoids two full-screen allocations on every PTY flush. FNV-1a replaces
+	// SHA-256 — the digest only answers "did the live screen change", an
+	// in-process equality check that needs no cryptographic properties.
 	screen, _ := term.RenderBuffers()
-	hash := sha256.New()
+	hash := fnv.New64a()
 	var scratch []byte
 	for _, row := range screen {
 		last := len(row) - 1
@@ -239,15 +241,11 @@ func visibleScreenDigest(term *vterm.VTerm) [16]byte {
 		scratch = append(scratch, '\n')
 		hash.Write(scratch)
 	}
-	var sum [sha256.Size]byte
-	var digest [16]byte
-	copy(digest[:], hash.Sum(sum[:0])[:16])
-	return digest
+	return hash.Sum64()
 }
 
-func visibleDigestHash(content []byte) [16]byte {
-	hash := sha256.Sum256(content)
-	var digest [16]byte
-	copy(digest[:], hash[:16])
-	return digest
+func visibleDigestHash(content []byte) uint64 {
+	hash := fnv.New64a()
+	hash.Write(content)
+	return hash.Sum64()
 }

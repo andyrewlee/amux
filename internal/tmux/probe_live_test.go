@@ -2,8 +2,12 @@ package tmux
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 // These exercise ProbeSession and the pane-targeted capture helpers against a
@@ -152,9 +156,17 @@ func TestProbeSession_MatchesDedicatedHelpers(t *testing.T) {
 	createSession(t, opts, "probe", "sleep 1.2; echo settled; sleep 60")
 	probe := waitForActivityAfterCreation(t, opts, "probe")
 
-	createdAt, err := SessionCreatedAt("probe", opts)
+	// Independent read of #{session_created}; the package-level SessionCreatedAt
+	// helper was removed, so the test reads the field directly.
+	cmd, cancel := tmuxCommand(opts, "display-message", "-p", "-t", "probe", "#{session_created}")
+	out, err := runTmuxCmdCombined(cmd)
+	cancel()
+	if err != nil {
+		t.Fatalf("display-message session_created: %v", err)
+	}
+	createdAt, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
 	if err != nil || createdAt != probe.CreatedAt {
-		t.Errorf("CreatedAt: probe=%d helper=%d (err %v)", probe.CreatedAt, createdAt, err)
+		t.Errorf("CreatedAt: probe=%d direct=%d (err %v)", probe.CreatedAt, createdAt, err)
 	}
 	// Pin that the two stamps really did diverge, so this test cannot quietly
 	// degrade into comparing one value against itself.
@@ -278,14 +290,10 @@ func TestProbeSession_PaneMetaSurvivesAltScreen(t *testing.T) {
 // racing them.
 func waitForPaneMeta(t *testing.T, opts Options, session string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if probe, err := ProbeSession(session, opts); err == nil && probe.PaneMeta.ModeState.AltScreen {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("pane for session %q never entered alt screen", session)
+	testutil.Eventually(t, 5*time.Second, 20*time.Millisecond, func() bool {
+		probe, err := ProbeSession(session, opts)
+		return err == nil && probe.PaneMeta.ModeState.AltScreen
+	}, "pane for session %q never entered alt screen", session)
 }
 
 // waitForActivityAfterCreation waits until the session reports window activity
@@ -293,14 +301,14 @@ func waitForPaneMeta(t *testing.T, opts Options, session string) {
 // distinguishes the two fields.
 func waitForActivityAfterCreation(t *testing.T, opts Options, session string) SessionProbe {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		probe, err := ProbeSession(session, opts)
-		if err == nil && probe.CreatedAt > 0 && probe.LatestActivity > probe.CreatedAt {
-			return probe
+	var probe SessionProbe
+	testutil.Eventually(t, 10*time.Second, 50*time.Millisecond, func() bool {
+		p, err := ProbeSession(session, opts)
+		if err == nil && p.CreatedAt > 0 && p.LatestActivity > p.CreatedAt {
+			probe = p
+			return true
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("session %q never reported activity later than its creation stamp", session)
-	return SessionProbe{}
+		return false
+	}, "session %q never reported activity later than its creation stamp", session)
+	return probe
 }

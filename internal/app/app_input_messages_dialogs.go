@@ -36,10 +36,12 @@ func (a *App) presentFilePicker(fp *common.FilePicker) {
 	fp.Show()
 }
 
-// handleShowAddProjectDialog shows the add project file picker.
-func (a *App) handleShowAddProjectDialog() {
+// handleShowAddProjectDialog shows the add project file picker. When the open
+// runs synchronously the picker's first directory read is issued right away;
+// a deferred open picks the load up through the picker's own Update self-issue.
+func (a *App) handleShowAddProjectDialog() tea.Cmd {
 	if a.dialogOpen() {
-		return
+		return nil
 	}
 	a.requestOverlayOpen(func() {
 		a.clearPendingWorkspaceCreate()
@@ -53,6 +55,10 @@ func (a *App) handleShowAddProjectDialog() {
 		a.filePicker.SetPrimaryActionLabel("Add as project")
 		a.presentFilePicker(a.filePicker)
 	})
+	if a.filePicker != nil && a.filePicker.Visible() {
+		return a.filePicker.LoadCmd()
+	}
+	return nil
 }
 
 // handleShowCreateWorkspaceDialog shows the create workspace dialog.

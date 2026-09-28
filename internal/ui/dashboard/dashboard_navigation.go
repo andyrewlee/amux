@@ -223,26 +223,6 @@ func (m *Model) rowIndexAt(screenX, screenY int) (int, bool) {
 	return -1, false
 }
 
-// ackDone marks a workspace's "done" indicator as seen so it stops rendering —
-// both the live Done state and the latched donePending badge.
-func (m *Model) ackDone(wsID string) {
-	if wsID == "" {
-		return
-	}
-	if m.doneAcked == nil {
-		m.doneAcked = make(map[string]bool)
-	}
-	m.doneAcked[wsID] = true
-	delete(m.donePending, wsID)
-}
-
-// doneBadgeVisible reports whether the done badge renders for a workspace: the
-// live Done state or the unacked latch, suppressed once the user has seen it.
-func (m *Model) doneBadgeVisible(wsID string) bool {
-	return (m.agentStates[wsID] == data.StateDone || m.donePending[wsID]) &&
-		!m.doneAcked[wsID]
-}
-
 // JumpToNextAttention moves the cursor to the next row whose done badge is
 // visible — the same predicate the renderer uses (row.ActivityWorkspaceID is
 // the precomputed key, covering project main workspaces and shelved rows

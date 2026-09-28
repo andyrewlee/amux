@@ -19,7 +19,7 @@ func lockRegistryFile(lockPath string, shared bool) (*os.File, error) {
 	}
 
 	for {
-		root, file, lockName, err := openRegistryLockRoot(lockPath)
+		root, file, lockName, err := openRegistryLockRootRetry(lockPath)
 		if err != nil {
 			return nil, err
 		}

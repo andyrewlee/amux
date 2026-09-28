@@ -107,6 +107,39 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts := tab.State
 	termWidth, termHeight := m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
 	ts.mu.Lock()
+	if !ts.reattachAttemptCurrentLocked(msg.Epoch) {
+		// A newer attempt owns the tab now (or the attempt was invalidated by
+		// detach/teardown/sweep). Applying this would overwrite the newer
+		// attachment; release the orphaned client instead. If the incoming
+		// pointer somehow is the accepted client (a duplicated result), never
+		// close it out from under the live terminal.
+		current := ts.Terminal
+		ts.mu.Unlock()
+		logging.Warn("Dropping superseded sidebar attach result for tab %s (epoch %d)", tab.ID, msg.Epoch)
+		if msg.Terminal != nil && msg.Terminal != current {
+			closeTerminalForSidebar(msg.Terminal, "superseded attach result")
+		}
+		return nil
+	}
+	if msg.Terminal == nil {
+		// A current-attempt success with no terminal is a failed attach:
+		// release the attempt so the tab can be retried instead of wedging,
+		// and surface it like any other attach failure.
+		ts.Running = false
+		ts.finishReattachLocked()
+		ts.mu.Unlock()
+		logging.Warn("Sidebar attach for tab %s returned no terminal; releasing attempt", tab.ID)
+		return func() tea.Msg {
+			return messages.Toast{Message: "Reattach failed: no terminal returned", Level: messages.ToastWarning}
+		}
+	}
+	// A distinct client still held from before this attempt (e.g. a terminal
+	// left over by a PTY-lost detach) is obsolete the moment the new client
+	// is accepted: stop the reader and close it outside the mutex below.
+	obsolete := ts.Terminal
+	if obsolete == msg.Terminal {
+		obsolete = nil
+	}
 	if ts.VTerm == nil {
 		ts.VTerm = vterm.New(termWidth, termHeight)
 	}
@@ -133,7 +166,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.Running = true
 	ts.Detached = false
 	ts.UserDetached = false
-	ts.Reattach.InFlight = false
+	ts.finishReattachLocked()
 	ts.SessionName = msg.SessionName
 	ts.PendingOutput = nil
 	ts.NoiseTrailing = nil
@@ -141,16 +174,21 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.lastWidth = termWidth
 	ts.lastHeight = termHeight
 	ts.mu.Unlock()
-	if msg.Terminal != nil {
-		t := msg.Terminal
-		ts.VTerm.SetResponseWriter(func(data []byte) {
-			if t != nil {
-				_, _ = t.Write(data)
-			}
-		})
-		if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
-			_ = setTerminalSizeFn(msg.Terminal, ptyRows, ptyCols)
+	if obsolete != nil {
+		// Stop the reader before closing the superseded client: the reader
+		// resolves ts.Terminal live, so the new reader started below must be
+		// the only one touching the accepted client.
+		m.stopPTYReader(ts)
+		closeTerminalForSidebar(obsolete, "replaced by newer attach")
+	}
+	t := msg.Terminal
+	ts.VTerm.SetResponseWriter(func(data []byte) {
+		if t != nil {
+			_, _ = t.Write(data)
 		}
+	})
+	if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
+		_ = setTerminalSizeFn(t, ptyRows, ptyCols)
 	}
 	return m.startPTYReader(wsID, tab.ID)
 }
@@ -161,8 +199,14 @@ func (m *TerminalModel) handleReattachFailed(msg SidebarTerminalReattachFailed) 
 	if tab != nil && tab.State != nil {
 		ts := tab.State
 		ts.mu.Lock()
+		if !ts.reattachAttemptCurrentLocked(msg.Epoch) {
+			// A stale attempt's failure says nothing about the newer one:
+			// no state change and no misleading failure toast.
+			ts.mu.Unlock()
+			return nil
+		}
 		ts.Running = false
-		ts.Reattach.InFlight = false
+		ts.finishReattachLocked()
 		if msg.Stopped {
 			ts.Detached = false
 		}

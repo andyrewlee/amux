@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -219,6 +220,30 @@ func (a *App) launchPendingAgent(ws *data.Workspace) tea.Cmd {
 // handleWorkspaceSetupComplete handles the WorkspaceSetupComplete message.
 func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) tea.Cmd {
 	if msg.Err != nil {
+		// No setup configured is benign: most workspaces have none, so the
+		// automatic create/restore run stays silent. A user-triggered re-run
+		// (msg.Rerun) still answers — the key press did nothing, say so.
+		if errors.Is(msg.Err, process.ErrNoScriptConfigured) {
+			if msg.Rerun && msg.Workspace != nil {
+				return a.toast.ShowInfo("No setup script configured for " + msg.Workspace.Name)
+			}
+			return nil
+		}
+		// A second setup request while one is in flight is informational, not
+		// an error — the first run is authoritative and still going.
+		if errors.Is(msg.Err, process.ErrSetupBusy) {
+			if msg.Workspace != nil {
+				return a.toast.ShowInfo("Setup already running for " + msg.Workspace.Name)
+			}
+			return nil
+		}
+		// A teardown rejection means the workspace was being removed — the
+		// delete/shelve already reports its own outcome. Same for a setup the
+		// teardown gate canceled mid-flight: deliberate cancellation is not a
+		// failure worth an error toast.
+		if errors.Is(msg.Err, process.ErrWorkspaceTeardown) || errors.Is(msg.Err, context.Canceled) {
+			return nil
+		}
 		// Distinguish a trust skip (the repo's .amux/workspaces.json scripts were
 		// deliberately not run because the repo isn't trusted yet) from a genuine
 		// setup failure, so the user knows nothing executed and why.
@@ -237,6 +262,9 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 			return common.SafeBatch(toastCmd, dialogCmd)
 		}
 		return common.ReportError(errorContext(errorServiceWorkspace, "running setup"), msg.Err, fmt.Sprintf("Setup failed for %s: %v", msg.Workspace.Name, msg.Err))
+	}
+	if msg.Rerun && msg.Workspace != nil {
+		return a.toast.ShowInfo("Setup completed for " + msg.Workspace.Name)
 	}
 	return nil
 }

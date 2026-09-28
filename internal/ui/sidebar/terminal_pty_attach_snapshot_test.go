@@ -172,7 +172,7 @@ func TestAttachToSession_CapturesReattachSnapshotBeforeAttach(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	termWidth, termHeight := m.terminalContentSize()
 
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-reattach"), "session-1", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-reattach"), "session-1", true, "reattach", 1)()
 	reattach, ok := msg.(SidebarTerminalReattachResult)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)

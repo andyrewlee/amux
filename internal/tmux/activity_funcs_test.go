@@ -15,7 +15,7 @@ import (
 // ContentHash is fully pure and is exercised exhaustively.
 //
 // The subprocess-backed happy paths (sessionLatestActivitySeconds with a real
-// session, SessionActiveWithin/SessionLatestActivity against live windows,
+// session, SessionLatestActivity against live windows,
 // ActiveAgentSessionsByActivity, SetMonitorActivityOn and SetStatusOff) run
 // behind skipIfNoTmux against an isolated tmux server via testServer, mirroring
 // the conventions in tmux_integration_test.go. They use real read-back
@@ -33,30 +33,6 @@ func TestSessionLatestActivitySeconds_EmptyName(t *testing.T) {
 	}
 	if got != 0 {
 		t.Fatalf("expected 0 latest activity for empty name, got %d", got)
-	}
-}
-
-func TestSessionActiveWithin_GuardsReturnInactive(t *testing.T) {
-	tests := []struct {
-		name    string
-		session string
-		window  time.Duration
-	}{
-		{name: "empty session", session: "", window: time.Minute},
-		{name: "zero window", session: "sess", window: 0},
-		{name: "negative window", session: "sess", window: -time.Second},
-		{name: "empty session and zero window", session: "", window: 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			active, err := SessionActiveWithin(tt.session, tt.window, Options{})
-			if err != nil {
-				t.Fatalf("expected nil error, got %v", err)
-			}
-			if active {
-				t.Fatalf("expected inactive for guarded input, got active")
-			}
-		})
 	}
 }
 
@@ -229,31 +205,6 @@ func TestSessionLatestActivitySeconds_MissingSession(t *testing.T) {
 	}
 	if latest != 0 {
 		t.Fatalf("expected 0 latest activity for missing session, got %d", latest)
-	}
-}
-
-func TestSessionActiveWithin_LiveSession(t *testing.T) {
-	skipIfNoTmux(t)
-	opts := testServer(t)
-
-	createSession(t, opts, "act-within", "sleep 300")
-
-	// A freshly created session is active within a generous window.
-	active, err := SessionActiveWithin("act-within", time.Hour, opts)
-	if err != nil {
-		t.Fatalf("SessionActiveWithin (wide window): %v", err)
-	}
-	if !active {
-		t.Fatal("expected freshly created session to be active within an hour")
-	}
-
-	// A nonexistent session is never active (latest == 0 short-circuit).
-	active, err = SessionActiveWithin("no-such-session", time.Hour, opts)
-	if err != nil {
-		t.Fatalf("SessionActiveWithin (missing): %v", err)
-	}
-	if active {
-		t.Fatal("expected missing session to be inactive")
 	}
 }
 

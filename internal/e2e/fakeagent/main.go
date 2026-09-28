@@ -29,7 +29,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"golang.org/x/term"
+	"github.com/charmbracelet/x/term"
 )
 
 // readyBanner is emitted once the agent is in raw mode and ready for input.
@@ -131,7 +131,7 @@ func main() {
 	// Put stdin into raw mode so received bytes are untranslated. Without this a
 	// carriage return would be read as NL and the test could not tell hex 0D from
 	// the named Enter key.
-	fd := int(os.Stdin.Fd())
+	fd := os.Stdin.Fd()
 	if term.IsTerminal(fd) {
 		prev, err := term.MakeRaw(fd)
 		if err != nil {
@@ -154,6 +154,18 @@ func main() {
 	if _, err := os.Stdout.Write(readyBannerBytes()); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeagent: write ready banner:", err)
 		os.Exit(2)
+	}
+
+	// FAKEAGENT_BELL=1 makes the agent emit BEL shortly after the banner —
+	// a stand-in for real agents that ring the terminal bell when they need
+	// attention (e.g. Claude Code's notification events). The delay lands it
+	// in its own PTY chunk, like a real post-startup notification.
+	if os.Getenv("FAKEAGENT_BELL") == "1" {
+		time.Sleep(150 * time.Millisecond)
+		if _, err := os.Stdout.Write([]byte{'\x07'}); err != nil {
+			fmt.Fprintln(os.Stderr, "fakeagent: write bell:", err)
+			os.Exit(2)
+		}
 	}
 
 	_ = recordStream(os.Stdin, log)

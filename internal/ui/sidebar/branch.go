@@ -13,7 +13,7 @@ import (
 // loadBranchChanges returns a command that fetches BranchChangesVsBase for
 // the current workspace. Bumps branchLoadID so a stale result (e.g. from a
 // rapid toggle-off/toggle-on) is dropped on arrival.
-func (m *Model) loadBranchChanges() tea.Cmd {
+func (m *ChangesModel) loadBranchChanges() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -28,7 +28,7 @@ func (m *Model) loadBranchChanges() tea.Cmd {
 
 // refreshAheadBehind returns a command that fetches AheadBehind for the
 // current workspace. Bumps aheadBehindLoadID so a stale result is dropped.
-func (m *Model) refreshAheadBehind() tea.Cmd {
+func (m *ChangesModel) refreshAheadBehind() tea.Cmd {
 	if m.workspace == nil {
 		return nil
 	}
@@ -43,7 +43,7 @@ func (m *Model) refreshAheadBehind() tea.Cmd {
 
 // handleBranchChangesLoaded applies a BranchChangesLoaded result, dropping it
 // if it's stale (superseded by a newer toggle or a workspace switch).
-func (m *Model) handleBranchChangesLoaded(msg messages.BranchChangesLoaded) {
+func (m *ChangesModel) handleBranchChangesLoaded(msg messages.BranchChangesLoaded) {
 	if msg.LoadID != m.branchLoadID {
 		return
 	}
@@ -60,7 +60,7 @@ func (m *Model) handleBranchChangesLoaded(msg messages.BranchChangesLoaded) {
 
 // handleAheadBehindLoaded applies an AheadBehindLoaded result, dropping it if
 // it's stale.
-func (m *Model) handleAheadBehindLoaded(msg messages.AheadBehindLoaded) {
+func (m *ChangesModel) handleAheadBehindLoaded(msg messages.AheadBehindLoaded) {
 	if msg.LoadID != m.aheadBehindLoadID {
 		return
 	}
@@ -77,7 +77,7 @@ func (m *Model) handleAheadBehindLoaded(msg messages.AheadBehindLoaded) {
 // toggleBranchMode flips branch mode. Turning it on (re-)triggers a fetch;
 // turning it off just falls back to the staged/unstaged/untracked list built
 // from the already-loaded gitStatus — no fetch needed.
-func (m *Model) toggleBranchMode() tea.Cmd {
+func (m *ChangesModel) toggleBranchMode() tea.Cmd {
 	m.branchMode = !m.branchMode
 	var cmd tea.Cmd
 	if m.branchMode {
@@ -91,7 +91,7 @@ func (m *Model) toggleBranchMode() tea.Cmd {
 
 // rebuildBranchDisplayList populates displayItems from branchChanges,
 // honoring the same filter query as the staged/unstaged/untracked lists.
-func (m *Model) rebuildBranchDisplayList() {
+func (m *ChangesModel) rebuildBranchDisplayList() {
 	if len(m.branchChanges) == 0 {
 		return
 	}

@@ -44,7 +44,12 @@ type overlayState struct {
 	// on close/reopen the way settingsSession does for stale theme previews.
 	runOutput          *common.OutputDialog
 	runOutputWorkspace *data.Workspace
-	runOutputToken     int
+	// runOutputSession pins the viewer to one tmux run session — the
+	// picker's selection, or the sole session on the single-run fast path.
+	// Refresh ticks and the `a` attach target it, not "the newest", so the
+	// user keeps reading the run they picked.
+	runOutputSession string
+	runOutputToken   int
 	// runOutputAttachable marks the live-run flavor of the shared OutputDialog
 	// (workspace-status and script-transcript viewers leave it false): only
 	// that flavor answers the `a` attach key.
@@ -57,8 +62,9 @@ type overlayInputSlot func(msg tea.Msg, cmds *[]tea.Cmd) bool
 
 // overlaySlot adapts a pointer-typed dialog field (get/set access to the App
 // field) into an overlayInputSlot. consumePaste matches handleOverlayInput's
-// contract: registry dialog and file picker treat paste as input; the bespoke
-// editors leave it for downstream handlers.
+// contract: registry dialog and file picker treat paste as input, and the
+// bespoke editors consume it too now that their text fields accept paste —
+// otherwise the same content would fall through to the focused terminal.
 func overlaySlot[T interface {
 	Visible() bool
 	Update(tea.Msg) (T, tea.Cmd)
@@ -80,25 +86,26 @@ func (a *App) overlayChain() []overlayInputSlot {
 		a.handleDialogInput,
 		a.handleFilePickerInput,
 		overlaySlot(func() *common.SettingsDialog { return a.overlays.settings },
-			func(v *common.SettingsDialog) { a.overlays.settings = v }, false),
+			func(v *common.SettingsDialog) { a.overlays.settings = v }, true),
 		overlaySlot(func() *common.EnvDialog { return a.overlays.env },
-			func(v *common.EnvDialog) { a.overlays.env = v }, false),
+			func(v *common.EnvDialog) { a.overlays.env = v }, true),
 		overlaySlot(func() *common.EnvDialog { return a.overlays.projectEnv },
-			func(v *common.EnvDialog) { a.overlays.projectEnv = v }, false),
+			func(v *common.EnvDialog) { a.overlays.projectEnv = v }, true),
 		overlaySlot(func() *common.ScriptsDialog { return a.overlays.scripts },
-			func(v *common.ScriptsDialog) { a.overlays.scripts = v }, false),
+			func(v *common.ScriptsDialog) { a.overlays.scripts = v }, true),
 		a.handleRunOutputInput,
 	}
 }
 
 // handleRunOutputInput is the runOutput overlay slot with one app-level key
-// intercept: `a` attaches an interactive tab to the newest alive run session
-// — but only for the live-run flavor (runOutputAttachable). Every other key
-// and the other OutputDialog flavors pass through to the dialog unchanged.
+// intercept: `a` attaches an interactive tab to the viewer's pinned run
+// session — but only for the live-run flavor (runOutputAttachable). Every
+// other key and the other OutputDialog flavors pass through to the dialog
+// unchanged.
 func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	if a.overlays.runOutputAttachable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() {
 		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "a" {
-			*cmds = append(*cmds, a.attachRunViewerCmd(a.overlays.runOutputWorkspace))
+			*cmds = append(*cmds, a.attachRunViewerCmd(a.overlays.runOutputWorkspace, a.overlays.runOutputSession))
 			return true
 		}
 	}

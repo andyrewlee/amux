@@ -9,7 +9,6 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // reattachFailedModel returns a model with a single detached, reattach-in-flight
@@ -24,8 +23,8 @@ func reattachFailedModel(t *testing.T) (*TerminalModel, *data.Workspace, Termina
 		SessionName: "session-1",
 		Running:     true,
 		Detached:    true,
-		Reattach:    ptyio.ReattachGuard{InFlight: true},
 	}
+	beginAttachAttempt(t, state)
 	m := NewTerminalModel()
 	m.workspace = ws
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, Name: "Terminal 1", State: state}}
@@ -88,6 +87,7 @@ func TestHandleReattachFailedClearsRunningAndInFlight(t *testing.T) {
 			cmd := m.handleReattachFailed(SidebarTerminalReattachFailed{
 				WorkspaceID: string(ws.ID()),
 				TabID:       tabID,
+				Epoch:       state.reattachEpoch,
 				Err:         errors.New("boom"),
 				Stopped:     tt.stopped,
 				Action:      tt.action,
@@ -132,11 +132,12 @@ func TestHandleReattachFailedClearsRunningAndInFlight(t *testing.T) {
 func TestHandleReattachFailedNilErrStillToasts(t *testing.T) {
 	// A nil error must not panic; the toast still renders with the formatted
 	// <nil> verb so the failure is never silently swallowed.
-	m, ws, tabID, _ := reattachFailedModel(t)
+	m, ws, tabID, state := reattachFailedModel(t)
 
 	cmd := m.handleReattachFailed(SidebarTerminalReattachFailed{
 		WorkspaceID: string(ws.ID()),
 		TabID:       tabID,
+		Epoch:       state.reattachEpoch,
 		Err:         nil,
 	})
 
@@ -163,10 +164,12 @@ func TestHandleReattachFailedUnknownTabStillToasts(t *testing.T) {
 		{
 			name: "unknown workspace",
 			setup: func(t *testing.T) (*TerminalModel, SidebarTerminalReattachFailed) {
-				m, _, tabID, _ := reattachFailedModel(t)
+				m, _, _, _ := reattachFailedModel(t)
+				// resolveTabForResult falls back to a tab-ID scan, so the
+				// tabID must also miss for the tab to stay unresolved.
 				return m, SidebarTerminalReattachFailed{
 					WorkspaceID: "no-such-ws",
-					TabID:       tabID,
+					TabID:       generateTerminalTabID(),
 					Err:         errors.New("nope"),
 				}
 			},
@@ -230,6 +233,7 @@ func TestHandleReattachFailedRoutedThroughUpdate(t *testing.T) {
 	_, _ = m.Update(SidebarTerminalReattachFailed{
 		WorkspaceID: string(ws.ID()),
 		TabID:       tabID,
+		Epoch:       state.reattachEpoch,
 		Err:         errors.New("routed"),
 		Stopped:     true,
 	})

@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
@@ -62,6 +63,49 @@ func TestHandleTmuxActivityResult_OwnerTransitionErrorResetsHysteresis(t *testin
 	}
 	if !app.tmuxActivity.activeWorkspaceIDs["ws-new"] {
 		t.Fatalf("expected recovered owner activity to apply, got %v", app.tmuxActivity.activeWorkspaceIDs)
+	}
+}
+
+// TestHandleTmuxActivityResult_StaleTokenCannotRevertTag proves the token
+// fence guards the semantic baseline too: a result from a superseded scan is
+// dropped before any state — including a Done→Idle revert — can publish.
+func TestHandleTmuxActivityResult_StaleTokenCannotRevertTag(t *testing.T) {
+	recorded := fakeSetAgentStateTag(t, nil)
+	now := time.Now()
+	app := &App{
+		tmuxActivity: tmuxActivityState{
+			token:        9, // newer scan already in flight
+			scanInFlight: true,
+			sessionStates: map[string]*activity.SessionState{
+				"sess": {Initialized: true, LastWorkingAt: now},
+			},
+			agentStateBaseline: map[string]activity.AgentState{"sess": activity.StateDone},
+			activeWorkspaceIDs: map[string]bool{},
+			agentStates:        map[string]activity.AgentState{},
+			settled:            true,
+		},
+		dashboard: dashboard.New(),
+	}
+
+	app.handleTmuxActivityResult(tmuxActivityResult{
+		Token:              7, // older token — must be ignored wholesale
+		RoleKnown:          true,
+		ScannerOwner:       true,
+		ScannerEpoch:       1,
+		Now:                now.Add(activity.DoneWindow + time.Second),
+		ActiveWorkspaceIDs: map[string]bool{},
+		AgentStates:        map[string]activity.AgentState{},
+		SessionStates:      map[string]*activity.SessionState{},
+	})
+
+	if len(*recorded) != 0 {
+		t.Fatalf("stale result must not publish tag writes, got %#v", *recorded)
+	}
+	if got := app.tmuxActivity.agentStateBaseline["sess"]; got != activity.StateDone {
+		t.Fatalf("stale result must not touch the baseline, got %v", got)
+	}
+	if _, ok := app.tmuxActivity.sessionStates["sess"]; !ok {
+		t.Fatal("stale result must not touch the session-state map")
 	}
 }
 

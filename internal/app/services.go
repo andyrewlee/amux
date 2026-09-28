@@ -35,9 +35,6 @@ type TmuxOps interface {
 	// AllSessionMeta returns attached-client count and creation time for every
 	// session in one call, so scan loops can skip per-session probes.
 	AllSessionMeta(opts tmux.Options) (map[string]tmux.SessionMeta, error)
-	SessionStateFor(sessionName string, opts tmux.Options) (tmux.SessionState, error)
-	SessionHasClients(sessionName string, opts tmux.Options) (bool, error)
-	SessionCreatedAt(sessionName string, opts tmux.Options) (int64, error)
 	KillSession(sessionName string, opts tmux.Options) error
 	KillSessionsMatchingTags(tags map[string]string, opts tmux.Options) (bool, error)
 	KillSessionsWithPrefix(prefix string, opts tmux.Options) error

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,13 +38,19 @@ func (l Level) String() string {
 	}
 }
 
-// Logger provides structured logging
+// Logger provides structured logging. level and enabled are atomics so the
+// per-call gate in log() can skip the mutex entirely — keypress-hot paths
+// would otherwise contend on it for lines that get dropped anyway.
 type Logger struct {
-	mu       sync.Mutex
+	mu       sync.Mutex // serializes writer only
 	writer   io.Writer
-	level    Level
-	enabled  bool
+	level    atomic.Int32 // stores Level
+	enabled  atomic.Bool
 	filePath string
+	// writeErrReported gates a one-shot stderr note when the log-file write
+	// fails — the file is the diagnostics channel itself, and repeating the
+	// note per line would paint over the TUI, so once is the cost accepted.
+	writeErrReported atomic.Bool
 }
 
 var defaultLogger *Logger
@@ -66,7 +73,11 @@ func Initialize(logDir string, level Level) error {
 	retentionDays := logRetentionDays()
 	if retentionDays > 0 {
 		if err := pruneOldLogs(logDir, retentionDays); err != nil {
-			slog.Debug("log pruning failed", "error", err)
+			// The file logger does not exist yet — stderr via slog is the only
+			// channel. Warn (not Debug): the default slog level is Info, so a
+			// Debug line would be silently dropped and a prune failure would
+			// leave no trace anywhere.
+			slog.Warn("log pruning failed", "error", err)
 		}
 	}
 
@@ -77,12 +88,13 @@ func Initialize(logDir string, level Level) error {
 		return err
 	}
 
-	defaultLogger = &Logger{
+	l := &Logger{
 		writer:   file,
-		level:    level,
-		enabled:  true,
 		filePath: logPath,
 	}
+	l.level.Store(int32(level))
+	l.enabled.Store(true)
+	defaultLogger = l
 
 	return nil
 }
@@ -165,9 +177,7 @@ func pruneOldLogs(logDir string, retentionDays int) error {
 // SetEnabled enables or disables logging
 func SetEnabled(enabled bool) {
 	if defaultLogger != nil {
-		defaultLogger.mu.Lock()
-		defaultLogger.enabled = enabled
-		defaultLogger.mu.Unlock()
+		defaultLogger.enabled.Store(enabled)
 	}
 }
 
@@ -191,14 +201,21 @@ func ParseLevel(name string) (Level, bool) {
 
 // log writes a log entry
 func log(level Level, format string, args ...any) {
-	if defaultLogger == nil {
+	l := defaultLogger
+	if l == nil {
+		return
+	}
+	// Fast path: the atomic gate drops filtered lines without taking the
+	// mutex — the same check repeats under the lock since SetEnabled can
+	// land between the two.
+	if !l.enabled.Load() || level < Level(l.level.Load()) {
 		return
 	}
 
-	defaultLogger.mu.Lock()
-	defer defaultLogger.mu.Unlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	if !defaultLogger.enabled || level < defaultLogger.level {
+	if !l.enabled.Load() || level < Level(l.level.Load()) {
 		return
 	}
 
@@ -206,7 +223,11 @@ func log(level Level, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	line := fmt.Sprintf("[%s] %s: %s\n", timestamp, level.String(), msg)
 
-	_, _ = defaultLogger.writer.Write([]byte(line))
+	if _, err := l.writer.Write([]byte(line)); err != nil {
+		if l.writeErrReported.CompareAndSwap(false, true) {
+			fmt.Fprintf(os.Stderr, "amux: log write failed: %v\n", err)
+		}
+	}
 }
 
 // Debug logs a debug message

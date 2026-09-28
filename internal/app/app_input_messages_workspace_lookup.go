@@ -6,6 +6,19 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 )
 
+// rootsReferToSameWorkspace answers the PATH question "does this
+// message-stamped path address the workspace at this other path?" — used to
+// route git-status/file-watcher results (which carry only a root path) to
+// the active workspace. Root-only compare is deliberate here: two live
+// workspaces cannot share a canonical root (distinct worktrees), and a
+// status produced for a path belongs to whatever workspace occupies that
+// path now.
+//
+// Deliberately different from sidebar's sameWorkspaceByCanonicalPaths, which
+// answers the IDENTITY question "is this the same workspace record?" and
+// adds a repo comparison to distinguish a workspace re-created at the same
+// path under a different repo — a discrimination a bare path message cannot
+// make and does not need.
 func rootsReferToSameWorkspace(left, right string) bool {
 	leftTrimmed := strings.TrimSpace(left)
 	rightTrimmed := strings.TrimSpace(right)

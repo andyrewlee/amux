@@ -217,7 +217,7 @@ func chooseProbePane(rows []probePaneRow) (probePaneRow, bool) {
 }
 
 // ActiveWithin reports whether the probed session saw window activity inside the
-// given window, applying the same whole-second slack SessionActiveWithin uses.
+// given window, applying the whole-second slack of activityWithinWindow.
 func (p SessionProbe) ActiveWithin(window time.Duration, now time.Time) bool {
 	return activityWithinWindow(p.LatestActivity, window, now)
 }

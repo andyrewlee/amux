@@ -158,13 +158,9 @@ func TestDeleteWorkspace_StopsScriptsBeforeWorktreeRemoval(t *testing.T) {
 	go func() {
 		setupDone <- scripts.RunSetup(ws)
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for !scripts.IsRunning(ws) {
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for setup script to be tracked")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, 2*time.Second, 10*time.Millisecond, func() bool {
+		return scripts.IsRunning(ws)
+	}, "timed out waiting for setup script to be tracked")
 
 	removeCalled := false
 	mock := &testutil.FakeGitOps{

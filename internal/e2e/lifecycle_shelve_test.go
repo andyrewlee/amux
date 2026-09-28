@@ -68,7 +68,7 @@ func TestShelveRestorePurgeLifecycle(t *testing.T) {
 		t.Fatalf("open shelve dialog: %v", err)
 	}
 	waitForUIContains(t, session, "Shelve Workspace", persistenceTimeout)
-	confirmDialog(t, session)
+	confirmDialog(t, session, "Shelve Workspace")
 
 	// Assert the whole shelve chain: row tagged, sessions gone, worktree gone,
 	// branch kept.
@@ -122,13 +122,23 @@ func TestShelveRestorePurgeLifecycle(t *testing.T) {
 	// Step 3: re-shelve, then purge. Restore may have moved focus to the
 	// center pane; return to the dashboard, re-shelve, then D on the shelved
 	// row (the purge path — same delete dialog, tolerates the absent
-	// worktree).
-	sendPrefixCommand(t, session, "h")
+	// worktree). The prefix arm is sent by hand (not sendPrefixCommand) so a
+	// failure can include the app log — this is where lifecycle error
+	// overlays used to swallow the prefix byte.
+	if err := session.SendBytes([]byte{0}); err != nil {
+		t.Fatalf("send prefix: %v", err)
+	}
+	if err := session.WaitForContains("Esc cancel", prefixArmTimeout); err != nil {
+		t.Fatalf("waiting for prefix palette: %v\n\nLog:\n%s", err, readLogTail(t, home))
+	}
+	if err := session.SendString("h"); err != nil {
+		t.Fatalf("send command: %v", err)
+	}
 	if err := session.SendString("S"); err != nil {
 		t.Fatalf("re-open shelve dialog: %v", err)
 	}
 	waitForUIContains(t, session, "Shelve Workspace", persistenceTimeout)
-	confirmDialog(t, session)
+	confirmDialog(t, session, "Shelve Workspace")
 	waitForUIContains(t, session, "shelved", workspaceAgentTimeout)
 
 	// The second shelve result re-bound focus to center again — refocus the
@@ -147,7 +157,7 @@ func TestShelveRestorePurgeLifecycle(t *testing.T) {
 			t.Fatalf("open purge dialog: %v", err)
 		}
 		if err := session.WaitForContains(dialogText, 2*time.Second); err == nil {
-			confirmDialog(t, session)
+			confirmDialog(t, session, dialogText)
 		} else {
 			// D may have landed on the wrong row (e.g. an unexpected dialog is
 			// still open) — dismiss whatever is up before retrying.
@@ -167,15 +177,21 @@ func TestShelveRestorePurgeLifecycle(t *testing.T) {
 }
 
 // confirmDialog selects "Yes" in a confirm dialog (cursor defaults to "No")
-// and presses Enter.
-func confirmDialog(t *testing.T, session *PTYSession) {
+// and presses Enter. Option selection is styling-only (invisible to
+// ScreenASCII), so there is nothing to poll between the keys — instead the
+// gesture is atomic: "h" pins the cursor to option 0 absolutely, and h+Enter
+// go out in one write so both bytes land on whichever view consumed the
+// first. Callers must have already observed dialogTitle on screen — a
+// rendered dialog is the input consumer, so the gesture lands. The absent
+// wait then confirms dismissal (and fails fast rather than burning the next
+// post-state timeout when the gesture was dropped).
+func confirmDialog(t *testing.T, session *PTYSession, dialogTitle string) {
 	t.Helper()
-	if err := session.SendString("h"); err != nil {
-		t.Fatalf("select Yes in dialog: %v", err)
-	}
-	time.Sleep(dialogInputSettle)
-	if err := session.SendString("\r"); err != nil {
+	if err := session.SendString("h\r"); err != nil {
 		t.Fatalf("confirm dialog: %v", err)
+	}
+	if err := session.WaitForAbsent(dialogTitle, dialogGestureTimeout); err != nil {
+		t.Fatalf("dialog %q still on screen after %s\n\nScreen:\n%s", dialogTitle, dialogGestureTimeout, session.ScreenASCII())
 	}
 }
 

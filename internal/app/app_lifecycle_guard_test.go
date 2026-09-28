@@ -133,6 +133,14 @@ func TestLifecycleResultClearsInFlight(t *testing.T) {
 			t.Fatal("WorkspaceRestoreFailed must clear the in-flight mark")
 		}
 	})
+	t.Run("restore skipped", func(t *testing.T) {
+		app := lifecycleTestApp(t)
+		app.handleRestoreWorkspace(messages.RestoreWorkspace{Project: project, Workspace: ws})
+		app.handleWorkspaceRestoreSkipped(messages.WorkspaceRestoreSkipped{Workspace: ws})
+		if app.isWorkspaceMutationInFlight(string(ws.ID())) {
+			t.Fatal("WorkspaceRestoreSkipped must clear the in-flight mark")
+		}
+	})
 }
 
 // TestLifecycleDispatchCrossOpGuard proves the phases are mutually exclusive:

@@ -136,6 +136,25 @@ type ScriptRunner struct {
 	// were ever found, so the hosted-status sweep can be skipped for
 	// workspaces that have never had one. See run_session.go.
 	runSessionsSeen map[string]struct{}
+	// lifecycle tracks local lifecycle work — the workspace's single
+	// admitted setup sequence and its detached on-done hooks — plus the
+	// teardown gate service removal holds across stop→archive→remove.
+	// Setup does not occupy the `running` map: that map is run-scripts only,
+	// so a re-run request can no longer overwrite the tracked slot, and a
+	// stale run-script monitor can never clear a live setup entry.
+	// See lifecycle_coordinator.go.
+	lifecycle *lifecycleCoordinator
+	// transcriptRoot is the workspaces-metadata dir under which lifecycle
+	// transcripts persist (write-through on record, fallback on read).
+	// Empty disables persistence. transcriptMu serializes the file writes —
+	// see persistScriptOutputs for why the map is re-gathered under it.
+	// See script_output_store.go.
+	transcriptRoot string
+	transcriptMu   sync.Mutex
+	// transcriptLoadHook is a test seam that runs between the disk read and
+	// the memory fold in LastScriptOutputs — the window where a concurrent
+	// record used to be clobbered by stale hydration.
+	transcriptLoadHook func()
 }
 
 type runningScript struct {
@@ -160,7 +179,7 @@ func (r *ScriptRunner) setRunningEntry(key string, running *runningScript) {
 // NewScriptRunner creates a new script runner
 func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 	ports := NewPortAllocator(portStart, portRange)
-	return &ScriptRunner{
+	r := &ScriptRunner{
 		portAllocator:    ports,
 		envBuilder:       NewEnvBuilder(ports),
 		running:          make(map[string]*runningScript),
@@ -169,9 +188,32 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		runSessionsSeen:  make(map[string]struct{}),
 		killProcessGroup: KillProcessGroup,
 		trust:            defaultScriptTrust(),
+		lifecycle:        newLifecycleCoordinator(),
 	}
+	// Route coordinator kills through the runner's injectable seam so a test
+	// that swaps r.killProcessGroup also observes teardown drains.
+	r.lifecycle.killGroup = func(pid int, opts KillOptions) error {
+		return r.killProcessGroup(pid, opts)
+	}
+	return r
 }
 
+// SetPortReservationStore installs the shared durable port-reservation
+// registry on the runner's allocator. The app wires it once at startup,
+// before any environment provider or spawn is exposed — after it, every
+// setup/run/archive/on-done spawn, every agent/viewer, and every sidebar
+// session draws its AMUX_PORT range from the same cross-instance registry,
+// keyed by the workspace's persisted metadata ID.
+func (r *ScriptRunner) SetPortReservationStore(store *data.PortReservationStore) {
+	r.portAllocator.SetDurableStore(store)
+}
+
+// RunSetup runs the workspace's setup commands to completion: the repo's
+// setup-workspace list when present (trust-gated like every repo script), else
+// the workspace's own Scripts.Setup field — the same repo-first resolution the
+// other lifecycle scripts use. It is called on workspace create/restore and by
+// the user-triggered re-run key, so it must be safe to run more than once —
+// which is on the script's own idempotency, as with any re-run provisioning.
 func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	if err := validateScriptWorkspace(ws); err != nil {
 		return err
@@ -181,13 +223,23 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		return err
 	}
 
+	// Resolution order matches resolveScriptCommand: the repo's
+	// setup-workspace list wins; the workspace's own Scripts.Setup (typed
+	// into the scripts editor, user input that always runs) fills in when
+	// the repo defines none.
+	commands := config.SetupWorkspace
+	fromRepo := len(commands) > 0
+	if !fromRepo && ws.Scripts.Setup != "" {
+		commands = []string{ws.Scripts.Setup}
+	}
+
 	// Gate repo-supplied commands behind recorded per-repo consent. Until the
 	// user trusts the current content of .amux/workspaces.json, execute nothing
 	// and return the sentinel (fail-closed).
-	if len(config.SetupWorkspace) > 0 && !r.trust.IsTrusted(ws.Repo, raw) {
+	if fromRepo && !r.trust.IsTrusted(ws.Repo, raw) {
 		return &ScriptsNotTrustedError{
 			Repo:       ws.Repo,
-			Command:    config.SetupWorkspace[0],
+			Command:    commands[0],
 			ConfigHash: hashConfig(raw),
 		}
 	}
@@ -197,12 +249,37 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		return err
 	}
 
+	// Neither source defines a setup — nothing to run. The sentinel lets
+	// callers distinguish that from a failure; env was still built above so
+	// the workspace's port allocation behaves exactly as before.
+	if len(commands) == 0 {
+		return fmt.Errorf("%s: %w", ScriptSetup, ErrNoScriptConfigured)
+	}
+
+	// Admission: one setup sequence per workspace. A second request reports
+	// ErrSetupBusy (informational — the first run is authoritative) instead
+	// of overwriting the tracked slot; a held teardown gate rejects with
+	// ErrWorkspaceTeardown so nothing new starts while removal is pending.
+	key := scriptWorkspaceKey(ws)
+	ticket, err := r.lifecycle.admitSetup(key)
+	if err != nil {
+		return err
+	}
+	defer r.lifecycle.finishSetup(key, ticket)
+
 	// Run each setup command sequentially. Output across all commands lands
 	// in one bounded tail so the recorded transcript (and a failure's error)
 	// covers the whole setup, not just the command that died — stdout was
 	// previously dropped entirely, which hid the failure's own diagnostics.
 	tail := &tailWriter{max: scriptOutputTailBytes}
-	for _, cmdStr := range config.SetupWorkspace {
+	for _, cmdStr := range commands {
+		// The ticket's context spans the whole sequence: teardown cancels it
+		// once, which aborts the in-flight command AND every queued command —
+		// a stale sequence must never start its next step after teardown.
+		if err := ticket.ctx.Err(); err != nil {
+			r.recordScriptOutput(ws, ScriptSetup, tail.String(), err)
+			return fmt.Errorf("setup canceled: %w", err)
+		}
 		cmd := exec.Command("sh", "-c", cmdStr)
 		cmd.Dir = ws.Root
 		cmd.Env = env
@@ -216,18 +293,28 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		if err := cmd.Start(); err != nil {
 			return err
 		}
-		running := &runningScript{
-			cmd:  cmd,
-			done: make(chan struct{}),
+		// Register the started process atomically with a generation check:
+		// a teardown landing between admission and Start invalidates the
+		// ticket, and the just-spawned child is killed and reaped here so it
+		// never outlives the teardown gate.
+		if !r.lifecycle.registerCmd(key, ticket, cmd) {
+			_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
+			_ = cmd.Wait()
+			err := ticket.ctx.Err()
+			if err == nil {
+				err = ErrWorkspaceTeardown
+			}
+			r.recordScriptOutput(ws, ScriptSetup, tail.String(), err)
+			return fmt.Errorf("setup canceled: %w", err)
 		}
-		key := scriptWorkspaceKey(ws)
-		r.setRunningEntry(key, running)
 
 		err := cmd.Wait()
-		close(running.done)
-		r.finishRunningEntry(key, running)
+		r.lifecycle.clearCmd(key, ticket, cmd)
 		if err != nil {
 			r.recordScriptOutput(ws, ScriptSetup, tail.String(), err)
+			if ticket.ctx.Err() != nil {
+				return fmt.Errorf("setup canceled: %w", ticket.ctx.Err())
+			}
 			return fmt.Errorf("setup command failed: %s: %s: %w", cmdStr, tail.String(), err)
 		}
 	}

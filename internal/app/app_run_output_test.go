@@ -18,6 +18,7 @@ import (
 type stubRunSessionHost struct {
 	tails map[string]string
 	alive map[string]bool
+	exits map[string]int
 }
 
 func (s *stubRunSessionHost) Ensure(string, string, string, []string, process.RunSessionMeta) error {
@@ -25,8 +26,15 @@ func (s *stubRunSessionHost) Ensure(string, string, string, []string, process.Ru
 }
 
 func (s *stubRunSessionHost) Status(name string) (bool, bool, int, error) {
-	_, ok := s.alive[name]
-	return ok, ok && s.alive[name], -1, nil
+	alive, ok := s.alive[name]
+	if !ok {
+		return false, false, -1, nil
+	}
+	code := -1
+	if !alive {
+		code = s.exits[name]
+	}
+	return true, alive, code, nil
 }
 func (s *stubRunSessionHost) Kill(string) error              { return nil }
 func (s *stubRunSessionHost) Tail(name string, _ int) string { return s.tails[name] }
@@ -38,17 +46,33 @@ func (s *stubRunSessionHost) Find(string) ([]string, error) {
 	return names, nil
 }
 
-// openRunOutput drives the now-async open path end to end: the Show handler
-// returns a fetch cmd; its message is applied by handleRunOutputOpened.
+// openRunOutput drives the two-stage open path end to end: the Show handler
+// returns an enumerate cmd; the enumerated result then either toasts/opens a
+// picker (nil return) or yields the tail fetch whose message the open handler
+// applies.
 func openRunOutput(t *testing.T, h *Harness, ws *data.Workspace) tea.Cmd {
 	t.Helper()
 	cmd := h.app.handleShowRunScriptOutput(messages.ShowRunScriptOutput{Workspace: ws})
 	if cmd == nil {
-		t.Fatal("expected the open handler to return a fetch cmd")
+		t.Fatal("expected the open handler to return an enumerate cmd")
 	}
-	msg, ok := cmd().(runOutputOpenedMsg)
+	enum, ok := cmd().(runSessionsEnumeratedMsg)
 	if !ok {
-		t.Fatalf("fetch cmd emitted %T, want runOutputOpenedMsg", cmd())
+		t.Fatalf("open cmd emitted %T, want runSessionsEnumeratedMsg", cmd())
+	}
+	fetch := h.app.handleRunSessionsEnumerated(enum)
+	if len(enum.entries) != 1 {
+		// Empty enumeration returns a toast timer cmd (which blocks on its
+		// dismissal tick if invoked); the picker path returns nil. Only the
+		// single-session path yields a tail fetch safe to call inline.
+		return nil
+	}
+	if fetch == nil {
+		t.Fatal("single-session enumeration should yield a tail fetch")
+	}
+	msg, ok := fetch().(runOutputOpenedMsg)
+	if !ok {
+		t.Fatalf("fetch cmd emitted %T, want runOutputOpenedMsg", fetch())
 	}
 	return h.app.handleRunOutputOpened(msg)
 }

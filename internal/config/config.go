@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -298,24 +297,27 @@ func saveAssistants(path string, assistants map[string]AssistantConfig) error {
 		return err
 	}
 
-	payload := map[string]any{}
-	if existing, err := readConfigPath(path); err == nil && len(bytes.TrimSpace(existing)) > 0 {
-		// Refuse to clobber an existing-but-unparseable config: the loader
-		// tolerates malformed JSON (falls back to defaults), so blindly
-		// overwriting here would silently drop unrelated sections (e.g. "ui").
-		if err := json.Unmarshal(existing, &payload); err != nil {
-			return fmt.Errorf("refusing to overwrite malformed config %s: %w", path, err)
-		}
+	// Same contract as saveUISettings: an unreadable or non-object existing
+	// file is refused outright so a save cannot drop sections it does not own
+	// (e.g. "ui").
+	payload, err := readConfigForUpdate(path, readConfigPath)
+	if err != nil {
+		return err
 	}
 
 	out := make(map[string]any, len(assistants))
 	for name, cfg := range assistants {
-		entry := map[string]any{"command": cfg.Command}
+		// interrupt_delay_ms is always written: the loader distinguishes an
+		// absent field (inherit the built-in default) from an explicit zero
+		// (no spacing), so omitting a resolved zero would restore the
+		// built-in delay on the next load. Zero counts stay omitted because
+		// the loader coerces a present-but-zero count back to 1 anyway.
+		entry := map[string]any{
+			"command":            cfg.Command,
+			"interrupt_delay_ms": cfg.InterruptDelayMs,
+		}
 		if cfg.InterruptCount > 0 {
 			entry["interrupt_count"] = cfg.InterruptCount
-		}
-		if cfg.InterruptDelayMs > 0 {
-			entry["interrupt_delay_ms"] = cfg.InterruptDelayMs
 		}
 		out[name] = entry
 	}

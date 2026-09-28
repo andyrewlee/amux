@@ -259,17 +259,19 @@ func (s *WorkspaceStore) Rename(id WorkspaceID, newName string) error {
 	if err := validation.ValidateWorkspaceName(newName); err != nil {
 		return err
 	}
-	ws, err := s.Load(id)
+	// The rename runs inside the locked Update transaction: only Name changes
+	// on disk, so a concurrent tab-state or env write can never be reverted
+	// by this caller's stale snapshot.
+	err := s.Update(id, func(ws *Workspace) (bool, error) {
+		// No-op guard: renaming to the current name would only rewrite the
+		// file and emit a spurious watch event.
+		if ws.Name == newName {
+			return false, nil
+		}
+		ws.Name = newName
+		return true, nil
+	})
 	if err != nil {
-		return fmt.Errorf("rename workspace %s: %w", id, err)
-	}
-	// No-op guard: renaming to the current name would only rewrite the file and
-	// emit a spurious watch event.
-	if ws.Name == newName {
-		return nil
-	}
-	ws.Name = newName
-	if err := s.Save(ws); err != nil {
 		return fmt.Errorf("rename workspace %s: %w", id, err)
 	}
 	return nil

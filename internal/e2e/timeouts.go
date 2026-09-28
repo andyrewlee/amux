@@ -23,15 +23,16 @@ const (
 	// apart for the app's prefix-mode state machine to observe each key.
 	prefixInterKeyDelay = 15 * time.Millisecond
 
-	// prefixSettleDelay lets the app register prefix mode after the leader
-	// byte before the command key arrives. No screen observable exists for
-	// "prefix mode is armed", so this stays a fixed pacing sleep.
-	prefixSettleDelay = 50 * time.Millisecond
+	// prefixArmTimeout bounds the wait for the prefix palette after the
+	// leader byte. The palette's footer is the only screen proof that
+	// prefix mode armed — sending the command key before then types it into
+	// the pane.
+	prefixArmTimeout = 5 * time.Second
 
-	// dialogInputSettle lets a dialog consume one navigation key before the
-	// next arrives. Selection state is styling-only (not visible in
-	// ScreenASCII), so there is nothing to poll.
-	dialogInputSettle = 150 * time.Millisecond
+	// dialogGestureTimeout bounds the wait for a confirmed dialog's title to
+	// leave the screen — long enough to survive a loaded runner, short
+	// enough to fail fast when the gesture was dropped.
+	dialogGestureTimeout = 10 * time.Second
 
 	// wheelThrottleDelay paces wheel events past the app's 15ms wheel
 	// throttle (mouseEventFilter in cmd/amux) so neither event is dropped.

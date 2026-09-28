@@ -10,6 +10,51 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// pumpMsgs executes a cmd synchronously, recursively unpacking tea.BatchMsg
+// so callers see the leaf messages it produced.
+func pumpMsgs(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if msg == nil {
+		return nil
+	}
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var out []tea.Msg
+		for _, c := range batch {
+			out = append(out, pumpMsgs(c)...)
+		}
+		return out
+	}
+	return []tea.Msg{msg}
+}
+
+// pumpPicker performs the picker's async round trips synchronously: issues
+// any due directory load plus the passed cmds, feeds each resulting message
+// back through Update (which may queue further loads), and repeats until the
+// picker is quiescent.
+func pumpPicker(fp *FilePicker, cmds ...tea.Cmd) {
+	queue := append([]tea.Cmd{}, cmds...)
+	for steps := 0; steps < 20; steps++ {
+		var cmd tea.Cmd
+		if len(queue) > 0 {
+			cmd = queue[0]
+			queue = queue[1:]
+		} else if c := fp.dueLoadCmd(); c != nil {
+			cmd = c
+		} else {
+			return
+		}
+		for _, msg := range pumpMsgs(cmd) {
+			_, next := fp.Update(msg)
+			if next != nil {
+				queue = append(queue, next)
+			}
+		}
+	}
+}
+
 func TestFilePickerCursorHiddenWhenNotVisible(t *testing.T) {
 	fp := NewFilePicker("id", t.TempDir(), true)
 	if c := fp.Cursor(); c != nil {
@@ -102,6 +147,7 @@ func TestFilePickerFiltersWithPrefilledPath(t *testing.T) {
 
 	fp := NewFilePicker("id", tmp, true)
 	fp.Show()
+	pumpPicker(fp)
 
 	fp.input.SetValue(fp.inputBasePath() + "alp")
 	fp.applyFilter()
@@ -118,6 +164,7 @@ func TestFilePickerFiltersWithPrefilledPath(t *testing.T) {
 func TestFilePickerDoesNotStripSimilarPrefix(t *testing.T) {
 	fp := NewFilePicker("id", "/tmp", true)
 	fp.Show()
+	pumpPicker(fp)
 	fp.currentPath = "/tmp"
 	fp.input.SetValue("/tmp2")
 	fp.applyFilter()
@@ -224,14 +271,27 @@ func TestFilePickerEnterEditedPathConfirmsTypedDirectory(t *testing.T) {
 	fp.input.CursorEnd()
 	fp.cursor = -1
 
+	// The typed-path stat is async: Enter issues a resolve cmd whose result,
+	// fed back through Update, produces the confirm DialogResult.
 	_, cmd := fp.handleEnter()
 	if cmd == nil {
-		t.Fatalf("expected command from enter on edited path")
+		t.Fatalf("expected resolve command from enter on edited path")
 	}
-	msg := cmd()
-	result, ok := msg.(DialogResult)
-	if !ok {
-		t.Fatalf("expected DialogResult, got %T", msg)
+	msgs := pumpMsgs(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("expected one pathResolvedMsg, got %d", len(msgs))
+	}
+	_, confirmCmd := fp.Update(msgs[0])
+	resMsgs := pumpMsgs(confirmCmd)
+	var result DialogResult
+	found := false
+	for _, m := range resMsgs {
+		if r, ok := m.(DialogResult); ok {
+			result, found = r, true
+		}
+	}
+	if !found {
+		t.Fatalf("expected DialogResult from resolved path, got %v", resMsgs)
 	}
 	if !result.Confirmed || result.Value != target {
 		t.Fatalf("unexpected dialog result: confirmed=%v value=%q", result.Confirmed, result.Value)
@@ -248,6 +308,7 @@ func TestFilePickerMouseClickOpensDirectory(t *testing.T) {
 	fp := NewFilePicker("id", tmp, true)
 	fp.SetSize(120, 40)
 	fp.Show()
+	pumpPicker(fp)
 
 	fp.renderLines()
 	if len(fp.rowHits) == 0 {

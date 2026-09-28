@@ -44,7 +44,7 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 		// matching stamp in DeleteWorkspace.
 		stampedIDs := WorkspaceIDStrings(ws)
 		fail := func(stage string, err error) tea.Msg {
-			logging.Warn("workspace shelve failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
+			logging.Error("workspace shelve failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
 			return messages.WorkspaceShelveFailed{Project: project, Workspace: ws, Err: err, WorkspaceIDs: stampedIDs}
 		}
 		// clearShelveIntent rolls the intent flags back when the shelve is
@@ -61,15 +61,19 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 			if s.store == nil {
 				return
 			}
-			fresh, err := s.store.Load(ws.MetadataID())
-			if err != nil || fresh == nil {
-				return
-			}
-			fresh.Shelved = false
-			fresh.Archived = false
-			fresh.ArchivedAt = time.Time{}
-			if err := s.store.Save(fresh); err != nil {
-				logging.Warn("workspace shelve intent rollback failed workspace_id=%s error=%v", wsID, err)
+			// Field transaction: only the flags change — a narrow write can't
+			// resurrect stale fields the caller's snapshot never touched.
+			err := s.store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+				if !fresh.Shelved && !fresh.Archived && fresh.ArchivedAt.IsZero() {
+					return false, nil
+				}
+				fresh.Shelved = false
+				fresh.Archived = false
+				fresh.ArchivedAt = time.Time{}
+				return true, nil
+			})
+			if err != nil {
+				logging.Error("workspace shelve intent rollback failed workspace_id=%s error=%v", wsID, err)
 			}
 		}
 
@@ -95,29 +99,37 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 		// (listByRepo filters Archived) nor shelved (listShelvedWorkspaces
 		// requires both) — a ghost row pointing at a missing dir.
 		if s.store != nil {
-			fresh, err := s.store.Load(ws.MetadataID())
-			if err != nil || fresh == nil {
-				return fail("mark_shelved", errors.Join(errors.New("load workspace metadata"), err))
-			}
-			fresh.Shelved = true
-			fresh.Archived = true
-			fresh.ArchivedAt = time.Now()
-			if err := s.store.Save(fresh); err != nil {
+			intentAt := time.Now()
+			err := s.store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+				fresh.Shelved = true
+				fresh.Archived = true
+				fresh.ArchivedAt = intentAt
+				return true, nil
+			})
+			if err != nil {
 				return fail("mark_shelved", err)
 			}
 			ws.Shelved = true
 			ws.Archived = true
-			ws.ArchivedAt = fresh.ArchivedAt
+			ws.ArchivedAt = intentAt
 		}
 
-		if err := s.stopWorkspaceScriptsForDelete(ws); err != nil {
+		// Teardown gate: seize lifecycle admission, drain every local lifecycle
+		// process (in-flight setup, detached on-done hooks) and stop the run
+		// script BEFORE the worktree is removed — it must not go away while a
+		// child is still writing it. The gate rejects new starts until Finish.
+		guard, err := s.beginWorkspaceTeardown(ws)
+		if err != nil {
 			clearShelveIntent()
 			return fail("stop_scripts", err)
 		}
+		removed := false
+		defer func() { guard.Finish(removed) }()
+
 		// The archive script is the "worktree is about to disappear" hook —
-		// shelving removes the worktree too, so it runs here on the same
-		// best-effort terms as delete.
-		archiveWarning := s.runArchiveScriptForDelete(ws)
+		// shelving removes the worktree too, so it runs here under the held
+		// gate on the same best-effort terms as delete.
+		archiveWarning := s.runArchiveScriptForDelete(ws, guard)
 
 		var stageFail tea.Msg
 		func() {
@@ -131,6 +143,7 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 			clearShelveIntent()
 			return stageFail
 		}
+		removed = true
 
 		// Worktree is gone: the shelf is real from here on, so the intent flags
 		// stay even if session teardown reports an error.
@@ -163,12 +176,30 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		// lifecycle guard under every form the mark touched.
 		stampedIDs := WorkspaceIDStrings(ws)
 		fail := func(stage string, err error) tea.Msg {
-			logging.Warn("workspace restore failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
+			logging.Error("workspace restore failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
 			return messages.WorkspaceRestoreFailed{Project: project, Workspace: ws, Err: err, WorkspaceIDs: stampedIDs}
 		}
 
 		if !ws.Archived || !ws.Shelved {
 			return fail("validate_shelved", errors.New("workspace is not shelved"))
+		}
+		// The request's snapshot flags passed validation, but they can be
+		// stale: a second Enter racing this restore's own completion still
+		// carries the pre-restore row. The store is authoritative — if the
+		// record is already live, this is a duplicate: skip rather than
+		// adopt/fail on the worktree the first restore just recreated.
+		if s.store != nil {
+			for _, id := range WorkspaceMetadataIDs(ws) {
+				fresh, err := s.store.Load(id)
+				if err != nil || fresh == nil {
+					continue
+				}
+				if !fresh.Shelved || !fresh.Archived {
+					logging.Info("workspace restore skipped: record already live workspace_id=%s workspace_root=%s", wsID, ws.Root)
+					return messages.WorkspaceRestoreSkipped{Project: project, Workspace: ws, WorkspaceIDs: stampedIDs}
+				}
+				break
+			}
 		}
 		projectPath := data.NormalizePath(project.Path)
 		if projectPath == "" || data.NormalizePath(ws.Repo) != projectPath {
@@ -216,7 +247,7 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 				return
 			}
 			if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
-				logging.Warn("workspace restore rollback failed workspace_id=%s workspace_root=%s error=%v", wsID, ws.Root, err)
+				logging.Error("workspace restore rollback failed workspace_id=%s workspace_root=%s error=%v", wsID, ws.Root, err)
 			}
 		}
 		if err := waitForGitPath(filepath.Join(ws.Root, ".git"), s.gitPathWaitTimeout); err != nil {
@@ -225,15 +256,13 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		}
 
 		if s.store != nil {
-			fresh, err := s.store.Load(ws.MetadataID())
-			if err != nil || fresh == nil {
-				rollback()
-				return fail("unarchive", errors.Join(errors.New("load workspace metadata"), err))
-			}
-			fresh.Archived = false
-			fresh.Shelved = false
-			fresh.ArchivedAt = time.Time{}
-			if err := s.store.Save(fresh); err != nil {
+			err := s.store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+				fresh.Archived = false
+				fresh.Shelved = false
+				fresh.ArchivedAt = time.Time{}
+				return true, nil
+			})
+			if err != nil {
 				rollback()
 				return fail("unarchive", err)
 			}
@@ -245,14 +274,15 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 
 // listShelvedWorkspaces returns the repo's intentionally shelved workspaces
 // (Archived && Shelved). Accidental archives are GC bookkeeping, not shelves,
-// and are excluded.
-func (s *Service) listShelvedWorkspaces(repoPath string) []data.Workspace {
+// and are excluded. The caller's already-loaded metadata snapshot is reused
+// when present; a nil set falls back to the store's per-repo read.
+func (s *Service) listShelvedWorkspaces(set *data.WorkspaceRecordSet, repoPath string) []data.Workspace {
 	if s == nil || s.store == nil {
 		return nil
 	}
-	all, err := s.store.ListByRepoIncludingArchived(repoPath)
+	all, err := s.listByRepoFromSet(set, repoPath, true)
 	if err != nil {
-		logging.Warn("Failed to list shelved workspaces for %s: %v", repoPath, err)
+		logging.Error("Failed to list shelved workspaces for %s: %v", repoPath, err)
 		return nil
 	}
 	shelved := make([]data.Workspace, 0, len(all))

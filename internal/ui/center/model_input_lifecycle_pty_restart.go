@@ -50,7 +50,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			}))
 			logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
 		case termAlive:
-			logging.Warn("PTY stopped for tab %s; restart limit reached, marking detached: %v", msg.TabID, msg.Err)
+			logging.Error("PTY stopped for tab %s; restart limit reached, marking detached: %v", msg.TabID, msg.Err)
 			cmds = append(cmds, func() tea.Msg {
 				return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(msg.TabID)}
 			})

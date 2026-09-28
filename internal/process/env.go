@@ -52,9 +52,11 @@ func (b *EnvBuilder) BuildEnvLayers(ws *data.Workspace, layers ...map[string]str
 		"ROOT_WORKSPACE_PATH="+ws.Repo,
 	)
 
-	// Add port allocation
+	// Add port allocation. ReserveWorkspace keys on the persisted metadata ID
+	// when the durable registry is configured, falling back to the root-keyed
+	// in-memory map for transient (non-production) allocators — never a mix.
 	if b != nil && b.portAllocator != nil {
-		port, rangeEnd, err := b.portAllocator.PortRange(ws.Root)
+		port, rangeEnd, err := b.portAllocator.ReserveWorkspace(ws)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +103,7 @@ func (b *EnvBuilder) BuildEnvMap(ws *data.Workspace) (map[string]string, error) 
 	envMap["ROOT_WORKSPACE_PATH"] = ws.Repo
 
 	if b != nil && b.portAllocator != nil {
-		port, rangeEnd, err := b.portAllocator.PortRange(ws.Root)
+		port, rangeEnd, err := b.portAllocator.ReserveWorkspace(ws)
 		if err != nil {
 			return nil, err
 		}

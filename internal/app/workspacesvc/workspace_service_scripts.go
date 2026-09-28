@@ -54,11 +54,17 @@ func (s *Service) TrustRepoScriptsAndRunSetupAsync(ws *data.Workspace, expectedH
 	}
 }
 
-func (s *Service) stopWorkspaceScriptsForDelete(ws *data.Workspace) error {
+// beginWorkspaceTeardown seizes the workspace's lifecycle gate and drains
+// every local lifecycle process (in-flight setup, detached on-done hooks)
+// plus the run script — hosted sessions and the local run slot alike — before
+// the caller removes anything. The returned guard holds the admission gate
+// across archive+removal so nothing new can start mid-teardown; callers must
+// Finish it. A nil scripts service returns a nil guard, nil error.
+func (s *Service) beginWorkspaceTeardown(ws *data.Workspace) (*process.TeardownGuard, error) {
 	if s == nil || s.scripts == nil {
-		return nil
+		return nil, nil
 	}
-	return s.scripts.Stop(ws)
+	return s.scripts.BeginTeardown(ws)
 }
 
 // runArchiveScriptForDelete runs the workspace's `archive` script to completion
@@ -66,10 +72,14 @@ func (s *Service) stopWorkspaceScriptsForDelete(ws *data.Workspace) error {
 // when the script succeeded or there was nothing to run. It never returns an
 // error: the delete proceeds regardless of what the archive script did.
 //
+// The archive runs under the caller's held teardown guard — the only archive
+// admission allowed while the gate is held — so it executes after prior work
+// has drained and before the tree is removed, never racing a foreign teardown.
+//
 // A repo whose .amux/workspaces.json is untrusted gets the same treatment as
 // setup — the command is skipped, not run, and the user is told so.
-func (s *Service) runArchiveScriptForDelete(ws *data.Workspace) string {
-	if s == nil || s.scripts == nil || ws == nil {
+func (s *Service) runArchiveScriptForDelete(ws *data.Workspace, guard *process.TeardownGuard) string {
+	if s == nil || s.scripts == nil || ws == nil || guard == nil {
 		return ""
 	}
 	// The script runs in the worktree, so a worktree that is already gone (an
@@ -81,7 +91,7 @@ func (s *Service) runArchiveScriptForDelete(ws *data.Workspace) string {
 		return ""
 	}
 
-	err := s.scripts.RunArchive(ws)
+	err := guard.RunArchive(ws)
 	switch {
 	case err == nil:
 		return ""
@@ -91,7 +101,7 @@ func (s *Service) runArchiveScriptForDelete(ws *data.Workspace) string {
 		logging.Info("workspace delete skipped untrusted archive script workspace_id=%s", ws.ID())
 		return fmt.Sprintf("Skipped the archive script for %s: repo not trusted yet", ws.Name)
 	default:
-		logging.Warn("workspace archive script failed workspace_id=%s error=%v", ws.ID(), err)
+		logging.Error("workspace archive script failed workspace_id=%s error=%v", ws.ID(), err)
 		return fmt.Sprintf("Archive script failed for %s: %v", ws.Name, err)
 	}
 }
@@ -103,12 +113,15 @@ func (s *Service) StopAll() {
 	s.scripts.StopAll()
 }
 
-// IsScriptRunning reports whether a script is currently running for ws.
+// IsScriptRunning reports whether the workspace's `run` script is live — the
+// run-only query the sidebar badge and toggle decision use. Coordinator-tracked
+// lifecycle work (setup/on-done) does not count; the runner's broader IsRunning
+// covers that for release/teardown decisions.
 func (s *Service) IsScriptRunning(ws *data.Workspace) bool {
 	if s == nil || s.scripts == nil || ws == nil {
 		return false
 	}
-	return s.scripts.IsRunning(ws)
+	return s.scripts.RunActive(ws)
 }
 
 // RunScriptStatus reports the workspace's run state for UI surfacing:
@@ -155,7 +168,9 @@ func (s *Service) ToggleScriptAsync(ws *data.Workspace) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		if s.scripts.IsRunning(ws) {
+		// RunActive is the run-only query: an in-flight setup or on-done hook
+		// must not flip the toggle into "stop" when no run script is running.
+		if s.scripts.RunActive(ws) {
 			if err := s.scripts.Stop(ws); err != nil {
 				return messages.WorkspaceScriptStateChanged{Workspace: ws, Running: true, Err: err}
 			}
@@ -176,6 +191,35 @@ func (s *Service) ReleaseWorkspacePort(ws *data.Workspace) {
 		return
 	}
 	s.scripts.ReleaseWorkspace(ws)
+}
+
+// RunSessionList enumerates the workspace's hosted run sessions with
+// liveness, base-first then numeric suffix — the run-session picker's row
+// set. Nil under the subprocess fallback.
+func (s *Service) RunSessionList(ws *data.Workspace) []process.RunSessionEntry {
+	if s == nil || s.scripts == nil {
+		return nil
+	}
+	return s.scripts.RunSessionList(ws)
+}
+
+// RunScriptSessionTail returns up to lines of the NAMED run session's pane —
+// the picker-targeted sibling of RunScriptOutput (which always tails newest).
+func (s *Service) RunScriptSessionTail(name string, lines int) string {
+	if s == nil || s.scripts == nil || name == "" {
+		return ""
+	}
+	return s.scripts.RunSessionTail(name, lines)
+}
+
+// RunScriptSessionAlive reports whether the NAMED run session's pane is still
+// running — the attach-path's recheck for a session that may have exited
+// between picker enumeration and selection.
+func (s *Service) RunScriptSessionAlive(name string) bool {
+	if s == nil || s.scripts == nil || name == "" {
+		return false
+	}
+	return s.scripts.RunSessionAlive(name)
 }
 
 // RunScriptAttachTarget returns the newest alive hosted run-session name for

@@ -28,11 +28,11 @@ func (a *App) killWorkspaceSessionsSync(wsID string) error {
 	}
 	_, taggedErr := a.tmuxService.KillSessionsMatchingTags(tags, a.tmuxOptions)
 	if taggedErr != nil {
-		logging.Warn("Failed to kill tagged tmux sessions for deleted workspace %s: %v", wsID, taggedErr)
+		logging.Error("Failed to kill tagged tmux sessions for deleted workspace %s: %v", wsID, taggedErr)
 	}
 	legacyErr := a.tmuxService.KillWorkspaceSessions(wsID, a.tmuxOptions)
 	if legacyErr != nil {
-		logging.Warn("Failed to kill legacy tmux sessions for deleted workspace %s: %v", wsID, legacyErr)
+		logging.Error("Failed to kill legacy tmux sessions for deleted workspace %s: %v", wsID, legacyErr)
 	}
 	return errors.Join(taggedErr, legacyErr)
 }
@@ -53,7 +53,7 @@ func (a *App) killWorkspaceSessionNamesSync(sessionNames []string) error {
 			continue
 		}
 		if err := a.tmuxService.KillSession(name, a.tmuxOptions); err != nil {
-			logging.Warn("Failed to kill persisted tmux session %s for deleted workspace: %v", name, err)
+			logging.Error("Failed to kill persisted tmux session %s for deleted workspace: %v", name, err)
 			errs = append(errs, err)
 		}
 	}
@@ -69,7 +69,7 @@ func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 		}
 		cleanedTagged, err := svc.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
 		if err != nil {
-			logging.Warn("Failed to cleanup tmux sessions by tag: %v", err)
+			logging.Error("Failed to cleanup tmux sessions by tag: %v", err)
 		} else if cleanedTagged {
 			logging.Info("Cleaned up @amux tmux sessions")
 		}

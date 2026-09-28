@@ -1,7 +1,6 @@
 package center
 
 import (
-	"crypto/sha256"
 	"strings"
 	"testing"
 	"time"
@@ -204,7 +203,7 @@ func TestNoteVisibleActivityLocked_SubmittedPasteSuppressionDoesNotLeakOnInvisib
 // of visibleScreenDigest, kept here as the equivalence reference. If the
 // digest's content-selection rules ever change, this reference must change in
 // lockstep — it exists to pin the byte stream fed to the hash.
-func referenceVisibleScreenDigest(term *vterm.VTerm) [16]byte {
+func referenceVisibleScreenDigest(term *vterm.VTerm) uint64 {
 	if term == nil {
 		return visibleDigestHash(nil)
 	}
@@ -238,10 +237,7 @@ func referenceVisibleScreenDigest(term *vterm.VTerm) [16]byte {
 		}
 		b.WriteByte('\n')
 	}
-	hash := sha256.Sum256([]byte(b.String()))
-	var digest [16]byte
-	copy(digest[:], hash[:16])
-	return digest
+	return visibleDigestHash([]byte(b.String()))
 }
 
 func TestVisibleScreenDigest_MatchesStringReference(t *testing.T) {
@@ -291,6 +287,34 @@ func TestVisibleScreenDigest_MatchesStringReference(t *testing.T) {
 
 	if got, want := visibleScreenDigest(nil), referenceVisibleScreenDigest(nil); got != want {
 		t.Fatalf("nil terminal: visibleScreenDigest = %x, reference = %x", got, want)
+	}
+}
+
+// TestVisibleScreenDigest_LiveScreenNotViewport pins the digest's semantic:
+// it answers "did the LIVE screen change". Scrolling the viewport must not
+// move the digest; writing below the viewport must.
+func TestVisibleScreenDigest_LiveScreenNotViewport(t *testing.T) {
+	term := vterm.New(10, 4)
+	// Overflow the screen so scrollback exists.
+	term.Write([]byte("l1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\nl7"))
+
+	base := visibleScreenDigest(term)
+
+	// Viewport-only change: scroll back — digest must not move.
+	term.ViewOffset = 2
+	if got := visibleScreenDigest(term); got != base {
+		t.Fatalf("viewport scroll changed digest %x → %x", base, got)
+	}
+
+	// Live-screen change while still scrolled: new output lands on the live
+	// buffer — digest must move even though the viewport is unchanged.
+	term.Write([]byte("\r\nmore-output"))
+	if got := visibleScreenDigest(term); got == base {
+		t.Fatal("live-screen write while scrolled did not change digest")
+	}
+	term.ViewOffset = 0
+	if got := visibleScreenDigest(term); got == base {
+		t.Fatal("digest did not reflect the new live content")
 	}
 }
 

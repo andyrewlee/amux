@@ -1,6 +1,7 @@
 package data
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -176,6 +177,103 @@ func TestWorkspaceStore_UnknownVersionFailsClosed(t *testing.T) {
 	}
 	if _, err := store.Load(id); err == nil || errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("Load(version:99) must fail closed, got %v", err)
+	}
+}
+
+// Write-refusal coverage: a newer-schema file is intact data from a newer
+// binary, so writes must refuse (never replace it at our version) — while
+// genuinely corrupt files still take the designed wholesale-replace path.
+
+func TestRegistry_WriteRefusesNewerSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "projects.json")
+	repo := t.TempDir()
+	fixture := `{"version":99,"projects":[{"name":"repo","path":"/x"}]}`
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A valid .bak must not rescue the write — a newer primary is not
+	// corruption, and recovering stale data over it would clobber it.
+	backup := `{"version":1,"projects":[{"name":"repo","path":"` + repo + `"}]}`
+	if err := os.WriteFile(path+".bak", []byte(backup), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg := NewRegistry(path)
+	if err := reg.AddProject(repo); !errors.Is(err, ErrUnsupportedSchemaVersion) {
+		t.Fatalf("AddProject error = %v, want ErrUnsupportedSchemaVersion", err)
+	}
+	if err := reg.RemoveProject(repo); !errors.Is(err, ErrUnsupportedSchemaVersion) {
+		t.Fatalf("RemoveProject error = %v, want ErrUnsupportedSchemaVersion", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, []byte(fixture)) {
+		t.Fatal("newer-schema primary must be preserved byte-for-byte")
+	}
+	gotBak, _ := os.ReadFile(path + ".bak")
+	if !bytes.Equal(gotBak, []byte(backup)) {
+		t.Fatal("backup must not be rewritten either")
+	}
+}
+
+func TestProjectEnv_WriteRefusesNewerSchema(t *testing.T) {
+	dir := t.TempDir()
+	store := NewProjectEnvStore(dir)
+	fixture := `{"version":99,"env":{"/x":{"A":"1"}}}`
+	if err := os.WriteFile(store.Path(), []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(t.TempDir(), map[string]string{"B": "2"}); !errors.Is(err, ErrUnsupportedSchemaVersion) {
+		t.Fatalf("Set error = %v, want ErrUnsupportedSchemaVersion", err)
+	}
+	got, _ := os.ReadFile(store.Path())
+	if !bytes.Equal(got, []byte(fixture)) {
+		t.Fatal("newer-schema file must be preserved byte-for-byte")
+	}
+}
+
+func TestProjectEnv_CorruptFileStillReplaced(t *testing.T) {
+	dir := t.TempDir()
+	store := NewProjectEnvStore(dir)
+	if err := os.WriteFile(store.Path(), []byte(`{not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	if err := store.Set(repo, map[string]string{"B": "2"}); err != nil {
+		t.Fatalf("Set on corrupt file = %v, want wholesale replace", err)
+	}
+	if got := store.ForRepo(repo); got["B"] != "2" {
+		t.Fatalf("ForRepo after replace = %v, want B=2", got)
+	}
+}
+
+func TestProjectScriptStore_WriteRefusesNewerSchema(t *testing.T) {
+	dir := t.TempDir()
+	store := NewProjectScriptStore(dir)
+	fixture := `{"version":99,"scripts":{"/x":{"setup":"x"}}}`
+	if err := os.WriteFile(store.Path(), []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(t.TempDir(), ScriptsConfig{Setup: "y"}); !errors.Is(err, ErrUnsupportedSchemaVersion) {
+		t.Fatalf("Set error = %v, want ErrUnsupportedSchemaVersion", err)
+	}
+	got, _ := os.ReadFile(store.Path())
+	if !bytes.Equal(got, []byte(fixture)) {
+		t.Fatal("newer-schema file must be preserved byte-for-byte")
+	}
+}
+
+func TestProjectScriptStore_CorruptFileStillReplaced(t *testing.T) {
+	dir := t.TempDir()
+	store := NewProjectScriptStore(dir)
+	if err := os.WriteFile(store.Path(), []byte(`{not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	if err := store.Set(repo, ScriptsConfig{Setup: "y"}); err != nil {
+		t.Fatalf("Set on corrupt file = %v, want wholesale replace", err)
+	}
+	if got := store.ForRepo(repo); got.Setup != "y" {
+		t.Fatalf("ForRepo after replace = %+v, want setup=y", got)
 	}
 }
 

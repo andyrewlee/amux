@@ -13,7 +13,7 @@ func lockRegistryFile(lockPath string, shared bool) (*os.File, error) {
 	if err := mkdirAllPrivate(filepath.Dir(lockPath)); err != nil {
 		return nil, err
 	}
-	root, file, _, err := openRegistryLockRoot(lockPath)
+	root, file, _, err := openRegistryLockRootRetry(lockPath)
 	if err != nil {
 		return nil, err
 	}

@@ -63,8 +63,11 @@ func TestBuildWorkspaceStatus_FullSnapshot(t *testing.T) {
 	if st.name != "ws" || st.branch != "feat" || st.root != ws.Root {
 		t.Fatalf("identity fields wrong: %+v", st)
 	}
-	if !st.portAllocated || st.portBase != 6200 || st.portEnd != 6209 {
-		t.Fatalf("port = %d-%d allocated=%v, want 6200-6209 true", st.portBase, st.portEnd, st.portAllocated)
+	// The port interval is filled by the ready message (authoritative
+	// non-allocating lookup), not the synchronous build — a build-time value
+	// here would mean status reads still hit the transient getter.
+	if st.portAllocated {
+		t.Fatalf("buildWorkspaceStatus filled port fields: %+v", st)
 	}
 	if st.scriptSources[process.ScriptArchive] != "repo" || st.scriptSources[process.ScriptOnDone] != "user" {
 		t.Fatalf("script sources = %v, want archive=repo on-done=user", st.scriptSources)
@@ -159,6 +162,199 @@ func TestHandleShowWorkspaceStatus_OpensDialog(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("status view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+// durableStatusApp wires the production chain for status tests: a durable
+// reservation store under a temp state home, a runner on it, and the service
+// the status dialog consults.
+func durableStatusApp(t *testing.T, home string) (*App, *data.PortReservationStore) {
+	t.Helper()
+	store := data.NewPortReservationStore(home)
+	if err := store.Initialize(nil); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	scripts := process.NewScriptRunner(6200, 10)
+	scripts.SetPortReservationStore(store)
+	app := &App{
+		config:           &config.Config{PortRangeSize: 10},
+		toast:            common.NewToastModel(),
+		workspaceService: workspacesvc.New(nil, nil, scripts, ""),
+		width:            120,
+		height:           40,
+	}
+	return app, store
+}
+
+func savedStatusWorkspace(t *testing.T, meta, name string) *data.Workspace {
+	t.Helper()
+	store := data.NewWorkspaceStore(meta)
+	ws := &data.Workspace{Name: name, Repo: t.TempDir(), Root: t.TempDir()}
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save(%s): %v", name, err)
+	}
+	return ws
+}
+
+// statusInterval runs the real async fetch the open cmd performs and applies
+// the result through the token-fenced handler — the same path production
+// takes, minus the tmux run-status sweep (nil host → not running).
+func statusInterval(t *testing.T, app *App, ws *data.Workspace) {
+	t.Helper()
+	cmd := app.handleShowWorkspaceStatus(messages.ShowWorkspaceStatus{Workspace: ws})
+	if cmd == nil {
+		t.Fatal("status open returned no fetch cmd")
+	}
+	ready, ok := cmd().(workspaceStatusReadyMsg)
+	if !ok {
+		t.Fatalf("fetch cmd emitted %T, want workspaceStatusReadyMsg", cmd())
+	}
+	app.handleWorkspaceStatusReady(ready)
+}
+
+// TestWorkspaceStatusReady_PersistedIntervalAuthoritative proves the dialog
+// renders the stored interval's actual end — an interval minted under an old
+// configured width keeps its original bounds even though config changed.
+func TestWorkspaceStatusReady_PersistedIntervalAuthoritative(t *testing.T) {
+	home, meta := t.TempDir(), t.TempDir()
+	app, store := durableStatusApp(t, home)
+	ws := savedStatusWorkspace(t, meta, "ws")
+
+	// Reserve under an older, wider configuration by writing the registry
+	// directly — the width mismatch is exactly what config reconstruction
+	// would have lied about.
+	id, ok := ws.StoredID()
+	if !ok {
+		t.Fatal("fixture: workspace has no stored ID")
+	}
+	base, end, err := store.Reserve(string(id), 6200, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != 6200 || end != 6224 {
+		t.Fatalf("seeded interval = %d-%d, want 6200-6224", base, end)
+	}
+	app.config.PortRangeSize = 4 // "current" config disagrees with the record
+
+	statusInterval(t, app, ws)
+	if app.overlays.runOutput == nil || !app.overlays.runOutput.Visible() {
+		t.Fatal("status dialog did not open")
+	}
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if !strings.Contains(view, "6200-6224") {
+		t.Fatalf("status shows wrong interval (want stored 6200-6224, not config-derived 6200-6203):\n%s", view)
+	}
+}
+
+// TestWorkspaceStatusReady_RestartSeesForeignReservation proves a reservation
+// committed by a previous/parallel instance renders without this process ever
+// allocating — the registry, not the local map, is the source of truth.
+func TestWorkspaceStatusReady_RestartSeesForeignReservation(t *testing.T) {
+	home, meta := t.TempDir(), t.TempDir()
+	app, store := durableStatusApp(t, home)
+	ws := savedStatusWorkspace(t, meta, "ws")
+	id, _ := ws.StoredID()
+
+	// "Another instance" commits the reservation directly to the registry —
+	// this runner's memory map never sees it.
+	if _, _, err := store.Reserve(string(id), 6200, 10); err != nil {
+		t.Fatal(err)
+	}
+	statusInterval(t, app, ws)
+
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if !strings.Contains(view, "6200-6209") {
+		t.Fatalf("foreign reservation not visible in status:\n%s", view)
+	}
+	// The memory-only getter correctly reports this instance holds nothing.
+	if _, held := app.workspaceService.WorkspaceScriptPort(ws); held {
+		t.Fatal("WorkspaceScriptPort claims an allocation this instance never made")
+	}
+}
+
+// TestWorkspaceStatusReady_AbsentReservationDoesNotAllocate proves viewing
+// status never creates a reservation.
+func TestWorkspaceStatusReady_AbsentReservationDoesNotAllocate(t *testing.T) {
+	home, meta := t.TempDir(), t.TempDir()
+	app, store := durableStatusApp(t, home)
+	ws := savedStatusWorkspace(t, meta, "ws")
+	id, _ := ws.StoredID()
+
+	statusInterval(t, app, ws)
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if !strings.Contains(view, "none allocated") {
+		t.Fatalf("absent reservation should render 'none allocated':\n%s", view)
+	}
+	if _, _, found, err := store.Lookup(string(id)); err != nil || found {
+		t.Fatalf("status read allocated a reservation (found=%v, err=%v)", found, err)
+	}
+}
+
+// TestWorkspaceStatusReady_UnsavedWorkspaceNoReservation proves an unsaved
+// workspace (no durable key) renders "none allocated" rather than minting a
+// path-keyed lie.
+func TestWorkspaceStatusReady_UnsavedWorkspaceNoReservation(t *testing.T) {
+	home := t.TempDir()
+	app, _ := durableStatusApp(t, home)
+	ws := &data.Workspace{Name: "u", Repo: t.TempDir(), Root: t.TempDir()}
+
+	statusInterval(t, app, ws)
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if !strings.Contains(view, "none allocated") {
+		t.Fatalf("unsaved workspace should render 'none allocated':\n%s", view)
+	}
+}
+
+// TestWorkspaceStatusReady_ReadFailureSurfaces proves a corrupt registry is a
+// visible error, not a blank/guessed range.
+func TestWorkspaceStatusReady_ReadFailureSurfaces(t *testing.T) {
+	home, meta := t.TempDir(), t.TempDir()
+	app, store := durableStatusApp(t, home)
+	ws := savedStatusWorkspace(t, meta, "ws")
+	if err := os.WriteFile(store.Path(), []byte(`{"version": 1, "reservations": {"a": {"start": 1, "end": 9}, "b": {"start": 5, "end": 20}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	statusInterval(t, app, ws)
+	if app.overlays.runOutput != nil && app.overlays.runOutput.Visible() {
+		t.Fatal("status dialog opened on top of a corrupt registry")
+	}
+	if !app.toast.Visible() {
+		t.Fatal("port read failure produced no visible error")
+	}
+}
+
+// TestWorkspaceStatusReady_StaleResultDropped proves the dialog token fences
+// a status fetch that resolves after a newer dialog superseded it.
+func TestWorkspaceStatusReady_StaleResultDropped(t *testing.T) {
+	home, meta := t.TempDir(), t.TempDir()
+	app, store := durableStatusApp(t, home)
+	ws := savedStatusWorkspace(t, meta, "ws")
+	id, _ := ws.StoredID()
+	if _, _, err := store.Reserve(string(id), 6200, 10); err != nil {
+		t.Fatal(err)
+	}
+
+	// First open captures token T; a second open bumps it. The first fetch's
+	// result must be dropped — a stale snapshot must not replace the dialog.
+	first := app.handleShowWorkspaceStatus(messages.ShowWorkspaceStatus{Workspace: ws})
+	second := app.handleShowWorkspaceStatus(messages.ShowWorkspaceStatus{Workspace: ws})
+	staleMsg, freshMsg := first(), second()
+	stale, ok := staleMsg.(workspaceStatusReadyMsg)
+	if !ok {
+		t.Fatalf("first fetch returned %T, want workspaceStatusReadyMsg", staleMsg)
+	}
+	fresh, ok := freshMsg.(workspaceStatusReadyMsg)
+	if !ok {
+		t.Fatalf("second fetch returned %T, want workspaceStatusReadyMsg", freshMsg)
+	}
+	app.handleWorkspaceStatusReady(stale)
+	if app.overlays.runOutput != nil && app.overlays.runOutput.Visible() {
+		t.Fatal("stale status result opened a dialog")
+	}
+	app.handleWorkspaceStatusReady(fresh)
+	if app.overlays.runOutput == nil || !app.overlays.runOutput.Visible() {
+		t.Fatal("fresh status result did not open the dialog")
 	}
 }
 

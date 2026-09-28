@@ -55,6 +55,21 @@ amux-<workspaceID>-<tabPart>
   (`internal/data/workspace.go`) — 16 lowercase hex characters for anything
   minted by current amux, and in practice **never contains `-`** (sanitize
   would rewrite anything else anyway).
+
+Metadata updates are field transactions, not whole-record writes: each
+mutator (rename, env, scripts, shelve/restore/archive flags, debounced
+tab state) loads the record fresh under the workspace lock and rewrites only
+its own fields. External tooling that edits `workspace.json` directly should
+do the same — read-modify-write of only the field it owns.
+
+`~/.amux/config.json` has a deliberately asymmetric contract: startup falls
+back to defaults on malformed content, but amux's own saves refuse an
+unreadable or non-object document rather than rewriting a partial view (a
+missing or empty file is treated as an empty config and written normally).
+External tooling editing the file should keep it a JSON object — a file amux
+cannot parse at save time is preserved untouched, never repaired or
+truncated.
+
 - `<tabPart>` identifies the pane within the workspace. For an interactive agent
   tab it is the tab ID `tab-<prefix>-<counter>` (`internal/ui/center/model_tab.go`,
   `formatTabID`), where `<prefix>` is 4 random bytes hex-encoded **per amux
@@ -73,6 +88,15 @@ amux-ws-<workspaceID>-run-<N>    (concurrent runs, N = 2, 3, …)
 
 Run sessions carry `@amux_workspace` and `@amux_type=run` tags but **no
 `@amux_tab`** — they host a detached command, not a tab.
+
+**Lifecycle teardown ordering** (for orchestrators that drive deletion):
+workspace delete/shelve seizes a per-workspace admission gate, cancels and
+drains every local lifecycle process (in-flight `setup-workspace` sequences,
+detached `on-done` hooks), kills hosted run sessions and the local run slot,
+then runs `archive` and removes the worktree — in that order. A child writing
+into the tree never outlives the tree's removal, and while the gate is held
+the runner rejects new lifecycle starts (`ErrWorkspaceTeardown`). External
+tooling must not remove a workspace's directory without the same ordering.
 
 Worked example — workspace ID `9f8e7d6c5b4a3210`, tab ID `tab-1a2b3c4d-5`:
 
@@ -117,7 +141,11 @@ runSessionBaseName(...)          => "amux-ws-9f8e7d6c5b4a3210-run"
 ## Discovering sessions
 
 Do not construct tab names; enumerate the live sessions on amux's tmux server
-and filter by prefix and tags.
+and filter by prefix and tags. Attaches are fenced per tab: only the newest
+in-flight attach's outcome is applied, so a client from an abandoned or
+superseded attach is closed instead of replacing the live terminal — an
+orchestrator that triggers its own attach does not need to serialize against
+amux's.
 
 Resolve the server name the way amux does (`tmux.DefaultOptions`,
 `internal/tmux/tmux.go`):
@@ -128,7 +156,9 @@ Resolve the server name the way amux does (`tmux.DefaultOptions`,
 amux itself sets these env vars from config
 (`UI.TmuxServer` / `UI.TmuxConfigPath`, `internal/app/app_init.go`), so an
 orchestrator launched in the same environment as amux should honor whatever is
-already set and only fall back to the defaults above.
+already set and only fall back to the defaults above. (`AMUX_SKIP_LINT` /
+`AMUX_SKIP_HARNESS` are contributor git-hook escapes documented in
+CONTRIBUTING.md — the app ignores them.)
 
 List sessions and their tags in one call, mirroring amux's own reader
 (`internal/tmux/tags.go`):
@@ -182,6 +212,28 @@ return, `0x0D`) arrive intact:
    delay between the keystrokes and the Enter in its own send path for the same
    reason.
 
+The same one-line discipline applies inside amux's own editors: the env,
+scripts, and Settings text fields accept terminal bracketed paste but only
+append the **first line** of the payload to the focused field — later lines
+and control bytes are dropped, and a paste never submits, cancels, or toggles
+a row. An orchestrator that pastes multi-line text into an amux dialog should
+split and submit lines itself.
+
+Path pickers (add project, transcript browser) resolve explicit typed paths
+before row selection: an absolute path, `~`, `~/…`, `./…`, `../…`, or any
+input containing a separator makes `enter` resolve that path and `tab`
+navigate a directory, even while unrelated rows are listed. An orchestrator
+can therefore paste a full path and press `enter` without clearing the input
+or the listing first; a plain name still fuzzy-filters and selects rows.
+
+Every git invocation amux issues runs in its own process group (Unix;
+leader-only kill on Windows) with a bounded output drain, so deadline
+cancellation terminates spawned descendants and cannot be stalled by a
+lingering child holding the output pipes. The cleanup allowance after a
+deadline is short (sub-second scale), not exact — orchestrators should treat
+the deadline as "deadline plus bounded teardown," not a hard wall-clock
+contract.
+
 ## Reading state
 
 amux stores per-session metadata as tmux session options (`@amux_*`). Read one
@@ -218,6 +270,16 @@ workspace rename does not re-tag a live session, so the value may be stale
 until the next attach/reattach refreshes it. Values pass through a
 control-byte strip and a 128-rune cap before becoming tag values.
 
+Assistant launch settings (`command` plus the interrupt fields from
+`~/.amux/config.json`) are captured when amux dispatches a launch, reattach, or
+restart — a settings save changes only launches requested afterwards, never an
+in-flight spawn. Attaching to an existing session never re-runs the pane
+command: the session's process owns its argv from creation.
+`interrupt_delay_ms` only spaces the Ctrl-C signals inside one interrupt
+sequence; it is unrelated to the text-then-CR submit pacing above. An
+explicit `0` is a real setting and is serialized on save — it does not
+silently revert to the built-in default.
+
 Note the unit split: `@amux_created_at` is in seconds; the activity/lease
 timestamps are in milliseconds. amux parses these back with
 `activity.ParseLastOutputAtTag` (`internal/app/activity/fetch.go`). The owner and
@@ -230,6 +292,15 @@ per session so an external orchestrator does not have to re-derive it from the
 raw timestamp tags above. It is read-only telemetry, written best-effort and
 only when the state actually changes (not on every scan), so a missing or
 momentarily stale value should be tolerated the same way as the other tags.
+
+Transitions driven purely by elapsed time publish too: when `done`'s
+freshness window (~30s) expires on a quiet session, the tag advances to
+`idle` rather than sticking at `done` forever. On amux start or an
+owner-handoff between instances, each session's first observation publishes
+its current value (correcting any stale tag) but never replays an on-done
+hook — the hook only fires on a working→done edge the current owner watched
+happen. Only the scan owner writes these tags; follower instances consume the
+shared workspace snapshot instead.
 
 ## Trust boundary
 
@@ -262,6 +333,92 @@ Residual race: between the ownership check and the tmux client command's own
 `has-session || new-session` sequence, a squatter could still claim the name;
 closing that window needs the ownership test inside the generated tmux shell
 script and is documented rather than implemented.
+
+## Port reservations (durable registry)
+
+Every workspace gets `AMUX_PORT`/`AMUX_PORT_RANGE` from a durable registry at
+`~/.amux/port-reservations.json`, shared by every amux process pointed at that
+state home. The contract an orchestrator can rely on:
+
+- **Owner**: the registry owns ranges; app processes and tmux sessions are only
+  consumers. A reservation is committed under the workspace's persisted
+  metadata ID (`@amux_workspace` on its sessions) *before* the session's env is
+  built — never under a path-derived ID, which drifts when roots move.
+- **Stability**: re-spawns, restarts, and concurrent instances all read the
+  committed interval verbatim. Intervals minted under earlier port settings
+  keep their original bounds — current settings shape only new reservations.
+- **No reclamation**: reservations survive release, workspace teardown, quits,
+  and crashes. A stale release can never hand a live session's range to another
+  workspace. There is no TTL and no liveness-based reuse in this release.
+- **Exhaustion/corruption fail closed**: a saturated space reports a typed
+  exhaustion error; malformed, overlapping, or newer-schema bytes are left
+  untouched and surfaced as errors — never silently accepted or rewritten.
+- **Missing metadata degrades, never blocks**: a workspace object with no
+  persisted ID (a transient store error during load, or a never-saved record)
+  falls back to the per-process allocator for that spawn — the pre-registry
+  contract — and logs a warning. No registry record is minted under a
+  path-derived key; the durable path resumes on the next successful load.
+- **Do not delete the registry while any amux session exists**: removing it
+  orphans the ranges live sessions still hold, and the next launch would mint
+  overlapping reservations. There is intentionally no reset command.
+
+**First-upgrade adoption.** A tmux session left behind by a pre-registry amux
+holds a range the new registry cannot see, so while the registry file is
+missing each launch performs a guarded adoption: startup inspects the
+configured tmux server and defers adoption if any session it cannot prove
+foreign might hold an untracked range (any `amux-`-named or `@amux`-tagged
+session whose `@amux_instance` is absent or shares this state home's
+namespace). Deferral is never fatal — amux opens normally, warns once, and
+allocates per-process exactly as pre-registry versions did; the registry is
+created on a later launch while no ambiguous amux sessions remain. To opt in
+immediately, quit amux and stop all amux tmux sessions once, then relaunch.
+The check never runs after the registry exists and never kills sessions,
+and never deletes metadata. Two limitations are on the operator: the guard can
+only inspect the **configured** tmux server — sessions on custom `tmux -L`
+servers or `AMUX_TMUX_SERVER` sockets are invisible to it — and mixed-version
+running is unsupported until adoption completes: an old binary still
+allocating in memory would keep handing out ranges the new registry cannot
+see. tmux-discovery failure during adoption also defers rather than guessing.
+
+## Project tree loading contract
+
+The sidebar's Project tab reads directories asynchronously: switching
+workspaces, expanding a directory, and pressing `r`/`enter`/`l` all return
+immediately and populate rows as reads complete. A directory still loading
+shows a muted `…` marker; a failed read shows a short sanitized error with an
+`r`-to-retry hint — an unreadable directory never masquerades as an empty one.
+
+Orchestration-relevant guarantees: a refresh preserves expansion and cursor by
+path (a deleted directory's subtree simply drops out), the view never mixes
+two workspaces' contents (late results from a previous workspace are
+discarded), and reads are bounded so a wedged mount delays its directories
+rather than the whole UI. There is no configuration or session surface for the
+queue; keyboard and mouse actions are unchanged.
+
+## Diff viewer scroll contract
+
+Tools driving amux via tmux keys can rely on the diff viewer reaching every
+display row: `w` toggles wrap; with wrap on, `j`/`k`/wheel/page keys and the
+footer position counter all operate in display rows (wrapped segments), so a
+long line's tail is always scrollable to. `n`/`p` still navigate hunks in
+source-line order. Resizing or toggling `w` re-anchors the top of the
+viewport to the same source line where possible.
+
+## Self-update replacement contract
+
+External tooling that relaunches amux by path can rely on the self-update
+install never vacating the installed pathname: the running executable is
+backed up by copy (never moved), the verified replacement is renamed over the
+live path in a single same-directory rename, and the directory is synced
+around the transition. A kill before the rename leaves the old binary; a kill
+after it leaves the new binary. If the post-replacement directory sync fails,
+amux keeps the complete old backup at the reported path and prints the quoted
+`mv` recovery command — it never silently rolls the live binary back.
+
+This is a single-process contract: concurrent self-updates are not serialized
+against each other, and no update scheme on a POSIX filesystem can guarantee
+the new entry survives a power loss that lands between the rename and the
+sync — the backup exists so that failure mode is recoverable.
 
 ## Option B: a minimal CLI (recorded, not recommended)
 

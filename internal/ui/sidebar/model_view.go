@@ -11,7 +11,7 @@ import (
 )
 
 // View renders the sidebar
-func (m *Model) View() string {
+func (m *ChangesModel) View() string {
 	m.contentBuilds++
 	var b strings.Builder
 
@@ -53,7 +53,7 @@ func (m *Model) View() string {
 
 // renderChanges renders the git changes with grouped display, or the
 // branch-vs-base list when branch mode is active (see branch.go).
-func (m *Model) renderChanges() string {
+func (m *ChangesModel) renderChanges() string {
 	if !m.branchMode && m.gitStatus == nil {
 		return m.styles.Muted.Render("No status loaded")
 	}
@@ -123,7 +123,7 @@ func (m *Model) renderChanges() string {
 // renderAheadBehindBadge renders the "↑N ↓M vs base" indicator, or "" when
 // there's nothing ahead/behind (mirrors the +/- line-stats convention above:
 // silent when zero) or the last AheadBehind fetch failed.
-func (m *Model) renderAheadBehindBadge() string {
+func (m *ChangesModel) renderAheadBehindBadge() string {
 	if m.workspace == nil || m.aheadBehindErr != nil {
 		return ""
 	}
@@ -142,7 +142,7 @@ func (m *Model) renderAheadBehindBadge() string {
 
 // renderBranchSection renders the branch-mode body: a loading/error/empty
 // state, or the summary line plus the shared displayItems rows.
-func (m *Model) renderBranchSection() string {
+func (m *ChangesModel) renderBranchSection() string {
 	switch {
 	case m.branchLoading:
 		return "\n" + m.styles.Muted.Render("Loading changes vs base...")
@@ -162,7 +162,7 @@ func (m *Model) renderBranchSection() string {
 // renderDisplayItemRows renders the scrollable list of displayItems (section
 // headers and file rows). Shared by the working-tree and branch-mode lists,
 // which differ only in how displayItems was populated.
-func (m *Model) renderDisplayItemRows() string {
+func (m *ChangesModel) renderDisplayItemRows() string {
 	var b strings.Builder
 	visibleHeight := m.visibleHeight()
 
@@ -240,11 +240,11 @@ func (m *Model) renderDisplayItemRows() string {
 	return b.String()
 }
 
-func (m *Model) helpItem(key, desc string) string {
+func (m *ChangesModel) helpItem(key, desc string) string {
 	return common.RenderHelpItem(m.styles, key, desc)
 }
 
-func (m *Model) helpLines(contentWidth int) []string {
+func (m *ChangesModel) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
@@ -264,7 +264,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 	return common.WrapHelpItems(items, contentWidth)
 }
 
-func (m *Model) helpLineCount() int {
+func (m *ChangesModel) helpLineCount() int {
 	if !m.showKeymapHints {
 		return 0
 	}

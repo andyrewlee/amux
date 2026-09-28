@@ -55,22 +55,6 @@ func latestActivitySeconds(lines []string) int64 {
 	return latest
 }
 
-// SessionActiveWithin reports whether any window in the session had tmux
-// activity within the provided time window.
-func SessionActiveWithin(sessionName string, window time.Duration, opts Options) (bool, error) {
-	if sessionName == "" || window <= 0 {
-		return false, nil
-	}
-	latest, err := sessionLatestActivitySeconds(sessionName, opts)
-	if err != nil {
-		return false, err
-	}
-	if latest == 0 {
-		return false, nil
-	}
-	return activityWithinWindow(latest, window, time.Now()), nil
-}
-
 // SessionLatestActivity reports the most recent tmux window_activity timestamp
 // for a session without applying any second-resolution slack.
 //

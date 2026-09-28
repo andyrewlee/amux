@@ -114,6 +114,11 @@ func TestAppUpdate_FilePickerVisibleConsumesWheel(t *testing.T) {
 	h.app.filePicker = common.NewFilePicker(DialogAddProject, tmp, true)
 	h.app.filePicker.SetSize(h.app.width, h.app.height)
 	h.app.filePicker.Show()
+	// Directory listing loads asynchronously; deliver the pending read through
+	// the app's Update so the picker populates before asserting on it.
+	if cmd := h.app.filePicker.LoadCmd(); cmd != nil {
+		h.app.update(cmd())
+	}
 
 	before := ansi.Strip(h.app.filePicker.View())
 	if !strings.Contains(before, "> alpha/") {

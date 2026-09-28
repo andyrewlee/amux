@@ -32,7 +32,7 @@ func newFeatureWorkspaceRepo(t *testing.T) (*data.Workspace, string) {
 func TestToggleBranchModeFetchesAndPopulatesDisplayItems(t *testing.T) {
 	ws, _ := newFeatureWorkspaceRepo(t)
 
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(60, 20)
 	m.SetWorkspace(ws)
 
@@ -96,7 +96,7 @@ func TestToggleBranchModeFetchesAndPopulatesDisplayItems(t *testing.T) {
 }
 
 func TestToggleBranchModeOffRestoresWorkingTreeList(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(60, 20)
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
 	m.SetGitStatus(&git.StatusResult{
@@ -125,7 +125,7 @@ func TestToggleBranchModeOffRestoresWorkingTreeList(t *testing.T) {
 }
 
 func TestRebuildBranchDisplayListRespectsFilter(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.branchMode = true
 	// Pre-sorted, mirroring what BranchChangesVsBase returns in production
 	// (rebuildBranchDisplayList itself doesn't sort — it trusts its input).
@@ -153,7 +153,7 @@ func TestRebuildBranchDisplayListRespectsFilter(t *testing.T) {
 }
 
 func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
 	m.branchMode = true
 	m.branchLoading = true
@@ -191,7 +191,7 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 }
 
 func TestHandleAheadBehindLoadedUpdatesAndDropsStale(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
 	m.aheadBehindLoadID = 3
 
@@ -220,7 +220,7 @@ func TestHandleAheadBehindLoadedUpdatesAndDropsStale(t *testing.T) {
 func TestSetWorkspaceResetsBranchStateAndFetchesAheadBehind(t *testing.T) {
 	ws, repo := newFeatureWorkspaceRepo(t)
 
-	m := New()
+	m := NewChangesModel()
 	m.SetWorkspace(data.NewWorkspace("other", "other", "main", "/tmp/other", "/tmp/other"))
 	m.branchMode = true
 	m.branchChanges = []git.Change{{Path: "leftover.go"}}
@@ -257,7 +257,7 @@ func TestSetWorkspaceResetsBranchStateAndFetchesAheadBehind(t *testing.T) {
 }
 
 func TestSetWorkspaceNilOrRebindReturnsNilCmd(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	if cmd := m.SetWorkspace(nil); cmd != nil {
 		t.Error("SetWorkspace(nil) should return a nil command")
 	}
@@ -274,7 +274,7 @@ func TestSetWorkspaceNilOrRebindReturnsNilCmd(t *testing.T) {
 }
 
 func TestRenderAheadBehindBadge(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
 
 	if got := m.renderAheadBehindBadge(); got != "" {
@@ -293,7 +293,7 @@ func TestRenderAheadBehindBadge(t *testing.T) {
 }
 
 func TestRenderBranchSectionStates(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(60, 20)
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
 	m.branchMode = true

@@ -1,6 +1,7 @@
 package data
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -71,6 +72,72 @@ func TestWorkspaceIdentitySet(t *testing.T) {
 			if strs[i] != string(ids[i]) {
 				t.Fatalf("strings[%d] = %s, want %s", i, strs[i], ids[i])
 			}
+		}
+	})
+}
+
+// TestWorkspaceStoredID pins the durable-identity contract: StoredID reports
+// the persisted store key only — never the path-derived fallback — so durable
+// consumers (port reservations) can refuse an unsaved workspace instead of
+// silently keying on a drifting root path.
+func TestWorkspaceStoredID(t *testing.T) {
+	t.Run("unsaved reports false", func(t *testing.T) {
+		f := newDriftFixture(t)
+		if id, ok := f.ws.StoredID(); ok || id != "" {
+			t.Fatalf("StoredID = (%q, %v), want (\"\", false)", id, ok)
+		}
+	})
+
+	t.Run("successful Save reports the store key", func(t *testing.T) {
+		f := newDriftFixture(t)
+		if err := f.store.Save(f.ws); err != nil {
+			t.Fatal(err)
+		}
+		id, ok := f.ws.StoredID()
+		if !ok || id != f.ws.MetadataID() {
+			t.Fatalf("StoredID = (%q, %v), want (%q, true)", id, ok, f.ws.MetadataID())
+		}
+	})
+
+	t.Run("Load reports the persisted key even when drifted", func(t *testing.T) {
+		f := newDriftFixture(t)
+		if err := f.store.Save(f.ws); err != nil {
+			t.Fatal(err)
+		}
+		stored := f.ws.MetadataID()
+		f.createRoot() // ComputedID drifts; the store key must not follow it.
+		loaded, err := f.store.Load(stored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, ok := loaded.StoredID()
+		if !ok || id != stored {
+			t.Fatalf("loaded StoredID = (%q, %v), want (%q, true)", id, ok, stored)
+		}
+	})
+
+	t.Run("failed Save leaves a new record without a stored ID", func(t *testing.T) {
+		f := newDriftFixture(t)
+		// A missing root fails validateWorkspaceForSave — the record never
+		// reaches the store, so no store key is minted for it.
+		bad := NewWorkspace("bad", "bad", "main", "", filepath.Join(t.TempDir(), "ws"))
+		if err := f.store.Save(bad); err == nil {
+			t.Fatal("expected validation failure for repo-less workspace")
+		}
+		if id, ok := bad.StoredID(); ok || id != "" {
+			t.Fatalf("StoredID = (%q, %v), want (\"\", false) after failed save", id, ok)
+		}
+	})
+
+	t.Run("Clone preserves the stored ID", func(t *testing.T) {
+		f := newDriftFixture(t)
+		if err := f.store.Save(f.ws); err != nil {
+			t.Fatal(err)
+		}
+		clone := f.ws.Clone()
+		id, ok := clone.StoredID()
+		if !ok || id != f.ws.MetadataID() {
+			t.Fatalf("clone StoredID = (%q, %v), want (%q, true)", id, ok, f.ws.MetadataID())
 		}
 	})
 }

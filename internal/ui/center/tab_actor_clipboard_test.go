@@ -27,7 +27,7 @@ func TestApplyActorWriteLocked_DrainsPendingClipboard(t *testing.T) {
 	processedBytes := len(osc52)
 
 	tab.mu.Lock()
-	_, _, _, _, _, _, pendingClip := m.applyActorWriteLocked(tab, ev, processedBytes)
+	_, _, _, _, _, _, pendingClip, _ := m.applyActorWriteLocked(tab, ev, processedBytes)
 	tab.mu.Unlock()
 
 	if len(pendingClip) == 0 {
@@ -60,7 +60,7 @@ func TestApplyActorWriteLocked_NilClipboardWhenNoOSC52(t *testing.T) {
 	ev := enqueueWriteEvent(t, tab, plain)
 
 	tab.mu.Lock()
-	_, _, _, _, _, _, pendingClip := m.applyActorWriteLocked(tab, ev, len(plain))
+	_, _, _, _, _, _, pendingClip, _ := m.applyActorWriteLocked(tab, ev, len(plain))
 	tab.mu.Unlock()
 
 	if pendingClip != nil {

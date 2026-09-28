@@ -9,8 +9,7 @@ func TestProjectTreeReloadPreservesExpansionAndCursor(t *testing.T) {
 	if alpha.Name != "alpha" {
 		t.Fatalf("expected first node alpha, got %q", alpha.Name)
 	}
-	m.expandNode(alpha)
-	m.rebuildFlatList()
+	pumpTree(t, m, m.expandNode(alpha))
 
 	nestedPath := ""
 	for i, node := range m.flatNodes {
@@ -24,7 +23,7 @@ func TestProjectTreeReloadPreservesExpansionAndCursor(t *testing.T) {
 		t.Fatal("expected nested.txt visible after expanding alpha")
 	}
 
-	m.reloadTree()
+	pumpTree(t, m, m.reloadTree())
 
 	stillVisible := false
 	for _, node := range m.flatNodes {

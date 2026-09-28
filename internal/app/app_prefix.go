@@ -3,6 +3,8 @@ package app
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,6 +51,7 @@ var prefixCommandTable = []prefixCommand{
 	{Sequence: []string{"t", "s"}, Desc: "restart tab", Action: "restart_tab"},
 	{Sequence: []string{"t", "y"}, Desc: "copy transcript", Action: "copy_transcript"},
 	{Sequence: []string{"t", "f"}, Desc: "save transcript to file", Action: "save_transcript"},
+	{Sequence: []string{"t", "o"}, Desc: "open saved transcript", Action: "browse_transcripts"},
 }
 
 // Prefix mode helpers (leader key)
@@ -275,6 +278,8 @@ func (a *App) runPrefixAction(action string) tea.Cmd {
 		return a.copyTranscriptCommand()
 	case "save_transcript":
 		return a.saveTranscriptCommand()
+	case "browse_transcripts":
+		return a.browseTranscriptsCommand()
 	default:
 		return nil
 	}
@@ -351,6 +356,43 @@ func (a *App) saveTranscriptCommand() tea.Cmd {
 		// presentDialog → Show() resets the input; prefill after presenting.
 		a.dialog.SetInputValue(defaultPath)
 	})
+	return nil
+}
+
+// browseTranscriptsCommand opens a file picker rooted at ~/.amux/transcripts
+// — the dir saveTranscriptCommand pre-fills — so saved transcripts are
+// reviewable without leaving amux. The chosen file opens in the configured
+// file-viewer tab, which needs a workspace to host its tmux session.
+func (a *App) browseTranscriptsCommand() tea.Cmd {
+	if a.activeWorkspace == nil {
+		return a.requireWorkspaceSelection("open transcript")
+	}
+	if a.config == nil || a.config.Paths == nil {
+		return a.toast.ShowError("Open transcript: amux paths not initialized")
+	}
+	dir := filepath.Join(a.config.Paths.Home, "transcripts")
+	entries, err := os.ReadDir(dir)
+	hasFile := false
+	if err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+				hasFile = true
+				break
+			}
+		}
+	}
+	if !hasFile {
+		return a.toast.ShowInfo("No transcripts saved yet")
+	}
+	a.requestOverlayOpen(func() {
+		a.filePicker = common.NewFilePicker(DialogBrowseTranscripts, dir, false)
+		a.filePicker.SetTitle("Open transcript")
+		a.filePicker.SetPrimaryActionLabel("Open")
+		a.presentFilePicker(a.filePicker)
+	})
+	if a.filePicker != nil && a.filePicker.Visible() {
+		return a.filePicker.LoadCmd()
+	}
 	return nil
 }
 

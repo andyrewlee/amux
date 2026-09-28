@@ -92,7 +92,7 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 			if s.store != nil {
 				storedWorkspaces, err = s.listByRepoFromSet(recordSet, path, false)
 				if err != nil {
-					logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
+					logging.Error("Failed to load stored workspaces for %s: %v", path, err)
 				}
 			}
 
@@ -128,7 +128,9 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 			project.Workspaces = workspaces
 			// Shelf entries ride alongside, not inside, Workspaces — the
 			// sidebar tree and every live-set consumer must never see them.
-			project.ShelvedWorkspaces = s.listShelvedWorkspaces(path)
+			// The shared recordSet serves this too: a second full metadata
+			// scan per project would undo the point of loading it.
+			project.ShelvedWorkspaces = s.listShelvedWorkspaces(recordSet, path)
 			projects = append(projects, *project)
 		}
 
@@ -146,7 +148,7 @@ func (s *Service) importManagedWorkspaces(path string) {
 	project := data.NewProject(path)
 	discovered, err := s.gitOps.DiscoverWorkspaces(project)
 	if err != nil {
-		logging.Warn("Failed to discover workspaces while adding %s: %v", path, err)
+		logging.Error("Failed to discover workspaces while adding %s: %v", path, err)
 		return
 	}
 	for i := range discovered {
@@ -164,7 +166,7 @@ func (s *Service) importManagedWorkspaces(path string) {
 			continue
 		}
 		if upsertErr != nil {
-			logging.Warn("Failed to import workspace %s while adding %s: %v", ws.Name, path, upsertErr)
+			logging.Error("Failed to import workspace %s while adding %s: %v", ws.Name, path, upsertErr)
 		}
 	}
 }
@@ -191,11 +193,11 @@ func (s *Service) prependPrimaryCheckout(path string, workspaces []data.Workspac
 	if s.store != nil {
 		found, loadErr := s.store.LoadMetadataFor(primaryWs)
 		if loadErr != nil {
-			logging.Warn("Failed to load metadata for primary checkout %s: %v", path, loadErr)
+			logging.Error("Failed to load metadata for primary checkout %s: %v", path, loadErr)
 		} else if !found {
 			// No stored metadata - save so UI state persists across restarts
 			if err := s.store.Save(primaryWs); err != nil {
-				logging.Warn("Failed to save primary checkout %s: %v", path, err)
+				logging.Error("Failed to save primary checkout %s: %v", path, err)
 			}
 		}
 	}
@@ -225,7 +227,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 			project := data.NewProject(path)
 			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
 			if err != nil {
-				logging.Warn("Failed to discover workspaces for %s: %v", path, err)
+				logging.Error("Failed to discover workspaces for %s: %v", path, err)
 				continue
 			}
 
@@ -268,7 +270,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 						continue
 					}
 					if upsertErr != nil {
-						logging.Warn("Failed to import workspace %s: %v", ws.Name, upsertErr)
+						logging.Error("Failed to import workspace %s: %v", ws.Name, upsertErr)
 					}
 				}
 			}
@@ -277,7 +279,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 			if s.store != nil {
 				storedWorkspaces, err = s.listByRepoFromSet(recordSet, path, true)
 				if err != nil {
-					logging.Warn("Failed to load stored workspaces for %s: %v", path, err)
+					logging.Error("Failed to load stored workspaces for %s: %v", path, err)
 					continue
 				}
 			}
@@ -326,14 +328,24 @@ func (s *Service) archiveWorkspaceRecord(ws *data.Workspace, kind string) bool {
 		ws.Archived = true
 		ws.ArchivedAt = time.Now()
 		if s.store != nil {
-			saveErr = s.store.Save(ws)
+			// Field transaction: only the archive flags change — writing the
+			// caller's whole snapshot could resurrect stale fields a
+			// concurrent setter committed after ws was loaded.
+			saveErr = s.store.Update(ws.MetadataID(), func(stored *data.Workspace) (bool, error) {
+				if stored.Archived {
+					return false, nil
+				}
+				stored.Archived = true
+				stored.ArchivedAt = ws.ArchivedAt
+				return true, nil
+			})
 		}
 	})
 	if !saved {
 		return false
 	}
 	if saveErr != nil {
-		logging.Warn("Failed to archive %s %s: %v", kind, ws.Name, saveErr)
+		logging.Error("Failed to archive %s %s: %v", kind, ws.Name, saveErr)
 	}
 	return true
 }

@@ -3,6 +3,8 @@ package process
 import (
 	"errors"
 	"testing"
+
+	"github.com/andyrewlee/amux/internal/data"
 )
 
 // TestBuildSessionEnv_IncludesInjectedAndUserLayers pins the interactive
@@ -128,6 +130,35 @@ func TestBuildSessionEnv_PortExhaustionReturnsError(t *testing.T) {
 	}
 	if _, err := runner.BuildSessionEnv(ws); !errors.Is(err, ErrPortRangeExhausted) {
 		t.Fatalf("exhausted BuildSessionEnv() error = %v, want ErrPortRangeExhausted", err)
+	}
+}
+
+// TestBuildSessionEnv_DurableDegradesUnsavedWorkspace proves a workspace with
+// no persisted metadata ID still gets session env — the allocator degrades to
+// the transient in-memory map rather than blocking the interactive spawn.
+func TestBuildSessionEnv_DurableDegradesUnsavedWorkspace(t *testing.T) {
+	home := t.TempDir()
+	runner := NewScriptRunner(6200, 10)
+	store := data.NewPortReservationStore(home)
+	if err := store.Initialize(nil); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	runner.SetPortReservationStore(store)
+
+	ws := newHostedWorkspace(t, "nonconcurrent") // never saved — no storeID
+	env, err := runner.BuildSessionEnv(ws)
+	if err != nil {
+		t.Fatalf("BuildSessionEnv(unsaved) error = %v, want transient fallback", err)
+	}
+	if got := envSliceMap(env)["AMUX_PORT"]; got != "6200" {
+		t.Fatalf("BuildSessionEnv(unsaved) AMUX_PORT = %q, want transient 6200", got)
+	}
+	scriptEnv, err := runner.buildScriptEnv(ws)
+	if err != nil {
+		t.Fatalf("buildScriptEnv(unsaved) error = %v, want transient fallback", err)
+	}
+	if got := envSliceMap(scriptEnv)["AMUX_PORT"]; got != "6200" {
+		t.Fatalf("buildScriptEnv(unsaved) AMUX_PORT = %q, want transient 6200", got)
 	}
 }
 

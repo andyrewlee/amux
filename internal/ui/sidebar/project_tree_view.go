@@ -16,6 +16,12 @@ func (m *ProjectTree) View() string {
 	}
 
 	if len(m.flatNodes) == 0 {
+		if m.root != nil && m.root.pendingRequest != 0 {
+			return m.renderWithHelp(m.styles.Muted.Render("Loading project tree…"))
+		}
+		if m.rootErr != "" {
+			return m.renderWithHelp(m.styles.Muted.Render("Load failed: " + m.rootErr + " · r to retry"))
+		}
 		return m.renderWithHelp(m.styles.Muted.Render("Empty directory"))
 	}
 
@@ -73,6 +79,16 @@ func (m *ProjectTree) View() string {
 			nameStyled = m.styles.DirName.Render(name)
 		} else {
 			nameStyled = m.styles.FilePath.Render(name)
+		}
+
+		// Async state markers: a pending directory read shows a muted ellipsis,
+		// a generation-scoped load failure shows a short sanitized hint. Both
+		// are single-cell-bounded suffixes so they cannot disturb row math.
+		switch {
+		case node.pendingRequest != 0:
+			nameStyled += m.styles.Muted.Render(" …")
+		case node.loadErr != "":
+			nameStyled += " " + m.styles.Error.Render(common.TruncateRightCells(node.loadErr+" · r", 24, "…", 1))
 		}
 
 		line := cursor + indent + icon + nameStyled

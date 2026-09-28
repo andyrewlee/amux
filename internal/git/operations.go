@@ -11,9 +11,18 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/process"
 )
 
 const defaultGitTimeout = 5 * time.Second
+
+// gitOutputDrainDelay bounds how long exec.Cmd.Wait waits for inherited
+// stdout/stderr pipes once the git leader is gone. A spawned descendant that
+// keeps a pipe open must not stretch a caller's deadline into an indefinite
+// hang.
+const gitOutputDrainDelay = 500 * time.Millisecond
 
 var runGitCommandAfterWaitHook func()
 
@@ -70,14 +79,25 @@ func hardenedGitArgs(args []string) []string {
 	return append(prefix, args...)
 }
 
+// newGitCmd builds a hardened git command rooted at dir. The child runs in
+// its own process group so cancellation can reach descendants, not just the
+// leader (a no-op on Windows), and WaitDelay keeps an orphaned pipe writer
+// from blocking Wait past the drain allowance.
+func newGitCmd(dir string, args ...string) *exec.Cmd {
+	cmd := exec.Command("git", hardenedGitArgs(args)...)
+	cmd.Dir = dir
+	cmd.Env = filteredGitEnv()
+	process.SetProcessGroup(cmd)
+	cmd.WaitDelay = gitOutputDrainDelay
+	return cmd
+}
+
 // RunGitCtx executes a git command in the specified directory with context.
 func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.Command("git", hardenedGitArgs(args)...)
-	cmd.Dir = dir
-	cmd.Env = filteredGitEnv()
+	cmd := newGitCmd(dir, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -157,9 +177,7 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.Command("git", hardenedGitArgs(args)...)
-	cmd.Dir = dir
-	cmd.Env = filteredGitEnv()
+	cmd := newGitCmd(dir, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -187,9 +205,7 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.Command("git", hardenedGitArgs(args)...)
-	cmd.Dir = dir
-	cmd.Env = filteredGitEnv()
+	cmd := newGitCmd(dir, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -311,6 +327,13 @@ func runGitCommand(ctx context.Context, cmd *exec.Cmd) (bool, error) {
 		if cmd.Process != nil {
 			if err := cmd.Process.Kill(); err == nil {
 				killedByContext.Store(true)
+			}
+			// The leader's exit does not reap spawned descendants (hooks,
+			// credential helpers, alias shells) that may hold worktree
+			// locks or the output pipes. The group outlives an exited
+			// leader, so signal it unconditionally.
+			if err := process.KillProcessGroup(cmd.Process.Pid, process.KillOptions{}); err != nil {
+				logging.Debug("git cancel: process-group termination failed for pid %d: %v", cmd.Process.Pid, err)
 			}
 		}
 		err := <-waitCh

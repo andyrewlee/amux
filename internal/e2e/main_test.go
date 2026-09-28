@@ -20,5 +20,8 @@ func TestMain(m *testing.M) {
 	if err := cleanupBuiltAmuxBinary(); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e binary cleanup: %v\n", err)
 	}
+	if err := cleanupBuiltFakeAgent(); err != nil {
+		fmt.Fprintf(os.Stderr, "e2e fakeagent cleanup: %v\n", err)
+	}
 	os.Exit(code)
 }

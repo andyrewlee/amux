@@ -33,6 +33,14 @@ type tmuxActivityState struct {
 	agentStates map[string]activity.AgentState
 	// sessionStates holds per-session activity hysteresis state.
 	sessionStates map[string]*activity.SessionState
+	// agentStateBaseline holds the last accepted semantic AgentState per
+	// session — what @amux_agent_state was last published as. Comparing a
+	// fresh classification against this enum (not a timestamp-reinterpreted
+	// previous snapshot) is what lets time-driven transitions like
+	// Done→Idle publish: reclassifying the same stale snapshot twice can
+	// never differ from itself. Cleared on owner transitions, pruned with
+	// sessionStates.
+	agentStateBaseline map[string]activity.AgentState
 	// missBySession counts consecutive non-live activity observations per
 	// session so a single transient miss does not demote a working agent.
 	missBySession map[string]int
@@ -43,6 +51,7 @@ func newTmuxActivityState() tmuxActivityState {
 		activeWorkspaceIDs: make(map[string]bool),
 		agentStates:        make(map[string]activity.AgentState),
 		sessionStates:      make(map[string]*activity.SessionState),
+		agentStateBaseline: make(map[string]activity.AgentState),
 		missBySession:      make(map[string]int),
 	}
 }

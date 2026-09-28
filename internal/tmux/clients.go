@@ -32,31 +32,6 @@ func SessionClientCount(sessionName string, opts Options) (int, error) {
 	return len(lines), nil
 }
 
-// SessionCreatedAt returns the tmux session creation timestamp (unix seconds).
-// A session that does not exist yields 0 with no error: the name simply does not
-// appear in the listing, so no has-session pre-check is needed.
-func SessionCreatedAt(sessionName string, opts Options) (int64, error) {
-	if sessionName == "" {
-		return 0, nil
-	}
-	lines, err := listTmux(opts, "list-sessions", "-F", "#{session_name}\t#{session_created}")
-	if err != nil {
-		return 0, err
-	}
-	for _, line := range lines {
-		name, raw, ok := strings.Cut(line, "\t")
-		if !ok || name != sessionName {
-			continue
-		}
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			return 0, nil
-		}
-		return strconv.ParseInt(raw, 10, 64)
-	}
-	return 0, nil
-}
-
 // SessionMeta bundles the per-session facts scan loops need alongside pane
 // state, so per-session probes collapse into one batched list-sessions call.
 type SessionMeta struct {

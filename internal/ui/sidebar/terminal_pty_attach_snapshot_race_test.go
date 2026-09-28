@@ -132,7 +132,7 @@ func TestAttachToSession_DiscardsPreAttachSnapshotWhenSessionRecreated(t *testin
 	installSidebarDemotionSeams(t, &calls, recreatedSidebarProbe())
 
 	m, ws := newSidebarTestModel()
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-race"), "session-race", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-race"), "session-race", true, "reattach", 1)()
 	reattach, ok := msg.(SidebarTerminalReattachResult)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)
@@ -159,7 +159,7 @@ func TestAttachToSession_DiscardsPreAttachSnapshotWhenSessionBecomesActive(t *te
 	installSidebarDemotionSeams(t, &calls, active)
 
 	m, ws := newSidebarTestModel()
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-active-race"), "session-race", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-active-race"), "session-race", true, "reattach", 1)()
 	reattach, ok := msg.(SidebarTerminalReattachResult)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)
@@ -180,7 +180,7 @@ func TestAttachToSession_DiscardsPreAttachSnapshotWhenSessionBecomesShared(t *te
 	installSidebarDemotionSeams(t, &calls, shared)
 
 	m, ws := newSidebarTestModel()
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-shared-race"), "session-race", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-shared-race"), "session-race", true, "reattach", 1)()
 	reattach, ok := msg.(SidebarTerminalReattachResult)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)

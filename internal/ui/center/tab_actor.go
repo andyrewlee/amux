@@ -103,6 +103,20 @@ type TabInputFailed struct {
 	Err         error
 }
 
+// TabBell is emitted when agent output contains BEL — the agent's escalation
+// signal (Claude Code rings BEL on notification events). The app maps it onto
+// the unacked-attention surface (badge + n jump). BELs coalesce into one edge
+// per drain, so this carries no payload.
+type TabBell struct {
+	TabID       TabID
+	WorkspaceID string
+}
+
+// MarkCriticalExternalMsg marks TabBell as critical: a bell typically lands
+// right after an output burst (the agent finished printing, then escalates) —
+// exactly when the external queue drops non-critical messages.
+func (TabBell) MarkCriticalExternalMsg() {}
+
 func (m *Model) shouldPostWriteRedraw(tab *Tab) bool {
 	return tab != nil && tab.postWriteVisible()
 }
@@ -329,7 +343,7 @@ func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspac
 	}
 	m.tracePTYInput(tab, []byte(data))
 	if err := agent.Terminal.SendString(data); err != nil {
-		logging.Warn("Mouse input failed for tab %s: %v", tab.ID, err)
+		logging.Error("Mouse input failed for tab %s: %v", tab.ID, err)
 		tab.mu.Lock()
 		tab.markDetachedLocked()
 		tab.mu.Unlock()
@@ -352,7 +366,7 @@ func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID, 
 	}
 	m.tracePTYInput(tab, []byte(data))
 	if err := agent.Terminal.SendString(data); err != nil {
-		logging.Warn("%s failed for tab %s: %v", label, tab.ID, err)
+		logging.Error("%s failed for tab %s: %v", label, tab.ID, err)
 		tab.mu.Lock()
 		tab.markDetachedLocked()
 		tab.mu.Unlock()

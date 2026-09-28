@@ -1,7 +1,9 @@
 package process
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -160,5 +162,50 @@ func TestScriptTrustTwoReposIndependent(t *testing.T) {
 	}
 	if !trust.IsTrusted(repoA, contentA) || !trust.IsTrusted(repoB, contentB) {
 		t.Fatal("expected both repos to be trusted independently")
+	}
+}
+
+func TestScriptTrustWriteRefusesNewerSchema(t *testing.T) {
+	dir := t.TempDir()
+	trust := NewScriptTrust(dir)
+	path := filepath.Join(dir, trustRegistryFilename)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := []byte(`{"version":99,"trusted":{"/x":"abc"}}`)
+	if err := os.WriteFile(path, fixture, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := trust.Trust(t.TempDir(), []byte(`{"setup-workspace":["touch marker"]}`))
+	if !errors.Is(err, data.ErrUnsupportedSchemaVersion) {
+		t.Fatalf("Trust() error = %v, want ErrUnsupportedSchemaVersion", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, fixture) {
+		t.Fatal("newer-schema trust registry must be preserved byte-for-byte")
+	}
+	// Read side stays fail-closed: nothing in the newer file is trusted.
+	if trust.IsTrusted("/x", []byte("anything")) {
+		t.Fatal("newer-schema file must not be parsed leniently")
+	}
+}
+
+func TestScriptTrustCorruptFileStillReplaced(t *testing.T) {
+	dir := t.TempDir()
+	trust := NewScriptTrust(dir)
+	path := filepath.Join(dir, trustRegistryFilename)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	content := []byte(`{"setup-workspace":["touch marker"]}`)
+	if err := trust.Trust(repo, content); err != nil {
+		t.Fatalf("Trust() on corrupt registry = %v, want replace", err)
+	}
+	if !trust.IsTrusted(repo, content) {
+		t.Fatal("expected trusted after replacing corrupt registry")
 	}
 }

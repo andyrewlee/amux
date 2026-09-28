@@ -37,7 +37,7 @@ func (m *TerminalModel) CanConsumeWheel() bool {
 	return vterm.VTermHasScrollback(tab.State.VTerm)
 }
 
-func (m *Model) canConsumeWheel() bool {
+func (m *ChangesModel) canConsumeWheel() bool {
 	if m == nil || m.gitStatus == nil || m.gitStatus.Clean || len(m.displayItems) == 0 {
 		return false
 	}

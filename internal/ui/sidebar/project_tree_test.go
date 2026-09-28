@@ -45,8 +45,39 @@ func newSeededProjectTree(t *testing.T) *ProjectTree {
 	}
 
 	tree := NewProjectTree()
-	tree.SetWorkspace(data.NewWorkspace("feature", "feature", "main", filepath.Join(base, "repo"), root))
+	pumpTree(t, tree, tree.SetWorkspace(data.NewWorkspace("feature", "feature", "main", filepath.Join(base, "repo"), root)))
 	return tree
+}
+
+// pumpTree synchronously drains a tree command: each emitted message is fed
+// back through Update (including batches) and follow-up commands are executed
+// in turn, until the model is quiescent — the deterministic equivalent of
+// the runtime's async command dispatch.
+func pumpTree(t *testing.T, m *ProjectTree, cmd tea.Cmd) {
+	t.Helper()
+	queue := []tea.Cmd{cmd}
+	for steps := 0; steps < 64; steps++ {
+		if len(queue) == 0 {
+			return
+		}
+		c := queue[0]
+		queue = queue[1:]
+		if c == nil {
+			continue
+		}
+		msg := c()
+		if msg == nil {
+			continue
+		}
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			queue = append(queue, batch...)
+			continue
+		}
+		if _, follow := m.Update(msg); follow != nil {
+			queue = append(queue, follow)
+		}
+	}
+	t.Fatal("pumpTree did not reach quiescence in 64 steps")
 }
 
 func TestProjectTreeSetShowKeymapHints(t *testing.T) {
@@ -329,10 +360,13 @@ func TestProjectTreeUpdateExpandCollapseDirectory(t *testing.T) {
 	}
 	before := len(m.flatNodes)
 
-	// 'l' expands the directory, inserting its child into the flat list.
-	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'l', Text: "l"}); cmd != nil {
-		t.Fatalf("expand produced unexpected cmd: %v", cmd)
+	// 'l' expands the directory; the read resolves asynchronously, then its
+	// child is inserted into the flat list.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	if cmd == nil {
+		t.Fatal("expected a load cmd from expanding a directory")
 	}
+	pumpTree(t, m, cmd)
 	if !m.flatNodes[0].Expanded {
 		t.Fatal("expected alpha to be expanded after 'l'")
 	}
@@ -357,7 +391,8 @@ func TestProjectTreeUpdateCollapseMovesToParent(t *testing.T) {
 	m.Focus()
 	// Expand alpha so its child nested.txt becomes a flat node at index 1.
 	m.cursor = 0
-	m.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	pumpTree(t, m, cmd)
 	m.cursor = 1
 	if m.flatNodes[1].IsDir {
 		t.Fatalf("expected node 1 to be a file child, got dir %+v", m.flatNodes[1])
@@ -376,12 +411,14 @@ func TestProjectTreeUpdateToggleHiddenReloads(t *testing.T) {
 	if !m.showHidden {
 		t.Fatal("expected showHidden true by default")
 	}
-	// '.' flips the hidden flag and reloads the tree from disk.
-	m.Update(tea.KeyPressMsg{Code: '.', Text: "."})
+	// '.' flips the hidden flag and queues an async reload of the tree.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: '.', Text: "."})
+	pumpTree(t, m, cmd)
 	if m.showHidden {
 		t.Fatal("expected showHidden toggled to false after '.'")
 	}
-	m.Update(tea.KeyPressMsg{Code: '.', Text: "."})
+	_, cmd = m.Update(tea.KeyPressMsg{Code: '.', Text: "."})
+	pumpTree(t, m, cmd)
 	if !m.showHidden {
 		t.Fatal("expected showHidden toggled back to true after second '.'")
 	}
@@ -391,11 +428,13 @@ func TestProjectTreeUpdateRefreshKeepsNodes(t *testing.T) {
 	m := newSeededProjectTree(t)
 	m.Focus()
 	before := len(m.flatNodes)
-	// 'r' reloads from disk; the on-disk layout is unchanged so the node count
-	// must be preserved.
-	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"}); cmd != nil {
-		t.Fatalf("refresh produced unexpected cmd: %v", cmd)
+	// 'r' queues an async reload; the on-disk layout is unchanged so the node
+	// count must be preserved once the result lands.
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	if cmd == nil {
+		t.Fatal("expected a reload cmd from refresh")
 	}
+	pumpTree(t, m, cmd)
 	if len(m.flatNodes) != before {
 		t.Fatalf("expected node count preserved after refresh, got %d (was %d)", len(m.flatNodes), before)
 	}
@@ -405,13 +444,14 @@ func TestProjectTreeUpdateEnterOnDirectoryToggles(t *testing.T) {
 	m := newSeededProjectTree(t)
 	m.Focus()
 	m.cursor = 0 // alpha (directory)
-	// Enter on a directory expands it and returns a nil cmd (no file open).
+	// Enter on a directory expands it asynchronously (no file open cmd).
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if cmd != nil {
-		t.Fatalf("expected nil cmd for directory enter, got %v", cmd)
-	}
+	pumpTree(t, m, cmd)
 	if !m.flatNodes[0].Expanded {
 		t.Fatal("expected directory to expand on Enter")
+	}
+	if len(m.flatNodes) != 5 {
+		t.Fatalf("expected nested.txt visible after expand, got %d nodes", len(m.flatNodes))
 	}
 }
 

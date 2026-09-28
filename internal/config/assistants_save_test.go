@@ -60,14 +60,16 @@ func TestSaveAssistantsWritesCommand(t *testing.T) {
 	if mytool["command"] != "mytool --serve" {
 		t.Errorf("assistants.mytool.command = %#v, want %q", mytool["command"], "mytool --serve")
 	}
-	// Zero-value interrupt fields are omitted rather than written as 0, since
-	// applyAssistantOverrides treats a present-but-zero InterruptCount as
-	// invalid and would otherwise coerce it back to 1 on next read anyway.
+	// A zero InterruptCount is omitted rather than written as 0, since
+	// applyAssistantOverrides treats a present-but-zero count as invalid and
+	// would coerce it back to 1 on next read anyway. Zero delay is written
+	// explicitly because a missing delay would inherit the built-in default
+	// instead of the resolved zero.
 	if _, present := mytool["interrupt_count"]; present {
 		t.Errorf("assistants.mytool.interrupt_count = %#v, want omitted", mytool["interrupt_count"])
 	}
-	if _, present := mytool["interrupt_delay_ms"]; present {
-		t.Errorf("assistants.mytool.interrupt_delay_ms = %#v, want omitted", mytool["interrupt_delay_ms"])
+	if got, ok := mytool["interrupt_delay_ms"].(float64); !ok || got != 0 {
+		t.Errorf("assistants.mytool.interrupt_delay_ms = %#v, want explicit 0", mytool["interrupt_delay_ms"])
 	}
 
 	// What we wrote must round-trip back through the read path.
@@ -83,6 +85,109 @@ func TestSaveAssistantsWritesCommand(t *testing.T) {
 	if got["mytool"].Command != "mytool --serve" {
 		t.Errorf("round-trip mytool command = %q, want %q", got["mytool"].Command, "mytool --serve")
 	}
+}
+
+// TestSaveAssistantsPreservesExplicitZeroDelay pins the distinction the
+// loader draws between an absent interrupt_delay_ms (inherit the built-in
+// default) and an explicit zero (no spacing between interrupt signals).
+// Saving must write the effective value — including zero — or a user's
+// zero-delay choice silently reverts to the built-in 200ms on next load.
+func TestSaveAssistantsPreservesExplicitZeroDelay(t *testing.T) {
+	loadEffective := func(t *testing.T, path string) map[string]AssistantConfig {
+		t.Helper()
+		file, err := readConfigFile(path)
+		if err != nil {
+			t.Fatalf("readConfigFile() error = %v", err)
+		}
+		got := defaultAssistants()
+		applyAssistantOverrides(got, file.Assistants)
+		return got
+	}
+
+	t.Run("explicit zero survives a command edit and reload", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.json")
+		seed := `{"assistants": {"claude": {"command": "claude", "interrupt_delay_ms": 0}}}`
+		if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		assistants := loadEffective(t, path)
+		if got := assistants["claude"].InterruptDelayMs; got != 0 {
+			t.Fatalf("loaded claude delay = %d, want explicit 0", got)
+		}
+
+		// Simulate a Settings edit: the command changes, the delay does not.
+		cfg := assistants["claude"]
+		cfg.Command = "claude --resume"
+		assistants["claude"] = cfg
+
+		if err := saveAssistants(path, assistants); err != nil {
+			t.Fatalf("saveAssistants() error = %v", err)
+		}
+
+		section := readAssistantsSection(t, path)
+		claude, ok := section["claude"].(map[string]any)
+		if !ok {
+			t.Fatalf("assistants.claude missing or wrong type, got %#v", section["claude"])
+		}
+		if got, ok := claude["interrupt_delay_ms"].(float64); !ok || got != 0 {
+			t.Fatalf("assistants.claude.interrupt_delay_ms = %#v, want explicit 0 on disk", claude["interrupt_delay_ms"])
+		}
+
+		reloaded := loadEffective(t, path)
+		want := AssistantConfig{Command: "claude --resume", InterruptCount: 2, InterruptDelayMs: 0}
+		if reloaded["claude"] != want {
+			t.Errorf("reloaded claude = %+v, want %+v", reloaded["claude"], want)
+		}
+	})
+
+	t.Run("positive delay round-trips complete config", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.json")
+		assistants := loadEffective(t, path)
+		want := AssistantConfig{Command: "claude --verbose", InterruptCount: 3, InterruptDelayMs: 350}
+		assistants["claude"] = want
+
+		if err := saveAssistants(path, assistants); err != nil {
+			t.Fatalf("saveAssistants() error = %v", err)
+		}
+		if got := loadEffective(t, path)["claude"]; got != want {
+			t.Errorf("reloaded claude = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("custom assistant zero delay is written explicitly", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.json")
+		want := AssistantConfig{Command: "mytool --serve", InterruptCount: 1, InterruptDelayMs: 0}
+		if err := saveAssistants(path, map[string]AssistantConfig{"mytool": want}); err != nil {
+			t.Fatalf("saveAssistants() error = %v", err)
+		}
+
+		section := readAssistantsSection(t, path)
+		mytool, ok := section["mytool"].(map[string]any)
+		if !ok {
+			t.Fatalf("assistants.mytool missing or wrong type, got %#v", section["mytool"])
+		}
+		if got, ok := mytool["interrupt_delay_ms"].(float64); !ok || got != 0 {
+			t.Fatalf("assistants.mytool.interrupt_delay_ms = %#v, want explicit 0 on disk", mytool["interrupt_delay_ms"])
+		}
+		if got := loadEffective(t, path)["mytool"]; got != want {
+			t.Errorf("reloaded mytool = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("absent delay on built-in still inherits the default", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.json")
+		seed := `{"assistants": {"claude": {"command": "claude --custom"}}}`
+		if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		got := loadEffective(t, path)["claude"]
+		want := AssistantConfig{Command: "claude --custom", InterruptCount: 2, InterruptDelayMs: 200}
+		if got != want {
+			t.Errorf("loaded claude = %+v, want %+v (absent delay inherits built-in)", got, want)
+		}
+	})
 }
 
 func TestSaveAssistantsCreatesParentDirectories(t *testing.T) {

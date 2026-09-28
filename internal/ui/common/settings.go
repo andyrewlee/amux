@@ -193,6 +193,11 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 			return s, s.handleClick(msg)
 		}
 
+	case tea.PasteMsg:
+		// Paste is text only: it routes to the focused text field's append
+		// helper and never submits, navigates, or toggles a row.
+		return s.handlePaste(msg)
+
 	case tea.KeyPressMsg:
 		// Esc always cancels, whatever is focused — except while the
 		// assistant add input is open, where it cancels just the add
@@ -233,6 +238,29 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		}
 	}
 
+	return s, nil
+}
+
+// handlePaste appends the first pasted line to the focused text field. Theme,
+// update, and close rows are not text fields, so they ignore paste; the field
+// filters (printable / duration runes) are the same ones typed input uses.
+func (s *SettingsDialog) handlePaste(msg tea.PasteMsg) (*SettingsDialog, tea.Cmd) {
+	txt := pasteFirstLine(msg.Content)
+	switch {
+	case isTmuxField(s.focusedItem):
+		s.appendFocusedTmuxText(txt)
+	case isAssistantsField(s.focusedItem):
+		s.assistantNotice = ""
+		if s.assistantAdding {
+			if s.assistantAddField == 0 {
+				s.assistantAddName += keepRunes(txt, isPrintableFieldRune)
+			} else {
+				s.assistantAddCmd += keepRunes(txt, isPrintableFieldRune)
+			}
+		} else {
+			s.appendFocusedAssistantText(txt)
+		}
+	}
 	return s, nil
 }
 

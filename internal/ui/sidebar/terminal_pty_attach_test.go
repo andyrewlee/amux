@@ -52,7 +52,7 @@ func TestAttachToSessionRejectsInvalidShell(t *testing.T) {
 	m := NewTerminalModel()
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-invalid-shell"), "session-1", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-invalid-shell"), "session-1", true, "reattach", 1)()
 	failed, ok := msg.(SidebarTerminalReattachFailed)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachFailed, got %T", msg)
@@ -83,7 +83,7 @@ func TestSidebarTmuxClientsValidateWorkspaceDirectory(t *testing.T) {
 	if _, ok := createdMsg.(SidebarTerminalCreated); !ok {
 		t.Fatalf("expected SidebarTerminalCreated, got %T", createdMsg)
 	}
-	reattachMsg := m.attachToSession(ws, TerminalTabID("term-tab-stable-cwd"), "session-1", true, "restart")()
+	reattachMsg := m.attachToSession(ws, TerminalTabID("term-tab-stable-cwd"), "session-1", true, "restart", 1)()
 	if _, ok := reattachMsg.(SidebarTerminalReattachResult); !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", reattachMsg)
 	}
@@ -220,7 +220,7 @@ func TestAttachToSession_FallsBackToHistoryWhenPreAttachResizeFails(t *testing.T
 	m.height = 5
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 
-	msg := m.attachToSession(ws, TerminalTabID("term-tab-reattach"), "session-1", true, "reattach")()
+	msg := m.attachToSession(ws, TerminalTabID("term-tab-reattach"), "session-1", true, "reattach", 1)()
 	reattach, ok := msg.(SidebarTerminalReattachResult)
 	if !ok {
 		t.Fatalf("expected SidebarTerminalReattachResult, got %T", msg)

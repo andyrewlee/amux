@@ -28,9 +28,22 @@ shared PTY/tmux read-loop and session plumbing in `internal/ui/ptyio` — belong
 the lower layers. The test for where a read belongs is *who else consumes the
 data*: a leaf model may self-fetch data only it renders inside its own async
 Cmd (diff hunks in `internal/ui/diff`, branch changes/ahead-behind in the
-sidebar's branch mode), but shared data — git status is the example, owned by
-the app's cache and refresh dedup — must be requested via a message
+sidebar's branch mode, directory listings in the sidebar project tree), but
+shared data — git status is the example, owned by the app's cache and refresh
+dedup — must be requested via a message
 (`messages.GitStatusRequest`) so the app's single-writer path serves it.
+
+The project tree is the boundary case worth naming: `os.ReadDir` never runs on
+the Update goroutine. Tree mutations that need disk state return commands that
+produce immutable `ProjectTreeDirectoryLoaded` snapshots carrying
+workspace-generation and per-request identity; `Update` owns every node,
+applies only results whose identity still matches, and drops superseded or
+collapsed work. Reads are bounded (at most a small fixed number in flight; the
+rest queue), so a slow mount delays its directories without stalling input,
+rendering, or other panes — a kernel-blocked `ReadDir` still cannot be
+canceled, so a stale read holds a logical slot until the OS returns but may
+never publish content. Results route to the tree regardless of focus or active
+sidebar tab, like the changes-fetch results.
 
 ```
             cmd/amux            cmd/amux-harness
@@ -100,4 +113,5 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/validation` | Input/path guards (assistant, base ref, project path, workspace) | `validation.go` |
 | `internal/shellutil` | Shared shell-quoting primitive (POSIX single-quote escaping) | `shellutil.go` |
 | `internal/testutil` | Shared test polling helpers (deadline/poll loops with consistent failure messaging) | `wait.go` |
+| `internal/devtools` | Repository-tooling contract tests (git hook skip-flag dispatch) | (tests) |
 | `internal/e2e` | PTY-driven end-to-end tests exercising the real binary | (tests) |

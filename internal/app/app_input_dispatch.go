@@ -160,6 +160,8 @@ func (a *App) updateTabMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		*cmds = append(*cmds, a.handlePersistSaveFailed(msg))
 	case center.TabInputFailed:
 		*cmds = append(*cmds, a.handleTabInputFailed(msg)...)
+	case center.TabBell:
+		a.handleTabBell(msg)
 	default:
 		return false
 	}
@@ -284,6 +286,8 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleWorkspaceRestoreFailed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case messages.WorkspaceRestoreSkipped:
+		*cmds = append(*cmds, a.handleWorkspaceRestoreSkipped(msg)...)
 	case messages.WorkspaceCommitted:
 		if cmd := a.handleWorkspaceCommitted(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
@@ -306,6 +310,10 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		}
 	case messages.ToggleWorkspaceScript:
 		if cmd := a.handleToggleWorkspaceScript(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case messages.RerunWorkspaceScript:
+		if cmd := a.handleRerunWorkspaceScript(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
 	case messages.WorkspaceScriptStateChanged:
@@ -343,7 +351,9 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	case messages.ShowQuitDialog:
 		a.showQuitDialog()
 	case messages.ShowAddProjectDialog:
-		a.handleShowAddProjectDialog()
+		if cmd := a.handleShowAddProjectDialog(); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case messages.ShowCreateWorkspaceDialog:
 		a.handleShowCreateWorkspaceDialog(msg)
 	case messages.ShowDeleteWorkspaceDialog:
@@ -424,6 +434,10 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		}
 	case common.OutputDialogResult:
 		a.closeRunOutputDialog()
+	case runSessionsEnumeratedMsg:
+		if cmd := a.handleRunSessionsEnumerated(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case runOutputOpenedMsg:
 		if cmd := a.handleRunOutputOpened(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)

@@ -170,9 +170,13 @@ func copyTarEntry(w io.Writer, r io.Reader, size int64) error {
 	return nil
 }
 
-// InstallBinary performs an atomic replacement of the current binary.
-// It stages the new binary in the same directory as the target to avoid
-// cross-filesystem rename issues, then uses rename to atomically swap.
+// InstallBinary performs an atomic replacement of the current binary. The new
+// binary is staged in the target directory and the old binary is backed up by
+// COPY — the live pathname never moves — so a kill at any point before the
+// final rename leaves the old executable in place. The single same-directory
+// rename over the existing path is the only commit step (atomic on the
+// supported POSIX targets); directory syncs before and after persist the
+// backup entry and the replaced entry.
 func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 	// Ensure the new binary exists. The staged copy below is created with
 	// executable permissions, so the source file itself does not need mutation.
@@ -193,29 +197,55 @@ func InstallBinary(newBinaryPath, currentBinaryPath string) error {
 	}
 	defer os.Remove(stagedPath) // Clean up on failure
 
-	// Create backup of current binary
+	// Copy the current binary to a backup path. A copy keeps the live
+	// pathname occupied: every pre-commit failure below returns with the old
+	// executable still reachable at currentBinaryPath.
 	backupPattern := "." + filepath.Base(currentBinaryPath) + ".bak-*"
 	backupPath, err := uniqueUpgradeTempPath(targetDir, backupPattern)
 	if err != nil {
 		return fmt.Errorf("creating backup path: %w", err)
 	}
-	if err := renameFile(currentBinaryPath, backupPath); err != nil {
+	if err := copyFile(currentBinaryPath, backupPath); err != nil {
 		return fmt.Errorf("backing up current binary: %w", err)
 	}
-
-	// Atomically replace with staged binary (same filesystem, so rename works)
-	if err := renameFile(stagedPath, currentBinaryPath); err != nil {
-		if restoreErr := renameFile(backupPath, currentBinaryPath); restoreErr != nil {
-			return fmt.Errorf(
-				"installing new binary: %w; restoring backup also failed: %w (your previous binary is at %s — restore it manually with: mv %s %s)",
-				err, restoreErr, backupPath, shellutil.ShellQuote(backupPath), shellutil.ShellQuote(currentBinaryPath),
-			)
+	keepBackup := false
+	defer func() {
+		if !keepBackup {
+			_ = os.Remove(backupPath)
 		}
-		return fmt.Errorf("installing new binary: %w (previous binary restored)", err)
+	}()
+
+	// Persist the backup's directory entry before committing the replacement.
+	if err := syncInstallDir(targetDir); err != nil {
+		return fmt.Errorf("syncing install directory before replacement: %w", err)
+	}
+	installPhaseHook("prepared")
+
+	// The sole replacement: rename over the live pathname. A failure leaves
+	// the old binary exactly where it was — there is nothing to restore.
+	if err := renameFile(stagedPath, currentBinaryPath); err != nil {
+		return fmt.Errorf("installing new binary: %w", err)
+	}
+	installPhaseHook("replaced")
+
+	if err := syncInstallDir(targetDir); err != nil {
+		// The new binary is already installed; keep the complete backup and
+		// report it so a crash here can still be recovered manually.
+		keepBackup = true
+		return fmt.Errorf(
+			"syncing install directory after replacement: %w (the new binary is already installed at %s; the previous binary was kept at %s — if the install is missing after a crash, restore it with: mv %s %s)",
+			err, shellutil.ShellQuote(currentBinaryPath), shellutil.ShellQuote(backupPath),
+			shellutil.ShellQuote(backupPath), shellutil.ShellQuote(currentBinaryPath),
+		)
 	}
 
-	// Remove backup
-	_ = os.Remove(backupPath)
+	if err := os.Remove(backupPath); err != nil {
+		keepBackup = true
+		return fmt.Errorf(
+			"removing backup %s: %w (the new binary is installed at %s; the backup was kept for manual recovery)",
+			shellutil.ShellQuote(backupPath), err, shellutil.ShellQuote(currentBinaryPath),
+		)
+	}
 
 	return nil
 }
@@ -237,6 +267,9 @@ func uniqueUpgradeTempPath(dir, pattern string) (string, error) {
 }
 
 // copyFile copies a file from src to dst, preserving executable permissions.
+// The destination is exclusively created: a refusal leaves a pre-existing
+// file or symlink untouched and unowned, while any post-open failure removes
+// the partial destination this call created.
 func copyFile(src, dst string) error {
 	srcFile, err := openCopySourceFile(src)
 	if err != nil {
@@ -248,6 +281,12 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
+	removePartial := true
+	defer func() {
+		if removePartial {
+			_ = os.Remove(dst)
+		}
+	}()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		_ = dstFile.Close()
@@ -262,6 +301,7 @@ func copyFile(src, dst string) error {
 	if err := dstFile.Close(); err != nil {
 		return fmt.Errorf("closing destination file: %w", err)
 	}
+	removePartial = false
 
 	return nil
 }

@@ -310,7 +310,7 @@ func (p *Parser) parseGround(b byte) {
 	case b == '\b': // Backspace
 		p.vt.backspace()
 	case b == 0x07: // Bell
-		// Ignore
+		p.vt.notePendingBell()
 	case b == 0x0e, b == 0x0f: // SI/SO (charset switching)
 		// Ignore
 	case b >= 0x20 && b < 0x7f: // Printable ASCII

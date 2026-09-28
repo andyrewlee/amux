@@ -12,6 +12,8 @@ package testutil
 // testutil).
 
 import (
+	"fmt"
+	"io/fs"
 	"sync"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -111,15 +113,19 @@ type FakeWorkspaceStore struct {
 	LoadMetadataForFunc             func(workspace *data.Workspace) (bool, error)
 	UpsertFromDiscoveryFunc         func(workspace *data.Workspace) error
 	SaveFunc                        func(workspace *data.Workspace) error
-	DeleteFunc                      func(id data.WorkspaceID) error
-	RenameFunc                      func(id data.WorkspaceID, newName string) error
-	SetEnvFunc                      func(id data.WorkspaceID, env map[string]string) error
-	SetScriptsFunc                  func(id data.WorkspaceID, scripts data.ScriptsConfig, mode string) error
-	MarkDeletingFunc                func(id data.WorkspaceID) error
-	IsDeletingFunc                  func(id data.WorkspaceID) bool
-	ClearDeletingFunc               func(id data.WorkspaceID) error
-	PruneStaleFunc                  func(options data.WorkspacePruneOptions) (data.WorkspacePruneResult, error)
-	ResolvedDefaultAssistantFunc    func() string
+	// UpdateFunc overrides the transaction entirely. Absent it, Update applies
+	// fn to the last saved record under id (or LoadFunc's result) and Saves on
+	// change — mirroring the real store's load-mutate-write shape.
+	UpdateFunc                   func(id data.WorkspaceID, fn func(ws *data.Workspace) (bool, error)) error
+	DeleteFunc                   func(id data.WorkspaceID) error
+	RenameFunc                   func(id data.WorkspaceID, newName string) error
+	SetEnvFunc                   func(id data.WorkspaceID, env map[string]string) error
+	SetScriptsFunc               func(id data.WorkspaceID, scripts data.ScriptsConfig, mode string) error
+	MarkDeletingFunc             func(id data.WorkspaceID) error
+	IsDeletingFunc               func(id data.WorkspaceID) bool
+	ClearDeletingFunc            func(id data.WorkspaceID) error
+	PruneStaleFunc               func(options data.WorkspacePruneOptions) (data.WorkspacePruneResult, error)
+	ResolvedDefaultAssistantFunc func() string
 
 	mu         sync.Mutex
 	savedIDs   []string
@@ -172,6 +178,40 @@ func (f *FakeWorkspaceStore) Save(ws *data.Workspace) error {
 		return f.SaveFunc(ws)
 	}
 	return nil
+}
+
+func (f *FakeWorkspaceStore) Update(id data.WorkspaceID, fn func(ws *data.Workspace) (bool, error)) error {
+	if f.UpdateFunc != nil {
+		return f.UpdateFunc(id, fn)
+	}
+	f.mu.Lock()
+	var cur *data.Workspace
+	for i := len(f.saved) - 1; i >= 0; i-- {
+		if f.saved[i].MetadataID() == id || f.saved[i].ID() == id {
+			cur = f.saved[i]
+			break
+		}
+	}
+	f.mu.Unlock()
+	if cur == nil {
+		loaded, err := f.Load(id)
+		if err != nil {
+			return err
+		}
+		cur = loaded
+	}
+	if cur == nil {
+		return fmt.Errorf("fake: no record for %s: %w", id, fs.ErrNotExist)
+	}
+	cp := *cur
+	changed, err := fn(&cp)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	return f.Save(&cp)
 }
 
 func (f *FakeWorkspaceStore) Delete(id data.WorkspaceID) error {

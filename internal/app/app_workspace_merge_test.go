@@ -266,7 +266,8 @@ func TestMergeConfirmDialog_RunsMergeWithVerifiedBase(t *testing.T) {
 }
 
 // TestMergeConfirmDialog_CancelDoesNotMerge is the counterpart: declining the
-// dialog must leave the repository untouched.
+// dialog must leave the repository untouched — no merge and no execution-time
+// HEAD check run at all.
 func TestMergeConfirmDialog_CancelDoesNotMerge(t *testing.T) {
 	app := newMergeApp("main")
 	called := false
@@ -276,11 +277,19 @@ func TestMergeConfirmDialog_CancelDoesNotMerge(t *testing.T) {
 	}
 
 	app.handleShowMergeWorkspaceDialog(messages.ShowMergeWorkspaceDialog{Workspace: mergeWorkspace(), Base: "main"})
+	headChecks := 0
+	app.checkedOutBranchFn = func(string) (string, error) {
+		headChecks++
+		return "main", nil
+	}
 	if cmd := app.handleDialogResult(common.DialogResult{ID: DialogMergeWorkspace, Confirmed: false}, app.dlg); cmd != nil {
 		cmd()
 	}
 	if called {
 		t.Fatal("declining the merge dialog still ran the merge")
+	}
+	if headChecks != 0 {
+		t.Fatal("declining the merge dialog still ran the execution-time HEAD check")
 	}
 }
 

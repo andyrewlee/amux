@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -68,5 +70,54 @@ func TestActorWriteCarriesPreviewThroughEvent(t *testing.T) {
 	}
 	if !strings.Contains(screen, "visible one") || !strings.Contains(screen, "visible two") {
 		t.Fatalf("expected visible lines in terminal, got %q", screen)
+	}
+}
+
+// TestActorWriteDrainsPendingBell pins the parser→app handoff: a BEL inside an
+// output chunk surfaces as a TabBell message (the attention edge), and a
+// bell-free write emits none.
+func TestActorWriteDrainsPendingBell(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	term := vterm.New(80, 24)
+	tab := &Tab{
+		ID:        TabID("tab-bell"),
+		Assistant: "claude",
+		Workspace: ws,
+		Terminal:  term,
+		Running:   true,
+	}
+	m.AddTab(tab)
+
+	sinkMsgs := make(chan tea.Msg, 8)
+	m.msgSink = func(msg tea.Msg) { sinkMsgs <- msg }
+
+	ev := enqueueWriteEvent(t, tab, []byte("working...\x07done?"))
+	m.handleTabEvent(ev)
+
+	var bells int
+	drain := func() {
+		for {
+			select {
+			case msg := <-sinkMsgs:
+				if _, ok := msg.(TabBell); ok {
+					bells++
+				}
+			default:
+				return
+			}
+		}
+	}
+	drain()
+	if bells != 1 {
+		t.Fatalf("expected exactly one TabBell from a belled write, got %d", bells)
+	}
+
+	// A plain write emits no bell.
+	ev2 := enqueueWriteEvent(t, tab, []byte("quiet output\n"))
+	m.handleTabEvent(ev2)
+	drain()
+	if bells != 1 {
+		t.Fatalf("bell-free write emitted a TabBell (total %d)", bells)
 	}
 }

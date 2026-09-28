@@ -11,7 +11,7 @@ import (
 )
 
 func TestChangesSetWorkspaceSameIDPreservesState(t *testing.T) {
-	model := New()
+	model := NewChangesModel()
 	ws1 := data.NewWorkspace("feature", "feature", "main", "/tmp/repo", "/tmp/workspaces/repo/feature")
 	model.SetWorkspace(ws1)
 	model.cursor = 4
@@ -40,7 +40,7 @@ func TestChangesSetWorkspaceSameIDPreservesState(t *testing.T) {
 }
 
 func TestChangesSetWorkspaceDifferentIDResetsState(t *testing.T) {
-	model := New()
+	model := NewChangesModel()
 	ws1 := data.NewWorkspace("feature", "feature", "main", "/tmp/repo", "/tmp/workspaces/repo/feature")
 	ws2 := data.NewWorkspace("other", "other", "main", "/tmp/repo", "/tmp/workspaces/repo/other")
 
@@ -110,7 +110,7 @@ func TestChangesSetWorkspaceCanonicalMatchDifferentIDPreservesState(t *testing.T
 		t.Fatalf("Rel(root): %v", err)
 	}
 
-	model := New()
+	model := NewChangesModel()
 	ws1 := data.NewWorkspace("feature", "feature", "main", relRepo, relRoot)
 	ws2 := data.NewWorkspace("feature", "feature", "main", absRepo, absRoot)
 
@@ -168,7 +168,7 @@ func TestProjectTreeSetWorkspaceCanonicalMatchDifferentIDPreservesState(t *testi
 	tree := NewProjectTree()
 	ws1 := data.NewWorkspace("feature", "feature", "main", relRepo, relRoot)
 	ws2 := data.NewWorkspace("feature", "feature", "main", absRepo, absRoot)
-	tree.SetWorkspace(ws1)
+	pumpTree(t, tree, tree.SetWorkspace(ws1))
 	if len(tree.flatNodes) < 2 {
 		t.Fatalf("expected >= 2 nodes after initial load, got %d", len(tree.flatNodes))
 	}

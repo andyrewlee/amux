@@ -170,7 +170,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 				return
 			}
 			if err := agentTerm.SendString(string(data)); err != nil {
-				logging.Warn("Response write failed for tab %s: %v", tabID, err)
+				logging.Error("Response write failed for tab %s: %v", tabID, err)
 				if m.msgSink != nil {
 					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 				}
@@ -201,7 +201,7 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 	// A stopped reattach also clears Detached so the tab shows as stopped.
 	tab.markReattachFailedLocked(msg.Stopped)
 	tab.mu.Unlock()
-	logging.Warn("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
+	logging.Error("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
 	action := msg.Action
 	if action == "" {
 		action = "reattach"

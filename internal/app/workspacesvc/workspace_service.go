@@ -3,8 +3,10 @@ package workspacesvc
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -81,7 +83,7 @@ func (s *Service) CreateWorkspace(project *data.Project, name, base string, assi
 		var ws *data.Workspace
 		defer func() {
 			if r := recover(); r != nil {
-				logging.Error("panic in createWorkspace: %v", r)
+				logging.Error("panic in createWorkspace: %v\n%s", r, debug.Stack())
 				msg = messages.WorkspaceCreateFailed{
 					Workspace: ws,
 					Err:       fmt.Errorf("create workspace panicked: %v", r),
@@ -204,7 +206,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 		if project != nil {
 			projectPath = project.Path
 		}
-		logging.Warn(
+		logging.Error(
 			"workspace delete failed workspace_id=%s stage=validate_nil workspace_root=%s project_path=%s error=%v",
 			wsID,
 			wsRoot,
@@ -235,7 +237,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 			ws.Branch,
 		)
 		fail := func(stage string, err error) tea.Msg {
-			logging.Warn(
+			logging.Error(
 				"workspace delete failed workspace_id=%s stage=%s workspace_name=%s workspace_root=%s project_path=%s error=%v",
 				wsID,
 				stage,
@@ -257,9 +259,16 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 			return failMsg
 		}
 
-		if err := s.stopWorkspaceScriptsForDelete(ws); err != nil {
+		// Teardown gate: seize lifecycle admission, drain every local lifecycle
+		// process (in-flight setup, detached on-done hooks) and stop the run
+		// script BEFORE anything is removed — the tree must not go away while a
+		// child is still writing it. The gate rejects new starts until Finish.
+		guard, err := s.beginWorkspaceTeardown(ws)
+		if err != nil {
 			return fail("stop_scripts", err)
 		}
+		removed := false
+		defer func() { guard.Finish(removed) }()
 
 		// The archive script is the workspace's teardown hook, so it runs here:
 		// after the run script has been stopped (nothing is still writing) and
@@ -273,7 +282,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 		// after "this delete will definitely proceed" and before "the directory
 		// the script needs is gone", so archive scripts should be written to
 		// tolerate a repeat rather than assume exactly-once.
-		archiveWarning := s.runArchiveScriptForDelete(ws)
+		archiveWarning := s.runArchiveScriptForDelete(ws, guard)
 
 		// Validation passed, so this delete will proceed. Write a durable tombstone
 		// FIRST so that if the process quits/crashes between here and the metadata
@@ -287,6 +296,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 		if failMsg := s.removeWorktreeAndBranchLocked(project, ws, projectPath, wsID, fail); failMsg != nil {
 			return failMsg
 		}
+		removed = true
 		warning := archiveWarning
 		if s.store != nil {
 			if err := s.deleteWorkspaceMetadata(ws); err != nil {
@@ -296,7 +306,7 @@ func (s *Service) DeleteWorkspace(project *data.Project, ws *data.Workspace) tea
 				// pointing at a missing worktree. Archive the surviving metadata as a
 				// durable fallback, then return the deleted message so UI cleanup still
 				// runs, with the metadata error attached for reporting.
-				logging.Warn("workspace delete metadata cleanup failed workspace_id=%s error=%v", wsID, err)
+				logging.Error("workspace delete metadata cleanup failed workspace_id=%s error=%v", wsID, err)
 				if archiveErr := s.archiveDeletedWorkspaceMetadata(ws); archiveErr != nil {
 					return fail("remove_metadata", errors.Join(err, archiveErr))
 				}
@@ -377,9 +387,27 @@ func (s *Service) archiveDeletedWorkspaceMetadata(ws *data.Workspace) error {
 	if s == nil || s.store == nil || ws == nil {
 		return nil
 	}
+	archivedAt := time.Now()
+	// Field transaction when the record still exists — the delete failure
+	// that brought us here can leave the dir partially removed, and only the
+	// archive flags should change on whatever survived.
+	err := s.store.Update(ws.MetadataID(), func(stored *data.Workspace) (bool, error) {
+		stored.Archived = true
+		stored.ArchivedAt = archivedAt
+		return true, nil
+	})
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("archive deleted workspace metadata: %w", err)
+	}
+	// The record is gone entirely: fall back to archiving the snapshot, the
+	// pre-Update behavior, so the delete's error path still leaves a record
+	// that reports what happened.
 	archived := *ws
 	archived.Archived = true
-	archived.ArchivedAt = time.Now()
+	archived.ArchivedAt = archivedAt
 	if err := s.store.Save(&archived); err != nil {
 		return fmt.Errorf("archive deleted workspace metadata: %w", err)
 	}
@@ -443,7 +471,7 @@ func (s *Service) handleStaleRemoveError(
 	if cleanupErr := cleanupStaleWorkspacePath(ws.Root); cleanupErr != nil {
 		return fail("remove_worktree", errors.Join(err, cleanupErr))
 	}
-	logging.Warn("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
+	logging.Error("workspace delete stale cleanup workspace_id=%s workspace_root=%s remove_error=%v", wsID, ws.Root, err)
 	return nil
 }
 

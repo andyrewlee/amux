@@ -39,6 +39,9 @@ func (m *Model) View() string {
 
 // renderView performs the actual string build — the memoized half of View.
 func (m *Model) renderView() string {
+	if m.width <= 0 || m.height <= 0 {
+		return ""
+	}
 	if m.loading {
 		return m.renderLoading()
 	}
@@ -177,16 +180,23 @@ func (m *Model) renderHeader() string {
 	return headerStyle.Render(path + modeStr)
 }
 
-// renderDiff renders the actual diff content
+// clipChrome bounds one rendered chrome row (header/stats/footer) to the
+// viewport width with ANSI-aware truncation.
+func (m *Model) clipChrome(s string) string {
+	return ansi.Truncate(s, m.width, "")
+}
+
+// renderDiff renders the diff content as a slice of prebuilt visual rows.
+// Chrome tiers: height ≥3 shows header + stats + footer; height 2 drops the
+// stats row; height 1 keeps only the header — no content rows exist below
+// height 3. Nonpositive dimensions are already handled by renderView.
 func (m *Model) renderDiff() string {
 	var b strings.Builder
 
-	// Header
-	b.WriteString(m.renderHeader())
-	b.WriteString("\n")
+	b.WriteString(m.clipChrome(m.renderHeader()))
 
 	// Stats line
-	if m.diff != nil {
+	if m.height >= 3 && m.diff != nil {
 		added := m.diff.AddedLines()
 		deleted := m.diff.DeletedLines()
 		statsStyle := lipgloss.NewStyle().Foreground(common.ColorMuted())
@@ -201,118 +211,29 @@ func (m *Model) renderDiff() string {
 			stats += statsStyle.Render(fmt.Sprintf("  (%d hunks)", len(m.diff.Hunks)))
 		}
 
-		b.WriteString(stats)
+		b.WriteString("\n")
+		b.WriteString(m.clipChrome(stats))
+	}
+
+	// Content: exactly the selected visual-row slice, padded to capacity.
+	rows := m.rows()
+	capacity := m.contentHeight()
+	emitted := 0
+	for i := m.scroll; i < len(rows.rows) && emitted < capacity; i++ {
+		b.WriteString("\n")
+		b.WriteString(rows.rows[i].text)
+		emitted++
+	}
+	for i := emitted; i < capacity; i++ {
 		b.WriteString("\n")
 	}
 
-	// Visible lines
-	visibleHeight := m.visibleHeight()
-	lines := m.diff.Lines
-
-	// Calculate visible range
-	start := m.scroll
-	end := start + visibleHeight
-	if end > len(lines) {
-		end = len(lines)
-	}
-	if start > len(lines) {
-		start = len(lines)
-	}
-
-	// Line number width calculation
-	lineNumWidth := len(strconv.Itoa(len(lines)))
-	if lineNumWidth < 3 {
-		lineNumWidth = 3
-	}
-
-	// Content width for wrapping
-	contentWidth := m.width - lineNumWidth - 3 // minus gutter and padding
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	// Render visible lines and count actual rows (including wrapped lines)
-	actualRows := 0
-	for i := start; i < end; i++ {
-		line := lines[i]
-		rendered := m.renderLine(i, line, lineNumWidth, contentWidth)
-		// Count newlines within the rendered line (from wrapping) plus 1 for the line itself
-		actualRows += strings.Count(rendered, "\n") + 1
-		b.WriteString(rendered)
-		if i < end-1 {
-			b.WriteString("\n")
-		}
-	}
-
-	// Pad to fill height using actual rendered rows
-	for i := actualRows; i < visibleHeight; i++ {
+	if m.height >= 2 {
 		b.WriteString("\n")
+		b.WriteString(m.clipChrome(m.renderFooter()))
 	}
-
-	// Footer with scroll info and keybindings
-	b.WriteString("\n")
-	b.WriteString(m.renderFooter())
 
 	return b.String()
-}
-
-// renderLine renders a single diff line with colors
-func (m *Model) renderLine(lineNum int, line git.DiffLine, numWidth, contentWidth int) string {
-	// Line number gutter
-	gutterStyle := lipgloss.NewStyle().
-		Foreground(common.ColorMuted()).
-		Width(numWidth).
-		Align(lipgloss.Right)
-
-	lineNumStr := gutterStyle.Render(strconv.Itoa(lineNum + 1))
-
-	// Get line content and style based on type. Diff content is repo-controlled
-	// bytes: strip terminal escapes (OSC8 hyperlinks, OSC52 clipboard writes,
-	// CSI) before styling so a crafted file can't inject sequences into the
-	// host terminal — the same treatment pty_output_filter.go applies to
-	// untrusted streams.
-	content := ansi.Strip(line.Content)
-	var contentStyle lipgloss.Style
-
-	switch line.Kind {
-	case git.DiffLineAdd:
-		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorSuccess())
-	case git.DiffLineDelete:
-		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorError())
-	case git.DiffLineHeader:
-		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorInfo()).
-			Bold(true)
-	default:
-		contentStyle = lipgloss.NewStyle().
-			Foreground(common.ColorForeground())
-	}
-
-	// Handle line wrapping. Width checks and slicing are display-width and
-	// grapheme aware (ansi.*) so multibyte/CJK content is never cut mid-rune.
-	if m.wrap && ansi.StringWidth(content) > contentWidth {
-		content = m.wrapLine(content, contentWidth)
-	} else if ansi.StringWidth(content) > contentWidth {
-		// Truncate with ellipsis (ansi.Truncate keeps the tail within width).
-		if contentWidth > 3 {
-			content = ansi.Truncate(content, contentWidth, "...")
-		}
-	}
-
-	return lineNumStr + " " + contentStyle.Render(content)
-}
-
-// wrapLine wraps a long line to fit within width, breaking on display-cell
-// (not byte) boundaries and indenting continuation lines.
-func (m *Model) wrapLine(content string, width int) string {
-	if ansi.StringWidth(content) <= width {
-		return content
-	}
-
-	segments := strings.Split(ansi.Hardwrap(content, width, false), "\n")
-	return strings.Join(segments, "\n    ") // Indent continuation lines
 }
 
 // renderFooter renders the footer with keybindings and scroll info
@@ -322,9 +243,10 @@ func (m *Model) renderFooter() string {
 
 	var parts []string
 
-	// Scroll position
+	// Scroll position in visual rows — the same space scrolling moves in,
+	// so the count stays truthful when wrapping expands a line.
 	if m.diff != nil && len(m.diff.Lines) > 0 {
-		total := len(m.diff.Lines)
+		total := len(m.rows().rows)
 		pos := m.scroll + 1
 		if pos > total {
 			pos = total

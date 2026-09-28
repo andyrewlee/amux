@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -60,13 +61,14 @@ func TestReattachActiveTab_AttachFailureRollsBackBootstrapResize(t *testing.T) {
 		calls = append(calls, "snapshot")
 		return []byte("resized"), nil
 	}
-	createAgentWithTagsFn = func(
+	createAgentWithConfigFn = func(
 		manager *appPty.AgentManager,
 		ws *data.Workspace,
 		agentType appPty.AgentType,
 		sessionName string,
 		rows, cols uint16,
 		tags tmux.SessionTags,
+		cfg config.AssistantConfig,
 	) (*appPty.Agent, error) {
 		calls = append(calls, "attach")
 		return nil, errors.New("attach failed")

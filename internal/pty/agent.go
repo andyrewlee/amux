@@ -102,6 +102,12 @@ func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, sess
 }
 
 // CreateAgentWithTags creates a new agent for the given workspace with tmux tags.
+//
+// It resolves the assistant config from m.config.Assistants inline — a
+// synchronous lookup the CALLER owns synchronizing. Production code paths that
+// dispatch a spawn on a command goroutine must instead resolve the config on
+// the owning goroutine and call CreateAgentWithConfig, so a Settings write to
+// the shared map can never race (or silently retarget) an in-flight launch.
 func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags) (*Agent, error) {
 	if ws == nil {
 		return nil, errors.New("workspace is required")
@@ -109,6 +115,17 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 	assistantCfg, ok := m.config.Assistants[string(agentType)]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
+	}
+	return m.CreateAgentWithConfig(ws, agentType, sessionName, rows, cols, tags, assistantCfg)
+}
+
+// CreateAgentWithConfig spawns an agent using the supplied AssistantConfig
+// value — an immutable snapshot captured by the caller before dispatch. It
+// never reads m.config.Assistants, so a concurrent settings save cannot race
+// or retarget the launch. The value is stored on the returned Agent unchanged.
+func (m *AgentManager) CreateAgentWithConfig(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags, assistantCfg config.AssistantConfig) (*Agent, error) {
+	if ws == nil {
+		return nil, errors.New("workspace is required")
 	}
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(agentType))

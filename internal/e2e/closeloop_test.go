@@ -48,6 +48,24 @@ func writeFakeAgent(t *testing.T, home, name, logPath string) string {
 	return binDir
 }
 
+// writeFakeAgentBell is writeFakeAgent with FAKEAGENT_BELL=1 baked in — the
+// agent emits BEL after its ready banner, simulating an agent's escalation
+// signal (Claude Code rings BEL on notification events).
+func writeFakeAgentBell(t *testing.T, home, name, logPath string) string {
+	t.Helper()
+	bin := buildFakeAgent(t)
+	binDir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	launcher := fmt.Sprintf("#!/bin/sh\nFAKEAGENT_LOG=%q FAKEAGENT_BELL=1 exec %q \"$@\"\n", logPath, bin)
+	scriptPath := filepath.Join(binDir, name)
+	if err := os.WriteFile(scriptPath, []byte(launcher), 0o755); err != nil {
+		t.Fatalf("write fake agent launcher: %v", err)
+	}
+	return binDir
+}
+
 // TestCloseLoopKeystrokeDeliveryToRawAgent is the close-the-loop guarantee: it
 // drives a real keystroke through amux's actual input path into a real raw-mode
 // agent and asserts the agent received the bytes intact, including a literal

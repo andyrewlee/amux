@@ -45,7 +45,7 @@ type tabHit struct {
 // TabbedSidebar wraps the Changes and Project views with tabs
 type TabbedSidebar struct {
 	activeTab   SidebarTab
-	changes     *Model
+	changes     *ChangesModel
 	projectTree *ProjectTree
 	tabHits     []tabHit
 	// tabBarVersion is a monotonic version of every input that shapes the
@@ -74,7 +74,7 @@ type TabbedSidebar struct {
 func NewTabbedSidebar() *TabbedSidebar {
 	return &TabbedSidebar{
 		activeTab:   TabChanges,
-		changes:     New(),
+		changes:     NewChangesModel(),
 		projectTree: NewProjectTree(),
 		styles:      common.DefaultStyles(),
 	}
@@ -117,6 +117,14 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 		// branch list would go stale until the next fetch.
 		var cmd tea.Cmd
 		m.changes, cmd = m.changes.Update(msg)
+		return m, cmd
+
+	case ProjectTreeDirectoryLoaded:
+		// Async directory reads are background results, not input: route
+		// them to the tree even when the Changes tab is active or the
+		// sidebar is blurred, or an in-flight listing would be lost.
+		var cmd tea.Cmd
+		m.projectTree, cmd = m.projectTree.Update(msg)
 		return m, cmd
 
 	case tea.MouseClickMsg:
@@ -328,7 +336,7 @@ func (m *TabbedSidebar) ContentView() string {
 // ContentVersion folds the versions of every input to ContentView: the
 // active tab (tabBarVersion bumps on every activeTab write) and each child
 // model's own content version, which cover their mutation surfaces (see the
-// contentVersion invariants on Model and ProjectTree).
+// contentVersion invariants on ChangesModel and ProjectTree).
 func (m *TabbedSidebar) ContentVersion() uint64 {
 	fp := common.FoldFingerprint(0, m.tabBarVersion)
 	fp = common.FoldFingerprint(fp, m.changes.ContentVersion())
@@ -373,13 +381,15 @@ func (m *TabbedSidebar) Focused() bool {
 	return m.focused
 }
 
-// SetWorkspace sets the active workspace. It returns the Changes view's
-// ahead/behind refresh command (nil for a no-op rebind); see Model.SetWorkspace.
+// SetWorkspace sets the active workspace. It batches the Changes view's
+// ahead/behind refresh with the project tree's async root load (nil for a
+// no-op rebind); see ChangesModel.SetWorkspace and ProjectTree.SetWorkspace.
 func (m *TabbedSidebar) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.workspace = ws
-	cmd := m.changes.SetWorkspace(ws)
-	m.projectTree.SetWorkspace(ws)
-	return cmd
+	return common.SafeBatch(
+		m.changes.SetWorkspace(ws),
+		m.projectTree.SetWorkspace(ws),
+	)
 }
 
 // SetGitStatus sets the git status (forwards to changes view)
@@ -437,7 +447,7 @@ func (m *TabbedSidebar) stepTab(delta int) {
 }
 
 // Changes returns the changes model (for direct access if needed)
-func (m *TabbedSidebar) Changes() *Model {
+func (m *TabbedSidebar) Changes() *ChangesModel {
 	return m.changes
 }
 

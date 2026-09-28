@@ -23,7 +23,11 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Error("panic in app.Update: %v\n%s", r, debug.Stack())
+			wsID := "none"
+			if a.activeWorkspace != nil {
+				wsID = string(a.activeWorkspace.ID())
+			}
+			logging.Error("panic in app.Update (msg=%T, workspace=%s): %v\n%s", msg, wsID, r, debug.Stack())
 			a.err = fmt.Errorf("internal error: %v", r)
 			a.renderCache.frame.invalidate()
 			model = a
@@ -107,10 +111,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.handlePTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// Sync active agents state to dashboard (show spinner only when actively outputting)
-		if cmd := a.syncActiveWorkspacesToDashboard(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		// syncActiveWorkspacesToDashboard is deliberately absent here: its
+		// inputs (tmuxActivity.activeWorkspaceIDs/agentStates) are mutated
+		// only by activity-result and lifecycle handlers, which all publish
+		// themselves — a per-PTY-message republish could only rebuild
+		// identical maps at output rate.
 		if startCmd := a.dashboard.StartSpinnerIfNeeded(); startCmd != nil {
 			cmds = append(cmds, startCmd)
 		}
@@ -128,10 +133,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-	case messages.BranchChangesLoaded, messages.AheadBehindLoaded:
-		// Branch-vs-base list / ahead-behind badge fetch results: route back
-		// into the sidebar regardless of which of its tabs is active (see
-		// TabbedSidebar.Update's special-case for these two types).
+	case messages.BranchChangesLoaded, messages.AheadBehindLoaded, sidebar.ProjectTreeDirectoryLoaded:
+		// Branch-vs-base list / ahead-behind badge / project-tree directory
+		// read results: route back into the sidebar regardless of focus or
+		// which of its tabs is active (see TabbedSidebar.Update's
+		// special-cases for these background result types).
 		if a.sidebar != nil {
 			newSidebar, cmd := a.sidebar.Update(msg)
 			a.sidebar = newSidebar

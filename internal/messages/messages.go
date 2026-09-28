@@ -40,6 +40,10 @@ type WorkspaceCreated struct {
 type WorkspaceSetupComplete struct {
 	Workspace *data.Workspace
 	Err       error
+	// Rerun marks the completion of a user-triggered re-run (as opposed to the
+	// automatic create/restore/trust-approval run). The handler uses it to add
+	// user-facing confirmation the silent initial run deliberately lacks.
+	Rerun bool
 }
 
 // WorkspaceCreateFailed is sent when a workspace creation fails
@@ -74,11 +78,6 @@ type WorkspaceDeleteFailed struct {
 	WorkspaceIDs []string
 }
 
-// ProjectAdded is sent when a new project is registered
-type ProjectAdded struct {
-	Project *data.Project
-}
-
 // ProjectRemoved is sent when a project is unregistered
 type ProjectRemoved struct {
 	Path string
@@ -107,17 +106,6 @@ type GitStatusResult struct {
 // than one per workspace.
 type GitStatusBatchResult struct {
 	Results []GitStatusResult
-}
-
-// FocusPane requests focus change to a specific pane
-type FocusPane struct {
-	Pane PaneType
-}
-
-// CreateAgentTab requests creation of a new agent tab
-type CreateAgentTab struct {
-	Assistant string
-	Workspace *data.Workspace
 }
 
 // TabCreated is sent when a new tab is created
@@ -176,11 +164,6 @@ type TabSessionStatus struct {
 type TabSelectionChanged struct {
 	WorkspaceID string
 	ActiveIndex int
-}
-
-// SwitchTab requests switching to a specific tab
-type SwitchTab struct {
-	Index int
 }
 
 // Error represents an application error

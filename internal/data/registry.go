@@ -95,6 +95,11 @@ func (r *Registry) loadUnlockedWithRecovery() ([]string, bool, error) {
 	if parseErr == nil {
 		return paths, false, nil
 	}
+	if errors.Is(parseErr, ErrUnsupportedSchemaVersion) {
+		// A newer-schema primary is intact data from a newer binary, not
+		// corruption — refuse rather than recover a stale backup over it.
+		return nil, false, parseErr
+	}
 
 	backupPath := r.backupPath()
 	backupData, backupErr := readRegistryFile(backupPath)
@@ -240,7 +245,7 @@ func parseRegistryData(data []byte, path string) ([]string, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if registry.Version > registryFileVersion {
-		return nil, fmt.Errorf("parse %s: unsupported schema version %d (newest known: %d)", path, registry.Version, registryFileVersion)
+		return nil, fmt.Errorf("parse %s: unsupported schema version %d (newest known: %d): %w", path, registry.Version, registryFileVersion, ErrUnsupportedSchemaVersion)
 	}
 	paths := make([]string, len(registry.Projects))
 	for i, p := range registry.Projects {

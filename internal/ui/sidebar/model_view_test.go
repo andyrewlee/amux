@@ -10,7 +10,7 @@ import (
 )
 
 // The functions under test here — View, helpItem, and helpLines — are pure
-// rendering helpers: they read in-memory Model state and return strings. None of
+// rendering helpers: they read in-memory ChangesModel state and return strings. None of
 // them exec an external process (git/tmux) or require a live Bubble Tea program,
 // so they are exercised directly with real assertions on their output.
 
@@ -24,7 +24,7 @@ func lineCount(s string) int {
 }
 
 func TestViewWithoutStatusShowsPlaceholder(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(40, 10)
 
 	out := m.View()
@@ -37,7 +37,7 @@ func TestViewWithoutStatusShowsPlaceholder(t *testing.T) {
 }
 
 func TestViewCleanTreeShowsCleanMessage(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(40, 10)
 	m.SetGitStatus(&git.StatusResult{Clean: true})
 
@@ -49,7 +49,7 @@ func TestViewCleanTreeShowsCleanMessage(t *testing.T) {
 }
 
 func TestViewRendersBranchAndChangedFiles(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(60, 12)
 	m.SetWorkspace(&data.Workspace{Branch: "feature/widget"})
 	m.SetGitStatus(&git.StatusResult{
@@ -84,7 +84,7 @@ func TestViewNeverExceedsHeight(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New()
+			m := NewChangesModel()
 			m.SetSize(50, tt.height)
 			// Enough files to overflow the small heights so the clamp branch runs.
 			changes := make([]git.Change, 0, 8)
@@ -103,7 +103,7 @@ func TestViewNeverExceedsHeight(t *testing.T) {
 }
 
 func TestViewPadsToHeightWhenContentIsShort(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(40, 12)
 	// A clean tree produces only a couple of lines; View pads with blank lines
 	// up to the configured height (minus help lines, which are hidden by default).
@@ -117,7 +117,7 @@ func TestViewPadsToHeightWhenContentIsShort(t *testing.T) {
 }
 
 func TestViewZeroHeightDoesNotClampOrPanic(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	// Height 0 disables the line-trimming clamp (guarded by m.height > 0) and
 	// must not panic. The body still renders.
 	m.SetSize(40, 0)
@@ -134,7 +134,7 @@ func TestViewZeroHeightDoesNotClampOrPanic(t *testing.T) {
 func TestViewClampsWidthBelowOne(t *testing.T) {
 	// width < 1 forces the contentWidth = 1 fallback used to wrap help lines.
 	// With hints enabled this exercises the narrow-width help path without panicking.
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(0, 20)
 	m.SetShowKeymapHints(true)
 	m.SetGitStatus(&git.StatusResult{Clean: true})
@@ -156,7 +156,7 @@ func TestViewShowsHelpLinesOnlyWhenHintsEnabled(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New()
+			m := NewChangesModel()
 			m.SetSize(80, 20)
 			m.SetShowKeymapHints(tt.showHints)
 			m.SetGitStatus(&git.StatusResult{Clean: true})
@@ -174,7 +174,7 @@ func TestViewShowsHelpLinesOnlyWhenHintsEnabled(t *testing.T) {
 }
 
 func TestViewWithHelpReservesRowsForHints(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.SetShowKeymapHints(true)
 	m.SetGitStatus(&git.StatusResult{Clean: true})
@@ -205,7 +205,7 @@ func TestHelpItemContainsKeyAndDescription(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New()
+			m := NewChangesModel()
 			got := m.helpItem(tt.key, tt.desc)
 			want := common.RenderHelpItem(m.styles, tt.key, tt.desc)
 			// helpItem is a thin wrapper over common.RenderHelpItem; the contract
@@ -224,7 +224,7 @@ func TestHelpItemContainsKeyAndDescription(t *testing.T) {
 }
 
 func TestHelpItemUsesModelStyles(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	// Override one help style with a recognizable string so we can prove
 	// helpItem threads the model's styles through to the renderer.
 	custom := common.DefaultStyles()
@@ -238,7 +238,7 @@ func TestHelpItemUsesModelStyles(t *testing.T) {
 }
 
 func TestHelpLinesContainsAllBindings(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	// A wide width keeps every item on a single line so we can assert on order
 	// and presence without worrying about wrapping.
 	lines := m.helpLines(200)
@@ -255,7 +255,7 @@ func TestHelpLinesContainsAllBindings(t *testing.T) {
 }
 
 func TestHelpLinesWrapsOnNarrowWidth(t *testing.T) {
-	m := New()
+	m := NewChangesModel()
 	wide := m.helpLines(200)
 	narrow := m.helpLines(8)
 
@@ -282,7 +282,7 @@ func TestHelpLinesNonPositiveWidthReturnsSingleLine(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New()
+			m := NewChangesModel()
 			lines := m.helpLines(tt.width)
 			// common.WrapHelpItems collapses to a single joined line when width
 			// is non-positive; helpLines must return exactly that.
@@ -303,7 +303,7 @@ func TestHelpLinesMatchHelpLineCount(t *testing.T) {
 	// agree with the actual number of lines helpLines produces at a given width.
 	tests := []int{8, 20, 200}
 	for _, width := range tests {
-		m := New()
+		m := NewChangesModel()
 		m.SetSize(width, 20)
 		m.SetShowKeymapHints(true)
 

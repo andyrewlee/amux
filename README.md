@@ -63,7 +63,7 @@ Each workspace tracks a repo checkout and its metadata. For local workflows, wor
 Both write actions are available from the UI, each behind an explicit confirmation:
 
 - **Commit** — press `c` in the Changes sidebar to stage everything in the workspace and commit it with a message you type. The commit lands on the workspace's own branch; amux never pushes.
-- **Merge** — press `M` on a workspace row in the dashboard to merge its branch into its base with `git merge --no-ff`. The merge happens in the project's primary checkout, so amux first checks that the base branch is already checked out there and refuses otherwise rather than moving your HEAD. On a conflict it lists the conflicted files and offers to abort; resolving them is yours to do in the terminal.
+- **Merge** — press `M` on a workspace row in the dashboard to merge its branch into its base with `git merge --no-ff`. The merge happens in the project's primary checkout, so amux checks that the base branch is checked out there before asking, then re-verifies it at the moment you confirm — if the checkout moved (or detached) while the dialog was open, the merge refuses rather than landing on the new HEAD or moving it for you. On a conflict it lists the conflicted files and offers to abort; resolving them is yours to do in the terminal.
 
 Note that amux runs git with repository hooks disabled (see `AMUX_ALLOW_GIT_HOOKS` below), so your own `pre-commit` or `pre-merge` hooks will not fire on these actions.
 
@@ -76,6 +76,12 @@ archive never strands the shelve. Shelved workspaces list in their own
 dashboard section — `Enter` on a shelved row restores it (recreates the
 worktree and re-runs `setup-workspace`), and `D` purges it for good (deletes
 the branch and the record behind a confirmation).
+
+Delete and shelve share one teardown order: any in-flight `setup-workspace`
+sequence and detached `on-done` hooks are canceled and drained first, the `run`
+script is stopped, and only then does `archive` run and the worktree go away —
+a lifecycle subprocess can never outlive the directory it writes into. While
+teardown is in progress the workspace refuses new lifecycle starts.
 
 For cleaning up a fleet at once, `space` marks a workspace row (`●`) and
 `esc` clears marks; `S` with marks present shelves the marked set after one
@@ -109,7 +115,7 @@ button does the same; `Esc` cancels). Commands are short key sequences:
 | `S` | Settings |
 | `K` | cleanup tmux sessions |
 | `h` / `l` | focus pane left / right |
-| `n` | jump the dashboard cursor to the next workspace with a done badge (wraps) |
+| `n` | jump the dashboard cursor to the next workspace needing attention — a done badge or an agent that rang BEL (agents like Claude Code ring it on notification/permission events) |
 | `t a` | new agent tab |
 | `t t` | new terminal tab |
 | `t n` / `t p` | next / previous tab |
@@ -119,7 +125,15 @@ button does the same; `Esc` cancels). Commands are short key sequences:
 | `t s` | restart tab |
 | `t y` | copy transcript (scrollback + screen) of the focused terminal tab |
 | `t f` | save the focused terminal tab's full transcript to a file (default `~/.amux/transcripts/`) |
+| `t o` | browse saved transcripts (`~/.amux/transcripts/`) and open one in the file viewer tab |
 | `1`–`9` | jump to center tab by position |
+
+Detach, reattach, and restart are fenced per attach attempt: only the latest
+attempt's outcome applies to a tab, an explicit `t d` while an attach is in
+flight wins over the pending result, a duplicate `t r` reports "already in
+progress" instead of spawning a second client, and an attach that stalls past
+its timeout is released so it can be retried safely — a late result from the
+abandoned attempt is discarded, not applied over the newer terminal.
 
 When a center terminal tab is focused, `d` instead scrolls down a page and `u`
 scrolls up — the palette shows the substitute meanings in that context. Prefix +
@@ -143,18 +157,62 @@ Sidebar (Changes tab, focused):
   `/` filters.
 - `c` commit, `b` branch mode, `e` workspace env, `E` project env, `s`
   scripts, `r` run/stop the workspace run script, `R` run output, `O` script
-  output, `i` workspace status. Inside the live run-output viewer, `a`
-  attaches an interactive tab to the newest alive run session (closing the
+  output, `u` re-run setup, `i` workspace status. When `script_mode: concurrent`
+  has produced multiple run sessions, `R` opens a picker (#1 is the first run,
+  -2/-3/… numbered runs after) listing each session's live/exited status —
+  pick one to view its output. Inside the live run-output viewer, `a`
+  attaches an interactive tab to the viewed session (closing the
   tab detaches — the script keeps running).
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).
+
+Sidebar (Project tab, focused):
+
+- `j`/`k` or arrows move, `l`/`h` (or arrows) expand/collapse directories,
+  `enter`/`o` opens a file in the center pane, `.` toggles hidden files, `r`
+  refreshes. Directory reads run in the background — a loading directory shows
+  a `…` marker and a failed read shows a short error you can retry with `r` —
+  so a slow filesystem never freezes input or other panes.
+
+Diff viewer (opened from Changes with `enter`/`space`/`o`):
+
+- `j`/`k`/arrows and the wheel scroll, `PgUp`/`PgDn` (or `ctrl+u`/`ctrl+d`)
+  page, `g`/`G` jump to the top/bottom. With `w` wrap enabled, scrolling moves
+  display rows so a wrapped line's tail is always reachable; the footer counts
+  display rows, not source lines.
+- `n`/`p` cycle forward/back through diff hunks (still source-line anchored).
+- Resizing or toggling `w` keeps the same source line at the top of the view
+  when possible; `q`/`esc` closes the tab.
+
+Text fields in the env, scripts, and Settings editors accept terminal
+bracketed paste: only the first pasted line is appended to the focused field
+(later lines and control bytes are dropped — these are single-line fields),
+and paste never submits, cancels, or toggles a row.
+
+Picker keys: arrows and `tab`/`shift+tab` navigate every list picker. The
+agent picker additionally fuzzy-filters as you type (printable keys are
+filter text there); unfiltered pickers like the run-session list take `j`/`k`
+as navigation.
+
+Path pickers (add project, transcript browser) fuzzy-filter the listed rows
+as you type a name, but an explicit path takes precedence over the
+highlighted row: an absolute path, `~`, `~/…`, `./…`, `../…`, or any input
+containing a separator makes `enter` resolve that path directly and `tab`
+navigate into a directory — it never opens an unrelated listed row. A plain
+name (or one more component after the prefilled directory) still filters and
+selects rows.
 
 Set `"ui": { "show_keymap_hints": true }` in `~/.amux/config.json` to show an
 in-app hint bar.
 
 **Self-update**: amux checks for a new release at startup; when one is
 available a self-update item appears in Settings (`C-Space S`). Updates are
-minisign-verified before being applied.
+minisign-verified before being applied. The install step never leaves the
+binary path empty: it backs the current executable up by copy, then replaces
+it with a single atomic rename — if the update is interrupted, either the old
+or the new binary is reachable at the installed path. In the rare case the
+post-replacement durability check fails, the error names the retained backup
+and the `mv` command to restore it.
 
 ## Configuration
 
@@ -175,7 +233,9 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
 }
 ```
 
-- `setup-workspace` — commands run once when a new workspace is created.
+- `setup-workspace` — commands run once when a new workspace is created. If a
+  run fails transiently or you edit the config later, press `u` in the Changes
+  sidebar to run it again (repo-supplied commands re-check trust first).
 - `run` — the command started for a workspace's run script. Press `r` in the
   Changes sidebar to start it, and `r` again to stop it; a `[run]` marker sits
   next to the branch name while it is live. The script runs in its own tmux
@@ -191,20 +251,29 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
   finished when amux started does not trigger the hook.
 - `archive` — the command run when a workspace is archived, i.e. just before its
   worktree is deleted. It runs to completion (up to two minutes) in the worktree
-  while that directory still exists, after the run script has been stopped. It
-  is best-effort: if it fails or the repo isn't trusted yet, amux warns you and
-  deletes the workspace anyway, so a broken archive script can never strand a
-  workspace. Write it to tolerate running twice — if the delete itself fails
-  after the script has run, retrying the delete runs it again.
+  while that directory still exists, after every lifecycle subprocess has been
+  stopped and drained. It is best-effort: if it fails or the repo isn't trusted
+  yet, amux warns you and deletes the workspace anyway, so a broken archive
+  script can never strand a workspace. Write it to tolerate running twice — if
+  the delete itself fails after the script has run, retrying the delete runs it
+  again.
 
 `setup-workspace`, `archive`, and `on-done` each record a bounded tail of
 their combined output on every run — press `O` in the Changes sidebar to view
-the last run of each for the shown workspace. A failing `on-done` hook also
+the last run of each for the shown workspace. Transcripts persist under the
+workspace's metadata dir (`script-transcripts.json`), so `O` still answers
+"why did setup fail" after a restart; writes merge latest-per-type across
+amux processes, so a restarted amux recording one hook can't erase the
+others. Persistence is best effort — a corrupt or newer-schema envelope is
+left untouched rather than overwritten, and transcripts are never written for
+a workspace whose record is gone. A failing `on-done` hook also
 posts a warning toast (it used to be invisible); `R` stays the live surface
 for `run`.
 
 For the full operational picture press `i` in the Changes sidebar: a
-read-only snapshot of the workspace's allocated port range, run-session
+read-only snapshot of the workspace's reserved port range (read live from the
+durable registry — a workspace with no reservation yet, or a corrupt registry,
+says so rather than guessing), run-session
 state, script config (repo vs. yours) and its trust verdict, custom env key
 names (never values), lifecycle state, and open tabs.
 
@@ -229,6 +298,18 @@ prompt described below.
 | `ROOT_WORKSPACE_PATH` | The source repository root (also shown in the example above) |
 | `AMUX_PORT` | An allocated per-workspace port — bind dev servers here to avoid collisions across parallel workspaces |
 | `AMUX_PORT_RANGE` | The `start-end` port range allocated to this workspace |
+
+Port assignments are durable: the first spawn that needs a workspace's range
+commits it to `~/.amux/port-reservations.json` under the workspace's persisted
+ID, and every later spawn — run/setup/archive/on-done scripts, agent sessions,
+sidebar terminals, after a quit, crash, or a second amux instance on the same
+state home — receives exactly that interval rather than a fresh draw. The
+configured base/width shapes only new reservations; an interval minted under
+earlier settings keeps its original bounds. Reservations are never reclaimed
+in this release — a workspace keeps its range even after its sessions end — and
+when no disjoint interval remains, amux reports a typed exhaustion error
+instead of silently reusing one. Treat the registry as live state: do not
+delete `port-reservations.json` while any amux session exists.
 
 On top of those injected values, custom environment layers in for all script
 spawns (`setup-workspace`, `run`, `on-done`, `archive`), lowest to highest
@@ -257,10 +338,12 @@ scripts never widens what the repo can inject into your agents.
 
 Because these commands come from the repository, amux runs them only after you trust the repo. The first time a repo's `.amux/workspaces.json` would run (and every time its contents change), amux records the approved content of the file; until then those project-supplied scripts are skipped and you are notified, rather than executing arbitrary commands chosen by the repo's author. Editing `.amux/workspaces.json` invalidates the approval, so changed commands are re-gated until you trust the file again. (Run/archive scripts you enter yourself in the amux UI are your own input and are never gated.)
 
-Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`, and the
+Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Field writes are transactional and narrow: renaming a workspace, editing its env or scripts, shelving/restoring it, and debounced tab-state saves each rewrite only their own fields inside the record lock, so concurrent edits merge instead of a delayed write resurrecting a stale snapshot. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`, and the
 project-level environment map in `~/.amux/project-env.json`.
 
-Assistants: the AI agents amux can launch are configured per-user in `~/.amux/config.json`. You can add your own or override a built-in — see [docs/CONFIG.md](docs/CONFIG.md).
+Assistants: the AI agents amux can launch are configured per-user in `~/.amux/config.json`. You can add your own or override a built-in — see [docs/CONFIG.md](docs/CONFIG.md). A launch uses the assistant settings captured when it was requested, so saving new settings affects later launches, not panes already launched or attached. Saves preserve your effective interrupt settings — an explicit zero `interrupt_delay_ms` (no spacing between Ctrl-C signals) stays zero rather than falling back to a built-in default.
+
+Saving never clobbers a config file amux cannot read: if `config.json` exists but is unreadable, malformed, or a non-object document, the save is refused and the file is left untouched so hand-edited sections survive. A missing or empty file is written normally — that's absence, not rejection.
 
 ## Platform Support
 
@@ -293,8 +376,10 @@ from CI and produce different diagnostics. See [LINTING.md](LINTING.md) and
 - Attached-tab limit: set `AMUX_MAX_ATTACHED_AGENT_TABS` (default 6; `0` disables the limit) to change how many agent tabs keep live PTYs attached concurrently.
 - Terminal-tab limit: set `AMUX_MAX_ATTACHED_TERMINAL_TABS` (default 6; `0` disables the limit) to change how many sidebar terminals keep live PTYs attached; least-recently-used background terminals detach automatically, stay alive in tmux, and re-attach when their workspace is selected.
 - Git hooks: amux runs git with repo hooks and `core.fsmonitor` disabled so a checked-out repository cannot execute code just because amux touched it; set `AMUX_ALLOW_GIT_HOOKS=1` if your workflow needs repo hooks to run. git-lfs works either way — its clean/smudge filters are never disabled, and amux points `core.hooksPath` at `/dev/null` (not at an empty value) so lfs cannot leave stray hook files in a workspace root.
+- Git cancellation: every git invocation runs in its own process group (Unix) and has a bounded output drain, so a timed-out or canceled git operation terminates spawned descendants too — a lingering child process cannot hold a worktree lock or output pipe open past the deadline plus a short cleanup allowance.
 - OSC 52 clipboard: set `AMUX_ENABLE_OSC52_CLIPBOARD=1` to let agent terminal output copy to your clipboard via OSC 52 (off by default because terminal output is untrusted; payloads over 64 KiB are ignored).
 - Perf profiling: set `AMUX_PROFILE=1` to emit periodic timing/counter snapshots; adjust cadence with `AMUX_PROFILE_INTERVAL_MS` (default 5000).
 - pprof: set `AMUX_PPROF=1` (or a port like `6061`) to expose `net/http/pprof` on `127.0.0.1`.
 - Debug signals: set `AMUX_DEBUG_SIGNALS=1` and send `SIGUSR1` to dump goroutines into the log.
 - PTY tracing: set `AMUX_PTY_TRACE=1` or a comma-separated assistant list; traces write to the log dir (or OS temp dir if logging is disabled). The trace captures both directions of the pipeline — agent→amux output is tagged `RECV` and amux→agent input (keystrokes, pastes, the delayed Enter/CR) is tagged `SEND` — so send-path issues like a dropped Enter can be debugged at the byte level.
+- Contributor hook flags: `AMUX_SKIP_LINT` and `AMUX_SKIP_HARNESS` scope themselves to their named gates in `.githooks/` — skipping lint still runs formatting, file-length, harness, and e2e checks; skipping the harness still runs lint, e2e, and the tmux check. They are dev-side only (see [CONTRIBUTING.md](CONTRIBUTING.md)); the amux app never reads them.

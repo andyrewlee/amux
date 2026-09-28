@@ -96,3 +96,19 @@ func WaitForAtomic[T cmp.Ordered](t fataler, load func() T, want T, timeout time
 		t.Fatalf("timed out after %s waiting for value >= %v (got %v)", timeout, want, load())
 	}
 }
+
+// PollUntil calls poll until it reports done or timeout elapses, returning the
+// last value it produced. Non-fatal — the caller decides whether the final
+// value is a failure (e.g. a status poll whose caller asserts on the tail
+// state). One last poll runs at the deadline so the returned value is never
+// stale by more than interval.
+func PollUntil[T any](timeout, interval time.Duration, poll func() (T, bool)) T {
+	deadline := time.Now().Add(timeout)
+	for {
+		got, done := poll()
+		if done || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(interval)
+	}
+}

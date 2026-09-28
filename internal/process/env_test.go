@@ -319,6 +319,85 @@ func TestBuildEnvLayers_FiltersPrefixedKeys(t *testing.T) {
 	}
 }
 
+// TestBuildEnvLayers_DurableTwoRunnersShareReservation is the durable-mode
+// contract through the environment surface: two independent runners on one
+// state home emit identical AMUX_PORT/AMUX_PORT_RANGE for the same stored
+// workspace ID, disjoint ranges for distinct IDs, and unchanged layer
+// precedence/reserved-key filtering.
+func TestBuildEnvLayers_DurableTwoRunnersShareReservation(t *testing.T) {
+	home, meta := t.TempDir(), t.TempDir()
+
+	wsA := savedWorkspace(t, meta, "a")
+	wsA.Env = map[string]string{"SHARED": "ws", "AMUX_PORT": "spoof"}
+	wsB := savedWorkspace(t, meta, "b")
+
+	newRunner := func() *ScriptRunner {
+		r := NewScriptRunner(6200, 10)
+		store := data.NewPortReservationStore(home)
+		if err := store.Initialize(nil); err != nil {
+			t.Fatalf("Initialize: %v", err)
+		}
+		r.SetPortReservationStore(store)
+		return r
+	}
+	runnerA, runnerB := newRunner(), newRunner()
+
+	envA, err := runnerA.envBuilder.BuildEnvLayers(wsA, map[string]string{"SHARED": "layer", "ROOT_X": "spoof"})
+	if err != nil {
+		t.Fatalf("BuildEnvLayers(a) = %v", err)
+	}
+	envB, err := runnerB.envBuilder.BuildEnvLayers(wsB, nil)
+	if err != nil {
+		t.Fatalf("BuildEnvLayers(b) = %v", err)
+	}
+	envAAgain, err := runnerB.envBuilder.BuildEnvLayers(wsA, nil)
+	if err != nil {
+		t.Fatalf("BuildEnvLayers(a via runner B) = %v", err)
+	}
+
+	mA, mB, mAAgain := envSliceMap(envA), envSliceMap(envB), envSliceMap(envAAgain)
+	if mAAgain["AMUX_PORT"] != mA["AMUX_PORT"] || mAAgain["AMUX_PORT_RANGE"] != mA["AMUX_PORT_RANGE"] {
+		t.Fatalf("same ID across runners got %s/%s, want %s/%s",
+			mAAgain["AMUX_PORT"], mAAgain["AMUX_PORT_RANGE"], mA["AMUX_PORT"], mA["AMUX_PORT_RANGE"])
+	}
+	if mB["AMUX_PORT"] == mA["AMUX_PORT"] {
+		t.Fatalf("distinct IDs share base %s — registry not shared", mA["AMUX_PORT"])
+	}
+	// User-layer precedence and reserved-key filtering are unchanged in
+	// durable mode.
+	if mA["SHARED"] != "ws" {
+		t.Fatalf("SHARED = %q, want ws (layer < ws.Env)", mA["SHARED"])
+	}
+	if mA["AMUX_PORT"] == "spoof" || mA["ROOT_X"] != "" {
+		t.Fatalf("reserved key leaked through a layer: %v", mA)
+	}
+}
+
+// TestBuildEnvMap_DurableDegradesUnsaved proves a workspace with no persisted
+// metadata ID still gets env — the allocator degrades to the transient
+// root-keyed map rather than surfacing an unactionable error.
+func TestBuildEnvMap_DurableDegradesUnsaved(t *testing.T) {
+	home := t.TempDir()
+	p := durableAllocator(t, home, 6200, 10)
+	builder := NewEnvBuilder(p)
+	ws := &data.Workspace{Name: "unsaved", Repo: t.TempDir(), Root: t.TempDir()}
+
+	m, err := builder.BuildEnvMap(ws)
+	if err != nil {
+		t.Fatalf("BuildEnvMap(unsaved) error = %v, want transient fallback", err)
+	}
+	if m["AMUX_PORT"] != "6200" || m["AMUX_PORT_RANGE"] != "6200-6209" {
+		t.Fatalf("BuildEnvMap(unsaved) ports = %q/%q, want 6200/6200-6209", m["AMUX_PORT"], m["AMUX_PORT_RANGE"])
+	}
+	env, err := builder.BuildEnv(ws)
+	if err != nil {
+		t.Fatalf("BuildEnv(unsaved) error = %v, want transient fallback", err)
+	}
+	if got := envSliceMap(env)["AMUX_PORT"]; got != "6200" {
+		t.Fatalf("BuildEnv(unsaved) AMUX_PORT = %q, want 6200", got)
+	}
+}
+
 func envSliceMap(env []string) map[string]string {
 	out := make(map[string]string, len(env))
 	for _, kv := range env {

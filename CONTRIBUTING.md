@@ -78,6 +78,25 @@ Dev-side environment variables:
   `make soak` bullet above).
 - `AMUX_E2E_BIN` — point `internal/e2e` tests at a prebuilt binary instead of
   the per-run build.
+- `AMUX_SKIP_LINT=1` — skip only the golangci-lint steps in the pre-commit
+  and pre-push hooks (`make lint` / `make lint-ci-parity`). Every other gate
+  still runs: formatting, lint-config-drift, check-fmt-config, the staged
+  file-length guard, the harness, and the e2e suite. Scoped escape hatch —
+  prefer it over `--no-verify`, which would also disable all of those.
+- `AMUX_SKIP_HARNESS=1` — skip only the pre-push harness run; strict lint,
+  the e2e suite, and the missing-tmux warning still apply.
+- `AMUX_LINT_BASE_REF=<ref>` — override the pre-push strict-lint base ref
+  (default `origin/main`).
+- `AMUX_HARNESS_CENTER_ARGS="..."` — override the pre-push harness args
+  (default `--mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1
+  --payload-bytes=128`).
+
+E2e fixture isolation: `StartPTYSession` pins `HOME` *and*
+`AMUX_WORKSPACES_ROOT` under the test's temporary home, so a parent shell
+running inside amux cannot redirect fixture worktrees into a real workspace
+root. Tests that deliberately relocate the root may pass an explicit
+`PTYOptions.Env` override — it wins last — but must point it at a test-owned
+temporary directory.
 
 `make doctor` probes the host for everything the above needs: go ≥ the go.mod
 floor, git, a working tmux server, the pre-commit hooks path, and lint tools.

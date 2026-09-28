@@ -34,6 +34,17 @@ The tmux keys map to environment variables of the same purpose —
 `AMUX_TMUX_SERVER`, `AMUX_TMUX_CONFIG`, `AMUX_TMUX_SYNC_INTERVAL` — which amux
 also accepts directly. A non-empty config value wins over the environment.
 
+The path pickers that accept file or directory input (add project, transcript
+browser) treat typed input two ways: a plain name fuzzy-filters the listed
+rows, while an explicit path — absolute, `~`, `~/…`, `./…`, `../…`, or any
+input containing a separator — is resolved literally, so `enter`/`tab` act on
+the typed path rather than the highlighted row.
+
+Git invocations enforce their deadlines against the whole process group on
+Unix (leader-only on Windows) plus a short bounded output drain: a canceled
+git child cannot keep a worktree lock or an inherited output pipe open
+indefinitely.
+
 ## Environment variables
 
 Variables injected **into** agents (`AMUX_WORKSPACE_*`, `AMUX_PORT`,
@@ -44,8 +55,22 @@ are documented in the README's environment section, which also covers the
 custom env layering — repo `env` (trust-gated, **scripts only**) < project
 env (`~/.amux/project-env.json`, press `E`) < workspace env (press `e`).
 Interactive sessions (agents, sidebar terminals) get the injected vars plus
-the project and workspace layers — never repo `env`, even when trusted. The
-rest:
+the project and workspace layers — never repo `env`, even when trusted.
+Workspace env edits persist as a field-scoped transaction on
+`workspace.json`: only the `env` map is rewritten, so an `e` edit cannot
+revert a rename, script change, or tab save committed in the meantime.
+
+`AMUX_PORT`/`AMUX_PORT_RANGE` are durable reservations, not per-process draws:
+the first spawn commits the workspace's interval to
+`~/.amux/port-reservations.json` (keyed by its persisted metadata ID, never a
+path hash) and every process sharing that state home reuses it. The compiled
+base/width defaults shape only new reservations — intervals already committed
+keep their original bounds, reservations are never reclaimed, and a corrupt or
+newer-schema registry fails closed (spawns and the `i` status view surface the
+error rather than guessing). Deleting the registry while sessions exist orphans
+their ranges — treat it as live state.
+
+The rest:
 
 | Variable                  | Meaning                                                                                    |
 |---------------------------|--------------------------------------------------------------------------------------------|
@@ -57,6 +82,12 @@ rest:
 | `AMUX_PPROF_ALLOW_REMOTE` | With `AMUX_PPROF` set, bind pprof on all interfaces instead of loopback. Off by default because pprof endpoints expose internals — set `=1` only on trusted networks. |
 | `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output (harness/CI use).                                       |
 | `AMUX_E2E_BIN`            | Path to a prebuilt binary for `internal/e2e` tests (test-only).                            |
+
+`AMUX_SKIP_LINT` and `AMUX_SKIP_HARNESS` are contributor git-hook flags, not
+runtime configuration — the amux process never reads them, and each removes
+only its named gate in `.githooks/` (lint still runs formatting, drift, and
+file-length checks; harness still runs lint, e2e, and the tmux probe). See
+CONTRIBUTING.md.
 
 ## The `assistants` map
 
@@ -76,7 +107,18 @@ amux reads a single user config file at:
 The file is optional. A missing file, malformed JSON, or a broken `assistants`
 section falls back to the built-in defaults; a valid `assistants` section is
 merged on top of them. (This is per-user global config, distinct from the
-per-project `.amux/workspaces.json` described in the README.)
+per-project `.amux/workspaces.json` described in the README — whose lifecycle
+scripts run under amux's teardown ordering: delete/shelve cancels and drains
+in-flight setup and on-done hooks, stops the run script, then runs `archive`
+before the worktree is removed.)
+
+Loading is tolerant, but **saving is strict**: when amux persists a section
+(UI settings or assistants) it first reads the existing document and refuses
+to write if that document is unreadable, malformed, or a non-object root such
+as a top-level `null`. A save that proceeded on a partial view could silently
+drop sections it does not own, so the error is surfaced and the file is left
+untouched instead. A missing or empty file is still treated as an empty
+config and written normally — missing is not the same as rejected.
 
 ## The `assistants` schema
 
@@ -99,20 +141,39 @@ The value fields (all optional) are:
 | `interrupt_count`    | number | Number of Ctrl-C signals amux sends to interrupt the agent.         |
 | `interrupt_delay_ms` | number | Delay, in milliseconds, between those Ctrl-C signals.               |
 
-Defaults applied when a value is kept: `interrupt_count` falls back to `1` if it
-is missing or not positive, and `interrupt_delay_ms` falls back to `0` if it is
-missing or negative.
+Defaults applied when a value is kept: on a **built-in** entry an omitted field
+inherits that built-in's default (Claude's `interrupt_delay_ms` is `200`); on a
+**custom** entry `interrupt_count` falls back to `1` if missing or not positive
+and `interrupt_delay_ms` to `0` if missing or negative. An explicit
+`"interrupt_delay_ms": 0` is meaningful — it disables the spacing between
+Ctrl-C signals — and it stays zero: saves write the effective value, so a
+zero-delay override survives a Settings edit and reload instead of silently
+inheriting the built-in delay again.
 
 Assistant names must start with a letter or number and may contain only letters,
 numbers, dots, dashes, or underscores (max 100 characters). Names are matched
 case-insensitively (they are lowercased). An entry whose name fails validation
 is ignored.
 
+Settings changes apply to launches requested after the save. A launch already
+dispatched — a new tab, a placeholder restore, a reattach, or a restart — runs
+the `command`/interrupt values captured when it was requested, so editing an
+assistant mid-launch never changes what that launch runs. Attaching to an
+existing tmux session never re-runs the pane's command either: reattach binds
+to the session as it is. Sidebar terminal attaches are fenced per attempt as
+well: only the newest in-flight attach's outcome is applied, an explicit
+detach during an attach wins, and a stalled attempt is released for safe
+retry rather than letting its late result replace the newer terminal.
+
 ## Adding a custom assistant
 
 The fastest path is in-app: open **Settings**, Tab to **Assistants**, and press
 **Ctrl+A** to add a name and command (the same validation below applies, and
-interrupt fields default sensibly). To do it in the file instead, give the new
+interrupt fields default sensibly). All in-app text fields — assistant
+name/command, the tmux server/config/sync-interval fields, and the env and
+lifecycle-script editors — accept bracketed paste: only the first pasted line
+is appended to the focused field (later lines and control bytes are dropped),
+and paste never submits, cancels, or toggles a row. To do it in the file instead, give the new
 key a **non-empty `command`** — that is the only requirement:
 
 ```json
@@ -126,7 +187,8 @@ key a **non-empty `command`** — that is the only requirement:
 After this, `mytool`:
 
 - **appears in the assistant picker** (the agent-selection dialog), listed after
-  the built-in agents;
+  the built-in agents — arrows/`tab`/`shift+tab` move through the list and any
+  printable key narrows it as a fuzzy filter;
 - is **treated as a chat agent**, exactly like the built-ins.
 
 A custom entry **without** a `command` is dropped (there would be nothing to
@@ -138,6 +200,43 @@ The built-in agents each render with a dedicated brand color. A custom
 (non-built-in) assistant does **not** get one — it falls back to the default
 primary color. This is purely cosmetic; the assistant is fully functional
 otherwise.
+
+## Self-update install guarantees
+
+When the in-app self-update applies a verified release, the executable at its
+installed pathname is never absent mid-update: the current binary is copied
+to a random backup path (not moved), the staged replacement lands via one
+same-directory rename over the live path, and the directory is synced before
+and after that rename. Every failure before the rename leaves the old binary
+in place; a failure during the post-replacement directory sync leaves the new
+binary installed and keeps the backup — the reported error names the backup
+path and prints a quoted `mv` command for manual recovery.
+
+Two things this does not promise: it is not a multi-process transactional
+update (two concurrent `amux update` runs can race each other), and it cannot
+provide universal power-loss immunity (a crash can lose filesystem state that
+was never synced). The guarantees are pathname continuity, atomic
+old-or-new replacement, and a recoverable backup on post-commit errors.
+
+## Diff viewer scrolling model
+
+Not a config knob — documented here because it is part of the behavior users
+observe: the diff viewer's `w` key toggles line wrapping, and with wrap on,
+`j`/`k`/wheel/page keys move through **display rows** (a wrapped long line
+occupies several), not source lines. Every wrapped segment is reachable — the
+footer's position counter and the wheel affordance count display rows.
+`n`/`p` continue to jump between hunk headers, and resizing or toggling wrap
+re-anchors the view to the same source line when possible.
+
+## Project tree loading model
+
+Not a config knob — documented here because it is observable behavior: the
+sidebar's Project tab loads directories asynchronously. `l`/`enter` expansion,
+`r` refresh, `.` hidden-file toggle, and workspace switches return instantly
+and fill rows in as reads complete; a pending directory shows `…`, a failed
+one shows a brief error retried via `r`. The number of concurrent directory
+reads is a fixed internal bound — there is no setting for it, and nothing in
+the config or session files records tree state.
 
 ## Overriding a built-in's command
 

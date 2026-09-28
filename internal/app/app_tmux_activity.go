@@ -21,14 +21,19 @@ type tmuxActivityResult struct {
 	Token              activityScanToken
 	ActiveWorkspaceIDs map[string]bool
 	AgentStates        map[string]activity.AgentState    // per-workspace semantic states; nil for followers
-	UpdatedStates      map[string]*activity.SessionState // Updated hysteresis states to merge
+	SessionStates      map[string]*activity.SessionState // complete retained set; replaces the live map when non-nil
+	UpdatedStates      map[string]*activity.SessionState // scan delta, merged only when SessionStates is absent
 	RemovedStates      []string                          // Session states pruned this scan (delete on merge)
-	StoppedTabs        []messages.TabSessionStatus
-	SkipApply          bool
-	ScannerOwner       bool
-	ScannerEpoch       int64
-	RoleKnown          bool
-	Err                error
+	// Now is the scan's single classification timestamp. Applying a result
+	// classifies transitions at this instant, so tests advance clocks through
+	// the result rather than sleeping.
+	Now          time.Time
+	StoppedTabs  []messages.TabSessionStatus
+	SkipApply    bool
+	ScannerOwner bool
+	ScannerEpoch int64
+	RoleKnown    bool
+	Err          error
 }
 
 // snapshotActivityStates creates a deep copy of session activity states for use in a goroutine.
@@ -168,12 +173,20 @@ func (a *App) runTmuxActivityScan(
 		return svc.CapturePaneTail(sessionName, lines, o)
 	}
 	active, updatedStates, removedStates := activity.ActiveWorkspaceIDsFromTagsWithRemoved(infoBySession, sessions, recentActivityBySession, statesSnapshot, opts, captureFn, svc.ContentHash)
+	// The semantic layer must see every retained eligible session — including
+	// quiet ones that emitted no update and seen-but-not-emitted mutations the
+	// scan applied to the snapshot — so the workspace summary and the
+	// transition diff both classify the complete set at one timestamp.
+	currentStates := mergeActivitySessionStates(statesSnapshot, updatedStates, removedStates)
+	scanNow := time.Now()
 	result := tmuxActivityResult{
 		Token:              scanToken,
 		ActiveWorkspaceIDs: active,
-		AgentStates:        activity.ClassifyWorkspaceStates(active, updatedStates, infoBySession, sessions, time.Now()),
+		AgentStates:        activity.ClassifyWorkspaceStates(active, currentStates, infoBySession, sessions, scanNow),
+		SessionStates:      currentStates,
 		UpdatedStates:      updatedStates,
 		RemovedStates:      removedStates,
+		Now:                scanNow,
 		StoppedTabs:        stoppedTabs,
 		ScannerOwner:       true,
 		ScannerEpoch:       ownerEpoch,
@@ -183,6 +196,29 @@ func (a *App) runTmuxActivityScan(
 		a.publishActivitySnapshot(&result, active, opts)
 	}
 	return result
+}
+
+// mergeActivitySessionStates assembles the scan's complete retained session
+// map: the pre-scan snapshot (which already carries this scan's
+// seen-but-not-emitted in-place mutations), minus pruned sessions, overlaid
+// with emitted updates. The result is authoritative for the apply path —
+// replacing the live map wholesale is safe because sessionStates has a single
+// writer (the Update loop) and scans serialize on scanInFlight.
+func mergeActivitySessionStates(
+	snapshot, updated map[string]*activity.SessionState,
+	removed []string,
+) map[string]*activity.SessionState {
+	merged := make(map[string]*activity.SessionState, len(snapshot)+len(updated))
+	for name, state := range snapshot {
+		merged[name] = state
+	}
+	for name, state := range updated {
+		merged[name] = state
+	}
+	for _, name := range removed {
+		delete(merged, name)
+	}
+	return merged
 }
 
 // resolveScanRole resolves shared-scan ownership for this scan. It returns the

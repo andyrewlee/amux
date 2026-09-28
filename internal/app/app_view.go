@@ -23,7 +23,11 @@ const (
 func (a *App) View() (view tea.View) {
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Error("panic in app.View: %v\n%s", r, debug.Stack())
+			wsID := "none"
+			if a.activeWorkspace != nil {
+				wsID = string(a.activeWorkspace.ID())
+			}
+			logging.Error("panic in app.View (workspace=%s, pane=%d): %v\n%s", wsID, a.focusedPane, r, debug.Stack())
 			a.err = fmt.Errorf("render error: %v", r)
 			// A half-built frame must not leave the last good frame reachable:
 			// the error view would otherwise be replaced by stale content on the

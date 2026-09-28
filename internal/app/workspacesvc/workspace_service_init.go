@@ -65,6 +65,9 @@ type Service struct {
 	// by normalized project path) so concurrent create/delete of workspaces in the
 	// same repo do not contend on .git locks (index.lock / packed-refs).
 	repoGitLocks sync.Map
+	// tabPersist orders and narrows OpenTabs/ActiveTabIndex writes — see
+	// workspace_tab_persistence.go.
+	tabPersist *tabPersistence
 }
 
 // lockRepoGit acquires the per-repo git mutation lock and returns the unlock
@@ -108,6 +111,7 @@ func New(registry ProjectRegistry, store WorkspaceStore, scripts *process.Script
 		workspacesRoot:     workspacesRoot,
 		gitOps:             defaultGitOps{},
 		gitPathWaitTimeout: 3 * time.Second,
+		tabPersist:         newTabPersistence(),
 	}
 	// Optional capabilities are asserted at the call site, but a missing one
 	// must never be silent — log once at construction so a test stub
