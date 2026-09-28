@@ -49,7 +49,7 @@ func newHookFixture(t *testing.T, tmuxUsable bool) *hookFixture {
 	}
 
 	writeStub(t, fx.stubDir, "git", `#!/bin/sh
-{ printf 'git'; printf '\x1f%s' "$@"; printf '\n'; } >> "$STUB_LOG"
+{ printf 'git'; printf '\037%s' "$@"; printf '\n'; } >> "$STUB_LOG"
 if [ "$1" = "rev-parse" ]; then
   printf '%s\n' "$STUB_REPO"
   exit 0
@@ -63,23 +63,31 @@ fi
 exit 0
 `)
 	writeStub(t, fx.stubDir, "make", `#!/bin/sh
-{ printf 'make'; printf '\x1f%s' "$@"; printf '\x1fBASE_REF=%s' "${BASE_REF:-}"; printf '\n'; } >> "$STUB_LOG"
+{ printf 'make'; printf '\037%s' "$@"; printf '\037BASE_REF=%s' "${BASE_REF:-}"; printf '\n'; } >> "$STUB_LOG"
 if [ -n "${STUB_FAIL_MAKE:-}" ]; then
   case " $* " in *" $STUB_FAIL_MAKE "*) exit 1;; esac
 fi
 exit 0
 `)
 	writeStub(t, fx.stubDir, "go", `#!/bin/sh
-{ printf 'go'; printf '\x1f%s' "$@"; printf '\n'; } >> "$STUB_LOG"
+{ printf 'go'; printf '\037%s' "$@"; printf '\n'; } >> "$STUB_LOG"
 if [ -n "${STUB_FAIL_GO:-}" ]; then
   case " $* " in *" $STUB_FAIL_GO "*) exit 1;; esac
 fi
 exit 0
 `)
-	if tmuxUsable {
-		writeStub(t, fx.stubDir, "tmux", `#!/bin/sh
-{ printf 'tmux'; printf '\x1f%s' "$@"; printf '\n'; } >> "$STUB_LOG"
+	// tmux is always stubbed: on CI /usr/bin/tmux exists in PATH, so omitting
+	// the stub would let the hook probe a real server. The unusable variant
+	// exits nonzero so `command -v` passes but the probe fails — the same
+	// warning path as a genuinely absent tmux.
+	writeStub(t, fx.stubDir, "tmux", `#!/bin/sh
+{ printf 'tmux'; printf '\037%s' "$@"; printf '\n'; } >> "$STUB_LOG"
 exit "${STUB_TMUX_RC:-0}"
+`)
+	if !tmuxUsable {
+		writeStub(t, fx.stubDir, "tmux", `#!/bin/sh
+{ printf 'tmux'; printf '\037%s' "$@"; printf '\n'; } >> "$STUB_LOG"
+exit "${STUB_TMUX_RC:-1}"
 `)
 	}
 	return fx

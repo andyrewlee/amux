@@ -91,7 +91,9 @@ func TestCleanupFakeAgentEmptyAndRefusal(t *testing.T) {
 // cleanup, not per-test cleanup.
 func TestFakeAgentCleanupHelper(t *testing.T) {
 	if os.Getenv("AMUX_E2E_FAKEAGENT_CLEANUP_HELPER") != "1" {
-		t.Skip("helper process only")
+		// Helper-process stub: return (not Skip) so STRICT_TMUX's skip
+		// counter — which guards real tmux coverage — never counts it.
+		return
 	}
 	outFile := os.Getenv("AMUX_E2E_FAKEAGENT_DIR_OUT")
 	if outFile == "" {
