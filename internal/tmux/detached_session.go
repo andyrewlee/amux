@@ -41,7 +41,7 @@ func EnsureDetachedSession(sessionName, workDir, command string, environment []s
 	// ensureSession on its own failure (settingsScript already self-heals
 	// per-option), matching clientCommand's bracing discipline. The script
 	// text already ends with "; " and always exits true.
-	script := fmt.Sprintf("%s && { %s}", ensureSessionScript(base, sessionName, dir, paneCommand), settingsScript(base, settings))
+	script := fmt.Sprintf("%s && { %s}", ensureSessionScript(base, sessionName, dir, paneCommand, true), settingsScript(base, settings))
 
 	ctx, cancel := context.WithTimeout(context.Background(), tmuxCommandTimeout)
 	defer cancel()

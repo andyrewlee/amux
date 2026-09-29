@@ -45,7 +45,7 @@ func clientCommand(sessionName, workDir, command string, environment []string, o
 	// Ensure the session/server exists without attaching yet. tmux computes
 	// client features at attach time, so the server option below must be set
 	// while the server is alive but before the final attach command.
-	ensureSession := ensureSessionScript(base, sessionName, dir, paneCommand)
+	ensureSession := ensureSessionScript(base, sessionName, dir, paneCommand, false)
 
 	// Advertise DEC 2026 synchronized-output support before attaching. The
 	// indexed slot keeps repeated session creates idempotent on amux's
@@ -122,11 +122,26 @@ func paneLaunchCommand(command, dir string, environment []string) string {
 // ensureSessionScript renders the "create unless present" shell fragment:
 // has-session, else new-session -ds running paneCommand in dir, else a final
 // has-session that closes the create race between two concurrent creators.
-func ensureSessionScript(base, sessionName, dir, paneCommand string) string {
+//
+// When keepDeadPane is true (detached run sessions), remain-on-exit is
+// chained into the new-session invocation itself (';' commands run atomically
+// on the tmux server): a fast-exiting pane can die and be reaped between the
+// separate create and set-option round-trips, which would lose the session —
+// and let a later Ensure respawn it — before the option ever lands. The
+// option is idempotent, so the settings pass that follows still re-applies it
+// for already-present sessions. Attach sessions pass keepDeadPane=false:
+// their panes must not linger after the agent exits.
+func ensureSessionScript(base, sessionName, dir, paneCommand string, keepDeadPane bool) string {
 	session := shellutil.ShellQuote(sessionName)
 	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
-	return fmt.Sprintf("(%s has-session -t %s 2>/dev/null || %s new-session -ds %s -c %s %s || %s has-session -t %s 2>/dev/null)",
-		base, sessionTgt, base, session, dir, paneCommand, base, sessionTgt)
+	create := fmt.Sprintf("%s new-session -ds %s -c %s %s", base, session, dir, paneCommand)
+	if keepDeadPane {
+		// set-option's -t does not accept the '=' exact-match form (unlike
+		// has-session's): use the bare session name, as sessionSettingArgs does.
+		create += fmt.Sprintf(" ';' set-option -t %s remain-on-exit on", session)
+	}
+	return fmt.Sprintf("(%s has-session -t %s 2>/dev/null || ( %s ) || %s has-session -t %s 2>/dev/null)",
+		base, sessionTgt, create, base, sessionTgt)
 }
 
 // sessionSettingArgs returns the argument list of every `set-option` amux applies
