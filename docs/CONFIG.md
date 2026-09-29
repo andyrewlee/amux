@@ -80,7 +80,7 @@ The rest:
 | `AMUX_TMUX_SYNC_INTERVAL` | Same as `ui.tmux_sync_interval`.                                                           |
 | `AMUX_LOG_RETENTION_DAYS` | Days of `~/.amux/logs` retention. Default 14.                                              |
 | `AMUX_PPROF_ALLOW_REMOTE` | With `AMUX_PPROF` set, bind pprof on all interfaces instead of loopback. Off by default because pprof endpoints expose internals — set `=1` only on trusted networks. |
-| `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output (harness/CI use).                                       |
+| `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output (harness/perf-check use).                               |
 | `AMUX_E2E_BIN`            | Path to a prebuilt binary for `internal/e2e` tests (test-only).                            |
 
 `AMUX_SKIP_LINT` and `AMUX_SKIP_HARNESS` are contributor git-hook flags, not

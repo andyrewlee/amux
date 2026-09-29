@@ -361,12 +361,12 @@ make run
 
 Run `./scripts/install-hooks.sh` once after cloning. It points `core.hooksPath`
 at `.githooks`, enabling the pre-commit fmt/lint/file-length checks and the
-pre-push lint-parity gate the project relies on for quality.
+pre-push strict-lint gate the project relies on for quality.
 
 Run `make lint-tools` once before your first `make devcheck` or `git commit`.
 It builds the linter pinned in `.golangci-version` into the gitignored
 `./.cache/bin`; a stock `golangci-lint` from `PATH` may be a different version
-from CI and produce different diagnostics. See [LINTING.md](LINTING.md) and
+than the pinned one and produce different diagnostics. See [LINTING.md](LINTING.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Operations

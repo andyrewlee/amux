@@ -8,8 +8,8 @@ if [[ -n "${AMUX_SKIP_LINT:-}" ]]; then
   echo "amux pre-push: skipping strict lint (AMUX_SKIP_LINT set)"
 else
   base_ref="${AMUX_LINT_BASE_REF:-origin/main}"
-  echo "amux pre-push: running CI-parity strict lint (base_ref=${base_ref})..."
-  BASE_REF="$base_ref" make lint-ci-parity
+  echo "amux pre-push: running strict lint against base (base_ref=${base_ref})..."
+  BASE_REF="$base_ref" make lint-strict-base
 fi
 
 if [[ -n "${AMUX_SKIP_HARNESS:-}" ]]; then

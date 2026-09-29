@@ -2,7 +2,7 @@
 
 This repository is lint-driven by design. The goal is to keep code quality high and keep code shape consistent across humans and coding agents.
 
-## Current Gate (CI + Local)
+## Current Gate (Local — No GitHub Actions)
 
 The required gate is:
 
@@ -24,13 +24,18 @@ This runs:
 - `make lint` — `golangci-lint run`, `golangci-lint fmt --diff`, and the file
   length guard (`*.go` files must be <= 500 lines)
 
-CI enforces the same lint checks in `.github/workflows/ci.yml`.
+This project runs no GitHub Actions: the complete local CI gate is
+`make ci` (`devcheck` under `STRICT_TMUX=1` plus `test-race`,
+`test-race-tmux`, `tidy-check`, `govulncheck`, `windows-build`, and
+`harness-smoke`). `make ci-nightly` adds the full-tree race run and soak —
+the former scheduled workflow's coverage; `make ci-tmux-matrix` replays the
+tmux version matrix in docker (apt tmux floor + pinned source build).
 
 ## One-Time Setup: Pinned golangci-lint
 
 `make lint` / `make devcheck` need the golangci-lint version pinned in
 `.golangci-version`. A system golangci-lint is frequently the wrong version and
-can produce different diagnostics from CI. A prebuilt binary can also be
+can produce different diagnostics than the pinned build. A prebuilt binary can also be
 rejected when it was built with an older Go than the `go.mod` target
 (`build Go < target Go`).
 
@@ -46,9 +51,8 @@ already reports the pinned version) and never deletes an existing good binary.
 
 `make lint`, `make lint-strict`, and `make lint-strict-new` then prefer
 `./.cache/bin/golangci-lint` when it matches `.golangci-version`, otherwise they
-fall back to a `golangci-lint` on `PATH`. CI is unaffected: it has no
-`./.cache/bin` binary (it is gitignored) and uses `golangci-lint-action`, so the
-Makefile resolves to the action-installed `PATH` binary there.
+fall back to a `golangci-lint` on `PATH` (with a version warning from
+`check-golangci-version`).
 
 ## Phase 2: Strict Ratchet
 
@@ -66,14 +70,16 @@ Or against a specific base revision:
 make lint-strict-new BASE=origin/main
 ```
 
-CI runs this strict profile for pull requests only, ratcheted to changed code via `--new-from-rev=<base-sha>`.
+The pre-push hook enforces the same profile on changed code via
+`make lint-strict-base`, ratcheted to the merge-base with `BASE_REF`
+(default `origin/main`; override with `AMUX_LINT_BASE_REF`).
 
 ### Complexity ratchet
 
 The changed-code strict ratchet also gates function-level complexity. The
 500-line file guard does nothing about oversized or deeply-nested *functions*
-inside sub-500-line files, so `make lint-strict-new` and the PR-only
-`lint-strict-pr` job enable:
+inside sub-500-line files, so `make lint-strict-new` and the pre-push
+`lint-strict-base` gate enable:
 
 - `funlen` — `lines: 120`, `statements: 60` (excluded on `_test.go`, where
   table-driven tests legitimately run long)
@@ -98,10 +104,10 @@ Phase 3 promotes additional low-noise rules into baseline `.golangci.yml`:
 - `whitespace` (no unnecessary leading/trailing blank lines)
 - `gofumpt` (stricter canonical formatting)
 
-Phase 3 keeps CI fully automated (no PR-body parsing). The gate is enforced by required CI jobs:
+Phase 3 keeps the gate fully automated (no PR-body parsing). It is enforced locally by:
 
-- baseline lint/test/harness checks in `.github/workflows/ci.yml`
-- strict changed-code lint in `lint-strict-pr`
+- `make ci` — the complete baseline gate (lint/test/race/harness/tidy/vuln/windows-build)
+- the pre-push hook's `make lint-strict-base` — strict changed-code lint against the merge-base with `BASE_REF`
 
 ## Baseline Lint Rules
 
@@ -138,7 +144,7 @@ The strict profile is where new rules should be introduced first (ratcheted on c
 
 ## Ownership And Escalation Rules
 
-Escalation is path-based and automated by CI jobs. For local confidence, use:
+Escalation is path-based. For local confidence, use:
 
 - `internal/ui/`, `internal/vterm/`, `cmd/amux-harness/`:
   - run `make harness-presets`
@@ -146,7 +152,7 @@ Escalation is path-based and automated by CI jobs. For local confidence, use:
   - run `go test ./internal/tmux ./internal/e2e`
 - agent input/send path (`internal/pty/terminal.go`, `internal/ui/center/tab_actor_write.go`, `internal/pty/`, keystroke forwarding):
   - run `make verify-loop` — drives a real keystroke through amux into a real raw-mode agent and asserts it arrives intact (incl. a literal CR). `make devcheck` alone is insufficient: the real-tmux tests skip there, so it gives a false green for send/Enter behavior.
-- lint policy files (`.golangci.yml`, `.golangci.strict.yml`, `LINTING.md`, `Makefile`, `.github/workflows/ci.yml`):
+- lint policy files (`.golangci.yml`, `.golangci.strict.yml`, `LINTING.md`, `Makefile`):
   - call out intent in PR summary
 
 ## Agent Workflow
@@ -164,11 +170,12 @@ For formatting-only maintenance or before large refactors:
 make fmt
 ```
 
-`make fmt` is pinned to the exact formatter versions CI's
-`golangci-lint fmt --diff` bundles (versions noted at the `GOFUMPT`/
-`GOIMPORTS` vars in the `Makefile`), including the `local-prefixes` import
-grouping from `.golangci.yml` — when `.golangci-version` bumps, re-check the
-bundled versions in that golangci-lint release's `go.mod` and bump the pins
-together so `make fmt-check` stays equivalent to the CI format gate.
+`make fmt` is pinned to the exact formatter versions the pinned
+golangci-lint's `golangci-lint fmt --diff` bundles (versions noted at the
+`GOFUMPT`/`GOIMPORTS` vars in the `Makefile`), including the `local-prefixes`
+import grouping from `.golangci.yml` — when `.golangci-version` bumps,
+re-check the bundled versions in that golangci-lint release's `go.mod` and
+bump the pins together so `make fmt-check` stays equivalent to the lint
+format gate.
 
 For pull requests, agents should include validation commands run in the PR summary.

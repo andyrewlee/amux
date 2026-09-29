@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # Single source for the "no real tmux required" test package set shared by
-# .github/workflows/ci.yml (Test / Test (race) / macos-build steps), the
-# Makefile's test-race target, and — via --exclude-app — `make
-# test`/`make devcheck`.
+# `make test-race` and — via --exclude-app — `make test`/`make devcheck`.
 #
 # Bare output excludes internal/tmux, internal/e2e, and internal/pty, which
-# need a real tmux server (they run in the tmux-e2e CI job / tmux-skip-check).
-# --exclude-app additionally drops internal/app: the local sweep defers that
-# package to tmux-skip-check, while CI covers it in the main test job.
+# need a real tmux server (they run via `make test-race-tmux`/
+# tmux-skip-check). --exclude-app additionally drops internal/app: the
+# no-tmux sweep defers that package to tmux-skip-check.
 #
 # Race coverage for the excluded real-tmux packages (and the real-tmux tests
-# inside app) lives in `make test-race-tmux` and the tmux-e2e CI job —
+# inside app) lives in `make test-race-tmux` —
 # keep any new real-tmux package in BOTH the default and --exclude-app sets.
 set -euo pipefail
 

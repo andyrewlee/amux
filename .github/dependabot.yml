@@ -1,19 +1,7 @@
 version: 2
+# No github-actions ecosystem: this repo runs no GitHub Actions (all CI is
+# local via the Makefile). gomod updates remain.
 updates:
-  - package-ecosystem: github-actions
-    directory: "/"
-    schedule:
-      interval: weekly
-    # Supply-chain policy: prefer versions >=7 days old (matches the repo's
-    # minimum-release-age convention) so freshly published releases age before
-    # dependabot proposes them.
-    cooldown:
-      default-days: 7
-    groups:
-      actions:
-        patterns:
-          - "*"
-
   - package-ecosystem: gomod
     directory: "/"
     schedule:

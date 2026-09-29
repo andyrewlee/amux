@@ -13,12 +13,12 @@ make run
 Run `make lint-tools` once before your first `make devcheck` or `git commit`.
 It builds the linter version pinned in `.golangci-version` into the gitignored
 `./.cache/bin`; a stock `golangci-lint` from `PATH` may be a different version
-from CI and produce different diagnostics. See [LINTING.md](LINTING.md) for the
+than the pin and produce different diagnostics. See [LINTING.md](LINTING.md) for the
 full rationale.
 
 The minimum supported Go family is **1.26** (the `go` directive in `go.mod`).
 The `toolchain` directive in `go.mod` pins the patched Go 1.26 toolchain used
-for local checks, CI, and releases. With the standard `GOTOOLCHAIN=auto`
+for local checks and releases. With the standard `GOTOOLCHAIN=auto`
 setting, the `go` command switches to that patched toolchain automatically. If
 you force `GOTOOLCHAIN=local`, install the pinned patch release yourself before
 running repo checks.
@@ -29,13 +29,25 @@ Run the fast local checks:
 make devcheck
 ```
 
-`make devcheck` is the required pre-PR gate: it runs vet, tests, and lint (including file-length checks). It is the fast **subset** of CI, not the whole of it — CI additionally enforces the race detector, `go mod tidy` cleanliness, a vulnerability scan, and a Windows cross-compile. For the full local CI mirror, run:
+`make devcheck` is the required pre-PR gate: it runs vet, tests, and lint (including file-length checks). This project has **no GitHub Actions** — CI is entirely local. The complete gate is:
 
 ```bash
 make ci
 ```
 
-`make ci` runs `devcheck` plus `make test-race` (CI's race gate; slow), `make tidy-check` (CI's tidy gate), `make govulncheck` (CI's vulnerability scan, using the same pinned govulncheck version — it also works standalone to reproduce a CI vuln failure), and `make windows-build` (CI's cross-compile check). CI's harness smoke steps are not mirrored locally.
+`make ci` runs `devcheck` under `STRICT_TMUX=1` (a real-tmux test skip fails instead of passing silently) plus `make test-race` (race sweep over the shared package set), `make test-race-tmux` (race over the real-tmux packages), `make tidy-check` (`go mod tidy` cleanliness), `make govulncheck` (vulnerability scan with the pinned govulncheck), `make windows-build` (cross-compile), and `make harness-smoke` (quick render asserts for all three presets). It exercises whichever tmux is installed locally.
+
+For the tmux **version matrix** — ubuntu-22.04's apt tmux (3.2a floor) plus a sha256-pinned from-source build — run it in docker:
+
+```bash
+make ci-tmux-matrix
+```
+
+For the former nightly workload (full-tree race run plus the soak test):
+
+```bash
+make ci-nightly
+```
 
 For the inner loop, launch the TUI with `make run` in a real terminal — amux requires stdin, stdout, and stderr to all be TTYs, so it only runs directly in your terminal. `air` cannot host the TUI: it launches the rebuilt binary with stdin on `/dev/null`, which fails that TTY check, so `make dev` is not a hot-reload TUI loop. Use it instead for automatic rebuilds and compile-error feedback while you edit — run `make dev` in a second pane alongside `make run`. It runs [`air`](https://github.com/air-verse/air) with the repo's `.air.toml` and rebuilds on save. Install it once with:
 
@@ -57,29 +69,29 @@ Before opening larger PRs, also run strict ratcheted lint on changed code:
 make lint-strict-new
 ```
 
-Pull requests are CI-gated (automated). For local confidence before opening a PR:
+Pull requests are gated by the local gates above plus the git hooks — nothing runs server-side. For local confidence before opening a PR:
 
 - always: `make devcheck`, `make lint-strict-new`
-- if touching concurrency (supervisor workers, PTY read loops, watchers, activity leases, anything with goroutines/channels/mutexes): `make test-race` — CI runs the race detector and `make devcheck` does not, so this is the most common green-local/red-CI surprise
-- after any dependency change (adding/removing an import, editing `go.mod`): `make tidy-check` — CI fails on an untidy `go.mod`/`go.sum` even when `devcheck` passes
-- before opening a PR you want green on the first push: `make ci` (devcheck + test-race + tidy-check + govulncheck + windows-build, the full local CI mirror; slow)
+- if touching concurrency (supervisor workers, PTY read loops, watchers, activity leases, anything with goroutines/channels/mutexes): `make test-race` — `make devcheck` does not run the race detector, so this is the most common local-pass/late-fail surprise
+- after any dependency change (adding/removing an import, editing `go.mod`): `make tidy-check`
+- before opening a PR you want green end-to-end: `make ci` (the full local CI gate; slow)
 - if touching `internal/ui/`, `internal/vterm/`, or `cmd/amux-harness/`: `make harness-presets`
 - if touching `internal/tmux/`, `internal/e2e/`, or `internal/pty/`: `go test ./internal/tmux ./internal/e2e`
-- for race coverage on the real-tmux packages (`test_pkgs.sh` excludes them from `make test-race`): `make test-race-tmux` — skips cleanly without tmux; CI's tmux-e2e job runs the same set with `-race`
-- before landing PTY-ingest or render-pipeline changes: `make soak` — runs `TestSoakHarnessPTY` (a `soak`-build-tagged sustained synthetic-PTY workload through the app, exercising the message pump under load for 5m by default; `AMUX_SOAK_DURATION=2m` or `AMUX_SOAK_MINUTES=10` to adjust). Deliberately not CI — it's a pre-landing confidence tool
+- for race coverage on the real-tmux packages (`test_pkgs.sh` excludes them from `make test-race`): `make test-race-tmux` — skips cleanly without tmux; `make ci` runs it too
+- before landing PTY-ingest or render-pipeline changes: `make soak` — runs `TestSoakHarnessPTY` (a `soak`-build-tagged sustained synthetic-PTY workload through the app, exercising the message pump under load for 5m by default; `AMUX_SOAK_DURATION=2m` or `AMUX_SOAK_MINUTES=10` to adjust). Also part of `make ci-nightly`
 - if touching the agent input/send path (`internal/pty/terminal.go`, `internal/ui/center/tab_actor_write.go`, `internal/pty/`, agent keystroke forwarding): `make verify-loop` — proves a real agent receives keystrokes end-to-end (incl. a literal CR); `make devcheck` does not, since the real-tmux tests skip there
 
 Dev-side environment variables:
 
-- `STRICT_TMUX=1` — set on hosts where tmux is expected to work (dev machines,
-  the tmux-e2e CI job): turns `make tmux-skip-check`'s skip count from a
+- `STRICT_TMUX=1` — set on hosts where tmux is expected to work (`make ci`
+  sets it automatically): turns `make tmux-skip-check`'s skip count from a
   non-fatal NOTE into a failure, so real-tmux tests can never silently skip.
 - `AMUX_SOAK_DURATION` / `AMUX_SOAK_MINUTES` — soak-test duration knobs (see the
   `make soak` bullet above).
 - `AMUX_E2E_BIN` — point `internal/e2e` tests at a prebuilt binary instead of
   the per-run build.
 - `AMUX_SKIP_LINT=1` — skip only the golangci-lint steps in the pre-commit
-  and pre-push hooks (`make lint` / `make lint-ci-parity`). Every other gate
+  and pre-push hooks (`make lint` / `make lint-strict-base`). Every other gate
   still runs: formatting, lint-config-drift, check-fmt-config, the staged
   file-length guard, the harness, and the e2e suite. Scoped escape hatch —
   prefer it over `--no-verify`, which would also disable all of those.
@@ -111,8 +123,8 @@ Architecture references:
 
 `cmd/amux-harness` renders the real UI without a TTY for deterministic perf and
 render checks. `make harness-presets` runs heavier local confidence presets for
-center/sidebar/monitor. CI uses shorter direct invocations; to reproduce a CI
-failure, run the matching mode with the CI shape, e.g. center:
+center/sidebar/monitor. `make harness-smoke` (part of `make ci`) uses shorter
+direct invocations, e.g. center:
 
 ```bash
 go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4
@@ -155,7 +167,7 @@ See `go doc ./cmd/amux-harness` for all `-mode` values, flags, and the
 
 ## Release
 
-Versioning follows SemVer and tags are `vX.Y.Z`. Pushing a tag triggers the GitHub Actions release job.
+Versioning follows SemVer and tags are `vX.Y.Z`. There is no automated release job — releases are built and published locally. `make release` runs `release-check` (the full `make ci` gate plus `goreleaser check`), tags, and pushes the tag; pushing a tag does **not** trigger anything. To publish artifacts, run `goreleaser release --clean` yourself with `GITHUB_TOKEN` (for the GitHub Release) and `MINISIGN_SECRET_KEY_FILE` (a local file holding the signing key — never commit it) set in the environment.
 
 Fast path:
 

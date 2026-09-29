@@ -42,8 +42,9 @@ signs:
   # what the embedded verifier (internal/update/signature.go) and install.sh
   # expect. Do not drop -l: the default prehashed "ED" format will not verify.
   #
-  # MINISIGN_SECRET_KEY_FILE is materialized by CI from a GitHub Actions
-  # secret (see .github/workflows/release.yml); the key never lives in-repo.
+  # MINISIGN_SECRET_KEY_FILE points at a local file holding the minisign
+  # secret key (there is no CI release job — goreleaser runs locally);
+  # the key never lives in-repo.
   - id: checksums
     cmd: minisign
     args:

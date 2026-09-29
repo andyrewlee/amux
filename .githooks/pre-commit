@@ -17,9 +17,9 @@ else
 # Route lint through `make lint` so it resolves the pinned ./.cache/bin
 # golangci-lint matched to .golangci-version (via the Makefile GOLANGCI probe)
 # and runs check-golangci-version first. A bare `golangci-lint run` from PATH is
-# frequently a different version from CI; the make path prefers the pinned binary
-# when present and surfaces the actionable "run make lint-tools" guidance before
-# any version-specific diagnostics. See LINTING.md.
+# frequently a different version than pinned; the make path prefers the pinned
+# binary when present and surfaces the actionable "run make lint-tools"
+# guidance before any version-specific diagnostics. See LINTING.md.
 #
 # NOTE: `make lint` also runs check-file-length on the whole tree, which is
 # harmless and complements the staged-only guard below.
@@ -27,9 +27,9 @@ else
 fi
 
 echo "amux pre-commit: checking lint config drift..."
-# lint-config-drift and check-fmt-config are devcheck/CI gates that `make lint`
+# lint-config-drift and check-fmt-config are devcheck/ci gates that `make lint`
 # does not include — without them here, a drift violation sails through the
-# hook and only fails in CI.
+# hook and only fails under `make devcheck`/`make ci`.
 if ! make lint-config-drift check-fmt-config; then
   echo "(lint config drift — see Makefile lint-config-drift/check-fmt-config)"
   exit 1

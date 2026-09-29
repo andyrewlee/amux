@@ -76,7 +76,7 @@ func TestHookSkipFlags(t *testing.T) {
 			hook: "pre-push",
 			expects: []expectation{
 				{"repo root lookup", []string{"git", "rev-parse", "--show-toplevel"}, true},
-				{"strict lint", []string{"make", "lint-ci-parity"}, true},
+				{"strict lint", []string{"make", "lint-strict-base"}, true},
 				{"harness run", []string{"go", "run", "./cmd/amux-harness"}, true},
 				{"e2e tests", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe", []string{"tmux", "-L"}, true},
@@ -87,7 +87,7 @@ func TestHookSkipFlags(t *testing.T) {
 			hook: "pre-push",
 			env:  map[string]string{"AMUX_SKIP_LINT": "1"},
 			expects: []expectation{
-				{"strict lint skipped", []string{"make", "lint-ci-parity"}, false},
+				{"strict lint skipped", []string{"make", "lint-strict-base"}, false},
 				{"harness run retained", []string{"go", "run", "./cmd/amux-harness"}, true},
 				{"e2e tests retained", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe retained", []string{"tmux", "-L"}, true},
@@ -98,7 +98,7 @@ func TestHookSkipFlags(t *testing.T) {
 			hook: "pre-push",
 			env:  map[string]string{"AMUX_SKIP_HARNESS": "1"},
 			expects: []expectation{
-				{"strict lint retained", []string{"make", "lint-ci-parity"}, true},
+				{"strict lint retained", []string{"make", "lint-strict-base"}, true},
 				{"harness skipped", []string{"go", "run", "./cmd/amux-harness"}, false},
 				{"e2e tests retained", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe retained", []string{"tmux", "-L"}, true},
@@ -109,7 +109,7 @@ func TestHookSkipFlags(t *testing.T) {
 			hook: "pre-push",
 			env:  map[string]string{"AMUX_SKIP_LINT": "1", "AMUX_SKIP_HARNESS": "1"},
 			expects: []expectation{
-				{"strict lint skipped", []string{"make", "lint-ci-parity"}, false},
+				{"strict lint skipped", []string{"make", "lint-strict-base"}, false},
 				{"harness skipped", []string{"go", "run", "./cmd/amux-harness"}, false},
 				{"e2e tests retained", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe retained", []string{"tmux", "-L"}, true},
@@ -139,15 +139,15 @@ func TestHookSkipFlags(t *testing.T) {
 }
 
 // TestHookBaseRefForwarding pins the AMUX_LINT_BASE_REF contract: the value
-// must reach `make lint-ci-parity` as BASE_REF=<value>.
+// must reach `make lint-strict-base` as BASE_REF=<value>.
 func TestHookBaseRefForwarding(t *testing.T) {
 	fx := newHookFixture(t, true)
 	out, code := fx.runHook(t, "pre-push", map[string]string{"AMUX_LINT_BASE_REF": "release/1.2"})
 	if code != 0 {
 		t.Fatalf("pre-push exited %d\n%s", code, out)
 	}
-	if !fx.sawPrefix(t, "make", "lint-ci-parity") {
-		t.Fatalf("lint-ci-parity not invoked\n%s", fx.logDump(t))
+	if !fx.sawPrefix(t, "make", "lint-strict-base") {
+		t.Fatalf("lint-strict-base not invoked\n%s", fx.logDump(t))
 	}
 	if !fx.sawAnyField(t, "BASE_REF=release/1.2") {
 		t.Errorf("BASE_REF=release/1.2 not forwarded to make\n%s", fx.logDump(t))
@@ -172,7 +172,7 @@ func TestHookRetainedGatesFail(t *testing.T) {
 		},
 		{
 			"pre-push harness skipped but strict lint fails", "pre-push",
-			map[string]string{"AMUX_SKIP_HARNESS": "1", "STUB_FAIL_MAKE": "lint-ci-parity"},
+			map[string]string{"AMUX_SKIP_HARNESS": "1", "STUB_FAIL_MAKE": "lint-strict-base"},
 		},
 		{
 			"pre-push harness skipped but e2e fails", "pre-push",

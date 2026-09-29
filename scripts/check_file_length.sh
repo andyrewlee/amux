@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# File-length guard (max 500 lines per .go file), shared by `make
-# check-file-length` and ci.yml's "File length guard" step — single source so
-# the two can't drift. Prunes non-project trees: .git internals and any local
-# build caches/vendor dirs must not trip the cap on code we don't own.
+# File-length guard (max 500 lines per .go file), run by `make
+# check-file-length` (part of `make lint`). Prunes non-project trees: .git
+# internals and any local build caches/vendor dirs must not trip the cap on
+# code we don't own.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -21,19 +21,19 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 # GOLANGCI resolves to the repo-local pinned golangci-lint (built from source by
 # `make lint-tools` into the gitignored ./.cache/bin) when it exists AND reports
 # the exact version in .golangci-version; otherwise it falls back to a PATH
-# golangci-lint. This keeps CI unaffected: CI has no ./.cache/bin binary (it is
-# gitignored and uses golangci-lint-action), so it resolves to the PATH binary
-# the action installs.
+# golangci-lint. A PATH fallback is tolerated with a warning, but
+# .cache/bin (gitignored, built from the pinned source) is preferred so local
+# diagnostics match the pinned tool exactly.
 #
 # The probe is scoped to the lint targets via a target-specific := assignment so
 # that unrelated targets (build/test/run/vet/...) never pay the shell-out cost,
 # and the := form evaluates it exactly once per lint invocation (a plain
 # recursive GOLANGCI = $(shell ...) would re-run the probe on every $(GOLANGCI)
-# expansion, which lint-strict-new/lint-ci-parity reference multiple times).
+# expansion, which lint-strict-new/lint-strict-base reference multiple times).
 GOLANGCI ?= golangci-lint
-lint lint-strict lint-strict-new lint-ci-parity check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
+lint lint-strict lint-strict-new lint-strict-base check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test test-race test-race-tmux soak tidy-check govulncheck windows-build ci bench lint lint-tools lint-strict lint-strict-new lint-ci-parity lint-config-drift check-golangci-version check-file-length check-fmt-config fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-golden perf-check doctor
+.PHONY: build install test test-race test-race-tmux soak tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -64,9 +64,9 @@ test:
 	go test $$packages
 	@$(MAKE) --no-print-directory tmux-skip-check
 
-# test-race mirrors CI's "Test (race)" step: `go test -race` over CI's package
-# set — the bare output of scripts/test_pkgs.sh (excludes internal/tmux, e2e,
-# and pty), shared with .github/workflows/ci.yml. Note this is wider than
+# test-race mirrors the former CI "Test (race)" step: `go test -race` over
+# the shared package set from scripts/test_pkgs.sh (excludes internal/tmux,
+# e2e, and pty). Note this is wider than
 # `make test`/`make devcheck`, which run the script's --exclude-app variant
 # (internal/app is deferred to tmux-skip-check locally). Race runs are slow;
 # that is why this is a separate target rather than part of devcheck (same
@@ -78,18 +78,18 @@ test-race:
 
 # test-race-tmux covers the packages test_pkgs.sh excludes plus the real-tmux
 # integration tests in app/pty — they need a real tmux server and run under
-# -race here and in the tmux-e2e CI job. Without tmux the tests skip cleanly.
+# -race here (the former tmux-e2e CI job's race leg). Without tmux they skip.
 test-race-tmux:
 	go test -race ./internal/tmux ./internal/e2e ./internal/app ./internal/pty
 
 # soak runs the build-tagged sustained-workload test (PTY ingest + message
-# pump under load for minutes). Not part of CI — run before landing
-# render/ingest changes. Duration knobs: AMUX_SOAK_DURATION=2m (Go duration)
+# pump under load for minutes). Part of `make ci-nightly` — also run before
+# landing render/ingest changes. Duration knobs: AMUX_SOAK_DURATION=2m (Go duration)
 # or AMUX_SOAK_MINUTES=10; default 5m. -timeout must exceed the duration.
 soak:
 	go test -tags=soak ./internal/app -run TestSoakHarnessPTY -count=1 -timeout 20m
 
-# tidy-check mirrors CI's "Tidy check" step: it fails when go.mod/go.sum are
+# tidy-check fails when go.mod/go.sum are
 # not tidy. Note it runs `go mod tidy`, so an untidy module is rewritten in
 # your working tree — inspect `git diff go.mod go.sum` on failure.
 tidy-check:
@@ -97,27 +97,49 @@ tidy-check:
 	git diff --exit-code go.mod go.sum
 
 # govulncheck scans for known vulnerabilities. GOVULNCHECK_VERSION is the
-# single source for the pin — CI's Govulncheck step calls this target rather
-# than carrying its own env var.
+# single source for the pin.
 GOVULNCHECK_VERSION ?= v1.8.0
 govulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
-# windows-build mirrors CI's "Windows cross-compile" step — catches
-# Windows-only build breaks (os-specific imports, syscalls) locally.
+# windows-build catches Windows-only build breaks (os-specific imports,
+# syscalls) locally via cross-compile.
 windows-build:
 	GOOS=windows GOARCH=amd64 go build ./...
 
-# ci is the local mirror of the CI `test` job's gate set: devcheck (vet +
-# tests + lint + file-length + lint-config-drift) plus the race, tidy,
-# govulncheck, and windows-build gates. Keep this target in sync with
-# .github/workflows/ci.yml — if CI gains a gate, add it here. Coverage map:
-# CI test job = lint + fmt --diff + file-length + vet + windows-build + tidy +
-# test + test-race + govulncheck + harness smoke + lint-config-drift.
-# Not mirrored locally: the three harness smoke steps (run via release-check
-# or `make harness-presets`); the tmux-e2e, lint-strict-pr, and macos-build
-# jobs (host-specific).
-ci: devcheck test-race tidy-check govulncheck windows-build
+# ci is the complete local CI gate set — this project runs no GitHub Actions
+# (the former .github/workflows/ci.yml coverage moved here in full). It runs:
+#   devcheck (vet + tests + lint + file-length + lint-config-drift, and its
+#           embedded tmux-skip-check under STRICT_TMUX=1 so a real-tmux skip
+#           fails like the old CI assert), test-race (the wide -race sweep),
+#   test-race-tmux (the former tmux-e2e job's race leg on tmux/e2e/app/pty),
+#   tidy-check, govulncheck, windows-build, harness-smoke (the former CI
+#   test job's three quick harness asserts).
+# `ci` exercises whichever tmux is installed locally; for the tmux version
+# matrix (ubuntu-22.04 apt floor + from-source 3.6a, the old tmux-e2e matrix
+# job) run `make ci-tmux-matrix` — it replays the matrix in docker. Strict
+# changed-code lint is enforced by the pre-push hook's `lint-strict-base`.
+ci:
+	STRICT_TMUX=1 $(MAKE) devcheck test-race test-race-tmux tidy-check govulncheck windows-build harness-smoke
+
+# ci-tmux-matrix replays the old tmux-e2e CI matrix job in Linux containers:
+# the real-tmux race suite + strict skip check against ubuntu-22.04's apt tmux
+# (3.2a distro floor) and a sha256-pinned from-source tmux (see MATRIX in
+# scripts/ci_tmux_matrix.sh). Requires a running docker daemon.
+ci-tmux-matrix:
+	bash scripts/ci_tmux_matrix.sh
+
+# ci-nightly mirrors the former nightly workflow: a full-tree race run plus
+# the soak workload. Heavy — for pre-landing confidence, not every commit.
+ci-nightly:
+	go test -race ./... -timeout 30m
+	$(MAKE) soak
+
+# harness-smoke mirrors the former CI test job's three quick harness asserts.
+harness-smoke:
+	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4 -assert-min-visible 100
+	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4 -assert-min-visible 100
+	go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4 -assert-min-visible 100
 
 devcheck:
 	go vet ./...
@@ -256,8 +278,9 @@ harness-golden:
 
 # perf-check runs the host-native perf self-check: it drives each harness
 # preset and compares the measured p95 against the checked-in baselines for the
-# current ${GOOS}_${GOARCH} (on this machine, DARWIN_ARM64_*). It is the local
-# gate for render-path changes that PR-time CI does not cover for darwin-arm64.
+# current ${GOOS}_${GOARCH} (on this machine, DARWIN_ARM64_*). There is no CI
+# gate for perf — this target is the whole check, run it for render-path
+# changes.
 # Set PERF_STRICT=1 to fail (rather than silently skip) when a baseline for a
 # preset is missing. Baselines were measured on the target hosts (see
 # PERF_BASELINES.md); after an intentional render-path change, re-baseline by
@@ -305,7 +328,7 @@ lint-strict-new: check-golangci-version
 # run-strict-lint executes one strict-profile golangci run over the diff
 # selector in $1 (`--new` or `--new-from-rev <rev>`), capturing output for the
 # test-loader fallback. Requires the caller's shell to have GO_CACHE_DIR and
-# GOLANGCI_CACHE_DIR set (lint-ci-parity does so once up front). Kept as a
+# GOLANGCI_CACHE_DIR set (lint-strict-base does so once up front). Kept as a
 # define so the merge-base and fallback branches share the mktemp/trap
 # plumbing exactly.
 define run-strict-lint
@@ -324,7 +347,7 @@ define run-strict-lint
 	trap - EXIT INT TERM; rm -f "$$OUTPUT";
 endef
 
-lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored repo-local directory (./.cache/).
+lint-strict-base: check-golangci-version # CACHE_ROOT defaults to a gitignored repo-local directory (./.cache/).
 	@command -v $(GOLANGCI) >/dev/null 2>&1 || (echo "golangci-lint is required: run 'make lint-tools' to build the pinned version locally, or install from https://golangci-lint.run/welcome/install/"; exit 1)
 	@BASE_REF="$${BASE_REF:-origin/main}"; \
 	CACHE_ROOT="$${CACHE_ROOT:-$$(pwd)/.cache}"; \
@@ -333,7 +356,7 @@ lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored rep
 	mkdir -p "$$GO_CACHE_DIR" "$$GOLANGCI_CACHE_DIR"; \
 	if git rev-parse --verify "$$BASE_REF" >/dev/null 2>&1; then \
 		BASE=$$(git merge-base HEAD "$$BASE_REF"); \
-		echo "Running CI-parity strict lint against changes since $$BASE_REF ($$BASE)"; \
+		echo "Running strict lint against changes since $$BASE_REF ($$BASE)"; \
 		$(call run-strict-lint,--new-from-rev "$$BASE") \
 	else \
 		echo "Base ref $$BASE_REF not found; falling back to strict lint on current unstaged/staged changes"; \
@@ -342,7 +365,7 @@ lint-ci-parity: check-golangci-version # CACHE_ROOT defaults to a gitignored rep
 	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
 
 # check-file-length runs scripts/check_file_length.sh — the single source
-# shared with ci.yml's "File length guard" step.
+# shared with `make check-file-length` (run inside `make lint`).
 check-file-length:
 	@./scripts/check_file_length.sh
 
@@ -409,24 +432,27 @@ help:
 	@echo "  build      - Build the binary"
 	@echo "  install    - Build and install into PREFIX/bin (default /usr/local; falls back to GOPATH/bin)"
 	@echo "  test       - Run all tests"
-	@echo "  test-race  - Run go test -race over CI's package set (slow; mirrors CI's race gate)"
+	@echo "  test-race  - Run go test -race over the shared package set (slow)"
 	@echo "  test-race-tmux - Run go test -race on the real-tmux packages (tmux, e2e, app, pty; skips cleanly sans tmux)"
 	@echo "  soak       - Run the sustained-workload soak test (PTY ingest + msgpump; AMUX_SOAK_DURATION=2m or AMUX_SOAK_MINUTES=10; default 5m)"
-	@echo "  tidy-check - Run go mod tidy and fail if go.mod/go.sum change (mirrors CI's tidy gate)"
-	@echo "  govulncheck - Scan for known vulnerabilities with the CI-pinned govulncheck (mirrors CI's vuln gate)"
-	@echo "  windows-build - Cross-compile GOOS=windows GOARCH=amd64 (mirrors CI's Windows build gate)"
-	@echo "  ci         - Full local CI mirror: devcheck + test-race + tidy-check + govulncheck + windows-build"
+	@echo "  tidy-check - Run go mod tidy and fail if go.mod/go.sum change"
+	@echo "  govulncheck - Scan for known vulnerabilities with the pinned govulncheck"
+	@echo "  windows-build - Cross-compile GOOS=windows GOARCH=amd64"
+	@echo "  ci         - The complete local CI gate: STRICT_TMUX devcheck + test-race + test-race-tmux + tidy-check + govulncheck + windows-build + harness-smoke"
+	@echo "  ci-nightly - Full-tree race run + soak (the heavy pre-landing gate)"
+	@echo "  ci-tmux-matrix - Real-tmux race suite in docker across the tmux version matrix (apt floor + latest source build)"
+	@echo "  harness-smoke - Quick harness asserts for the three presets"
 	@echo "  devcheck   - vet + tests + lint-config checks + lint (warns when real-tmux/e2e tests skip)"
 	@echo "  lint       - Run golangci-lint and file length checks (max 500 lines)"
 	@echo "  lint-tools - Build the pinned golangci-lint (.golangci-version) into ./.cache/bin (idempotent)"
 	@echo "  lint-strict - Run stricter lint profile across the whole repo"
 	@echo "  lint-strict-new - Run stricter lint profile only on changed code (optionally BASE=<git-rev>)"
-	@echo "  lint-ci-parity - Run strict changed-code lint using merge-base with BASE_REF (default origin/main)"
+	@echo "  lint-strict-base - Run strict changed-code lint using merge-base with BASE_REF (default origin/main)"
 	@echo "  lint-config-drift - Fail if .golangci.strict.yml is missing lines present in .golangci.yml (baseline drift)"
 	@echo "  check-fmt-config - Fail if Makefile LOCAL_PREFIXES drifts from .golangci.yml local-prefixes"
 	@echo "  check-file-length - Check Go file lengths only (max 500 lines)"
 	@echo "  fmt        - Format code with gofumpt and goimports"
-	@echo "  fmt-check  - Check gofumpt formatting (for CI)"
+	@echo "  fmt-check  - Check gofumpt formatting"
 	@echo "  vet        - Run go vet"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  run        - Build and run"
@@ -446,16 +472,14 @@ help:
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"
 	@echo "  release       - release-check + release-tag + release-push"
 
-# release-check is the pre-tag gate: the full `ci` gate set (devcheck +
-# test-race + tidy + govulncheck + windows-build) so a tag can't ship a tree
-# that would fail CI, plus the three harness smoke runs (the one CI-test-job
-# piece `ci` doesn't mirror) and a .goreleaser.yml validation so a broken
-# release config fails pre-tag rather than in release.yml. goreleaser is
-# optional locally (warn-not-fail) until a later change pins it.
+# release-check is the pre-tag gate: the full `ci` gate set so a tag can't
+# ship a tree that fails CI, plus a .goreleaser.yml validation so a broken
+# release config fails pre-tag. goreleaser is optional locally
+# (warn-not-fail) until a later change pins it. There is no GitHub Actions
+# release job: release-push only pushes the tag — run `goreleaser release
+# --clean` locally (with GITHUB_TOKEN and a minisign key) to publish
+# artifacts.
 release-check: ci
-	go run ./cmd/amux-harness -mode center -frames 5 -warmup 1
-	go run ./cmd/amux-harness -mode sidebar -frames 5 -warmup 1
-	go run ./cmd/amux-harness -mode monitor -frames 5 -warmup 1
 	@if command -v goreleaser >/dev/null 2>&1; then \
 		goreleaser check; \
 	else \

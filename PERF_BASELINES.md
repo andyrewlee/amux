@@ -9,7 +9,8 @@ Machine
 Enforced baselines (source of truth)
 
 The enforced p95 baselines live in `scripts/perf_baselines.env`, keyed by
-OS/ARCH (`DARWIN_ARM64_*` for the dev host, `LINUX_AMD64_*` for CI runners).
+OS/ARCH (`DARWIN_ARM64_*` for the dev host, `LINUX_AMD64_*` for the Linux
+reference host — re-measure on a comparable Linux box when re-baselining).
 This document deliberately does not repeat the numbers so they cannot drift.
 
 - Read the current values: `cat scripts/perf_baselines.env`

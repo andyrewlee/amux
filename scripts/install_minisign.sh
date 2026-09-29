@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pinned minisign install for CI/release jobs. Downloads the upstream
+# Pinned minisign install for release builds. Downloads the upstream
 # minisign linux binary tarball and verifies it against a pinned sha256
 # before installing — the tool that verifies our release signatures must not
 # itself be fetched unverified (previously: unpinned `apt-get install
