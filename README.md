@@ -34,6 +34,8 @@ amux is a terminal UI for running multiple coding agents in parallel with a work
 
 amux requires [tmux](https://github.com/tmux/tmux) (minimum 3.2). Each agent runs in its own tmux session for terminal isolation and persistence.
 
+The install script verifies release signatures with [minisign](https://jedisct1.github.io/minisign/) — install it first, or set `AMUX_ALLOW_UNVERIFIED=1` to proceed with checksum-only verification. The Homebrew and `go install` paths don't need it.
+
 ## Quick start
 
 ```bash
@@ -125,7 +127,7 @@ button does the same; `Esc` cancels). Commands are short key sequences:
 | `t s` | restart tab |
 | `t y` | copy transcript (scrollback + screen) of the focused terminal tab |
 | `t f` | save the focused terminal tab's full transcript to a file (default `~/.amux/transcripts/`) |
-| `t o` | browse saved transcripts (`~/.amux/transcripts/`) and open one in the file viewer tab |
+| `t o` | browse saved transcripts (`~/.amux/transcripts/`) and open one in the file viewer tab (requires a selected workspace) |
 | `1`–`9` | jump to center tab by position |
 
 Detach, reattach, and restart are fenced per attach attempt: only the latest
@@ -135,20 +137,41 @@ progress" instead of spawning a second client, and an attach that stalls past
 its timeout is released so it can be retried safely — a late result from the
 abandoned attempt is discarded, not applied over the newer terminal.
 
-When a center terminal tab is focused, `d` instead scrolls down a page and `u`
+When a center terminal tab is focused, `d` instead scrolls down and `u`
 scrolls up — the palette shows the substitute meanings in that context. Prefix +
 prefix again sends a literal `Ctrl-Space` (NUL) to the focused terminal.
 
-Global keys:
+Center-pane keys (when a center terminal tab is focused — these are not
+global; a focused sidebar terminal forwards every key, including these
+chords, to the hosted shell):
 
 - `Ctrl+C` in a terminal tab sends the agent's interrupt sequence (agents that
   need more than one `^C`, like Claude, get the configured count) — it is not a
   quit key; quit is `C-Space q`.
 - `Ctrl+N` / `Ctrl+P` (or `Ctrl+]`) cycle center terminal tabs; `Ctrl+W` closes
   the current one.
-- `PgUp` / `PgDn` scroll the focused terminal's scrollback a page at a time;
-  the mouse wheel scrolls whichever pane the pointer is over (`Shift`+wheel
-  forces amux scrollback even when the hosted app claims the wheel).
+- `PgUp` / `PgDn` scroll the focused terminal's scrollback (a quarter page in
+  the center pane, a half page in a sidebar terminal); the mouse wheel
+  scrolls whichever pane the pointer is over (`Shift`+wheel forces amux
+  scrollback even when the hosted app claims the wheel).
+
+Dashboard rows (workspace/project/shelved list):
+
+- `j`/`k` or arrows move the cursor; `PgUp`/`PgDn` or `Ctrl+U`/`Ctrl+D` move
+  a half page; `g`/`G` jump to the first/last row. `j` past the last row (or
+  `down`) focuses the bottom toolbar — `h`/`l` move there, `enter` runs the
+  highlighted action, `k`/`up` returns to the rows.
+- `enter` opens the row: expands a project, activates a workspace, restores
+  a shelved workspace. With marks present it bulk-restores the marked shelved
+  set.
+- `D` deletes the row (each behind a confirmation): deletes a live workspace,
+  removes a project, purges a shelved workspace. With marks on shelved rows
+  it bulk-purges the marked set.
+- `R` renames a workspace; `M` merges its branch into the base (see
+  [How it works](#how-it-works)); `S` shelves it (bulk-shelves the marked set).
+- `space` marks a row (`●`); `esc` clears marks.
+- `r` rescans — refreshes the list and imports worktrees created outside
+  amux as workspaces.
 
 Sidebar (Changes tab, focused):
 
@@ -162,7 +185,10 @@ Sidebar (Changes tab, focused):
   -2/-3/… numbered runs after) listing each session's live/exited status —
   pick one to view its output. Inside the live run-output viewer, `a`
   attaches an interactive tab to the viewed session (closing the
-  tab detaches — the script keeps running).
+  tab detaches — the script keeps running). All output viewers (`R`, `O`,
+  `i`) share the same scroll keys: `j`/`k` scroll, `PgUp`/`PgDn` page,
+  `g`/`G` jump to the top/bottom (`G` resumes following), `f` toggles
+  follow mode, `esc`/`enter` closes.
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).
 
