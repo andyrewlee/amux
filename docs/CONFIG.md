@@ -213,10 +213,11 @@ binary installed and keeps the backup — the reported error names the backup
 path and prints a quoted `mv` command for manual recovery.
 
 Two things this does not promise: it is not a multi-process transactional
-update (two concurrent `amux update` runs can race each other), and it cannot
-provide universal power-loss immunity (a crash can lose filesystem state that
-was never synced). The guarantees are pathname continuity, atomic
-old-or-new replacement, and a recoverable backup on post-commit errors.
+update (two concurrent amux instances applying the self-update can race each
+other), and it cannot provide universal power-loss immunity (a crash can lose
+filesystem state that was never synced). The guarantees are pathname
+continuity, atomic old-or-new replacement, and a recoverable backup on
+post-commit errors.
 
 ## Diff viewer scrolling model
 

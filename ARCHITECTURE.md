@@ -69,8 +69,9 @@ sidebar tab, like the changes-fetch results.
 `internal/ui/compositor` imports `github.com/charmbracelet/ultraviolet`
 directly on the core render path (`vtermlayer.go`, `pool.go`,
 `canvas_drawable.go`). ultraviolet has no semver releases; its go.mod
-pseudo-version is whatever `charm.land/bubbletea/v2` requires (MVS picks
-bubbletea's pin). Keep the pin in lockstep with bubbletea: upgrade bubbletea
+pseudo-version is driven by `charm.land/lipgloss/v2` — lipgloss requires the
+newer pseudo-version while bubbletea's older requirement loses under MVS.
+Keep the pin in lockstep with the Charm stack: upgrade lipgloss/bubbletea
 and let `go mod tidy` pull the matching ultraviolet — never bump ultraviolet
 on its own, because a mismatched pair can break rendering with no compiler
 warning.
