@@ -76,6 +76,15 @@ and let `go mod tidy` pull the matching ultraviolet — never bump ultraviolet
 on its own, because a mismatched pair can break rendering with no compiler
 warning.
 
+### Width-oracle ownership
+
+Three width engines share the render path and must agree on reachable input
+(pinned by `internal/ui/compositor/width_conformance_test.go`):
+`displaywidth` owns terminal-cell math (vterm grid, raw codepoints),
+`ansi.StringWidth` owns possibly-ANSI-styled content (it strips escapes —
+diff wrap), and `lipgloss.Width` owns chrome layout strings (tab bars,
+dashboard rows, borders). New call sites pick per that rule.
+
 ## Packages
 
 The table is hand-maintained; keep it in sync when adding or moving a package.
