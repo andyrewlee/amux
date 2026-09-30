@@ -3,11 +3,11 @@ package process
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"os/exec"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/safego"
 )
 
@@ -144,7 +144,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	safego.Go("process.script_wait", func() {
 		defer close(running.done)
 		if err := cmd.Wait(); err != nil {
-			slog.Debug("script process exited with error", "error", err)
+			logging.Debug("script process exited with error: %v", err)
 		}
 		r.finishRunningEntry(key, running)
 	})
@@ -312,7 +312,7 @@ func (r *ScriptRunner) RunOnDone(ws *data.Workspace, sessionName string) error {
 		err := cmd.Wait()
 		r.recordScriptOutput(ws, ScriptOnDone, tail.String(), err)
 		if err != nil {
-			slog.Debug("on-done hook exited non-zero", "command", cmdStr, "error", err)
+			logging.Debug("on-done hook exited non-zero: %s: %v", cmdStr, err)
 			r.notifyScriptExit(ws, ScriptOnDone, err)
 		}
 		r.lifecycle.finishOnDone(key, proc)
@@ -339,14 +339,16 @@ func (r *ScriptRunner) reapAfterTimeout(cmd *exec.Cmd, waitErr <-chan error) boo
 
 	if cmd.Process != nil {
 		if err := ForceKillProcess(cmd.Process.Pid); err != nil && !isBenignStopError(err) {
-			slog.Debug("force-killing unreaped archive script", "error", err)
+			logging.Debug("force-killing unreaped archive script: %v", err)
 		}
 	}
 	select {
 	case <-waitErr:
 		return true
 	case <-time.After(scriptStopTimeout):
-		slog.Warn("archive script could not be reaped; abandoning it so the delete can proceed")
+		// Error, not Warn: a user-initiated delete's kill side-effect failed —
+		// a process outlived its workspace teardown and nothing retries it.
+		logging.Error("archive script could not be reaped; abandoning it so the delete can proceed")
 		return false
 	}
 }
@@ -362,6 +364,6 @@ func (r *ScriptRunner) killScriptProcessGroup(cmd *exec.Cmd) {
 		kill = KillProcessGroup
 	}
 	if err := kill(cmd.Process.Pid, KillOptions{}); err != nil && !isBenignStopError(err) {
-		slog.Debug("killing timed-out archive script", "error", err)
+		logging.Debug("killing timed-out archive script: %v", err)
 	}
 }

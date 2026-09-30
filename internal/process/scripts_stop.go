@@ -2,10 +2,10 @@ package process
 
 import (
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 // Stop stops the workspace's `run` script: under the host it kills every
@@ -248,14 +248,14 @@ func (r *ScriptRunner) StopAll() {
 
 	for _, snap := range r.lifecycle.stopAllSnapshots() {
 		if err := r.lifecycle.drainSnapshot("", snap); err != nil {
-			slog.Debug("lifecycle drain during StopAll", "error", err)
+			logging.Debug("lifecycle drain during StopAll: %v", err)
 		}
 	}
 
 	for _, entry := range running {
 		if entry.cmd != nil && entry.cmd.Process != nil {
 			if err := KillProcessGroup(entry.cmd.Process.Pid, KillOptions{}); err != nil {
-				slog.Debug("best-effort process group kill failed", "pid", entry.cmd.Process.Pid, "error", err)
+				logging.Debug("best-effort process group kill failed for pid %d: %v", entry.cmd.Process.Pid, err)
 			}
 		}
 	}
