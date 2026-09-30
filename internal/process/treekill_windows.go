@@ -3,10 +3,11 @@
 package process
 
 import (
-	"log/slog"
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 // KillOptions configures process termination behavior.
@@ -32,7 +33,7 @@ func KillProcessGroup(leaderPID int, opts KillOptions) error {
 	}
 
 	if err := proc.Signal(os.Interrupt); err != nil {
-		slog.Debug("best-effort interrupt signal failed", "pid", leaderPID, "error", err)
+		logging.Debug("best-effort interrupt signal failed for pid %d: %v", leaderPID, err)
 	}
 	if opts.GracePeriod > 0 {
 		time.Sleep(opts.GracePeriod)
