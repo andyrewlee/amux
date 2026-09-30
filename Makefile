@@ -473,18 +473,34 @@ help:
 	@echo "  release       - release-check + release-tag + release-push"
 
 # release-check is the pre-tag gate: the full `ci` gate set so a tag can't
-# ship a tree that fails CI, plus a .goreleaser.yml validation so a broken
-# release config fails pre-tag. goreleaser is optional locally
-# (warn-not-fail) until a later change pins it. There is no GitHub Actions
-# release job: release-push only pushes the tag — run `goreleaser release
-# --clean` locally (with GITHUB_TOKEN and a minisign key) to publish
-# artifacts.
+# ship a tree that fails CI, then a fail-closed release-toolchain preflight —
+# goreleaser (major must match the .goreleaser-version pin), minisign, and
+# the two publish-time env vars — plus `goreleaser check` so a broken release
+# config fails pre-tag. There is no GitHub Actions release job: release-push
+# only pushes the tag — run `goreleaser release --clean` locally (with
+# GITHUB_TOKEN and a minisign key) to publish artifacts.
 release-check: ci
-	@if command -v goreleaser >/dev/null 2>&1; then \
-		goreleaser check; \
-	else \
-		echo "NOTE: goreleaser not installed; skipping .goreleaser.yml validation"; \
+	@command -v goreleaser >/dev/null 2>&1 || { \
+		echo "goreleaser is required for release-check"; \
+		echo "  install the pinned version: go install github.com/goreleaser/goreleaser/v2@$$(cat .goreleaser-version)"; \
+		exit 1; \
+	}
+	@command -v minisign >/dev/null 2>&1 || { \
+		echo "minisign is required for release-check"; \
+		echo "  install via the pinned script: scripts/install_minisign.sh"; \
+		exit 1; \
+	}
+	@test -n "$$GITHUB_TOKEN" || { echo "GITHUB_TOKEN is required (publishes the GitHub release)"; exit 1; }
+	@test -n "$$MINISIGN_SECRET_KEY_FILE" || { echo "MINISIGN_SECRET_KEY_FILE is required (signs checksums.txt)"; exit 1; }
+	@want_major=$$(sed -n 's/^v\([0-9]*\)\..*/\1/p' .goreleaser-version); \
+	have_major=$$(goreleaser --version 2>/dev/null | sed -n 's/^.*[Vv]ersion[: ]*v\{0,1\}\([0-9][0-9]*\)\..*/\1/p' | head -1); \
+	if [ -z "$$want_major" ]; then echo ".goreleaser-version is malformed"; exit 1; fi; \
+	if [ "$$want_major" != "$$have_major" ]; then \
+		echo "goreleaser major mismatch: .goreleaser-version pins v$$want_major.x but installed is v$$have_major.x"; \
+		echo "  install the pinned version: go install github.com/goreleaser/goreleaser/v2@$$(cat .goreleaser-version)"; \
+		exit 1; \
 	fi
+	goreleaser check
 
 release-tag:
 	@test -n "$(VERSION)" || (echo "VERSION is required (e.g. VERSION=v0.0.5)" && exit 1)
