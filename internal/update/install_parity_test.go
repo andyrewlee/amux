@@ -47,8 +47,9 @@ func TestInstallScriptParity(t *testing.T) {
 		{"checksums file", `checksums.txt`, `name_template: "checksums.txt"`},
 		{"checksums signature", `checksums.txt.minisig`, `checksums.txt`},
 		{"binary+repo", `BINARY="amux"`, "andyrewlee"},
+		{"inner binary name", `mv "${TMP_DIR}/${BINARY}"`, "binary: amux"},
 		{"release URL base", `releases/download/${VERSION}`, ""},
-		{"tarball suffix", `.tar.gz`, "format: tar.gz"},
+		{"tarball suffix", `.tar.gz`, "formats: [tar.gz]"},
 	} {
 		if !regexp.MustCompile(regexp.QuoteMeta(contract.installNeed)).MatchString(install) {
 			t.Errorf("install.sh is missing contract member %q (%s) — fresh installs will 404 or verify against the wrong asset", contract.installNeed, contract.name)
