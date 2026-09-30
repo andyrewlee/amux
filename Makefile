@@ -103,6 +103,10 @@ GOVULNCHECK_VERSION ?= v1.8.0
 govulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
+# AIR_VERSION pins the rebuild-on-save runner used by `make dev` — same
+# pin-everything discipline as GOVULNCHECK_VERSION above.
+AIR_VERSION ?= v1.67.4
+
 # windows-build catches Windows-only build breaks (os-specific imports,
 # syscalls) locally via cross-compile.
 windows-build:
@@ -437,7 +441,7 @@ dev:
 	@command -v air >/dev/null 2>&1 || { \
 		echo "make dev: 'air' not found on PATH." >&2; \
 		echo "Install the rebuild-on-save runner with:" >&2; \
-		echo "  go install github.com/air-verse/air@latest" >&2; \
+		echo "  go install github.com/air-verse/air@$(AIR_VERSION)" >&2; \
 		echo "(then ensure \$$(go env GOPATH)/bin is on your PATH)." >&2; \
 		exit 1; \
 	}
