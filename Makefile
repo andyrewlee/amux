@@ -10,7 +10,8 @@ HARNESS_SCROLLBACK_FRAMES ?= 600
 # GOFUMPT/GOIMPORTS pins must match the versions bundled in the golangci-lint
 # pinned by .golangci-version (CI runs `golangci-lint fmt --diff` against its
 # bundled formatters): golangci-lint v2.12.2 vendors gofumpt v0.9.2 and
-# x/tools v0.44.0 — bump both pins when .golangci-version bumps.
+# x/tools v0.44.0 — bump both pins when .golangci-version bumps. Enforced by
+# `make check-fmt-versions` (scripts/check_fmt_versions.sh).
 GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
 GOIMPORTS ?= go run golang.org/x/tools/cmd/goimports@v0.44.0
 # LOCAL_PREFIXES mirrors `formatters.settings.goimports.local-prefixes` in
@@ -33,7 +34,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-strict-base check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test test-race test-race-tmux soak tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
+.PHONY: build install test test-race test-race-tmux soak tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config check-fmt-versions fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -120,7 +121,7 @@ windows-build:
 # job) run `make ci-tmux-matrix` — it replays the matrix in docker. Strict
 # changed-code lint is enforced by the pre-push hook's `lint-strict-base`.
 ci:
-	STRICT_TMUX=1 $(MAKE) devcheck test-race test-race-tmux tidy-check govulncheck windows-build harness-smoke
+	STRICT_TMUX=1 FMT_VERSION_STRICT=1 $(MAKE) devcheck test-race test-race-tmux tidy-check govulncheck windows-build harness-smoke
 
 # ci-tmux-matrix replays the old tmux-e2e CI matrix job in Linux containers:
 # the real-tmux race suite + strict skip check against ubuntu-22.04's apt tmux
@@ -146,6 +147,7 @@ devcheck:
 	$(MAKE) test
 	$(MAKE) lint-config-drift
 	$(MAKE) check-fmt-config
+	$(MAKE) check-fmt-versions
 	$(MAKE) lint
 
 # tmux-skip-check is the single `make test`/`make devcheck` execution of the
@@ -359,7 +361,11 @@ lint-strict-base: check-golangci-version # CACHE_ROOT defaults to a gitignored r
 		echo "Running strict lint against changes since $$BASE_REF ($$BASE)"; \
 		$(call run-strict-lint,--new-from-rev "$$BASE") \
 	else \
-		echo "Base ref $$BASE_REF not found; falling back to strict lint on current unstaged/staged changes"; \
+		echo "WARNING: base ref $$BASE_REF is unresolvable — strict lint covers only uncommitted changes"; \
+		if [ "$${REQUIRE_BASE:-0}" = "1" ]; then \
+			echo "ERROR: REQUIRE_BASE=1 — refusing to run a strict gate that can pass vacuously"; \
+			exit 1; \
+		fi; \
 		$(call run-strict-lint,--new) \
 	fi
 	$(GOLANGCI) fmt -c .golangci.strict.yml --diff
@@ -396,6 +402,16 @@ lint-config-drift: ## Fail if strict lint config drifts from the baseline
 		exit 1; \
 	fi
 
+# check-fmt-versions verifies the GOFUMPT/GOIMPORTS pins above still equal the
+# formatter versions vendored inside the pinned golangci-lint — otherwise
+# `make fmt` and `golangci-lint fmt --diff` disagree (fmt/lint split-brain).
+# It fetches golangci-lint's go.mod, so unreachable network is a NOTE under
+# devcheck and a failure under `ci` (which exports FMT_VERSION_STRICT=1).
+check-fmt-versions:
+	@fumpt_ver=$$(echo "$(GOFUMPT)" | sed -n 's/.*@\([^[:space:]]*\)$$/\1/p'); \
+	tools_ver=$$(echo "$(GOIMPORTS)" | sed -n 's/.*@\([^[:space:]]*\)$$/\1/p'); \
+	./scripts/check_fmt_versions.sh "$$fumpt_ver" "$$tools_ver"
+
 fmt:
 	$(GOFUMPT) -extra -w .
 	$(GOIMPORTS) -local $(LOCAL_PREFIXES) -w .
@@ -431,7 +447,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build      - Build the binary"
 	@echo "  install    - Build and install into PREFIX/bin (default /usr/local; falls back to GOPATH/bin)"
-	@echo "  test       - Run all tests"
+	@echo "  test       - Run the non-tmux package sweep, then the real-tmux packages via tmux-skip-check (skips cleanly without tmux)"
 	@echo "  test-race  - Run go test -race over the shared package set (slow)"
 	@echo "  test-race-tmux - Run go test -race on the real-tmux packages (tmux, e2e, app, pty; skips cleanly sans tmux)"
 	@echo "  soak       - Run the sustained-workload soak test (PTY ingest + msgpump; AMUX_SOAK_DURATION=2m or AMUX_SOAK_MINUTES=10; default 5m)"
@@ -450,6 +466,7 @@ help:
 	@echo "  lint-strict-base - Run strict changed-code lint using merge-base with BASE_REF (default origin/main)"
 	@echo "  lint-config-drift - Fail if .golangci.strict.yml is missing lines present in .golangci.yml (baseline drift)"
 	@echo "  check-fmt-config - Fail if Makefile LOCAL_PREFIXES drifts from .golangci.yml local-prefixes"
+	@echo "  check-fmt-versions - Fail if GOFUMPT/GOIMPORTS pins drift from golangci-lint's vendored formatters"
 	@echo "  check-file-length - Check Go file lengths only (max 500 lines)"
 	@echo "  fmt        - Format code with gofumpt and goimports"
 	@echo "  fmt-check  - Check gofumpt formatting"

@@ -63,7 +63,7 @@ fi
 exit 0
 `)
 	writeStub(t, fx.stubDir, "make", `#!/bin/sh
-{ printf 'make'; printf '\037%s' "$@"; printf '\037BASE_REF=%s' "${BASE_REF:-}"; printf '\n'; } >> "$STUB_LOG"
+{ printf 'make'; printf '\037%s' "$@"; printf '\037BASE_REF=%s' "${BASE_REF:-}"; printf '\037REQUIRE_BASE=%s' "${REQUIRE_BASE:-}"; printf '\n'; } >> "$STUB_LOG"
 if [ -n "${STUB_FAIL_MAKE:-}" ]; then
   case " $* " in *" $STUB_FAIL_MAKE "*) exit 1;; esac
 fi

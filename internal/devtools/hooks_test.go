@@ -139,7 +139,10 @@ func TestHookSkipFlags(t *testing.T) {
 }
 
 // TestHookBaseRefForwarding pins the AMUX_LINT_BASE_REF contract: the value
-// must reach `make lint-strict-base` as BASE_REF=<value>.
+// must reach `make lint-strict-base` as BASE_REF=<value>. It also pins
+// REQUIRE_BASE=1 on the same invocation — a push implies a remote exists, so
+// an unresolvable base must fail rather than fall back to a lint of only
+// uncommitted changes.
 func TestHookBaseRefForwarding(t *testing.T) {
 	fx := newHookFixture(t, true)
 	out, code := fx.runHook(t, "pre-push", map[string]string{"AMUX_LINT_BASE_REF": "release/1.2"})
@@ -151,6 +154,9 @@ func TestHookBaseRefForwarding(t *testing.T) {
 	}
 	if !fx.sawAnyField(t, "BASE_REF=release/1.2") {
 		t.Errorf("BASE_REF=release/1.2 not forwarded to make\n%s", fx.logDump(t))
+	}
+	if !fx.sawAnyField(t, "REQUIRE_BASE=1") {
+		t.Errorf("REQUIRE_BASE=1 not forwarded to make\n%s", fx.logDump(t))
 	}
 }
 
