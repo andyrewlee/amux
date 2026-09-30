@@ -42,12 +42,30 @@ tmux_sha() {
   esac
 }
 
+# go_sha pins the Go toolchain tarball sha256 per GO_VERSION × host arch —
+# same verify-then-extract discipline as tmux_sha (hashes from
+# https://go.dev/dl/?mode=json, the `.sha256` field of the linux-<arch>
+# archive). Refresh both rows whenever go.mod's toolchain directive moves.
+go_sha() {
+  case "$1:$2" in
+    1.26.8:amd64) echo "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b" ;;
+    1.26.8:arm64) echo "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0" ;;
+    *) return 1 ;;
+  esac
+}
+
+go_sha256="$(go_sha "$GO_VERSION" "$ARCH")" || {
+  echo "ci-tmux-matrix: no pinned sha256 for go${GO_VERSION} linux-${ARCH}" >&2
+  echo "  add it to go_sha() in scripts/ci_tmux_matrix.sh (hashes: https://go.dev/dl/?mode=json)" >&2
+  exit 1
+}
+
 MATRIX=(apt 3.6a)
 fail=0
 for leg in "${MATRIX[@]}"; do
   echo "=== tmux matrix leg: $leg ==="
-  args=(--build-arg "GO_VERSION=$GO_VERSION" --build-arg "TARGETARCH=$ARCH"
-        --build-arg "TMUX=$leg")
+  args=(--build-arg "GO_VERSION=$GO_VERSION" --build-arg "GO_SHA256=$go_sha256"
+        --build-arg "TARGETARCH=$ARCH" --build-arg "TMUX=$leg")
   if [ "$leg" != apt ]; then
     sha="$(tmux_sha "$leg")" || { echo "ci-tmux-matrix: no pinned sha256 for tmux $leg" >&2; exit 1; }
     args+=(--build-arg "TMUX_SHA256=$sha")

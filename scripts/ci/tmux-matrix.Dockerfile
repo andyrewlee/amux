@@ -5,6 +5,7 @@
 FROM ubuntu:22.04
 
 ARG GO_VERSION
+ARG GO_SHA256
 ARG TMUX=apt
 ARG TMUX_SHA256=
 ARG TARGETARCH
@@ -15,10 +16,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libevent-dev libncurses-dev bison pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
-# Same Go toolchain as go.mod's toolchain directive (passed as GO_VERSION).
-RUN [ -n "$GO_VERSION" ] && [ -n "$TARGETARCH" ] \
- && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" \
-    | tar -C /usr/local -xz
+# Same Go toolchain as go.mod's toolchain directive (passed as GO_VERSION),
+# sha256-verified before extraction — the toolchain runs every -race gate in
+# this image, so an unverified download would put unverified code inside the
+# security boundary of the local CI gate. GO_SHA256 comes from the caller's
+# go_sha() pin table.
+RUN [ -n "$GO_VERSION" ] && [ -n "$TARGETARCH" ] && [ -n "$GO_SHA256" ] \
+ && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" -o /tmp/go.tgz \
+ && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
+ && tar -C /usr/local -xzf /tmp/go.tgz \
+ && rm /tmp/go.tgz
 ENV PATH=/usr/local/go/bin:$PATH \
     GOPATH=/go \
     GOCACHE=/cache/go-build \
