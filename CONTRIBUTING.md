@@ -49,10 +49,10 @@ For the former nightly workload (full-tree race run plus the soak test):
 make ci-nightly
 ```
 
-For the inner loop, launch the TUI with `make run` in a real terminal — amux requires stdin, stdout, and stderr to all be TTYs, so it only runs directly in your terminal. `air` cannot host the TUI: it launches the rebuilt binary with stdin on `/dev/null`, which fails that TTY check, so `make dev` is not a hot-reload TUI loop. Use it instead for automatic rebuilds and compile-error feedback while you edit — run `make dev` in a second pane alongside `make run`. It runs [`air`](https://github.com/air-verse/air) with the repo's `.air.toml` and rebuilds on save. Install it once with:
+For the inner loop, launch the TUI with `make run` in a real terminal — amux requires stdin, stdout, and stderr to all be TTYs, so it only runs directly in your terminal. `air` cannot host the TUI: it launches the rebuilt binary with stdin on `/dev/null`, which fails that TTY check, so `make dev` is not a hot-reload TUI loop. Use it instead for automatic rebuilds and compile-error feedback while you edit — run `make dev` in a second pane alongside `make run`. It runs [`air`](https://github.com/air-verse/air) with the repo's `.air.toml` and rebuilds on save. Install it once with the pinned version from the Makefile (`AIR_VERSION`, shown in `make dev`'s missing-tool hint):
 
 ```bash
-go install github.com/air-verse/air@latest
+go install "github.com/air-verse/air@$(sed -n 's/^AIR_VERSION ?= //p' Makefile)"
 ```
 
 Ensure `$(go env GOPATH)/bin` is on your `PATH`; otherwise `make dev` prints this same install hint and exits.
@@ -80,6 +80,8 @@ Pull requests are gated by the local gates above plus the git hooks — nothing 
 - for race coverage on the real-tmux packages (`test_pkgs.sh` excludes them from `make test-race`): `make test-race-tmux` — skips cleanly without tmux; `make ci` runs it too
 - before landing PTY-ingest or render-pipeline changes: `make soak` — runs `TestSoakHarnessPTY` (a `soak`-build-tagged sustained synthetic-PTY workload through the app, exercising the message pump under load for 5m by default; `AMUX_SOAK_DURATION=2m` or `AMUX_SOAK_MINUTES=10` to adjust). Also part of `make ci-nightly`
 - if touching the agent input/send path (`internal/pty/terminal.go`, `internal/ui/center/tab_actor_write.go`, `internal/pty/`, agent keystroke forwarding): `make verify-loop` — proves a real agent receives keystrokes end-to-end (incl. a literal CR); `make devcheck` does not, since the real-tmux tests skip there
+
+Merging PRs: with no server-side CI, the hook gates run on the committer's machine — a web-UI squash merge runs *none* of them. For dependabot (grouped gomod bumps) and external-contributor PRs, validate locally before merging: `gh pr checkout N`, `make ci`, then merge. Squash-merging a dependency bump without a local pass can land a broken `go.mod` on `main`.
 
 Dev-side environment variables:
 
