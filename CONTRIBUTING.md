@@ -35,7 +35,7 @@ make devcheck
 make ci
 ```
 
-`make ci` runs `devcheck` under `STRICT_TMUX=1` (a real-tmux test skip fails instead of passing silently) plus `make test-race` (race sweep over the shared package set), `make test-race-tmux` (race over the real-tmux packages), `make tidy-check` (`go mod tidy` cleanliness), `make govulncheck` (vulnerability scan with the pinned govulncheck), `make windows-build` (cross-compile), and `make harness-smoke` (quick render asserts for all three presets). It exercises whichever tmux is installed locally.
+`make ci` runs `devcheck` under `STRICT_TMUX=1` (a real-tmux test skip fails instead of passing silently) plus `make test-race` (race sweep over the shared package set), `make test-race-tmux` (race over the real-tmux packages), `make tidy-check` (`go mod tidy` cleanliness), `make govulncheck` (vulnerability scan with the pinned govulncheck), `make windows-build` (a cross-compile smoke only — Windows is a compile-checked non-tier, not a supported platform: tmux doesn't exist there outside WSL, so no artifacts ship and no test runner exists; the build leg exists to keep POSIX-only imports honest), and `make harness-smoke` (quick render asserts for all three presets). It exercises whichever tmux is installed locally.
 
 For the tmux **version matrix** — ubuntu-22.04's apt tmux (3.2a floor) plus a sha256-pinned from-source build — run it in docker:
 

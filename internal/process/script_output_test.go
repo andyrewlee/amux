@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func TestTailWriter_Bounded(t *testing.T) {
@@ -223,16 +225,10 @@ func TestRunOnDone_SuccessNoNotification(t *testing.T) {
 	}
 	// Wait until the transcript lands (the Wait goroutine records before it
 	// would notify), then give the (absent) notify a beat.
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		if _, ok := runner.LastScriptOutputs(ws)[ScriptOnDone]; ok {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("success transcript never recorded")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, 3*time.Second, 10*time.Millisecond, func() bool {
+		_, ok := runner.LastScriptOutputs(ws)[ScriptOnDone]
+		return ok
+	}, "success transcript never recorded")
 	select {
 	case <-calls:
 		t.Fatal("listener fired on a clean exit")

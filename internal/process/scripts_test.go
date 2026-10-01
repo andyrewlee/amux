@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 func writeWorkspaceConfig(t *testing.T, repoPath, content string) {
@@ -239,15 +241,9 @@ func TestScriptRunnerStop(t *testing.T) {
 		t.Fatalf("Stop() error = %v", err)
 	}
 
-	deadline := time.After(2 * time.Second)
-	for runner.IsRunning(wt) {
-		select {
-		case <-deadline:
-			t.Fatalf("script did not stop in time")
-		default:
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
+	testutil.Eventually(t, 2*time.Second, 20*time.Millisecond, func() bool {
+		return !runner.IsRunning(wt)
+	}, "script did not stop in time")
 }
 
 func TestScriptRunnerWorkspaceValidation(t *testing.T) {
@@ -415,30 +411,19 @@ func TestScriptRunnerStop_TimeoutDoesNotBlockAfterForceKill(t *testing.T) {
 }
 
 func waitForFile(path string, timeout time.Duration) error {
-	deadline := time.After(timeout)
-	for {
+	return testutil.PollUntil(timeout, 20*time.Millisecond, func() (error, bool) {
 		if _, err := os.Stat(path); err == nil {
-			return nil
+			return nil, true
 		}
-		select {
-		case <-deadline:
-			return os.ErrNotExist
-		default:
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
+		return os.ErrNotExist, false
+	})
 }
 
 // waitForScriptRunning polls until the runner tracks a running script for the
 // workspace — RunScript returns before the goroutine registers.
 func waitForScriptRunning(t *testing.T, runner *ScriptRunner, ws *data.Workspace) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if runner.IsRunning(ws) {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("script for %s never tracked as running", ws.Name)
+	testutil.Eventually(t, 5*time.Second, 10*time.Millisecond, func() bool {
+		return runner.IsRunning(ws)
+	}, "script for %s never tracked as running", ws.Name)
 }
