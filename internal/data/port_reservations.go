@@ -49,16 +49,43 @@ const portReservationsFileVersion = 1
 // PortReservationRegistryFile is the registry filename under Paths.Home.
 const PortReservationRegistryFile = "port-reservations.json"
 
-// portReservationInterval is one inclusive [start, end] port range.
-type portReservationInterval struct {
+// PortReservationInterval is one inclusive [start, end] port range.
+type PortReservationInterval struct {
 	Start int `json:"start"`
 	End   int `json:"end"`
+}
+
+// Snapshot returns a locked read-only copy of the reservation map —
+// workspace metadata ID → interval. A missing registry reports an empty
+// non-nil map (reads never create state); corrupt data still fails closed.
+// Intended for diagnostics (e.g. counting reservations whose owner
+// workspace is gone): the returned map is a copy, so mutating it cannot
+// touch the registry.
+func (s *PortReservationStore) Snapshot() (map[string]PortReservationInterval, error) {
+	out := map[string]PortReservationInterval{}
+	err := s.withLock(true, func() error {
+		file, _, err := s.readLocked()
+		if err != nil {
+			return err
+		}
+		if file == nil {
+			return nil
+		}
+		for id, iv := range file.Reservations {
+			out[id] = iv
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // portReservationFile is the on-disk envelope.
 type portReservationFile struct {
 	Version      int                                `json:"version"`
-	Reservations map[string]portReservationInterval `json:"reservations"`
+	Reservations map[string]PortReservationInterval `json:"reservations"`
 }
 
 var (
@@ -136,7 +163,7 @@ func (s *PortReservationStore) Reserve(workspaceID string, start, size int) (bas
 			return ErrPortReservationsExhausted
 		}
 		end = base + size - 1
-		file.Reservations[workspaceID] = portReservationInterval{Start: base, End: end}
+		file.Reservations[workspaceID] = PortReservationInterval{Start: base, End: end}
 		return fsatomic.WriteJSON(s.path, file)
 	})
 	if err != nil {
@@ -204,7 +231,7 @@ func (s *PortReservationStore) loadOrInitializeLocked() (*portReservationFile, e
 	}
 	file = &portReservationFile{
 		Version:      portReservationsFileVersion,
-		Reservations: map[string]portReservationInterval{},
+		Reservations: map[string]PortReservationInterval{},
 	}
 	if err := fsatomic.WriteJSON(s.path, file); err != nil {
 		return nil, err
@@ -261,7 +288,7 @@ func parsePortReservations(raw []byte) (*portReservationFile, error) {
 		return nil, fmt.Errorf("%w: schema version %d", ErrPortReservationsInvalid, *head.Version)
 	}
 
-	reservations := map[string]portReservationInterval{}
+	reservations := map[string]PortReservationInterval{}
 	if head.Reservations == nil {
 		return &portReservationFile{Version: *head.Version, Reservations: reservations}, nil
 	}
@@ -278,7 +305,7 @@ func parsePortReservations(raw []byte) (*portReservationFile, error) {
 // parseReservationEntries walks the reservations object at token level so a
 // duplicated ID — silently collapsed by a map unmarshal — is caught as
 // ambiguous input instead of picking one interval arbitrarily.
-func parseReservationEntries(raw json.RawMessage) (map[string]portReservationInterval, error) {
+func parseReservationEntries(raw json.RawMessage) (map[string]PortReservationInterval, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	tok, err := dec.Token()
 	if err != nil {
@@ -287,7 +314,7 @@ func parseReservationEntries(raw json.RawMessage) (map[string]portReservationInt
 	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
 		return nil, fmt.Errorf("%w: reservations must be an object", ErrPortReservationsInvalid)
 	}
-	out := make(map[string]portReservationInterval)
+	out := make(map[string]PortReservationInterval)
 	for dec.More() {
 		keyTok, err := dec.Token()
 		if err != nil {
@@ -303,7 +330,7 @@ func parseReservationEntries(raw json.RawMessage) (map[string]portReservationInt
 		if !validReservationID(id) {
 			return nil, fmt.Errorf("%w: invalid reservation key %q", ErrPortReservationsInvalid, id)
 		}
-		var iv portReservationInterval
+		var iv PortReservationInterval
 		if err := dec.Decode(&iv); err != nil {
 			return nil, fmt.Errorf("%w: reservation %q: %w", ErrPortReservationsInvalid, id, err)
 		}
@@ -327,10 +354,10 @@ func parseReservationEntries(raw json.RawMessage) (map[string]portReservationInt
 // validateNoReservationOverlap rejects envelopes whose intervals collide —
 // two IDs claiming the same port is exactly the state the registry exists to
 // prevent, so accepting it would launder corruption into allocation.
-func validateNoReservationOverlap(reservations map[string]portReservationInterval) error {
+func validateNoReservationOverlap(reservations map[string]PortReservationInterval) error {
 	type entry struct {
 		id string
-		iv portReservationInterval
+		iv PortReservationInterval
 	}
 	list := make([]entry, 0, len(reservations))
 	for id, iv := range reservations {
@@ -352,7 +379,7 @@ func validateNoReservationOverlap(reservations map[string]portReservationInterva
 // configured base that overlaps no persisted interval. Candidates step on
 // size-aligned boundaries from start so allocation is deterministic across
 // instances. -1 means the space is exhausted.
-func selectReservationBase(reservations map[string]portReservationInterval, start, size int) int {
+func selectReservationBase(reservations map[string]PortReservationInterval, start, size int) int {
 	const maxPort = 65535
 	for base := start; base+size-1 <= maxPort; base += size {
 		end := base + size - 1
@@ -379,7 +406,7 @@ func validReservationRange(start, size int) bool {
 
 // validReservationInterval checks one persisted interval: positive width,
 // ordered bounds, and wholly inside the TCP port space.
-func validReservationInterval(iv portReservationInterval) bool {
+func validReservationInterval(iv PortReservationInterval) bool {
 	const maxPort = 65535
 	return iv.Start >= 1 && iv.End <= maxPort && iv.Start <= iv.End
 }

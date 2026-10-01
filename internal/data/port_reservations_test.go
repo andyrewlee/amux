@@ -406,3 +406,49 @@ func TestPortReservations_MissingRegistryReinitializesThroughGuard(t *testing.T)
 		t.Fatal("refused re-initialization still created a registry")
 	}
 }
+
+// TestPortReservations_SnapshotIsReadOnlyCopy proves the enumeration view
+// is a detached copy: mutating it cannot touch the registry, a missing
+// registry reads empty without initializing a file, and every reserved ID
+// round-trips with its interval.
+func TestPortReservations_SnapshotIsReadOnlyCopy(t *testing.T) {
+	s := newPortStore(t, t.TempDir())
+	if err := s.Initialize(nil); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	mustReserve(t, s, "id-a", 6200, 10)
+	mustReserve(t, s, "id-b", 6200, 10)
+
+	snap, err := s.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(snap) != 2 || snap["id-a"].Start == 0 || snap["id-b"].Start == 0 {
+		t.Fatalf("snapshot missing reservations: %v", snap)
+	}
+
+	// Mutating the copy must not leak into the store.
+	snap["id-a"] = PortReservationInterval{Start: 1, End: 1}
+	delete(snap, "id-b")
+	again, err := s.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot(2): %v", err)
+	}
+	if len(again) != 2 || again["id-b"].Start == 0 {
+		t.Fatalf("store affected by copy mutation: %v", again)
+	}
+}
+
+func TestPortReservations_SnapshotMissingRegistryReadsEmpty(t *testing.T) {
+	s := newPortStore(t, t.TempDir())
+	snap, err := s.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot on missing registry: %v", err)
+	}
+	if len(snap) != 0 {
+		t.Fatalf("missing registry snapshot = %v, want empty", snap)
+	}
+	if _, statErr := os.Stat(s.Path()); !os.IsNotExist(statErr) {
+		t.Fatal("a read initialized a registry — reads must not create state")
+	}
+}

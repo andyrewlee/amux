@@ -125,6 +125,20 @@ func (p *PortAllocator) LookupWorkspaceInterval(ws *data.Workspace) (base, end i
 	return durable.Lookup(string(id))
 }
 
+// ReservedIntervals returns the durable registry's workspace-ID → interval
+// map (a locked copy) for read-only enumeration. Transient mode reports
+// (nil, nil): there is no cross-instance registry to enumerate. Real I/O —
+// callers route it through an async fetch path.
+func (p *PortAllocator) ReservedIntervals() (map[string]data.PortReservationInterval, error) {
+	p.mu.Lock()
+	durable := p.durable
+	p.mu.Unlock()
+	if durable == nil {
+		return nil, nil
+	}
+	return durable.Snapshot()
+}
+
 // AllocatePort allocates a port range for a workspace. It returns
 // ErrPortRangeExhausted when no valid, non-overlapping range remains —
 // callers surface it as a typed spawn failure rather than crashing a Cmd.

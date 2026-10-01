@@ -67,8 +67,10 @@ path hash) and every process sharing that state home reuses it. The compiled
 base/width defaults shape only new reservations — intervals already committed
 keep their original bounds, reservations are never reclaimed, and a corrupt or
 newer-schema registry fails closed (spawns and the `i` status view surface the
-error rather than guessing). Deleting the registry while sessions exist orphans
-their ranges — treat it as live state.
+error rather than guessing). The `i` status dialog's `cleanup` section also
+reports how many committed reservations are owned by workspace IDs that no
+longer exist — a read-only orphan count; release remains manual. Deleting the
+registry while sessions exist orphans their ranges — treat it as live state.
 
 The rest:
 

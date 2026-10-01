@@ -367,7 +367,11 @@ state home. The contract an orchestrator can rely on:
   keep their original bounds — current settings shape only new reservations.
 - **No reclamation**: reservations survive release, workspace teardown, quits,
   and crashes. A stale release can never hand a live session's range to another
-  workspace. There is no TTL and no liveness-based reuse in this release.
+  workspace. There is no TTL and no liveness-based reuse in this release. The
+  `i` workspace-status dialog enumerates — read-only, from the same registry —
+  how many committed reservations are owned by workspace IDs absent from both
+  the live model and every tagged session; the count is informational and
+  release stays manual.
 - **Exhaustion/corruption fail closed**: a saturated space reports a typed
   exhaustion error; malformed, overlapping, or newer-schema bytes are left
   untouched and surfaced as errors — never silently accepted or rewritten.
