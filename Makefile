@@ -34,7 +34,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-strict-base check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test test-race test-race-tmux soak tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config check-fmt-versions fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
+.PHONY: build install test test-race test-race-tmux soak fuzz tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config check-fmt-versions fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -134,11 +134,22 @@ ci:
 ci-tmux-matrix:
 	bash scripts/ci_tmux_matrix.sh
 
+# fuzz runs the three fuzz targets for FUZZ_TIME each — without this gate the
+# corpus never mutates (the seeds alone run inside `make test`). vterm is the
+# most fuzz-worthy surface in the repo: a hand-rolled stateful parser on
+# arbitrary PTY bytes. Part of ci-nightly; not devcheck/pre-push (soak-class).
+FUZZ_TIME ?= 30s
+fuzz:
+	go test -fuzz=FuzzANSIParser -fuzztime=$(FUZZ_TIME) ./internal/vterm
+	go test -fuzz=FuzzRenderInvariant -fuzztime=$(FUZZ_TIME) ./internal/vterm
+	go test -fuzz=FuzzParseStatusPorcelain -fuzztime=$(FUZZ_TIME) ./internal/git
+
 # ci-nightly mirrors the former nightly workflow: a full-tree race run plus
 # the soak workload. Heavy — for pre-landing confidence, not every commit.
 ci-nightly:
 	go test -race ./... -timeout 30m
 	$(MAKE) soak
+	$(MAKE) fuzz
 
 # harness-smoke mirrors the former CI test job's three quick harness asserts.
 harness-smoke:
@@ -461,6 +472,7 @@ help:
 	@echo "  test-race  - Run go test -race over the shared package set (slow)"
 	@echo "  test-race-tmux - Run go test -race on the real-tmux packages (tmux, e2e, app, pty; skips cleanly sans tmux)"
 	@echo "  soak       - Run the sustained-workload soak test (PTY ingest + msgpump; AMUX_SOAK_DURATION=2m or AMUX_SOAK_MINUTES=10; default 5m)"
+	@echo "  fuzz       - Fuzz the vterm parser and porcelain parser for FUZZ_TIME each (default 30s)"
 	@echo "  tidy-check - Run go mod tidy and fail if go.mod/go.sum change"
 	@echo "  govulncheck - Scan for known vulnerabilities with the pinned govulncheck"
 	@echo "  windows-build - Cross-compile GOOS=windows GOARCH=amd64"
