@@ -34,6 +34,66 @@ func TestPathsEnsureDirectories(t *testing.T) {
 	}
 }
 
+// TestPathsEnsureDirectoriesTightensExisting proves a pre-existing permissive
+// amux dir is chmodded to 0700 — MkdirAll alone leaves it at its old mode.
+func TestPathsEnsureDirectoriesTightensExisting(t *testing.T) {
+	tmp := t.TempDir()
+	paths := &Paths{
+		Home:           filepath.Join(tmp, "amux"),
+		WorkspacesRoot: filepath.Join(tmp, "amux", "workspaces"),
+		RegistryPath:   filepath.Join(tmp, "amux", "projects.json"),
+		MetadataRoot:   filepath.Join(tmp, "amux", "workspaces-metadata"),
+		ConfigPath:     filepath.Join(tmp, "amux", "config.json"),
+	}
+	for _, dir := range []string{paths.Home, paths.WorkspacesRoot, paths.MetadataRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("seed %s: %v", dir, err)
+		}
+	}
+
+	if err := paths.EnsureDirectories(); err != nil {
+		t.Fatalf("EnsureDirectories() error = %v", err)
+	}
+	for _, dir := range []string{paths.Home, paths.WorkspacesRoot, paths.MetadataRoot} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("Stat(%s): %v", dir, err)
+		}
+		if mode := info.Mode().Perm(); mode != 0o700 {
+			t.Fatalf("expected %s tightened to 0700, got %03o", dir, mode)
+		}
+	}
+}
+
+// TestPathsEnsureDirectoriesLeavesRelocatedWorkspacesRoot proves the chmod
+// does not reach a WorkspacesRoot relocated outside Home by
+// AMUX_WORKSPACES_ROOT — that path may be shared or owned for other purposes.
+func TestPathsEnsureDirectoriesLeavesRelocatedWorkspacesRoot(t *testing.T) {
+	tmp := t.TempDir()
+	outside := filepath.Join(tmp, "shared-worktrees")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("seed outside root: %v", err)
+	}
+	paths := &Paths{
+		Home:           filepath.Join(tmp, "amux"),
+		WorkspacesRoot: outside,
+		RegistryPath:   filepath.Join(tmp, "amux", "projects.json"),
+		MetadataRoot:   filepath.Join(tmp, "amux", "workspaces-metadata"),
+		ConfigPath:     filepath.Join(tmp, "amux", "config.json"),
+	}
+
+	if err := paths.EnsureDirectories(); err != nil {
+		t.Fatalf("EnsureDirectories() error = %v", err)
+	}
+	info, err := os.Stat(outside)
+	if err != nil {
+		t.Fatalf("Stat(%s): %v", outside, err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o755 {
+		t.Fatalf("relocated WorkspacesRoot must keep its mode, got %03o", mode)
+	}
+}
+
 func TestDefaultPathsWorkspacesRootEnvOverride(t *testing.T) {
 	custom := filepath.Join(t.TempDir(), "custom-workspaces")
 	t.Setenv(WorkspacesRootEnvVar, custom)

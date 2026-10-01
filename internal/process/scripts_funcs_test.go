@@ -58,7 +58,8 @@ func TestScriptsNotTrustedErrorError(t *testing.T) {
 }
 
 // TestScriptRunnerTrustRepoScriptsIfHash exercises the hash-bound trust path:
-// matching hash and empty-hash both trust; a mismatch returns
+// a matching hash trusts; an empty hash fails closed with
+// ErrTrustApprovalRequiresHash (no trust recorded); a mismatch returns
 // ErrScriptsChangedSincePrompt without trusting; a missing config file is a
 // no-op; a malformed/unreadable config surfaces the load error.
 func TestScriptRunnerTrustRepoScriptsIfHash(t *testing.T) {
@@ -82,12 +83,12 @@ func TestScriptRunnerTrustRepoScriptsIfHash(t *testing.T) {
 			wantTrusted:  true,
 		},
 		{
-			name:         "empty expected hash skips the check and trusts",
+			name:         "empty expected hash fails closed without trusting",
 			writeConfig:  true,
 			configBody:   config,
 			expectedHash: "",
-			wantErr:      nil,
-			wantTrusted:  true,
+			wantErr:      ErrTrustApprovalRequiresHash,
+			wantTrusted:  false,
 		},
 		{
 			name:         "mismatched hash returns changed-since-prompt and does not trust",
