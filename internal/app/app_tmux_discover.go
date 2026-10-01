@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"slices"
 	"sort"
 	"strconv"
@@ -23,6 +24,10 @@ type tmuxTabsDiscoverResult struct {
 type tmuxSidebarDiscoverResult struct {
 	WorkspaceID string
 	Sessions    []sidebar.SessionAttachInfo
+	// Err marks a failed or degraded listing — the handler must not treat an
+	// empty Sessions on Err as "no terminals": that conflation manufactures a
+	// spurious terminal (and tmux session) on every transient tmux failure.
+	Err error
 }
 
 type sidebarSessionInfo struct {
@@ -148,7 +153,7 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			[]string{"@amux_instance", "@amux_created_at"}, opts)
 		if err != nil {
 			logging.Warn("tmux sidebar discovery failed: %v", err)
-			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
+			return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Err: err}
 		}
 		// Two batched calls replace per-row SessionStateFor / SessionHasClients /
 		// SessionCreatedAt probes. A failed batch yields empty maps; rows then hit
@@ -194,6 +199,13 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			})
 		}
 		if len(sessions) == 0 {
+			// Rows existed but every one dropped out while a metadata batch
+			// was failing — an empty result here is untrustworthy (the state
+			// gate rejects rows whose session simply isn't in a failed map),
+			// so flag it rather than let the handler auto-create.
+			if len(rows) > 0 && (stateErr != nil || metaErr != nil) {
+				return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Err: errors.Join(stateErr, metaErr)}
+			}
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
 		out := buildSidebarSessionAttachInfos(sessions)
@@ -337,6 +349,12 @@ func (a *App) handleTmuxSidebarDiscoverResult(msg tmuxSidebarDiscoverResult) []t
 		// Attaching now would spend PTYs on a workspace the user just left
 		// and put eviction pressure on the attached-terminal limit; the next
 		// activation of that workspace re-runs discovery.
+		return nil
+	}
+	if msg.Err != nil {
+		// The listing failed or was degraded — do not manufacture a terminal
+		// on a guess. The next sync tick redrives discovery; a genuinely
+		// empty bucket still auto-creates once the listing works.
 		return nil
 	}
 	if len(msg.Sessions) == 0 {
