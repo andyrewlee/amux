@@ -25,7 +25,11 @@ type PortAllocator struct {
 	mu        sync.Mutex
 	portStart int
 	rangeSize int
-	allocated map[string]int // workspace root -> port base (transient + durable local cache)
+	// allocated maps workspace root -> the interval actually held. Entries
+	// mirrored from the durable registry keep the stored interval's true end,
+	// which may exceed base+rangeSize-1 for reservations minted under an
+	// older configured width.
+	allocated map[string]portRange
 	freeBases []int
 	nextPort  int
 	durable   *data.PortReservationStore
@@ -36,7 +40,7 @@ func NewPortAllocator(start, rangeSize int) *PortAllocator {
 	return &PortAllocator{
 		portStart: start,
 		rangeSize: rangeSize,
-		allocated: make(map[string]int),
+		allocated: make(map[string]portRange),
 		nextPort:  start,
 	}
 }
@@ -61,25 +65,48 @@ func (p *PortAllocator) ReserveWorkspace(ws *data.Workspace) (port, rangeEnd int
 	if ws == nil {
 		return 0, 0, errors.New("workspace is required")
 	}
+	// p.mu is held across the whole reserve: the avoid-set snapshot, the
+	// registry transaction, and the local mirror must serialize against local
+	// transient allocations or a degrade could race in and take the interval
+	// the registry is about to mint.
 	p.mu.Lock()
-	durable := p.durable
-	p.mu.Unlock()
-	if durable == nil {
-		return p.PortRange(ws.Root)
+	defer p.mu.Unlock()
+	if p.durable == nil {
+		iv, err := p.allocateLocked(ws.Root)
+		if err != nil {
+			return 0, 0, err
+		}
+		return iv.start, iv.end, nil
 	}
 	id, ok := ws.StoredID()
 	if !ok {
 		// No persisted metadata ID means no durable key — a transient store
 		// error during load or a never-saved record. Degrade to the in-memory
 		// allocator (the pre-registry contract) instead of blocking every
-		// spawn behind an unactionable error: this process's map cannot
-		// contradict a live registry record because the registry never handed
-		// this workspace an interval. A later successful metadata load
-		// restores the durable path under the real stored ID.
+		// spawn behind an unactionable error. The degrade is still
+		// registry-aware: usedRangesLocked folds persisted intervals into the
+		// used set, so a transient base can never overlap a live reservation
+		// minted by this or another instance. A later successful metadata
+		// load restores the durable path under the real stored ID.
 		logging.Warn("workspace %q has no persisted metadata record; using transient port allocation", ws.Name)
-		return p.PortRange(ws.Root)
+		iv, err := p.allocateLocked(ws.Root)
+		if err != nil {
+			return 0, 0, err
+		}
+		return iv.start, iv.end, nil
 	}
-	base, end, err := durable.Reserve(string(id), p.portStart, p.rangeSize)
+	// The registry's mint scan only avoids persisted intervals — locally held
+	// transient allocations (unsaved workspaces) are invisible to it, so they
+	// pass through as explicit exclusions or the mint could re-issue a range
+	// this process already handed out.
+	avoid := make([]data.PortReservationInterval, 0, len(p.allocated))
+	for root, iv := range p.allocated {
+		if root == ws.Root {
+			continue
+		}
+		avoid = append(avoid, data.PortReservationInterval{Start: iv.start, End: iv.end})
+	}
+	base, end, err := p.durable.Reserve(string(id), p.portStart, p.rangeSize, avoid...)
 	if errors.Is(err, data.ErrPortReservationsExhausted) {
 		return 0, 0, ErrPortRangeExhausted
 	}
@@ -88,12 +115,9 @@ func (p *PortAllocator) ReserveWorkspace(ws *data.Workspace) (port, rangeEnd int
 	}
 	// Mirror the commit into the local map so the synchronous memory-only
 	// getters (GetPort/PortAllocated) stay truthful for this instance's
-	// reservations without disk I/O on the read path.
-	p.mu.Lock()
-	if p.durable != nil {
-		p.allocated[ws.Root] = base
-	}
-	p.mu.Unlock()
+	// reservations without disk I/O on the read path — and so the transient
+	// allocator's used set covers the stored interval at its true width.
+	p.allocated[ws.Root] = portRange{start: base, end: end}
 	return base, end, nil
 }
 
@@ -143,25 +167,42 @@ func (p *PortAllocator) ReservedIntervals() (map[string]data.PortReservationInte
 // ErrPortRangeExhausted when no valid, non-overlapping range remains —
 // callers surface it as a typed spawn failure rather than crashing a Cmd.
 func (p *PortAllocator) AllocatePort(workspaceRoot string) (int, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Check if already allocated
-	if port, ok := p.allocated[workspaceRoot]; ok {
-		return port, nil
-	}
-
-	port, err := p.nextAvailablePortLocked()
+	iv, err := p.allocate(workspaceRoot)
 	if err != nil {
 		return 0, err
 	}
-	p.allocated[workspaceRoot] = port
-
-	return port, nil
+	return iv.start, nil
 }
 
-func (p *PortAllocator) nextAvailablePortLocked() (int, error) {
-	used := p.usedRangesLocked()
+// allocate returns the workspace's interval, minting one on first use. In
+// durable mode the used set includes every persisted registry interval, so a
+// transient range can never overlap a live reservation.
+func (p *PortAllocator) allocate(workspaceRoot string) (portRange, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.allocateLocked(workspaceRoot)
+}
+
+func (p *PortAllocator) allocateLocked(workspaceRoot string) (portRange, error) {
+	// Check if already allocated
+	if iv, ok := p.allocated[workspaceRoot]; ok {
+		return iv, nil
+	}
+
+	used, err := p.usedRangesLocked()
+	if err != nil {
+		return portRange{}, err
+	}
+	base, err := p.nextAvailablePortLocked(used)
+	if err != nil {
+		return portRange{}, err
+	}
+	iv := portRange{start: base, end: base + p.rangeSize - 1}
+	p.allocated[workspaceRoot] = iv
+	return iv, nil
+}
+
+func (p *PortAllocator) nextAvailablePortLocked(used []portRange) (int, error) {
 	for n := len(p.freeBases); n > 0; n = len(p.freeBases) {
 		port := p.freeBases[n-1]
 		p.freeBases = p.freeBases[:n-1]
@@ -170,7 +211,10 @@ func (p *PortAllocator) nextAvailablePortLocked() (int, error) {
 		}
 	}
 
-	if p.rangeFits(p.nextPort) {
+	// rangeAvailable subsumes rangeFits, and durable-mirrored intervals make
+	// the frontier itself a possible collision — the fast path must prove the
+	// candidate free, not merely in-range.
+	if p.rangeAvailable(p.nextPort, used) {
 		port := p.nextPort
 		p.nextPort += p.rangeSize
 		return port, nil
@@ -179,6 +223,9 @@ func (p *PortAllocator) nextAvailablePortLocked() (int, error) {
 	if p.rangeSize > 0 {
 		for base := p.portStart; p.rangeFits(base); base += p.rangeSize {
 			if p.rangeAvailable(base, used) {
+				if base >= p.nextPort {
+					p.nextPort = base + p.rangeSize
+				}
 				return base, nil
 			}
 		}
@@ -191,12 +238,29 @@ func (p *PortAllocator) rangeFits(base int) bool {
 	return p.rangeSize > 0 && base >= 1 && base <= maxPort && base+p.rangeSize-1 <= maxPort
 }
 
-func (p *PortAllocator) usedRangesLocked() []portRange {
+// usedRangesLocked returns every interval the transient allocator must avoid:
+// the local map (transient allocations plus durable mirrors at their true
+// stored ends) unioned with the persisted registry. The registry read is real
+// I/O under p.mu — a failure fails the allocation closed rather than minting
+// a range a live reservation may already own. Mirror entries duplicate their
+// persisted records; overlap checks are idempotent so the union needs no
+// dedup.
+func (p *PortAllocator) usedRangesLocked() ([]portRange, error) {
 	used := make([]portRange, 0, len(p.allocated))
-	for _, base := range p.allocated {
-		used = append(used, portRange{start: base, end: base + p.rangeSize - 1})
+	for _, iv := range p.allocated {
+		used = append(used, iv)
 	}
-	return used
+	if p.durable == nil {
+		return used, nil
+	}
+	snap, err := p.durable.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	for _, iv := range snap {
+		used = append(used, portRange{start: iv.Start, end: iv.End})
+	}
+	return used, nil
 }
 
 func (p *PortAllocator) rangeAvailable(base int, used []portRange) bool {
@@ -222,8 +286,8 @@ func (p *PortAllocator) GetPort(workspaceRoot string) (int, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	port, ok := p.allocated[workspaceRoot]
-	return port, ok
+	iv, ok := p.allocated[workspaceRoot]
+	return iv.start, ok
 }
 
 // ReleasePort releases the port allocation for a workspace so the base can be
@@ -238,17 +302,19 @@ func (p *PortAllocator) ReleasePort(workspaceRoot string) {
 		return
 	}
 
-	if base, ok := p.allocated[workspaceRoot]; ok {
-		p.freeBases = append(p.freeBases, base)
+	if iv, ok := p.allocated[workspaceRoot]; ok {
+		p.freeBases = append(p.freeBases, iv.start)
 	}
 	delete(p.allocated, workspaceRoot)
 }
 
-// PortRange returns the port and range size for a workspace
+// PortRange returns the port and interval end for a workspace — the held
+// interval's true end, which for a mirrored durable reservation can exceed
+// base+rangeSize-1.
 func (p *PortAllocator) PortRange(workspaceRoot string) (port, rangeEnd int, err error) {
-	port, err = p.AllocatePort(workspaceRoot)
+	iv, err := p.allocate(workspaceRoot)
 	if err != nil {
 		return 0, 0, err
 	}
-	return port, port + p.rangeSize - 1, nil
+	return iv.start, iv.end, nil
 }

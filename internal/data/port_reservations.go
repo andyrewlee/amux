@@ -141,8 +141,12 @@ func (s *PortReservationStore) Initialize(guard func() error) error {
 // idempotent and returns the stored interval verbatim — even when its width or
 // position no longer matches the current configuration. New IDs take the first
 // configured-size interval at the configured base that does not overlap ANY
-// persisted interval, including ones minted under older settings.
-func (s *PortReservationStore) Reserve(workspaceID string, start, size int) (base, end int, err error) {
+// persisted interval, including ones minted under older settings, and none of
+// the advisory avoid intervals — the process layer passes its in-memory
+// transient allocations, which the durable registry cannot see. An avoid
+// interval that is malformed (inverted bounds) never matches a legal
+// candidate, so callers may pass unvalidated ranges.
+func (s *PortReservationStore) Reserve(workspaceID string, start, size int, avoid ...PortReservationInterval) (base, end int, err error) {
 	if !validReservationID(workspaceID) {
 		return 0, 0, fmt.Errorf("%w: workspace ID %q is not a valid reservation key", ErrPortReservationsInvalid, workspaceID)
 	}
@@ -158,7 +162,7 @@ func (s *PortReservationStore) Reserve(workspaceID string, start, size int) (bas
 			base, end = iv.Start, iv.End
 			return nil
 		}
-		base = selectReservationBase(file.Reservations, start, size)
+		base = selectReservationBase(file.Reservations, start, size, avoid)
 		if base < 0 {
 			return ErrPortReservationsExhausted
 		}
@@ -376,10 +380,11 @@ func validateNoReservationOverlap(reservations map[string]PortReservationInterva
 }
 
 // selectReservationBase picks the first configured-size interval at the
-// configured base that overlaps no persisted interval. Candidates step on
-// size-aligned boundaries from start so allocation is deterministic across
-// instances. -1 means the space is exhausted.
-func selectReservationBase(reservations map[string]PortReservationInterval, start, size int) int {
+// configured base that overlaps no persisted interval and none of the advisory
+// avoid intervals. Candidates step on size-aligned boundaries from start so
+// allocation is deterministic across instances. -1 means the space is
+// exhausted.
+func selectReservationBase(reservations map[string]PortReservationInterval, start, size int, avoid []PortReservationInterval) int {
 	const maxPort = 65535
 	for base := start; base+size-1 <= maxPort; base += size {
 		end := base + size - 1
@@ -388,6 +393,14 @@ func selectReservationBase(reservations map[string]PortReservationInterval, star
 			if base <= iv.End && end >= iv.Start {
 				free = false
 				break
+			}
+		}
+		if free {
+			for _, iv := range avoid {
+				if base <= iv.End && end >= iv.Start {
+					free = false
+					break
+				}
 			}
 		}
 		if free {
