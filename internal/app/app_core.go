@@ -54,7 +54,10 @@ const (
 	// DialogReleasePortReservations is the typed confirm for releasing
 	// orphaned port reservations shown by the workspace-status viewer.
 	DialogReleasePortReservations = "release_port_reservations"
-	DialogSaveTranscript          = "save_transcript"
+	// DialogMergedWorkspace is the post-merge follow-up picker offering
+	// keep/shelve/delete after a successful merge.
+	DialogMergedWorkspace = "merged_workspace"
+	DialogSaveTranscript  = "save_transcript"
 	// DialogBrowseTranscripts is the FilePicker ID for browsing saved
 	// transcripts — distinct from DialogAddProject so the confirm routes to
 	// the file viewer, not project creation.
