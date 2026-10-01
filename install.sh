@@ -97,12 +97,18 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 # Download and extract
 echo "Downloading ${DOWNLOAD_URL}..."
-curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${FILENAME}"
+if ! curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${FILENAME}"; then
+  echo "Error: failed to download ${DOWNLOAD_URL} (HTTP error or network failure)" >&2
+  exit 1
+fi
 
 # Verify checksum against the release's published checksums.txt
 CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
 echo "Fetching checksums..."
-curl -fsSL "$CHECKSUMS_URL" -o "${TMP_DIR}/checksums.txt"
+if ! curl -fsSL "$CHECKSUMS_URL" -o "${TMP_DIR}/checksums.txt"; then
+  echo "Error: failed to download ${CHECKSUMS_URL}" >&2
+  exit 1
+fi
 
 # Verify the minisign signature over checksums.txt before trusting any
 # checksum in it. The checksum below stays as a second layer; the signature is
@@ -146,12 +152,27 @@ echo "Checksum verified."
 echo "Extracting..."
 tar -xzf "${TMP_DIR}/${FILENAME}" -C "$TMP_DIR"
 
-# Install binary
+# Install binary — a custom INSTALL_DIR may not exist yet, and a
+# system-wide one needs sudo only when it isn't writable.
 echo "Installing to ${INSTALL_DIR}/${BINARY}..."
+if [ ! -d "$INSTALL_DIR" ]; then
+  if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo mkdir -p "$INSTALL_DIR"
+    else
+      echo "Error: cannot create ${INSTALL_DIR} and sudo is not available." >&2
+      exit 1
+    fi
+  fi
+fi
 if [ -w "$INSTALL_DIR" ]; then
   mv "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
-else
+elif command -v sudo >/dev/null 2>&1; then
   sudo mv "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+else
+  echo "Error: ${INSTALL_DIR} is not writable and sudo is not available." >&2
+  echo "Re-run with INSTALL_DIR=$HOME/.local/bin (or another writable directory)." >&2
+  exit 1
 fi
 
 chmod +x "${INSTALL_DIR}/${BINARY}"
