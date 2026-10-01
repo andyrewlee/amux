@@ -180,7 +180,10 @@ Sidebar (Changes tab, focused):
   `/` filters.
 - `c` commit, `b` branch mode, `e` workspace env, `E` project env, `s`
   scripts, `r` run/stop the workspace run script, `R` run output, `O` script
-  output, `u` re-run setup, `i` workspace status. When `script_mode: concurrent`
+  output, `u` re-run setup, `i` workspace status — which also reports a
+  `cleanup` section when an interrupted delete left a tombstone
+  (startup recovery retries the finish automatically on next load). When
+  `script_mode: concurrent`
   has produced multiple run sessions, `R` opens a picker (#1 is the first run,
   -2/-3/… numbered runs after) listing each session's live/exited status —
   pick one to view its output. Inside the live run-output viewer, `a`

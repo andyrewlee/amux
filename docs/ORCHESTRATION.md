@@ -98,6 +98,15 @@ into the tree never outlives the tree's removal, and while the gate is held
 the runner rejects new lifecycle starts (`ErrWorkspaceTeardown`). External
 tooling must not remove a workspace's directory without the same ordering.
 
+A delete interrupted mid-flight (crash, kill) leaves a durable `.deleting`
+tombstone in the workspace's metadata dir. Startup recovery retries the
+finish automatically on the next load; the `i` workspace-status dialog
+surfaces the state read-only in the meantime — a `cleanup` section reports
+`interrupted` (worktree still present, workspace usable) or `pending`
+(worktree gone, retry on next load) and points at the warn-level
+`workspace delete` / `startup recovery` log lines for detail. The tombstone
+is a boolean, so the section never reports a stage.
+
 Worked example — workspace ID `9f8e7d6c5b4a3210`, tab ID `tab-1a2b3c4d-5`:
 
 ```
