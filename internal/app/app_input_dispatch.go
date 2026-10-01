@@ -448,6 +448,10 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleWorkspaceStatusReady(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case reservationReleaseResultMsg:
+		if cmd := a.handleReservationReleaseResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case runAttachTargetMsg:
 		if cmd := a.handleRunAttachTarget(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)

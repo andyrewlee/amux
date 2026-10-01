@@ -44,6 +44,7 @@ var appDialogHandlers = map[string]dialogResultHandler{
 	common.RunSessionPickerDialogID: dialogResultRunSessionPicker,
 	DialogQuit:                      dialogResultQuit,
 	DialogCleanupTmux:               dialogResultCleanupTmux,
+	DialogReleasePortReservations:   dialogResultReleasePortReservations,
 	DialogSaveTranscript:            dialogResultSaveTranscript,
 	DialogBrowseTranscripts:         dialogResultBrowseTranscripts,
 }

@@ -343,11 +343,12 @@ sidebar terminals, after a quit, crash, or a second amux instance on the same
 state home — receives exactly that interval rather than a fresh draw. The
 configured base/width shapes only new reservations; an interval minted under
 earlier settings keeps its original bounds. Reservations are never reclaimed
-in this release — a workspace keeps its range even after its sessions end — and
+automatically — a workspace keeps its range even after its sessions end — and
 when no disjoint interval remains, amux reports a typed exhaustion error
 instead of silently reusing one. The `i` workspace-status dialog reports how
 many reservations are held by workspace IDs that no longer exist (no record,
-no tagged session); the count is read-only — release stays manual. Treat the
+no tagged session); `R` there opens a typed-confirm release that re-verifies
+the orphans fresh before deleting them — never automatic. Treat the
 registry as live state: do not delete `port-reservations.json` while any amux
 session exists.
 

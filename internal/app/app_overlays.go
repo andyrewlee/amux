@@ -54,6 +54,10 @@ type overlayState struct {
 	// (workspace-status and script-transcript viewers leave it false): only
 	// that flavor answers the `a` attach key.
 	runOutputAttachable bool
+	// runOutputReleaseCount marks the workspace-status flavor: the number of
+	// orphaned port reservations it reported. >0 answers the `R` typed-confirm
+	// release intercept; 0 disables it for every other flavor.
+	runOutputReleaseCount int
 }
 
 // overlayInputSlot feeds one message into a bespoke overlay and reports
@@ -103,11 +107,21 @@ func (a *App) overlayChain() []overlayInputSlot {
 // other key and the other OutputDialog flavors pass through to the dialog
 // unchanged.
 func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
-	// While the search query field is editing, `a` is literal query text —
-	// the dialog owns all input, so the attach intercept is disabled.
+	// While the search query field is editing, `a`/`R` are literal query
+	// text — the dialog owns all input, so the intercepts are disabled.
 	if a.overlays.runOutputAttachable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
 		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "a" {
 			*cmds = append(*cmds, a.attachRunViewerCmd(a.overlays.runOutputWorkspace, a.overlays.runOutputSession))
+			return true
+		}
+	}
+	// Workspace-status flavor: `R` swaps the viewer for the typed-confirm
+	// release dialog. Overlay arbitration forbids stacking a dialog over the
+	// viewer, so the viewer closes first — cancel returns to the dashboard,
+	// confirm re-derives the orphan set fresh before releasing.
+	if a.overlays.runOutputReleaseCount > 0 && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
+		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "R" {
+			a.openReservationReleaseDialog(a.overlays.runOutputReleaseCount)
 			return true
 		}
 	}

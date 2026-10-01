@@ -82,6 +82,41 @@ func (s *PortReservationStore) Snapshot() (map[string]PortReservationInterval, e
 	return out, nil
 }
 
+// ReleaseMany deletes the named reservations and rewrites the registry once,
+// under the same exclusive flock as Reserve. Returns the intervals actually
+// released — IDs with no persisted entry are skipped, not errors, so a stale
+// caller can never fail or create state. A missing registry is a no-op:
+// release never initializes.
+func (s *PortReservationStore) ReleaseMany(ids []string) (map[string]PortReservationInterval, error) {
+	released := map[string]PortReservationInterval{}
+	if len(ids) == 0 {
+		return released, nil
+	}
+	err := s.withLock(false, func() error {
+		file, missing, err := s.readLocked()
+		if err != nil {
+			return err
+		}
+		if missing || file == nil {
+			return nil
+		}
+		for _, id := range ids {
+			if iv, ok := file.Reservations[id]; ok {
+				released[id] = iv
+				delete(file.Reservations, id)
+			}
+		}
+		if len(released) == 0 {
+			return nil
+		}
+		return fsatomic.WriteJSON(s.path, file)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return released, nil
+}
+
 // portReservationFile is the on-disk envelope.
 type portReservationFile struct {
 	Version      int                                `json:"version"`

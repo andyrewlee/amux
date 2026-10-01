@@ -163,6 +163,20 @@ func (p *PortAllocator) ReservedIntervals() (map[string]data.PortReservationInte
 	return durable.Snapshot()
 }
 
+// ReleaseReservedIntervals deletes the named workspace-ID reservations from
+// the durable registry, returning the intervals actually released. Transient
+// mode has no shared registry: (nil, nil). Real I/O under the registry flock —
+// callers route it through an async path like the snapshot read.
+func (p *PortAllocator) ReleaseReservedIntervals(ids []string) (map[string]data.PortReservationInterval, error) {
+	p.mu.Lock()
+	durable := p.durable
+	p.mu.Unlock()
+	if durable == nil {
+		return nil, nil
+	}
+	return durable.ReleaseMany(ids)
+}
+
 // AllocatePort allocates a port range for a workspace. It returns
 // ErrPortRangeExhausted when no valid, non-overlapping range remains —
 // callers surface it as a typed spawn failure rather than crashing a Cmd.
