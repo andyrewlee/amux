@@ -59,6 +59,31 @@ func TestSessionTagArgs_DisplayValuesSanitized(t *testing.T) {
 	}
 }
 
+// TestSanitizeTagValue_StripsUnsafeRunes pins sanitizeTagValue to the
+// isUnsafeDisplayRune contract (its ui/common twin): C0/C1/DEL, the
+// bidi/format controls (embed/override, isolates, LRM/RLM, ALM), and the '|'
+// row-field separator all drop, while legitimate format runes (ZWJ/VS16)
+// and ordinary text survive.
+func TestSanitizeTagValue_StripsUnsafeRunes(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"controls", "a\x00b\x7fc\u0085d", "abcd"},
+		{"RLO", "a\u202eb", "ab"},
+		{"isolates", "a\u2066\u2069b", "ab"},
+		{"LRM RLM", "a\u200e\u200fb", "ab"},
+		{"ALM", "a\u061cb", "ab"},
+		{"field separator", "a|b", "ab"},
+		{"emoji ZWJ survives", "\U0001f468\u200d\U0001f4bb", "\U0001f468\u200d\U0001f4bb"},
+		{"VS16 survives", "\u2764\ufe0f", "\u2764\ufe0f"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sanitizeTagValue(tc.in); got != tc.want {
+				t.Fatalf("sanitizeTagValue(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func flattenArgs(args [][]string) string {
 	var b strings.Builder
 	for _, a := range args {
