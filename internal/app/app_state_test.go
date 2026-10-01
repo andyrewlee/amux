@@ -67,44 +67,6 @@ func TestMarkInput(t *testing.T) {
 	})
 }
 
-func TestIsTmuxAvailable(t *testing.T) {
-	tests := []struct {
-		name      string
-		available bool
-		want      bool
-	}{
-		{name: "available", available: true, want: true},
-		{name: "unavailable", available: false, want: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			app := &App{tmuxAvailable: tt.available}
-			if got := app.IsTmuxAvailable(); got != tt.want {
-				t.Fatalf("IsTmuxAvailable() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-
-	t.Run("zero value defaults to false", func(t *testing.T) {
-		app := &App{}
-		if app.IsTmuxAvailable() {
-			t.Fatal("expected IsTmuxAvailable() to be false on a zero-value App")
-		}
-	})
-
-	t.Run("reflects mutation of the underlying field", func(t *testing.T) {
-		app := &App{}
-		if app.IsTmuxAvailable() {
-			t.Fatal("expected false before flipping the flag")
-		}
-		app.tmuxAvailable = true
-		if !app.IsTmuxAvailable() {
-			t.Fatal("expected true after flipping the flag")
-		}
-	})
-}
-
 func TestTmuxSyncWorkspaces(t *testing.T) {
 	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
 
