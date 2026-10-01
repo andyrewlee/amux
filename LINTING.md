@@ -27,7 +27,8 @@ This runs:
 This project runs no GitHub Actions: the complete local CI gate is
 `make ci` (`devcheck` under `STRICT_TMUX=1` plus `test-race`,
 `test-race-tmux`, `tidy-check`, `govulncheck`, `windows-build`, and
-`harness-smoke`). `make ci-nightly` adds the full-tree race run and soak —
+`harness-smoke`). `make ci-nightly` adds the full-tree race run, soak, and the `make fuzz`
+sweep (`FUZZ_TIME` per fuzz target; default 30s) —
 the former scheduled workflow's coverage; `make ci-tmux-matrix` replays the
 tmux version matrix in docker (apt tmux floor + pinned source build).
 
