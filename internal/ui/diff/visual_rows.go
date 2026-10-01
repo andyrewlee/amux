@@ -3,6 +3,7 @@ package diff
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -19,6 +20,13 @@ type visualRow struct {
 	lineIdx int
 	segIdx  int
 	text    string
+	// raw is the segment's unstyled text and segStart/segRunes its coverage
+	// of the source line's content in runes — together they let the render
+	// path re-style exactly the selected search match without touching the
+	// ANSI bytes buildVisualRows already emitted.
+	raw             string
+	segStartRune    int
+	segContentRunes int
 }
 
 // visualRows is the cached display-row layout of an immutable DiffResult.
@@ -156,6 +164,7 @@ func (m *Model) buildVisualRows() visualRows {
 		style := lineContentStyle(line.Kind)
 
 		var segments []string
+		var truncTail string
 		switch {
 		case m.wrap:
 			segments = strings.Split(ansi.Hardwrap(content, contentWidth, false), "\n")
@@ -164,6 +173,7 @@ func (m *Model) buildVisualRows() visualRows {
 			if contentWidth > 3 {
 				tail = "..."
 			}
+			truncTail = tail
 			segments = []string{ansi.Truncate(content, contentWidth, tail)}
 		default:
 			segments = []string{content}
@@ -172,22 +182,34 @@ func (m *Model) buildVisualRows() visualRows {
 			segments = []string{""}
 		}
 
+		segRuneStart := 0
 		for segIdx, seg := range segments {
+			// How many trailing runes of seg are real content vs the
+			// truncation tail — search spans map into content-rune space.
+			segContentRunes := utf8.RuneCountInString(seg) - utf8.RuneCountInString(truncTail)
 			// A grapheme wider than contentWidth survives Hardwrap intact;
 			// clamp it to a width-safe placeholder instead of emitting a row
 			// that overflows the viewport.
 			if w := ansi.StringWidth(seg); w > contentWidth {
 				seg = ansi.Truncate(seg, contentWidth, "…")
+				segContentRunes = 0
+			}
+			if segContentRunes < 0 {
+				segContentRunes = 0
 			}
 			gutter := blankGutter
 			if segIdx == 0 {
 				gutter = gutterStyle.Render(strconv.Itoa(i + 1))
 			}
 			out.rows = append(out.rows, visualRow{
-				lineIdx: i,
-				segIdx:  segIdx,
-				text:    gutter + " " + style.Render(seg),
+				lineIdx:         i,
+				segIdx:          segIdx,
+				text:            gutter + " " + style.Render(seg),
+				raw:             seg,
+				segStartRune:    segRuneStart,
+				segContentRunes: segContentRunes,
 			})
+			segRuneStart += segContentRunes
 		}
 	}
 	return out

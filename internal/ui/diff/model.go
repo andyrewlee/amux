@@ -30,6 +30,16 @@ type Model struct {
 	wrap    bool // Whether to wrap long lines
 	focused bool
 
+	// Search state — mirrors the output viewers' `/` contract (literal
+	// substring, n/N cycling, wrap-around marker). While searching, all
+	// input edits the query; after accept, n/N cycle matches and the
+	// selected span renders in reverse video.
+	searching     bool
+	query         string
+	matches       []diffMatch
+	matchIdx      int
+	searchWrapped bool
+
 	// Layout
 	width  int
 	height int
@@ -64,16 +74,21 @@ type Model struct {
 // diffViewKey captures every input View() reads: the loaded data pointers,
 // scroll/hunk position, wrap/focus flags, dimensions, and styles revision.
 type diffViewKey struct {
-	diff      *git.DiffResult
-	errStr    string
-	loading   bool
-	scroll    int
-	hunkIdx   int
-	wrap      bool
-	focused   bool
-	width     int
-	height    int
-	stylesRev uint64
+	diff          *git.DiffResult
+	errStr        string
+	loading       bool
+	scroll        int
+	hunkIdx       int
+	wrap          bool
+	focused       bool
+	width         int
+	height        int
+	stylesRev     uint64
+	searching     bool
+	query         string
+	matchIdx      int
+	searchWrapped bool
+	matchCount    int
 }
 
 // diffLoaded is sent when the diff has been loaded
@@ -93,6 +108,7 @@ func New(ws *data.Workspace, change *git.Change, mode git.DiffMode, width, heigh
 		width:     width,
 		height:    height,
 		styles:    common.DefaultStyles(),
+		matchIdx:  -1,
 	}
 }
 
@@ -185,6 +201,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		m.err = nil
 		m.diff = msg.diff
 		m.invalidateRows()
+		m.clearSearch() // a new diff invalidates every match span
 		if limit := m.maxScroll(); m.scroll > limit {
 			m.scroll = limit
 		}
@@ -207,6 +224,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		if !m.focused {
 			return m, nil
 		}
+		// Query-edit mode owns all input — viewer bindings are inert while
+		// the field is open, and nothing here can close the tab.
+		if m.searching {
+			return m.updateSearchEdit(msg)
+		}
 
 		switch {
 		// Scroll controls
@@ -223,9 +245,20 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("G", "end"))):
 			m.scrollToBottom()
 
-		// Hunk navigation
+		// Search — `/` opens the query; with a live selection n/N cycle
+		// matches (n falls through to hunk nav when no match is selected).
+		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+			m.searching = true
 		case key.Matches(msg, key.NewBinding(key.WithKeys("n"))):
-			m.nextHunk()
+			if m.matchIdx >= 0 {
+				m.jumpMatch(1)
+			} else {
+				m.nextHunk()
+			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("N"))):
+			m.jumpMatch(-1)
+
+		// Hunk navigation
 		case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 			m.prevHunk()
 
@@ -236,8 +269,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.wrap = !m.wrap
 			m.scroll = m.clampScroll(m.rows().rowForAnchor(line, seg))
 
-		// Close
-		case key.Matches(msg, key.NewBinding(key.WithKeys("q", "esc"))):
+		// Close — esc dismisses an active search first (the dashboard's
+		// esc-clears-marks idiom), q closes unconditionally.
+		case key.Matches(msg, key.NewBinding(key.WithKeys("q"))):
+			return m, func() tea.Msg { return messages.CloseTab{} }
+		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+			if m.query != "" {
+				m.clearSearch()
+				return m, nil
+			}
 			return m, func() tea.Msg { return messages.CloseTab{} }
 		}
 	}

@@ -220,6 +220,12 @@ Diff viewer (opened from Changes with `enter`/`space`/`o`):
   display rows so a wrapped line's tail is always reachable; the footer counts
   display rows, not source lines.
 - `n`/`p` cycle forward/back through diff hunks (still source-line anchored).
+- `/` opens a literal, case-insensitive search over the diff lines (`+`/`-`
+  markers and `@@` headers included). `enter` accepts, `esc` leaves the
+  field with the query kept; `n`/`N` then cycle matches (wrapping, with the
+  selected match shown in reverse video and its hunk header kept in view) —
+  `n` falls back to hunk navigation while no match is selected. A browse-mode
+  `esc` clears the query before closing; `q` still closes outright.
 - Resizing or toggling `w` keeps the same source line at the top of the view
   when possible; `q`/`esc` closes the tab.
 
