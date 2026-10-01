@@ -67,15 +67,23 @@ func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 		if svc == nil {
 			return messages.Toast{Message: "tmux cleanup unavailable", Level: messages.ToastWarning}
 		}
-		cleanedTagged, err := svc.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
-		if err != nil {
-			logging.Error("Failed to cleanup tmux sessions by tag: %v", err)
+		cleanedTagged, tagErr := svc.KillSessionsMatchingTags(map[string]string{"@amux": "1"}, opts)
+		if tagErr != nil {
+			logging.Error("Failed to cleanup tmux sessions by tag: %v", tagErr)
 		} else if cleanedTagged {
 			logging.Info("Cleaned up @amux tmux sessions")
 		}
 		prefix := tmux.SessionName("amux") + "-"
-		if err := svc.KillSessionsWithPrefix(prefix, opts); err != nil {
-			return messages.Toast{Message: fmt.Sprintf("tmux cleanup failed: %v", err), Level: messages.ToastWarning}
+		prefixErr := svc.KillSessionsWithPrefix(prefix, opts)
+		switch {
+		case tagErr != nil && prefixErr != nil:
+			return messages.Toast{Message: fmt.Sprintf("tmux cleanup failed: tag pass: %v; prefix pass: %v", tagErr, prefixErr), Level: messages.ToastWarning}
+		case prefixErr != nil:
+			return messages.Toast{Message: fmt.Sprintf("tmux cleanup failed: %v", prefixErr), Level: messages.ToastWarning}
+		case tagErr != nil:
+			// A renamed session keeps @amux tags but loses the prefix, so it
+			// can survive a cleanup the success toast claims handled it.
+			return messages.Toast{Message: fmt.Sprintf("tmux cleanup partially failed: tagged-session pass: %v", tagErr), Level: messages.ToastWarning}
 		}
 		if cleanedTagged {
 			return messages.Toast{Message: fmt.Sprintf("Cleaned up @amux and %s* tmux sessions", prefix), Level: messages.ToastSuccess}

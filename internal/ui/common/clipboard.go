@@ -37,14 +37,22 @@ func OSC52ClipboardText(payload []byte) (string, bool) {
 // macOS, so callers MUST NOT hold a tab/terminal mutex while calling it — capture
 // the text under the lock, release it, then call this.
 func CopyToClipboardWithLog(text, label string) {
+	_ = CopyToClipboardE(text, label)
+}
+
+// CopyToClipboardE is CopyToClipboardWithLog plus the result: user-initiated
+// copies must surface failure in the UI, not just the log. Same mutex rule —
+// never call while holding a tab/terminal lock.
+func CopyToClipboardE(text, label string) error {
 	if text == "" {
-		return
+		return nil
 	}
 	if err := CopyToClipboard(text); err != nil {
 		logging.Error("Failed to copy %s: %v", label, err)
-		return
+		return err
 	}
 	logging.Info("Copied %d chars (%s)", len(text), label)
+	return nil
 }
 
 // clipboardTool is a candidate external clipboard command. The table IS the

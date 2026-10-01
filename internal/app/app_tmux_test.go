@@ -115,22 +115,37 @@ func TestCleanupAllTmuxSessions(t *testing.T) {
 		}
 	})
 
-	t.Run("tag kill error is non-fatal and prefix success still reported", func(t *testing.T) {
-		// A tag-match failure is only logged; the prefix sweep still runs and, on
-		// success, drives the prefix-only success toast (cleanedTagged stays false).
+	t.Run("tag kill error reports partial failure while prefix still ran", func(t *testing.T) {
+		// The prefix sweep still runs after a tag-pass failure, but the result
+		// must NOT claim success: a renamed session keeps @amux tags while
+		// losing the prefix, so a survivor is exactly what this pass exists for.
 		ops := newCleanupOps(false, errors.New("boom"), nil)
 		app := &App{tmuxService: ops}
 
 		toast := runCleanupCmd(t, app.cleanupAllTmuxSessions())
 
-		if toast.Level != messages.ToastSuccess {
-			t.Fatalf("expected success toast despite tag error, got %q level %q", toast.Message, toast.Level)
+		if toast.Level != messages.ToastWarning {
+			t.Fatalf("expected warning toast on tag-pass failure, got %q level %q", toast.Message, toast.Level)
+		}
+		if !strings.Contains(toast.Message, "partially failed") || !strings.Contains(toast.Message, "boom") {
+			t.Fatalf("expected the partial failure to name the tag pass and the error, got %q", toast.Message)
 		}
 		if len(ops.KilledPrefixes()) != 1 {
 			t.Fatalf("expected prefix kill to still run after tag error, got %d calls", len(ops.KilledPrefixes()))
 		}
-		if strings.Contains(toast.Message, "@amux and") {
-			t.Fatalf("a tag error must not claim @amux sessions were cleaned: %q", toast.Message)
+	})
+
+	t.Run("both passes failing reports both errors", func(t *testing.T) {
+		ops := newCleanupOps(false, errors.New("tag broke"), errors.New("prefix broke"))
+		app := &App{tmuxService: ops}
+
+		toast := runCleanupCmd(t, app.cleanupAllTmuxSessions())
+
+		if toast.Level != messages.ToastWarning {
+			t.Fatalf("expected warning toast when both passes fail, got %q", toast.Level)
+		}
+		if !strings.Contains(toast.Message, "tag broke") || !strings.Contains(toast.Message, "prefix broke") {
+			t.Fatalf("expected both failures named, got %q", toast.Message)
 		}
 	})
 

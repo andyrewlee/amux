@@ -1,12 +1,16 @@
 package center
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 // newActionsModel wires a model to an active workspace with the supplied tabs so
@@ -152,6 +156,42 @@ func TestCloseTabAt_BatchesKillWhenSessionPresent(t *testing.T) {
 	// With a session name the result is a Batch (close notification + async kill).
 	if _, ok := cmd().(tea.BatchMsg); !ok {
 		t.Fatalf("expected tea.BatchMsg when a tmux session must be killed")
+	}
+}
+
+// TestCloseTabAt_LogsKillFailure proves a failed session kill is not silent:
+// the tab closes regardless, but an Error lands in the log so the leaked
+// session is diagnosable when it resurfaces as a zombie tab.
+func TestCloseTabAt_LogsKillFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := logging.Initialize(dir, logging.LevelDebug); err != nil {
+		t.Fatalf("logging init: %v", err)
+	}
+	defer logging.Close()
+
+	restoreReattachSeams(t)
+	killSessionFn = func(string, tmux.Options) error {
+		return errors.New("tmux server gone")
+	}
+
+	ws := newTestWorkspace("ws", "/repo/ws")
+	tab := chatTab(ws, "tab-0")
+	tab.SessionName = "amux-leaky"
+	m, _, _ := newActionsModel(t, tab)
+
+	cmd := m.closeTabAt(0)
+	if cmd == nil {
+		t.Fatalf("expected close cmd")
+	}
+	drainBatch(cmd)
+
+	if !tab.isClosed() {
+		t.Fatalf("tab must still close when the session kill fails")
+	}
+	logging.Close()
+	logText := readLogText(t, dir)
+	if !strings.Contains(logText, "amux-leaky") || !strings.Contains(logText, "tmux server gone") {
+		t.Fatalf("expected kill failure logged with session name and cause, log:\n%s", logText)
 	}
 }
 
