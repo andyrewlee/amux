@@ -24,6 +24,18 @@ else
   go run ./cmd/amux-harness "${center_args[@]}"
 fi
 
+if [[ -n "${AMUX_SKIP_RACE:-}" ]]; then
+  echo "amux pre-push: skipping race smoke (AMUX_SKIP_RACE set)"
+else
+  # Scoped -race leg: the race-targeted tests (store flocking, ptyio reader,
+  # app msgpump) otherwise only run under opt-in `make test-race*` — a data
+  # race could land while every gate passed. `-race` on the full internal/app
+  # suite takes ~45s, so only its dedicated race test runs here.
+  echo "amux pre-push: running race smoke (data flocking + ptyio + app msgpump)..."
+  go test -race ./internal/data ./internal/ui/ptyio -count=1
+  go test -race ./internal/app -run 'TestExternalMsgPumpConcurrent' -count=1
+fi
+
 echo "amux pre-push: running tests..."
 go test ./internal/e2e -count=1
 

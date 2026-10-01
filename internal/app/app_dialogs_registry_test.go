@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"regexp"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,33 +12,63 @@ import (
 )
 
 // TestAppDialogIDsCoverConstants guards the single-source-of-truth contract:
-// every Dialog* constant declared in app_core.go (plus the agent-picker runtime
-// ID) must be a member of appDialogIDs. If a new dialog constant is added
-// without registering it here, its DialogResult would silently misroute to a
-// component instead of handleDialogResult — this test fails first.
+// every Dialog* constant declared in app_core.go (plus the agent-picker and
+// run-session-picker runtime IDs) must be a member of appDialogIDs. If a new
+// dialog constant is added without registering it, its DialogResult would
+// silently misroute to a component instead of handleDialogResult — this test
+// fails first.
+//
+// The constant set is derived mechanically by scanning app_core.go (precedent:
+// internal/process/noslog_test.go) so adding a Dialog* const without a
+// registry entry fails this test — a hand-maintained list here already missed
+// DialogBulkDeleteWorkspace once.
 func TestAppDialogIDsCoverConstants(t *testing.T) {
-	constants := []string{
-		DialogAddProject,
-		DialogCreateWorkspace,
-		DialogDeleteWorkspace,
-		DialogRenameWorkspace,
-		DialogCommitWorkspace,
-		DialogMergeWorkspace,
-		DialogMergeConflict,
-		DialogTrustScripts,
-		DialogShelveWorkspace,
-		DialogRemoveProject,
-		common.AgentPickerDialogID,
-		DialogQuit,
-		DialogCleanupTmux,
+	raw, err := os.ReadFile("app_core.go")
+	if err != nil {
+		t.Fatalf("read app_core.go for Dialog* enumeration: %v", err)
 	}
-	for _, id := range constants {
+	declRe := regexp.MustCompile(`(?m)^\s*(Dialog\w+)\s*=\s*"([^"]+)"`)
+	declared := declRe.FindAllStringSubmatch(string(raw), -1)
+	if len(declared) < 10 {
+		t.Fatalf("scanned only %d Dialog* constants from app_core.go; the regex probably stopped matching", len(declared))
+	}
+
+	for _, m := range declared {
+		name, id := m[1], m[2]
 		if !isAppDialogID(id) {
-			t.Errorf("dialog ID %q is not registered in appDialogIDs; "+
-				"its DialogResult would misroute to a component", id)
+			t.Errorf("%s = %q is not registered in appDialogIDs; "+
+				"its DialogResult would misroute to a component", name, id)
 		}
 		if appDialogHandlers[id] == nil {
-			t.Errorf("dialog ID %q routes as App-level but has no registered handler", id)
+			t.Errorf("%s = %q routes as App-level but has no registered handler", name, id)
+		}
+	}
+
+	// Runtime IDs registered without a Dialog* constant — emitted by widgets,
+	// not declared in app_core.go. Keep this list explicit and short.
+	runtimeIDs := []string{
+		common.AgentPickerDialogID,
+		common.RunSessionPickerDialogID,
+	}
+	for _, id := range runtimeIDs {
+		if appDialogHandlers[id] == nil {
+			t.Errorf("runtime dialog ID %q has no registered handler", id)
+		}
+	}
+
+	// Reverse direction: every registered handler must trace back to a
+	// declared constant or a listed runtime ID — catches a handler keyed by a
+	// stale/deleted constant string.
+	known := make(map[string]string, len(declared)+len(runtimeIDs))
+	for _, m := range declared {
+		known[m[2]] = m[1]
+	}
+	for _, id := range runtimeIDs {
+		known[id] = "runtime ID"
+	}
+	for id := range appDialogHandlers {
+		if _, ok := known[id]; !ok {
+			t.Errorf("registered dialog ID %q has no Dialog* constant in app_core.go and is not a listed runtime ID", id)
 		}
 	}
 }

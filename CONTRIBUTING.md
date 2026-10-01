@@ -99,6 +99,9 @@ Dev-side environment variables:
   prefer it over `--no-verify`, which would also disable all of those.
 - `AMUX_SKIP_HARNESS=1` — skip only the pre-push harness run; strict lint,
   the e2e suite, and the missing-tmux warning still apply.
+- `AMUX_SKIP_RACE=1` — skip only the pre-push race smoke (`go test -race` on
+  the data-flocking, ptyio, and msgpump race tests); strict lint, the
+  harness, and the e2e suite still apply.
 - `AMUX_LINT_BASE_REF=<ref>` — override the pre-push strict-lint base ref
   (default `origin/main`).
 - `AMUX_HARNESS_CENTER_ARGS="..."` — override the pre-push harness args

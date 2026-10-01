@@ -170,16 +170,22 @@ tmux-skip-check:
 	skipped=$$(awk '\
 		/^[[:space:]]+[^[:space:]]+\.go:[0-9]+:/ { reason=$$0 } \
 		/^--- SKIP:/ { \
-			if (reason !~ /cannot start PTY-backed tmux attach|client never attached|signal permissions restricted in this environment|tmux version does not emit DEC 2026 synchronized-output markers/) skipped++; \
+			if (reason ~ /cannot start PTY-backed tmux attach|client never attached|signal permissions restricted in this environment|tmux version does not emit DEC 2026 synchronized-output markers/) whitelisted++; \
+			else skipped++; \
 			reason=""; \
 		} \
-		END { print skipped + 0 }' "$$output"); \
-	if [ "$$skipped" -gt 0 ]; then \
+		END { print (skipped + 0) " " (whitelisted + 0) }' "$$output"); \
+	nonwhitelisted=$$(echo "$$skipped" | cut -d' ' -f1); \
+	whitelisted=$$(echo "$$skipped" | cut -d' ' -f2); \
+	if [ "$$nonwhitelisted" -gt 0 ]; then \
 		if [ "$${STRICT_TMUX:-}" = "1" ]; then \
-			echo "ERROR: $$skipped real-tmux/e2e tests skipped while STRICT_TMUX=1 (tmux is expected to be present here)."; \
+			echo "ERROR: $$nonwhitelisted real-tmux/e2e tests skipped while STRICT_TMUX=1 (tmux is expected to be present here)."; \
 			exit 1; \
 		fi; \
-		echo "NOTE: $$skipped real-tmux/e2e tests skipped (tmux server unavailable or environment-restricted) — run inside tmux and use \`make verify-loop\` to exercise input/send end-to-end."; \
+		echo "NOTE: $$nonwhitelisted real-tmux/e2e tests skipped (tmux server unavailable or environment-restricted) — run inside tmux and use \`make verify-loop\` to exercise input/send end-to-end."; \
+	fi; \
+	if [ "$$whitelisted" -gt 0 ]; then \
+		echo "NOTE: $$whitelisted real-tmux/e2e tests skipped with whitelisted reasons (tmux attach/EPERM/sync-marker) — whitelisted skips are exempt from STRICT_TMUX but not invisible."; \
 	fi
 
 # verify-loop drives a real keystroke through amux's actual input path into a

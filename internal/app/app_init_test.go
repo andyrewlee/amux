@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -201,5 +202,30 @@ func TestUpdateAndView_WithFailingWatchers_NoPanic(t *testing.T) {
 	// nil-watcher panic. Assert app.err stayed nil to make this a real no-panic proof.
 	if app.err != nil {
 		t.Fatalf("app recorded an error from Update/View with nil watchers: %v", app.err)
+	}
+}
+
+// TestUpdate_RecoversPanicIntoErr exercises the deferred recover in App.Update —
+// the outermost recover site and, unlike its siblings (View, workspacesvc,
+// wrapLifecycleCmd), the one whose contract was previously only implied by
+// no-panic tests. A WindowSizeMsg on a minimal App dereferences the nil layout
+// manager inside handleWindowSize; Update must trap that panic, record an
+// internal error on a.err, return itself as the model, and return a nil cmd.
+func TestUpdate_RecoversPanicIntoErr(t *testing.T) {
+	a := &App{}
+
+	model, cmd := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	if model != a {
+		t.Fatalf("Update returned model %T(%v), want the same *App after panic recovery", model, model)
+	}
+	if cmd != nil {
+		t.Fatalf("Update returned non-nil cmd after panic recovery: %v", cmd)
+	}
+	if a.err == nil {
+		t.Fatal("expected Update to record an internal error after recovering the panic")
+	}
+	if !strings.Contains(a.err.Error(), "internal error") {
+		t.Fatalf("expected a wrapped internal error, got: %v", a.err)
 	}
 }
