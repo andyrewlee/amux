@@ -102,27 +102,34 @@ func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cm
 // zero (a claimed count would overstate reclaimability); the probe releases
 // nothing — reclaim stays a separate, deliberate decision.
 func (a *App) reclaimablePortReservations(svc *workspacesvc.Service, knownIDs map[string]bool, opts tmux.Options) int {
+	return len(a.reclaimablePortReservationIDs(svc, knownIDs, opts))
+}
+
+// reclaimablePortReservationIDs is the reclaimablePortReservations probe with
+// the orphan set exposed — the release action re-runs it verbatim so the
+// released set is always re-derived, never trusted from display time.
+func (a *App) reclaimablePortReservationIDs(svc *workspacesvc.Service, knownIDs map[string]bool, opts tmux.Options) []string {
 	reserved, err := svc.ReservedPortIntervals()
 	if err != nil {
 		logging.Warn("status: port reservation snapshot failed: %v", err)
-		return 0
+		return nil
 	}
 	if len(reserved) == 0 {
-		return 0
+		return nil
 	}
 	sessionsByWS, err := a.amuxSessionsByWorkspace(opts)
 	if err != nil {
 		logging.Warn("status: session listing failed; reservation count suppressed: %v", err)
-		return 0
+		return nil
 	}
-	count := 0
+	var orphans []string
 	for id := range reserved {
 		if knownIDs[id] || len(sessionsByWS[id]) > 0 {
 			continue
 		}
-		count++
+		orphans = append(orphans, id)
 	}
-	return count
+	return orphans
 }
 
 // workspaceStatusReadyMsg delivers the off-loop portion of the status
@@ -165,6 +172,7 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 	a.requestRunOutputOpen(func() {
 		a.overlays.runOutputWorkspace = msg.ws
 		a.overlays.runOutputAttachable = false
+		a.overlays.runOutputReleaseCount = st.reclaimablePorts
 		a.overlays.runOutput = common.NewOutputDialog("Workspace — "+msg.ws.Name, content)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()
@@ -383,10 +391,81 @@ func renderWorkspaceStatus(st workspaceStatus) string {
 			writeKV("state", "unknown — could not read recovery state")
 		}
 		if st.reclaimablePorts > 0 {
-			writeKV("port reservations", fmt.Sprintf("%d held by deleted workspaces (release is manual)", st.reclaimablePorts))
+			writeKV("port reservations", fmt.Sprintf("%d held by deleted workspaces — press R to release", st.reclaimablePorts))
 		}
 	}
 	return b.String()
+}
+
+// reservationReleaseResultMsg carries the off-loop probe+release outcome for
+// the typed-confirm flow: count is the number of reservations actually
+// deleted (0 with nil err means the orphan set was already gone).
+type reservationReleaseResultMsg struct {
+	count int
+	err   error
+}
+
+// openReservationReleaseDialog swaps the workspace-status viewer for the
+// typed-confirm gate. The viewer closes first — overlay arbitration forbids
+// stacking a dialog over it — and the count captured here only seeds the
+// confirm text; the released set is re-derived at confirm time.
+func (a *App) openReservationReleaseDialog(count int) {
+	a.closeRunOutputDialog()
+	want := strconv.Itoa(count)
+	a.dialog = common.NewInputDialog(
+		DialogReleasePortReservations,
+		fmt.Sprintf("Release %d Port Reservations", count),
+		"Type "+want+" to confirm",
+	)
+	a.dialog.SetInputValidate(func(s string) string {
+		if s == "" {
+			return "" // no nag on empty — the hint is already visible
+		}
+		if strings.TrimSpace(s) != want {
+			return "Type " + want + " to confirm the release"
+		}
+		return ""
+	})
+	a.presentDialog(a.dialog)
+}
+
+// dialogResultReleasePortReservations runs the release on confirm. The typed
+// count is ceremony — the load-bearing invariant is that the orphan set is
+// RE-DERIVED inside the cmd, never trusted from display time (a workspace
+// could have been deleted or its sessions recreated since the viewer opened).
+// Re-derivation is fail-closed: a stale probe under-releases, never over-.
+func dialogResultReleasePortReservations(a *App, result common.DialogResult, _ dialogContext) tea.Cmd {
+	if !result.Confirmed || a.workspaceService == nil {
+		return nil
+	}
+	svc := a.workspaceService
+	knownIDs := a.collectKnownWorkspaceIDs()
+	opts := a.tmuxOptions
+	return func() tea.Msg {
+		ids := a.reclaimablePortReservationIDs(svc, knownIDs, opts)
+		if len(ids) == 0 {
+			return reservationReleaseResultMsg{}
+		}
+		released, err := svc.ReleasePortReservations(ids)
+		if err != nil {
+			return reservationReleaseResultMsg{err: err}
+		}
+		return reservationReleaseResultMsg{count: len(released)}
+	}
+}
+
+// handleReservationReleaseResult reports the release outcome. A zero count
+// is honest — the orphans resolved themselves (or a fresh probe found live
+// sessions) between display and confirm, so nothing was deleted.
+func (a *App) handleReservationReleaseResult(msg reservationReleaseResultMsg) tea.Cmd {
+	if msg.err != nil {
+		logging.Error("port reservation release failed: %v", msg.err)
+		return a.toast.ShowError("Reservation release failed: " + msg.err.Error())
+	}
+	if msg.count == 0 {
+		return a.toast.ShowInfo("No orphaned reservations to release")
+	}
+	return a.toast.ShowInfo(fmt.Sprintf("Released %d orphaned port reservation(s)", msg.count))
 }
 
 func orDash(s string) string {

@@ -51,7 +51,10 @@ const (
 	DialogRemoveProject       = "remove_project"
 	DialogQuit                = "quit"
 	DialogCleanupTmux         = "cleanup_tmux"
-	DialogSaveTranscript      = "save_transcript"
+	// DialogReleasePortReservations is the typed confirm for releasing
+	// orphaned port reservations shown by the workspace-status viewer.
+	DialogReleasePortReservations = "release_port_reservations"
+	DialogSaveTranscript          = "save_transcript"
 	// DialogBrowseTranscripts is the FilePicker ID for browsing saved
 	// transcripts — distinct from DialogAddProject so the confirm routes to
 	// the file viewer, not project creation.

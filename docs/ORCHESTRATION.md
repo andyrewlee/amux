@@ -372,13 +372,18 @@ state home. The contract an orchestrator can rely on:
 - **Stability**: re-spawns, restarts, and concurrent instances all read the
   committed interval verbatim. Intervals minted under earlier port settings
   keep their original bounds — current settings shape only new reservations.
-- **No reclamation**: reservations survive release, workspace teardown, quits,
-  and crashes. A stale release can never hand a live session's range to another
-  workspace. There is no TTL and no liveness-based reuse in this release. The
-  `i` workspace-status dialog enumerates — read-only, from the same registry —
-  how many committed reservations are owned by workspace IDs absent from both
-  the live model and every tagged session; the count is informational and
-  release stays manual.
+- **No automatic reclamation**: reservations survive release, workspace
+  teardown, quits, and crashes. A stale release can never hand a live
+  session's range to another workspace. There is no TTL and no
+  liveness-based reuse. The `i` workspace-status dialog enumerates — from
+  the same registry — how many committed reservations are owned by
+  workspace IDs absent from both the live model and every tagged session.
+  From that dialog, `R` opens a typed-confirm release: on confirm the
+  orphan probe is re-run fresh (the displayed set is never trusted —
+  re-derivation is fail-closed, so staleness can only under-release), and
+  exactly the still-orphaned entries are deleted under the registry flock.
+  Release is never automatic; the only path to deletion is this
+  user-confirmed action.
 - **Exhaustion/corruption fail closed**: a saturated space reports a typed
   exhaustion error; malformed, overlapping, or newer-schema bytes are left
   untouched and surfaced as errors — never silently accepted or rewritten.

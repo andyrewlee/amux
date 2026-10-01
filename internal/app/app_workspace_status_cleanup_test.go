@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -207,7 +209,7 @@ func TestWorkspaceStatusCleanup_ReclaimableCountRenders(t *testing.T) {
 	ws := &data.Workspace{Name: "ws", Repo: t.TempDir(), Root: t.TempDir(), Branch: "feat"}
 	statusInterval(t, app, ws)
 	view := ansi.Strip(app.overlays.runOutput.View())
-	if !strings.Contains(view, "2 held by deleted workspaces (release is manual)") {
+	if !strings.Contains(view, "2 held by deleted workspaces — press R to release") {
 		t.Fatalf("reclaimable count missing:\n%s", view)
 	}
 }
@@ -266,5 +268,112 @@ func TestWorkspaceStatusCleanup_SessionListFailureSuppressesCount(t *testing.T) 
 	view := ansi.Strip(app.overlays.runOutput.View())
 	if strings.Contains(view, "held by deleted workspaces") {
 		t.Fatalf("count rendered despite session-list failure:\n%s", view)
+	}
+}
+
+// TestWorkspaceStatusRelease_RInterceptOpensConfirm proves `R` on the status
+// flavor swaps the viewer for the typed-confirm dialog — the viewer must
+// close first because overlay arbitration forbids stacking.
+func TestWorkspaceStatusRelease_RInterceptOpensConfirm(t *testing.T) {
+	app, resStore, _ := reclaimableStatusApp(t, nil)
+	mustReserveCleanup(t, resStore, "deadbeef01234567")
+	ws := &data.Workspace{Name: "ws", Repo: t.TempDir(), Root: t.TempDir(), Branch: "feat"}
+	statusInterval(t, app, ws)
+	if app.overlays.runOutputReleaseCount != 1 {
+		t.Fatalf("release count = %d, want 1", app.overlays.runOutputReleaseCount)
+	}
+
+	var cmds []tea.Cmd
+	if !app.handleRunOutputInput(tea.KeyPressMsg{Code: 'R', Text: "R"}, &cmds) {
+		t.Fatal("R was not intercepted")
+	}
+	if app.overlays.runOutput != nil {
+		t.Fatal("status viewer still open — confirm dialog cannot stack over it")
+	}
+	if app.dialog == nil || !app.dialog.Visible() {
+		t.Fatal("typed-confirm dialog did not open")
+	}
+}
+
+// TestWorkspaceStatusRelease_ROtherFlavorsIgnored proves `R` is inert on the
+// non-status flavors — only a positive release count enables the intercept.
+func TestWorkspaceStatusRelease_ROtherFlavorsIgnored(t *testing.T) {
+	app, _, _ := reclaimableStatusApp(t, nil)
+	app.overlays.runOutput = common.NewOutputDialog("Run output", "x")
+	app.overlays.runOutput.Show()
+	app.overlays.runOutputReleaseCount = 0
+
+	var cmds []tea.Cmd
+	app.handleRunOutputInput(tea.KeyPressMsg{Code: 'R', Text: "R"}, &cmds)
+	if app.dialog != nil && app.dialog.Visible() {
+		t.Fatal("release dialog opened on a non-status flavor")
+	}
+}
+
+// TestReleasePortReservations_ReDerivesAndReleases proves the confirm path
+// re-runs the orphan probe and deletes exactly the still-orphaned set.
+func TestReleasePortReservations_ReDerivesAndReleases(t *testing.T) {
+	app, resStore, ops := reclaimableStatusApp(t, nil)
+	mustReserveCleanup(t, resStore, "deadbeef01234567")
+	mustReserveCleanup(t, resStore, "deadbeef89abcdef")
+	// The second owner re-materialized a live session between display and
+	// confirm — the fresh probe must exclude it.
+	ops.SessionsWithTagsFunc = func(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+		return []tmux.SessionTagValues{sessionTagRow("deadbeef89abcdef")}, nil
+	}
+
+	cmd := dialogResultReleasePortReservations(app, common.DialogResult{
+		ID: DialogReleasePortReservations, Confirmed: true, Value: "2",
+	}, dialogContext{})
+	if cmd == nil {
+		t.Fatal("confirm produced no release cmd")
+	}
+	res, ok := cmd().(reservationReleaseResultMsg)
+	if !ok {
+		t.Fatalf("release cmd emitted %T, want reservationReleaseResultMsg", cmd())
+	}
+	if res.err != nil || res.count != 1 {
+		t.Fatalf("release result = count %d err %v, want 1,nil", res.count, res.err)
+	}
+	snap, err := resStore.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(snap) != 1 {
+		t.Fatalf("registry = %v, want only the live-session owner retained", snap)
+	}
+	if _, ok := snap["deadbeef89abcdef"]; !ok {
+		t.Fatalf("live-session reservation was released: %v", snap)
+	}
+}
+
+// TestReleasePortReservations_CancelAndEmpty prove the no-op surfaces: cancel
+// emits nothing, and a confirm whose re-probe finds zero orphans reports
+// "nothing released" rather than a fake success.
+func TestReleasePortReservations_CancelAndEmpty(t *testing.T) {
+	app, _, _ := reclaimableStatusApp(t, nil)
+	if cmd := dialogResultReleasePortReservations(app, common.DialogResult{
+		ID: DialogReleasePortReservations, Confirmed: false,
+	}, dialogContext{}); cmd != nil {
+		t.Fatal("cancel produced a release cmd")
+	}
+
+	// Nothing reserved — the fresh probe finds zero orphans.
+	cmd := dialogResultReleasePortReservations(app, common.DialogResult{
+		ID: DialogReleasePortReservations, Confirmed: true, Value: "1",
+	}, dialogContext{})
+	res, ok := cmd().(reservationReleaseResultMsg)
+	if !ok || res.count != 0 || res.err != nil {
+		t.Fatalf("empty release = %+v, want zero-count result", res)
+	}
+	if cmd := app.handleReservationReleaseResult(res); cmd == nil {
+		t.Fatal("zero-release produced no toast")
+	}
+}
+
+func mustReserveCleanup(t *testing.T, s *data.PortReservationStore, id string) {
+	t.Helper()
+	if _, _, err := s.Reserve(id, 6200, 10); err != nil {
+		t.Fatalf("Reserve(%q): %v", id, err)
 	}
 }

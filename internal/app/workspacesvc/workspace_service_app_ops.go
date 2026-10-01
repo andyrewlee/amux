@@ -96,6 +96,18 @@ func (s *Service) ReservedPortIntervals() (map[string]data.PortReservationInterv
 	return s.scripts.ReservedPortIntervals()
 }
 
+// ReleasePortReservations deletes the named workspace-ID reservations from
+// the durable registry — the write side of ReservedPortIntervals. Callers
+// must re-verify each ID is still orphaned immediately before releasing
+// (fresh snapshot + session listing): the set displayed to the user is
+// already stale by confirm time.
+func (s *Service) ReleasePortReservations(ids []string) (map[string]data.PortReservationInterval, error) {
+	if s == nil || s.scripts == nil {
+		return nil, nil
+	}
+	return s.scripts.ReleasePortReservations(ids)
+}
+
 // LastScriptOutputs returns the runner's recorded lifecycle-script
 // transcripts for the workspace; nil runner reports an empty set.
 func (s *Service) LastScriptOutputs(ws *data.Workspace) map[process.ScriptType]process.ScriptOutput {
