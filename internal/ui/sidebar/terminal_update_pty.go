@@ -7,7 +7,6 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
@@ -48,19 +47,22 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		DropCounter:      "sidebar_pty_drop",
 	})
 	// Written under ts.mu because EnforceAttachedTerminalTabLimit reads it
-	// from under the same lock.
+	// from under the same lock; FlushScheduled/FlushPendingSince also sit
+	// under ts.mu now — the writer goroutine mutates sibling State fields
+	// there, so Update-goroutine access needs the same discipline.
 	now := time.Now()
 	ts.mu.Lock()
 	ts.LastOutputAt = now
-	ts.mu.Unlock()
 	if !ts.FlushScheduled {
 		ts.FlushScheduled = true
 		ts.FlushPendingSince = now
-		quiet, _ := m.flushTimingFor(ts)
+		quiet, _ := m.flushTimingForLocked(ts)
+		ts.mu.Unlock()
 		return common.SafeTick(quiet, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 		})
 	}
+	ts.mu.Unlock()
 	return nil
 }
 
@@ -74,42 +76,34 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		return nil
 	}
 	ts := tab.State
-	quiet, maxInterval := m.flushTimingFor(ts)
-	if delay, deferred := ts.State.FlushGate(time.Now(), quiet, maxInterval); deferred {
+	now := time.Now()
+	var pendingClip []byte
+	var rearm bool
+	ts.mu.Lock()
+	quiet, maxInterval := m.flushTimingForLocked(ts)
+	delay, deferred := ts.State.FlushGate(now, quiet, maxInterval)
+	if !deferred && len(ts.PendingOutput) > 0 && ts.VTerm != nil {
+		chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
+		if !m.enqueueSidebarWriteLocked(ts, sidebarWriteReq{chunk: chunk, workspaceID: wsID, tabID: string(tabID)}) {
+			pendingClip = drainSidebarWriteQueueLocked(ts, chunk)
+		}
+		rearm = ts.State.RearmFlush(now, nil)
+	}
+	ts.mu.Unlock()
+	if deferred {
 		return common.SafeTick(delay, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 		})
 	}
-	if len(ts.PendingOutput) == 0 {
-		return nil
-	}
-	var consumed bool
-	var pendingClip []byte
-	ts.mu.Lock()
-	if ts.VTerm != nil {
-		chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
-		_ = ts.State.WriteFilteredChunkLocked(ts.VTerm.Write, chunk)
-		if len(ts.PendingOutput) == 0 {
-			// Stream paused at the flush boundary: a held `name(N)` tail is
-			// more likely a real prompt than a split diagnostic — release it.
-			ts.State.FlushNoiseTrailingLocked(ts.VTerm.Write)
-		}
-		pendingClip = ts.VTerm.TakePendingClipboard()
-		consumed = true
-	}
-	ts.mu.Unlock()
 	if clip, ok := common.OSC52ClipboardText(pendingClip); ok {
 		safego.Go("sidebar.osc52_clipboard", func() {
 			common.CopyToClipboardWithLog(clip, "agent OSC52 (sidebar)")
 		})
 	}
-	if !consumed {
+	if !rearm {
 		return nil
 	}
-	if !ts.State.RearmFlush(time.Now(), nil) {
-		return nil
-	}
-	delay, _ := m.flushTimingFor(ts)
+	delay, _ = m.flushTimingFor(ts)
 	if delay < time.Millisecond {
 		delay = time.Millisecond
 	}
@@ -129,11 +123,10 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
 	ts.mu.Lock()
 	if ts.VTerm != nil && len(ts.NoiseTrailing) > 0 {
-		trailing := ptyio.DrainKnownPTYNoiseTrailing(&ts.NoiseTrailing)
-		flushDone := perf.Time("pty_flush")
-		ts.VTerm.Write(trailing)
-		flushDone()
-		perf.Count("pty_flush_bytes", int64(len(trailing)))
+		// Synchronous on purpose: this drain belongs to the dead stream and
+		// must be ordered before a restart's VTerm swap, so it doesn't go
+		// through the writer queue.
+		applySidebarWriteLocked(ts, sidebarWriteReq{drainTrailing: true})
 	}
 	ts.mu.Unlock()
 	m.stopPTYReader(ts)

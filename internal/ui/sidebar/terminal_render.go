@@ -151,18 +151,24 @@ func (m *TerminalModel) TerminalLayer() *compositor.VTermLayer {
 }
 
 // VisibleTerminalVersion returns the active sidebar terminal's visible-content
-// version for App's full-frame cache key.
+// version for App's full-frame cache key. A contended ts.mu means the writer
+// goroutine is mid-write — the version is about to change, so the probe serves
+// the last-published value instead of queueing behind the parse.
 func (m *TerminalModel) VisibleTerminalVersion() uint64 {
 	ts := m.getTerminal()
 	if ts == nil {
 		return 0
 	}
-	ts.mu.Lock()
+	if !ts.mu.TryLock() {
+		return ts.frameVerProbe.Load()
+	}
 	defer ts.mu.Unlock()
 	if ts.VTerm == nil {
 		return 0
 	}
-	return ts.VTerm.Version()
+	version := ts.VTerm.Version()
+	ts.frameVerProbe.Store(version)
+	return version
 }
 
 // TerminalLayerWithCursorOwner returns a VTermLayer for the active workspace

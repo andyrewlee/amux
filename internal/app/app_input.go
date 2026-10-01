@@ -123,7 +123,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.Toast:
 		cmds = append(cmds, a.showToast(msg))
 
-	case messages.SidebarPTYOutput, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, messages.SidebarSelectionScrollTick:
+	case frameCoalesceKick:
+		// Arrival alone re-runs View(), which rebuilds the frame now that the
+		// coalesce window has expired. Nothing to mutate here.
+
+	case messages.SidebarPTYOutput, messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart, sidebar.SidebarTerminalCreated, sidebar.SidebarTerminalCreateFailed, sidebar.SidebarTerminalReattachResult, sidebar.SidebarTerminalReattachFailed, sidebar.SidebarTabWritten, messages.SidebarSelectionScrollTick:
 		if cmd := a.handleSidebarPTYMessages(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -32,13 +34,34 @@ type visibleFrameVersion struct {
 //
 // valid is explicitly invalidated by visible App.Update messages. key catches
 // active vterm mutations performed by the tab actor or synchronous PTY paths.
+//
+// Bubble Tea calls View() after every message, not per render tick — the fps
+// ticker only flushes pixels to the terminal (see charm.land/bubbletea
+// tea.go's per-message p.render). A PTY flood therefore produces a cache miss
+// per buffered-output message while the terminal only ever sees ~60 flushed
+// frames per second. Coalescing bounds rebuilds to roughly the render cadence:
+// a key-drift miss within frameRebuildWindow of the last build is served the
+// previous frame plus a scheduled kick message that guarantees the tail
+// rebuilds once the window expires (no stale-tail starvation). Update-driven
+// invalidation (valid=false) — cursor moves, overlay changes, focus — never
+// coalesces.
 type fullFrameCache struct {
-	valid  bool
-	key    visibleFrameVersion
-	view   tea.View
-	builds uint64 // test/perf instrumentation
-	hits   uint64 // test/perf instrumentation
+	valid     bool
+	key       visibleFrameVersion
+	view      tea.View
+	builds    uint64 // test/perf instrumentation
+	hits      uint64 // test/perf instrumentation
+	coalesced uint64 // test/perf instrumentation
+
+	lastBuildAt      time.Time
+	coalesceKickSent bool
 }
+
+// frameRebuildWindow caps how close two full-frame rebuilds may be. It matches
+// the renderer's 60fps flush cadence — serving one extra stale view inside the
+// window is invisible because the terminal could not have flushed another
+// frame yet anyway.
+const frameRebuildWindow = 16 * time.Millisecond
 
 func (c *fullFrameCache) get(key visibleFrameVersion) (tea.View, bool) {
 	if !c.valid || c.key != key {
@@ -48,11 +71,25 @@ func (c *fullFrameCache) get(key visibleFrameVersion) (tea.View, bool) {
 	return c.view, true
 }
 
+// coalesce returns the still-valid previous frame when this key-drift miss
+// arrives inside the rebuild window, marking that a kick must be scheduled so
+// the post-window View() rebuilds. Returns ok=false when the entry was
+// invalidated (correctness-critical change) or the window has expired.
+func (c *fullFrameCache) coalesce(now time.Time) (tea.View, bool) {
+	if !c.valid || now.Sub(c.lastBuildAt) >= frameRebuildWindow {
+		return tea.View{}, false
+	}
+	c.coalesced++
+	return c.view, true
+}
+
 func (c *fullFrameCache) store(key visibleFrameVersion, view tea.View) {
 	c.valid = true
 	c.key = key
 	c.view = view
 	c.builds++
+	c.lastBuildAt = time.Now()
+	c.coalesceKickSent = false
 }
 
 func (c *fullFrameCache) invalidate() {

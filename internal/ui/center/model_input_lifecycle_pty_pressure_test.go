@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/perf"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
@@ -159,4 +161,72 @@ func TestUpdatePTYOutput_NeverPressureDetachesVisibleTab(t *testing.T) {
 	if !tab.backgroundPTYPressureSince.IsZero() {
 		t.Fatal("visible tab should clear background pressure tracking")
 	}
+}
+
+// counterVal reads one perf counter from a Snapshot result (ptyio's copy is
+// package-local; duplicating the 8-line lookup beats exporting test plumbing).
+func counterVal(counters []perf.CounterSnapshot, name string) int64 {
+	for _, c := range counters {
+		if c.Name == name {
+			return c.Value
+		}
+	}
+	return 0
+}
+
+// The overflow rescan exists only for the chat-tab ANSI-activity tracker; a
+// flooded non-chat tab must not pay the O(<=8MiB) byte scan per message.
+func TestUpdatePTYOutput_OverflowRescanGatedToChatTabs(t *testing.T) {
+	restore := perf.EnableForTest()
+	defer restore()
+
+	mkTab := func(assistant string, ws *data.Workspace) *Tab {
+		return &Tab{
+			ID:          TabID("t-" + assistant),
+			Assistant:   assistant,
+			Workspace:   ws,
+			SessionName: "s-" + assistant,
+			Running:     true,
+			State:       ptyio.State{PendingOutput: bytes.Repeat([]byte("x"), ptyMaxBufferedBytes-1)},
+		}
+	}
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+
+	t.Run("non-chat tab skips rescan", func(t *testing.T) {
+		m := newTestModel()
+		tab := mkTab("viewer", ws) // not in cfg.Assistants -> not a chat tab
+		m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+		m.tabs.ActiveByWorkspace[wsID] = 0
+		m.workspace = ws
+		perf.Snapshot()
+		_ = m.updatePTYOutput(PTYOutput{WorkspaceID: wsID, TabID: tab.ID, Data: []byte("more")})
+		_, counters := perf.Snapshot()
+		if v := counterVal(counters, "pty_overflow_rescan"); v != 0 {
+			t.Fatalf("pty_overflow_rescan = %d on a non-chat tab, want 0", v)
+		}
+	})
+
+	t.Run("chat tab still rescans and updates ANSI state", func(t *testing.T) {
+		m := newTestModel()
+		tab := mkTab("claude", ws) // registered chat assistant
+		m.tabs.ByWorkspace[wsID] = []*Tab{tab}
+		m.tabs.ActiveByWorkspace[wsID] = 0
+		m.workspace = ws
+		perf.Snapshot()
+		_ = m.updatePTYOutput(PTYOutput{WorkspaceID: wsID, TabID: tab.ID, Data: []byte("more")})
+		_, counters := perf.Snapshot()
+		if v := counterVal(counters, "pty_overflow_rescan"); v != 1 {
+			t.Fatalf("pty_overflow_rescan = %d on a chat tab, want 1", v)
+		}
+		tab.mu.Lock()
+		defer tab.mu.Unlock()
+		if tab.activityANSIState != ansiActivityText {
+			// Rescan must still feed the activity tracker on the chat path.
+			// (Pending bytes are all 'x' — visible text — so state stays
+			// ansiActivityText either way; the counter above is the real
+			// proof the scan ran. This just guards a state-obliteration bug.)
+			t.Fatalf("activityANSIState = %v, want %v", tab.activityANSIState, ansiActivityText)
+		}
+	})
 }

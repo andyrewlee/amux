@@ -8,6 +8,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -24,7 +25,13 @@ func (m *TerminalModel) flushTimingFor(ts *TerminalState) (time.Duration, time.D
 
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+	return m.flushTimingForLocked(ts)
+}
 
+// flushTimingForLocked is flushTimingFor for callers already holding ts.mu —
+// the flush handler keeps one hold across the whole ptyio.State critical
+// section now that the writer goroutine also mutates State under ts.mu.
+func (m *TerminalModel) flushTimingForLocked(ts *TerminalState) (time.Duration, time.Duration) {
 	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs).
 	if ts.VTerm != nil && ts.VTerm.AltScreen {
 		return ptyFlushQuietAlt, ptyFlushMaxAlt
@@ -76,6 +83,15 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	case messages.SidebarPTYRestart:
 		if cmd := m.handlePTYRestart(msg); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+	case SidebarTabWritten:
+		// The writer goroutine captured an OSC52 clipboard payload — drain it
+		// off-loop exactly once per write, same as the pre-actor path.
+		if clip, ok := common.OSC52ClipboardText(msg.clip); ok {
+			safego.Go("sidebar.osc52_clipboard", func() {
+				common.CopyToClipboardWithLog(clip, "agent OSC52 (sidebar)")
+			})
 		}
 
 	case SidebarTerminalCreated:

@@ -53,34 +53,47 @@ func (m *Model) IsTabActive(tab *Tab) bool {
 	return m.isTabActiveAt(tab, time.Now())
 }
 
-// isTabActiveAt evaluates the whole predicate under one lock: ActivityVersion
-// calls it for every tab on every frame, so a second acquisition per tab is
-// pure overhead, and it needs one shared "now" across the tabs it compares.
+// isTabActiveAt evaluates the whole predicate under one lock. ActivityVersion
+// calls it for every tab on every frame, so the probe must never queue behind
+// an actor write: TryLock plus the last-published bit keeps the predicate
+// lock-free under contention (a contended tab is mid-output — the cached bit
+// already reports exactly that).
 func (m *Model) isTabActiveAt(tab *Tab, now time.Time) bool {
 	if tab == nil || tab.isClosed() {
 		return false
 	}
-	tab.mu.Lock()
-	defer tab.mu.Unlock()
-	if !m.isChatTabLocked(tab) {
-		return false
+	if !tab.mu.TryLock() {
+		return atomic.LoadUint32(&tab.activeBit) == 1
 	}
-	return isTabVisiblyActiveLocked(tab, now)
+	active := m.isChatTabLocked(tab) && isTabVisiblyActiveLocked(tab, now)
+	tab.mu.Unlock()
+	if active {
+		atomic.StoreUint32(&tab.activeBit, 1)
+	} else {
+		atomic.StoreUint32(&tab.activeBit, 0)
+	}
+	return active
 }
 
 // isTabCursorOutputActiveAt is the chat-cursor half of the same question: it
 // reports the window TerminalLayerWithCursorOwner consults when deciding whether
-// to trust the live cursor. See isTabCursorOutputActiveLocked.
+// to trust the live cursor. See isTabCursorOutputActiveLocked. Same TryLock
+// discipline as isTabActiveAt — cursor trust must not block a frame either.
 func (m *Model) isTabCursorOutputActiveAt(tab *Tab, now time.Time) bool {
 	if tab == nil || tab.isClosed() {
 		return false
 	}
-	tab.mu.Lock()
-	defer tab.mu.Unlock()
-	if !m.isChatTabLocked(tab) {
-		return false
+	if !tab.mu.TryLock() {
+		return atomic.LoadUint32(&tab.cursorActiveBit) == 1
 	}
-	return isTabCursorOutputActiveLocked(tab, now)
+	active := m.isChatTabLocked(tab) && isTabCursorOutputActiveLocked(tab, now)
+	tab.mu.Unlock()
+	if active {
+		atomic.StoreUint32(&tab.cursorActiveBit, 1)
+	} else {
+		atomic.StoreUint32(&tab.cursorActiveBit, 0)
+	}
+	return active
 }
 
 func isTabVisiblyActiveLocked(tab *Tab, now time.Time) bool {
@@ -240,12 +253,21 @@ func (m *Model) VisibleTerminalVersions() (content, title uint64) {
 	if tab == nil {
 		return 0, 0
 	}
-	tab.mu.Lock()
+	// A contended tab.mu means the actor is mid-write: the versions are about
+	// to change, so serve the last-published pair rather than queue behind
+	// the write (the previous frame is exactly what blocking callers ended
+	// up rendering against anyway).
+	if !tab.mu.TryLock() {
+		return atomic.LoadUint64(&tab.frameContentVer), atomic.LoadUint64(&tab.frameTitleVer)
+	}
 	defer tab.mu.Unlock()
 	if tab.Terminal == nil {
 		return 0, 0
 	}
-	return tab.Terminal.Version(), tab.Terminal.TitleVersion()
+	content, title = tab.Terminal.Version(), tab.Terminal.TitleVersion()
+	atomic.StoreUint64(&tab.frameContentVer, content)
+	atomic.StoreUint64(&tab.frameTitleVer, title)
+	return content, title
 }
 
 // ActivityVersion fingerprints the frame inputs the center derives from tab

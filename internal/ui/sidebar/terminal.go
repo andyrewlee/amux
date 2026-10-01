@@ -58,6 +58,16 @@ type TerminalState struct {
 	// bookkeeping (locking owned by mu, as documented on the type).
 	ptyio.State
 
+	// writeQ feeds the per-tab writer goroutine that owns VTerm.Write — PTY
+	// parse work must not run on the Update goroutine (a streaming sidebar log
+	// would consume the event loop; the center pane solved this with the tab
+	// actor). Lazily created under mu; closed by teardown paths under mu.
+	writeQ chan sidebarWriteReq
+
+	// frameVerProbe is the last VTerm version published under mu for the
+	// lock-free frame-version probe — see VisibleTerminalVersion.
+	frameVerProbe atomic.Uint64
+
 	// Track last size to avoid unnecessary resizes
 	lastWidth  int
 	lastHeight int

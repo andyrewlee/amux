@@ -95,30 +95,39 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 			DropCounter:      "pty_output_drop",
 		})
 		data := res.Data
-		activityData := data
+		isChat := m.isChatTab(tab)
+		var activityData []byte
 		activityState := ansiActivityText
 		activityStateSet := false
-		if res.Overflowed {
-			chunkStart := res.PrevPendingLen
-			if res.RetainedStart > chunkStart {
-				dropFromMsg := res.RetainedStart - chunkStart
-				if dropFromMsg >= len(data) {
-					activityData = nil
-				} else {
-					activityData = data[dropFromMsg:]
+		if isChat {
+			// The overflow rescan + activityData slicing exist only for the
+			// chat-tab ANSI-activity tracker — skip both for non-chat tabs so
+			// a flooded non-chat tab doesn't pay an O(≤8MiB) byte scan per
+			// output message for a discarded result.
+			activityData = data
+			if res.Overflowed {
+				chunkStart := res.PrevPendingLen
+				if res.RetainedStart > chunkStart {
+					dropFromMsg := res.RetainedStart - chunkStart
+					if dropFromMsg >= len(data) {
+						activityData = nil
+					} else {
+						activityData = data[dropFromMsg:]
+					}
 				}
+				activityPrefixLen := len(tab.PendingOutput) - len(activityData)
+				if activityPrefixLen < 0 {
+					activityPrefixLen = 0
+				}
+				_, activityState = hasVisiblePTYOutput(tab.PendingOutput[:activityPrefixLen], ansiActivityText)
+				perf.Count("pty_overflow_rescan", 1)
+				activityStateSet = true
 			}
-			activityPrefixLen := len(tab.PendingOutput) - len(activityData)
-			if activityPrefixLen < 0 {
-				activityPrefixLen = 0
-			}
-			_, activityState = hasVisiblePTYOutput(tab.PendingOutput[:activityPrefixLen], ansiActivityText)
-			activityStateSet = true
 		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
 		now := time.Now()
 		tab.LastOutputAt = now
-		if m.isChatTab(tab) {
+		if isChat {
 			tab.mu.Lock()
 			if tab.bootstrapActivity &&
 				!tab.bootstrapLastOutputAt.IsZero() &&

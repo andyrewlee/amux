@@ -19,6 +19,8 @@ func TestHandlePTYFlush_DrainsPendingClipboard(t *testing.T) {
 	m := NewTerminalModel()
 	m.width = 40
 	m.height = 10
+	results := make(chan SidebarTabWritten, 4)
+	m.SetMsgSink(collectWritten(results))
 
 	wsID := "ws-clip"
 	tabID := generateTerminalTabID()
@@ -48,7 +50,18 @@ func TestHandlePTYFlush_DrainsPendingClipboard(t *testing.T) {
 		TabID:       string(tabID),
 	})
 
-	// Second TakePendingClipboard must return nil — handlePTYFlush drained it.
+	// The writer goroutine applies the write and reports the captured
+	// clipboard payload back to the update loop.
+	select {
+	case res := <-results:
+		if len(res.clip) == 0 {
+			t.Fatal("SidebarTabWritten arrived without the OSC52 payload")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for the sidebar writer result")
+	}
+
+	// Second TakePendingClipboard must return nil — the writer drained it.
 	if second := ts.VTerm.TakePendingClipboard(); second != nil {
 		t.Fatalf("expected second TakePendingClipboard to return nil after sidebar drain, got %q", string(second))
 	}
@@ -60,6 +73,8 @@ func TestHandlePTYFlush_NilClipboardWhenNoOSC52(t *testing.T) {
 	m := NewTerminalModel()
 	m.width = 40
 	m.height = 10
+	results := make(chan SidebarTabWritten, 4)
+	m.SetMsgSink(collectWritten(results))
 
 	wsID := "ws-noclip"
 	tabID := generateTerminalTabID()
@@ -84,8 +99,13 @@ func TestHandlePTYFlush_NilClipboardWhenNoOSC52(t *testing.T) {
 		TabID:       string(tabID),
 	})
 
-	if clip := ts.VTerm.TakePendingClipboard(); clip != nil {
-		t.Fatalf("expected nil clipboard after plain text flush, got %q", string(clip))
+	select {
+	case res := <-results:
+		if len(res.clip) != 0 {
+			t.Fatalf("unexpected clipboard payload for plain text: %q", string(res.clip))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for the sidebar writer result")
 	}
 }
 
