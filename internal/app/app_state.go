@@ -11,11 +11,6 @@ func (a *App) markInput() {
 	a.pendingInputLatency = true
 }
 
-// IsTmuxAvailable returns whether tmux is installed and available.
-func (a *App) IsTmuxAvailable() bool {
-	return a.tmuxAvailable
-}
-
 func (a *App) tmuxSyncWorkspaces() []*data.Workspace {
 	if a.activeWorkspace != nil {
 		return []*data.Workspace{a.activeWorkspace}

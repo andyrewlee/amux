@@ -96,6 +96,35 @@ func (m *AgentManager) getTmuxOptions() tmux.Options {
 	return opts
 }
 
+// spawnEnv builds the layered spawn env shared by every create path:
+// provider layers first, then workspace identity and PATH, with caller
+// extras last so spawn-specific vars always win over user layers.
+func (m *AgentManager) spawnEnv(ws *data.Workspace, extra ...string) ([]string, error) {
+	env, err := m.sessionEnvLayers(ws)
+	if err != nil {
+		return nil, err
+	}
+	env = append(env,
+		"WORKSPACE_ROOT="+ws.Root,
+		"WORKSPACE_NAME="+ws.Name,
+	)
+	env = append(env, extra...)
+	env = append(env, "COLORTERM=truecolor")
+	if path := AugmentedPath(); path != "" {
+		env = append(env, "PATH="+path)
+	}
+	return env, nil
+}
+
+// register appends a spawned agent to the workspace's agent list. Keep this
+// as the single mutation site — the ordering relative to terminal creation
+// (register only after the pty exists) is what callers rely on.
+func (m *AgentManager) register(ws *data.Workspace, agent *Agent) {
+	m.mu.Lock()
+	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
+	m.mu.Unlock()
+}
+
 // CreateAgent creates a new agent for the given workspace.
 func (m *AgentManager) CreateAgent(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16) (*Agent, error) {
 	return m.CreateAgentWithTags(ws, agentType, sessionName, rows, cols, tmux.SessionTags{})
@@ -134,21 +163,12 @@ func (m *AgentManager) CreateAgentWithConfig(ws *data.Workspace, agentType Agent
 		return nil, err
 	}
 
-	// Build environment: layered workspace env (when a provider is wired),
-	// then spawn-specific vars last so they always win over user layers.
-	env, err := m.sessionEnvLayers(ws)
-	if err != nil {
-		return nil, err
-	}
-	env = append(env,
-		"WORKSPACE_ROOT="+ws.Root,
-		"WORKSPACE_NAME="+ws.Name,
+	env, err := m.spawnEnv(ws,
 		"LINES=",   // Unset to force ioctl usage
 		"COLUMNS=", // Unset to force ioctl usage
-		"COLORTERM=truecolor",
 	)
-	if path := AugmentedPath(); path != "" {
-		env = append(env, "PATH="+path)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create terminal with agent command, falling back to shell on exit
@@ -182,10 +202,7 @@ func (m *AgentManager) CreateAgentWithConfig(ws *data.Workspace, agentType Agent
 		Config:    assistantCfg,
 		Session:   sessionName,
 	}
-
-	m.mu.Lock()
-	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
-	m.mu.Unlock()
+	m.register(ws, agent)
 
 	return agent, nil
 }
@@ -206,20 +223,9 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 	if err := tmux.EnsureAvailable(); err != nil {
 		return nil, err
 	}
-	// Build environment: layered workspace env (when a provider is wired),
-	// then spawn-specific vars last so they always win over user layers.
-	env, err := m.sessionEnvLayers(ws)
+	env, err := m.spawnEnv(ws, "TERM=xterm-256color")
 	if err != nil {
 		return nil, err
-	}
-	env = append(env,
-		"WORKSPACE_ROOT="+ws.Root,
-		"WORKSPACE_NAME="+ws.Name,
-		"TERM=xterm-256color",
-		"COLORTERM=truecolor",
-	)
-	if path := AugmentedPath(); path != "" {
-		env = append(env, "PATH="+path)
 	}
 
 	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
@@ -242,10 +248,7 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 		Config:    config.AssistantConfig{}, // No specific config
 		Session:   sessionName,
 	}
-
-	m.mu.Lock()
-	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
-	m.mu.Unlock()
+	m.register(ws, agent)
 
 	return agent, nil
 }
@@ -403,18 +406,9 @@ func (m *AgentManager) CreateRunAttach(ws *data.Workspace, sessionName string, r
 	if err := tmux.EnsureAvailable(); err != nil {
 		return nil, err
 	}
-	env, err := m.sessionEnvLayers(ws)
+	env, err := m.spawnEnv(ws, "TERM=xterm-256color")
 	if err != nil {
 		return nil, err
-	}
-	env = append(env,
-		"WORKSPACE_ROOT="+ws.Root,
-		"WORKSPACE_NAME="+ws.Name,
-		"TERM=xterm-256color",
-		"COLORTERM=truecolor",
-	)
-	if path := AugmentedPath(); path != "" {
-		env = append(env, "PATH="+path)
 	}
 
 	term, err := NewTmuxClientWithSize(
@@ -432,10 +426,7 @@ func (m *AgentManager) CreateRunAttach(ws *data.Workspace, sessionName string, r
 		Config:    config.AssistantConfig{},
 		Session:   sessionName,
 	}
-
-	m.mu.Lock()
-	m.agents[ws.ID()] = append(m.agents[ws.ID()], agent)
-	m.mu.Unlock()
+	m.register(ws, agent)
 
 	return agent, nil
 }

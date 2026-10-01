@@ -26,31 +26,31 @@ const (
 type prefixCommand struct {
 	Sequence []string
 	Desc     string
-	Action   string
+	Action   prefixAction
 }
 
 // prefixCommandTable is user-documented in README.md ("Controls") — add a
 // row there when adding a command.
 var prefixCommandTable = []prefixCommand{
-	{Sequence: []string{"a"}, Desc: "add project", Action: "add_project"},
-	{Sequence: []string{"d"}, Desc: "delete workspace", Action: "delete_workspace"},
-	{Sequence: []string{"S"}, Desc: "Settings", Action: "open_settings"},
-	{Sequence: []string{"q"}, Desc: "quit", Action: "quit"},
-	{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: "cleanup_tmux"},
-	{Sequence: []string{"h"}, Desc: "focus left", Action: "focus_left"},
-	{Sequence: []string{"l"}, Desc: "focus right", Action: "focus_right"},
-	{Sequence: []string{"n"}, Desc: "next attention", Action: "next_attention"},
-	{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: "new_agent_tab"},
-	{Sequence: []string{"t", "t"}, Desc: "new terminal tab", Action: "new_terminal_tab"},
-	{Sequence: []string{"t", "n"}, Desc: "next tab", Action: "next_tab"},
-	{Sequence: []string{"t", "p"}, Desc: "prev tab", Action: "prev_tab"},
-	{Sequence: []string{"t", "x"}, Desc: "close tab", Action: "close_tab"},
-	{Sequence: []string{"t", "d"}, Desc: "detach tab", Action: "detach_tab"},
-	{Sequence: []string{"t", "r"}, Desc: "reattach tab", Action: "reattach_tab"},
-	{Sequence: []string{"t", "s"}, Desc: "restart tab", Action: "restart_tab"},
-	{Sequence: []string{"t", "y"}, Desc: "copy transcript", Action: "copy_transcript"},
-	{Sequence: []string{"t", "f"}, Desc: "save transcript to file", Action: "save_transcript"},
-	{Sequence: []string{"t", "o"}, Desc: "open saved transcript", Action: "browse_transcripts"},
+	{Sequence: []string{"a"}, Desc: "add project", Action: prefixActionAddProject},
+	{Sequence: []string{"d"}, Desc: "delete workspace", Action: prefixActionDeleteWorkspace},
+	{Sequence: []string{"S"}, Desc: "Settings", Action: prefixActionOpenSettings},
+	{Sequence: []string{"q"}, Desc: "quit", Action: prefixActionQuit},
+	{Sequence: []string{"K"}, Desc: "cleanup tmux", Action: prefixActionCleanupTmux},
+	{Sequence: []string{"h"}, Desc: "focus left", Action: prefixActionFocusLeft},
+	{Sequence: []string{"l"}, Desc: "focus right", Action: prefixActionFocusRight},
+	{Sequence: []string{"n"}, Desc: "next attention", Action: prefixActionNextAttention},
+	{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: prefixActionNewAgentTab},
+	{Sequence: []string{"t", "t"}, Desc: "new terminal tab", Action: prefixActionNewTerminalTab},
+	{Sequence: []string{"t", "n"}, Desc: "next tab", Action: prefixActionNextTab},
+	{Sequence: []string{"t", "p"}, Desc: "prev tab", Action: prefixActionPrevTab},
+	{Sequence: []string{"t", "x"}, Desc: "close tab", Action: prefixActionCloseTab},
+	{Sequence: []string{"t", "d"}, Desc: "detach tab", Action: prefixActionDetachTab},
+	{Sequence: []string{"t", "r"}, Desc: "reattach tab", Action: prefixActionReattachTab},
+	{Sequence: []string{"t", "s"}, Desc: "restart tab", Action: prefixActionRestartTab},
+	{Sequence: []string{"t", "y"}, Desc: "copy transcript", Action: prefixActionCopyTranscript},
+	{Sequence: []string{"t", "f"}, Desc: "save transcript to file", Action: prefixActionSaveTranscript},
+	{Sequence: []string{"t", "o"}, Desc: "open saved transcript", Action: prefixActionBrowseScripts},
 }
 
 // Prefix mode helpers (leader key)
@@ -158,7 +158,7 @@ func (a *App) prefixInputToken(msg tea.KeyPressMsg) (string, bool) {
 func (a *App) prefixCommands() []prefixCommand {
 	commands := append([]prefixCommand(nil), prefixCommandTable...)
 	if a.centerScrollPrefixActive() {
-		commands = append(commands, prefixCommand{Sequence: []string{"u"}, Desc: "scroll up", Action: "scroll_up"})
+		commands = append(commands, prefixCommand{Sequence: []string{"u"}, Desc: "scroll up", Action: prefixActionScrollUp})
 		for i := range commands {
 			if len(commands[i].Sequence) == 1 && commands[i].Sequence[0] == "d" {
 				commands[i].Desc = "scroll down"
@@ -198,90 +198,104 @@ func (a *App) matchingPrefixCommands(sequence []string) []prefixCommand {
 	return matches
 }
 
-func (a *App) runPrefixAction(action string) tea.Cmd {
+func (a *App) runPrefixAction(action prefixAction) tea.Cmd {
 	switch action {
-	case "focus_left":
+	case prefixActionFocusLeft:
 		return a.focusPaneLeft()
-	case "focus_right":
+	case prefixActionFocusRight:
 		return a.focusPaneRight()
-	case "next_attention":
-		// Works app-wide: jump the dashboard cursor to the next done-badge row
-		// and land on it (activation rides along, so the ack + preview happen
-		// exactly as if the user had cursor'd there). Focus follows the
-		// dashboard so the jumped row is visibly selected.
-		if a.dashboard == nil {
-			return nil
-		}
-		jump := a.dashboard.JumpToNextAttention()
-		if jump == nil {
-			return a.toast.ShowInfo("No workspaces need attention")
-		}
-		return common.SafeBatch(a.focusPane(messages.PaneDashboard), jump)
-	case "scroll_up":
-		if a.centerScrollPrefixActive() {
-			a.center.ScrollActiveTerminalPage(1)
-		}
+	case prefixActionNextAttention:
+		return a.nextAttentionCommand()
+	case prefixActionScrollUp:
+		a.scrollActivePagePrefix(1)
 		return nil
-	case "scroll_down":
-		if a.centerScrollPrefixActive() {
-			a.center.ScrollActiveTerminalPage(-1)
-		}
+	case prefixActionScrollDown:
+		a.scrollActivePagePrefix(-1)
 		return nil
-	case "add_project":
+	case prefixActionAddProject:
 		return func() tea.Msg { return messages.ShowAddProjectDialog{} }
-	case "delete_workspace":
+	case prefixActionDeleteWorkspace:
 		return a.deleteWorkspaceCommand()
-	case "open_settings":
+	case prefixActionOpenSettings:
 		return func() tea.Msg { return messages.ShowSettingsDialog{} }
-	case "quit":
+	case prefixActionQuit:
 		a.showQuitDialog()
 		return nil
-	case "cleanup_tmux":
+	case prefixActionCleanupTmux:
 		return func() tea.Msg { return messages.ShowCleanupTmuxDialog{} }
-	case "new_agent_tab":
-		if a.activeWorkspace == nil || a.activeProject == nil {
-			return a.requireWorkspaceSelection("create agent tab")
-		}
-		if !a.tmuxAvailable {
-			return common.ReportError("creating agent tab", errors.New("tmux not available"), "tmux required to create tabs. "+a.tmuxInstallHint)
-		}
-		return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
-	case "new_terminal_tab":
-		if a.activeWorkspace == nil || a.activeProject == nil {
-			return a.requireWorkspaceSelection("create terminal tab")
-		}
-		if !a.tmuxAvailable {
-			return common.ReportError("creating terminal tab", errors.New("tmux not available"), "tmux required to create tabs. "+a.tmuxInstallHint)
-		}
-		// Intentionally global to the workspace (no sidebar focus required).
-		return a.sidebarTerminal.CreateNewTab()
-	case "next_tab":
+	case prefixActionNewAgentTab:
+		return a.newAgentTabCommand()
+	case prefixActionNewTerminalTab:
+		return a.newTerminalTabCommand()
+	case prefixActionNextTab:
 		return a.cycleTab(a.sidebar.NextTab, a.sidebarTerminal.NextTab, a.center.NextTab)
-	case "prev_tab":
+	case prefixActionPrevTab:
 		return a.cycleTab(a.sidebar.PrevTab, a.sidebarTerminal.PrevTab, a.center.PrevTab)
-	case "close_tab":
+	case prefixActionCloseTab:
 		if a.focusedPane == messages.PaneSidebarTerminal {
 			return a.sidebarTerminal.CloseActiveTab()
 		}
 		return a.center.CloseActiveTab()
-	case "detach_tab":
+	case prefixActionDetachTab:
 		return a.dispatchTabAction(
 			func() tea.Cmd { return common.SafeBatch(a.center.DetachActiveTab(), a.persistActiveWorkspaceTabs()) },
 			a.sidebarTerminal.DetachActiveTab,
 		)
-	case "reattach_tab":
+	case prefixActionReattachTab:
 		return a.dispatchTabAction(a.center.ReattachActiveTab, a.sidebarTerminal.ReattachActiveTab)
-	case "restart_tab":
+	case prefixActionRestartTab:
 		return a.dispatchTabAction(a.center.RestartActiveTab, a.sidebarTerminal.RestartActiveTab)
-	case "copy_transcript":
+	case prefixActionCopyTranscript:
 		return a.copyTranscriptCommand()
-	case "save_transcript":
+	case prefixActionSaveTranscript:
 		return a.saveTranscriptCommand()
-	case "browse_transcripts":
+	case prefixActionBrowseScripts:
 		return a.browseTranscriptsCommand()
 	default:
 		return nil
 	}
+}
+
+// nextAttentionCommand jumps the dashboard cursor to the next done-badge row
+// and lands on it (activation rides along, so the ack + preview happen
+// exactly as if the user had cursor'd there). Focus follows the dashboard so
+// the jumped row is visibly selected.
+func (a *App) nextAttentionCommand() tea.Cmd {
+	if a.dashboard == nil {
+		return nil
+	}
+	jump := a.dashboard.JumpToNextAttention()
+	if jump == nil {
+		return a.toast.ShowInfo("No workspaces need attention")
+	}
+	return common.SafeBatch(a.focusPane(messages.PaneDashboard), jump)
+}
+
+func (a *App) scrollActivePagePrefix(pages int) {
+	if a.centerScrollPrefixActive() {
+		a.center.ScrollActiveTerminalPage(pages)
+	}
+}
+
+func (a *App) newAgentTabCommand() tea.Cmd {
+	if a.activeWorkspace == nil || a.activeProject == nil {
+		return a.requireWorkspaceSelection("create agent tab")
+	}
+	if !a.tmuxAvailable {
+		return common.ReportError("creating agent tab", errors.New("tmux not available"), "tmux required to create tabs. "+a.tmuxInstallHint)
+	}
+	return func() tea.Msg { return messages.ShowSelectAssistantDialog{} }
+}
+
+func (a *App) newTerminalTabCommand() tea.Cmd {
+	if a.activeWorkspace == nil || a.activeProject == nil {
+		return a.requireWorkspaceSelection("create terminal tab")
+	}
+	if !a.tmuxAvailable {
+		return common.ReportError("creating terminal tab", errors.New("tmux not available"), "tmux required to create tabs. "+a.tmuxInstallHint)
+	}
+	// Intentionally global to the workspace (no sidebar focus required).
+	return a.sidebarTerminal.CreateNewTab()
 }
 
 // activeTranscript returns the focused terminal pane's full transcript
