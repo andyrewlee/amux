@@ -175,7 +175,9 @@ See `go doc ./cmd/amux-harness` for all `-mode` values, flags, and the
 
 Versioning follows SemVer and tags are `vX.Y.Z`. There is no automated release job — releases are built and published locally. `make release` runs `release-check` (the full `make ci` gate plus a fail-closed release-toolchain preflight and `goreleaser check`), tags, and pushes the tag; pushing a tag does **not** trigger anything. To publish artifacts, run `goreleaser release --clean` yourself with `GITHUB_TOKEN` (for the GitHub Release) and `MINISIGN_SECRET_KEY_FILE` (a local file holding the signing key — never commit it) set in the environment.
 
-The release toolchain is pinned: goreleaser's major version is pinned by `.goreleaser-version` — install it with `go install github.com/goreleaser/goreleaser/v2@$(cat .goreleaser-version)` — and minisign by `scripts/install_minisign.sh` (version + sha256-verified download). `release-check` fails without either tool or the two env vars, and on a goreleaser major-version mismatch.
+The release toolchain is pinned: goreleaser's major version is pinned by `.goreleaser-version` — install it with `go install github.com/goreleaser/goreleaser/v2@$(cat .goreleaser-version)` — and minisign by `scripts/install_minisign.sh` (version + sha256-verified download; supports linux tarballs and the macOS arm64 zip — on intel macs or other OSes, `brew install minisign` works too since `release-check` only needs the binary). `release-check` fails without either tool or the two env vars, and on a goreleaser major-version mismatch.
+
+All file-pinned tools (`.golangci-version`, `.goreleaser-version`, `GOVULNCHECK_VERSION`, `AIR_VERSION` in the Makefile, `MINISIGN_VERSION` in `scripts/install_minisign.sh`) are reported on by `scripts/check_tool_versions.sh`, which `make ci-nightly` runs last — it prints `NOTE tool: pinned X, latest Y` lines and never fails; stale pins are a prompt to bump deliberately, not a gate.
 
 Fast path:
 

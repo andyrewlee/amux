@@ -88,7 +88,8 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 	var selStartX, selStartY, selEndX, selEndY int
 	if selActive {
 		selStartX, selStartY, selEndX, selEndY = vterm.NormalizeSelectionRange(
-			snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY)
+			snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY,
+		)
 	}
 
 	// When compositing layers, we must draw ALL cells every frame.
@@ -137,7 +138,8 @@ func (l *VTermLayer) DrawAt(s uv.Screen, posX, posY, maxWidth, maxHeight int) {
 
 			// Build the ultraviolet cell into the reused local.
 			inSel := selActive && vterm.SelectionContains(
-				selStartX, selStartY, selEndX, selEndY, x, y)
+				selStartX, selStartY, selEndX, selEndY, x, y,
+			)
 			cellToUVSnapshot(&uvCell, cell, snap, x, y, inSel)
 
 			// Set cell at screen position (ultraviolet copies the value).

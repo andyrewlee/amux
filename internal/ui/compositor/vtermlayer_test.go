@@ -25,9 +25,11 @@ func TestVTermLayerSelectionCursorOverlap(t *testing.T) {
 	// Precompute the selection containment the way DrawAt does (bounds are
 	// normalized once per frame and passed in).
 	selStartX, selStartY, selEndX, selEndY := vterm.NormalizeSelectionRange(
-		snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY)
+		snap.SelStartX, snap.SelStartY, snap.SelEndX, snap.SelEndY,
+	)
 	inSel := snap.SelActive && vterm.SelectionContains(
-		selStartX, selStartY, selEndX, selEndY, 0, 0)
+		selStartX, selStartY, selEndX, selEndY, 0, 0,
+	)
 	cellToUVSnapshot(&uvCell, cell, snap, 0, 0, inSel)
 
 	if uvCell.Style.Attrs&uv.AttrReverse == 0 {

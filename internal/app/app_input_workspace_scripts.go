@@ -24,7 +24,8 @@ func (a *App) handleShowWorkspaceScriptsDialog(msg messages.ShowWorkspaceScripts
 		a.overlays.scripts = common.NewScriptsDialog(
 			msg.Workspace.Scripts.Setup, msg.Workspace.Scripts.Run,
 			msg.Workspace.Scripts.Archive, msg.Workspace.Scripts.OnDone,
-			msg.Workspace.ScriptMode)
+			msg.Workspace.ScriptMode,
+		)
 		a.overlays.scripts.SetSize(a.width, a.height)
 		a.overlays.scripts.Show()
 	})

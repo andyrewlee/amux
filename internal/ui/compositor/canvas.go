@@ -108,7 +108,8 @@ func (c *Canvas) DrawScreen(x, y, w, h int, screen [][]vterm.Cell, cursor Cursor
 	var selStartX, selStartY, selEndX, selEndY int
 	if selActive {
 		selStartX, selStartY, selEndX, selEndY = vterm.NormalizeSelectionRange(
-			selection.StartX, selection.StartY, selection.EndX, selection.EndY)
+			selection.StartX, selection.StartY, selection.EndX, selection.EndY,
+		)
 	}
 	maxY := min(h, len(screen))
 	for row := 0; row < maxY; row++ {

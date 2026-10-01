@@ -52,7 +52,8 @@ func (v *VTerm) IsInSelection(x, screenY int) bool {
 
 	// Normalize selection so start is before end.
 	startX, startLine, endX, endLine := NormalizeSelectionRange(
-		v.selStartX, v.selStartLine, v.selEndX, v.selEndLine)
+		v.selStartX, v.selStartLine, v.selEndX, v.selEndLine,
+	)
 
 	if v.selRect {
 		// Rectangular selection: every row in range shares the same column span.

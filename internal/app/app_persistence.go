@@ -61,7 +61,8 @@ func (a *App) persistOneTabSnapshot(snap tabPersistSnapshot) (committed bool, er
 	var saveErr error
 	ran := a.runUnlessWorkspaceMutationInFlight(snap.wsID, func() {
 		wrote, saveErr = a.workspaceService.SaveWorkspaceTabs(
-			snap.fallback, snap.seq, snap.tabs, snap.activeIdx)
+			snap.fallback, snap.seq, snap.tabs, snap.activeIdx,
+		)
 	})
 	if !ran {
 		// Mutation began between capture and execution — nothing was written
