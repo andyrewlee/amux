@@ -159,8 +159,8 @@ type App struct {
 	// would let the second overwrite the first, leaving it with no agent.
 	pendingLaunchAssistants map[string]string
 
-	// bulk drives a marked-set lifecycle op (shelve, restore, purge) one
-	// workspace at a time through the literal per-row handler — see
+	// bulk drives a marked-set lifecycle op (shelve, restore, purge, delete)
+	// one workspace at a time through the literal per-row handler — see
 	// app_bulk_shelve.go.
 	bulk bulkOpState
 
