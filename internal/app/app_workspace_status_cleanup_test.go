@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/testutil"
+	"github.com/andyrewlee/amux/internal/testutil/tmuxops"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -153,5 +156,115 @@ func TestWorkspaceStatusCleanup_ProbeNeverMutates(t *testing.T) {
 	if mark+clr+del+save+update+rename != 0 {
 		t.Fatalf("status open mutated the store: mark=%d clr=%d del=%d save=%d update=%d rename=%d",
 			mark, clr, del, save, update, rename)
+	}
+}
+
+// Reclaimable port reservations: the same cleanup section reports a count
+// of registry entries whose owner workspace is provably gone — absent from
+// the app's known-ID set AND owning zero amux-tagged sessions. Read-only
+// enumeration; failures fail closed to no line.
+
+// reclaimableStatusApp wires a durable reservation store + fakeable tmux
+// session listing into the status surface.
+func reclaimableStatusApp(t *testing.T, live []*data.Workspace) (*App, *data.PortReservationStore, *tmuxops.FakeTmuxOps) {
+	t.Helper()
+	resStore := data.NewPortReservationStore(t.TempDir())
+	if err := resStore.Initialize(nil); err != nil {
+		t.Fatalf("reservation Initialize: %v", err)
+	}
+	scripts := process.NewScriptRunner(6200, 10)
+	scripts.SetPortReservationStore(resStore)
+	ops := &tmuxops.FakeTmuxOps{}
+	app := &App{
+		config:           &config.Config{PortRangeSize: 10},
+		toast:            common.NewToastModel(),
+		workspaceService: workspacesvc.New(nil, data.NewWorkspaceStore(t.TempDir()), scripts, ""),
+		tmuxService:      ops,
+		width:            120,
+		height:           40,
+	}
+	for _, ws := range live {
+		app.projects = append(app.projects, data.Project{Workspaces: []data.Workspace{*ws}})
+	}
+	return app, resStore, ops
+}
+
+func sessionTagRow(wsID string) tmux.SessionTagValues {
+	return tmux.SessionTagValues{
+		Name: "amux-" + wsID + "-tab-x",
+		Tags: map[string]string{"@amux": "1", "@amux_workspace": wsID},
+	}
+}
+
+func TestWorkspaceStatusCleanup_ReclaimableCountRenders(t *testing.T) {
+	app, resStore, _ := reclaimableStatusApp(t, nil)
+	if _, _, err := resStore.Reserve("deadbeef01234567", 6200, 10); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	if _, _, err := resStore.Reserve("deadbeef89abcdef", 6200, 10); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	ws := &data.Workspace{Name: "ws", Repo: t.TempDir(), Root: t.TempDir(), Branch: "feat"}
+	statusInterval(t, app, ws)
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if !strings.Contains(view, "2 held by deleted workspaces (release is manual)") {
+		t.Fatalf("reclaimable count missing:\n%s", view)
+	}
+}
+
+func TestWorkspaceStatusCleanup_LiveSessionNotReclaimable(t *testing.T) {
+	app, resStore, ops := reclaimableStatusApp(t, nil)
+	const owner = "deadbeef01234567"
+	if _, _, err := resStore.Reserve(owner, 6200, 10); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	if _, _, err := resStore.Reserve("deadbeef89abcdef", 6200, 10); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	// A live session tagged for the owner keeps its reservation live.
+	ops.SessionsWithTagsFunc = func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
+		return []tmux.SessionTagValues{sessionTagRow(owner)}, nil
+	}
+	ws := &data.Workspace{Name: "ws", Repo: t.TempDir(), Root: t.TempDir(), Branch: "feat"}
+	statusInterval(t, app, ws)
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if !strings.Contains(view, "1 held by deleted workspaces") {
+		t.Fatalf("live-session reservation was counted or count missing:\n%s", view)
+	}
+}
+
+func TestWorkspaceStatusCleanup_KnownWorkspaceNotReclaimable(t *testing.T) {
+	live := &data.Workspace{Name: "live", Repo: t.TempDir(), Root: t.TempDir(), Branch: "feat"}
+	app, resStore, _ := reclaimableStatusApp(t, []*data.Workspace{live})
+	// A reservation owned by a workspace in the live model is not reclaimable.
+	ownerID := string(live.MetadataID())
+	if _, _, err := resStore.Reserve(ownerID, 6200, 10); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	if _, _, err := resStore.Reserve("deadbeef89abcdef", 6200, 10); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	statusInterval(t, app, live)
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if !strings.Contains(view, "1 held by deleted workspaces") {
+		t.Fatalf("live-workspace reservation was counted or count missing:\n%s", view)
+	}
+}
+
+// Fail-closed: when the session listing can't be produced, the count is
+// suppressed entirely rather than risk overstating reclaimability.
+func TestWorkspaceStatusCleanup_SessionListFailureSuppressesCount(t *testing.T) {
+	app, resStore, ops := reclaimableStatusApp(t, nil)
+	if _, _, err := resStore.Reserve("deadbeef01234567", 6200, 10); err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	ops.SessionsWithTagsFunc = func(map[string]string, []string, tmux.Options) ([]tmux.SessionTagValues, error) {
+		return nil, errors.New("tmux wedged")
+	}
+	ws := &data.Workspace{Name: "ws", Repo: t.TempDir(), Root: t.TempDir(), Branch: "feat"}
+	statusInterval(t, app, ws)
+	view := ansi.Strip(app.overlays.runOutput.View())
+	if strings.Contains(view, "held by deleted workspaces") {
+		t.Fatalf("count rendered despite session-list failure:\n%s", view)
 	}
 }

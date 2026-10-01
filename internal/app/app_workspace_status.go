@@ -10,8 +10,10 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -48,6 +50,10 @@ type workspaceStatus struct {
 	// cleanup is the tombstone probe result — read off-loop in the open
 	// cmd (IsDeleting + one os.Stat), not by buildWorkspaceStatus.
 	cleanup workspacesvc.WorkspaceCleanup
+	// reclaimablePorts counts registry reservations whose owner workspace
+	// is provably deleted (absent from every known identity AND owning zero
+	// amux sessions). Read-only enumeration — the release stays manual.
+	reclaimablePorts int
 }
 
 // handleShowWorkspaceStatus opens the read-only status dialog for the
@@ -69,18 +75,54 @@ func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cm
 	a.overlays.runOutputToken++
 	token, svc := a.overlays.runOutputToken, a.workspaceService
 	snap := ws.Clone() // async closure convention — the live model may mutate
+	// Live-workspace snapshot for the reclaimable-reservation probe —
+	// captured on the loop because it walks a.projects (same convention as
+	// the orphan GC's known-IDs set).
+	knownIDs := a.collectKnownWorkspaceIDs()
+	opts := a.tmuxOptions
 	return func() tea.Msg {
 		alive, lastExit := svc.RunScriptStatus(&snap)
 		base, end, found, portErr := svc.WorkspacePortInterval(&snap)
 		// Read-only tombstone probe: IsDeleting + os.Stat, off the Update
 		// loop like the tmux/registry reads it rides alongside.
 		cleanup := svc.WorkspaceCleanupSnapshot(&snap)
+		reclaimable := a.reclaimablePortReservations(svc, knownIDs, opts)
 		return workspaceStatusReadyMsg{
 			token: token, ws: ws, runAlive: alive, runLastExit: lastExit,
 			portBase: base, portEnd: end, portFound: found, portErr: portErr,
-			cleanup: cleanup,
+			cleanup: cleanup, reclaimablePorts: reclaimable,
 		}
 	}
+}
+
+// reclaimablePortReservations counts registry entries whose owner workspace
+// is provably deleted: absent from every known workspace identity AND
+// owning zero amux-tagged tmux sessions. Both conditions are required —
+// anything live-looking stays counted as live. Read failures fail closed to
+// zero (a claimed count would overstate reclaimability); the probe releases
+// nothing — reclaim stays a separate, deliberate decision.
+func (a *App) reclaimablePortReservations(svc *workspacesvc.Service, knownIDs map[string]bool, opts tmux.Options) int {
+	reserved, err := svc.ReservedPortIntervals()
+	if err != nil {
+		logging.Warn("status: port reservation snapshot failed: %v", err)
+		return 0
+	}
+	if len(reserved) == 0 {
+		return 0
+	}
+	sessionsByWS, err := a.amuxSessionsByWorkspace(opts)
+	if err != nil {
+		logging.Warn("status: session listing failed; reservation count suppressed: %v", err)
+		return 0
+	}
+	count := 0
+	for id := range reserved {
+		if knownIDs[id] || len(sessionsByWS[id]) > 0 {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 // workspaceStatusReadyMsg delivers the off-loop portion of the status
@@ -88,15 +130,16 @@ func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cm
 // Everything else buildWorkspaceStatus gathers is cheap in-memory/file state
 // applied back on the loop.
 type workspaceStatusReadyMsg struct {
-	token       int
-	ws          *data.Workspace
-	runAlive    bool
-	runLastExit int
-	portBase    int
-	portEnd     int
-	portFound   bool
-	portErr     error
-	cleanup     workspacesvc.WorkspaceCleanup
+	token            int
+	ws               *data.Workspace
+	runAlive         bool
+	runLastExit      int
+	portBase         int
+	portEnd          int
+	portFound        bool
+	portErr          error
+	cleanup          workspacesvc.WorkspaceCleanup
+	reclaimablePorts int
 }
 
 // handleWorkspaceStatusReady applies the fetched runner status under the
@@ -114,6 +157,7 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 	st.runAlive = msg.runAlive
 	st.runLastExit = msg.runLastExit
 	st.cleanup = msg.cleanup
+	st.reclaimablePorts = msg.reclaimablePorts
 	if msg.portFound {
 		st.portBase, st.portEnd, st.portAllocated = msg.portBase, msg.portEnd, true
 	}
@@ -321,22 +365,26 @@ func renderWorkspaceStatus(st workspaceStatus) string {
 		fmt.Fprintf(&b, "  %-28s %s\n", k, st.envKeySource[k])
 	}
 
-	// The cleanup section renders only when a delete tombstone exists (or
-	// the probe couldn't read identity) — the tombstone is a boolean, so
-	// the text states the two honest facts and points at the warn-level
-	// logs rather than fabricating a stage. No tombstone → no section.
-	switch st.cleanup {
-	case workspacesvc.WorkspaceCleanupInterrupted:
+	// The cleanup section renders only when a delete tombstone exists, the
+	// probe couldn't read identity, or orphaned port reservations were
+	// counted — the tombstone is a boolean and the reservation count is
+	// read-only, so the text states honest facts rather than fabricating a
+	// stage or offering a release action.
+	if st.cleanup != workspacesvc.WorkspaceCleanupNone || st.reclaimablePorts > 0 {
 		b.WriteString("\ncleanup\n")
-		writeKV("state", "interrupted — worktree still present; workspace remains usable")
-		writeKV("detail", `warn-level "workspace delete" log`)
-	case workspacesvc.WorkspaceCleanupPending:
-		b.WriteString("\ncleanup\n")
-		writeKV("state", "pending — worktree already removed; retry automatic on next load")
-		writeKV("detail", `warn-level "startup recovery" log`)
-	case workspacesvc.WorkspaceCleanupUnknown:
-		b.WriteString("\ncleanup\n")
-		writeKV("state", "unknown — could not read recovery state")
+		switch st.cleanup {
+		case workspacesvc.WorkspaceCleanupInterrupted:
+			writeKV("state", "interrupted — worktree still present; workspace remains usable")
+			writeKV("detail", `warn-level "workspace delete" log`)
+		case workspacesvc.WorkspaceCleanupPending:
+			writeKV("state", "pending — worktree already removed; retry automatic on next load")
+			writeKV("detail", `warn-level "startup recovery" log`)
+		case workspacesvc.WorkspaceCleanupUnknown:
+			writeKV("state", "unknown — could not read recovery state")
+		}
+		if st.reclaimablePorts > 0 {
+			writeKV("port reservations", fmt.Sprintf("%d held by deleted workspaces (release is manual)", st.reclaimablePorts))
+		}
 	}
 	return b.String()
 }

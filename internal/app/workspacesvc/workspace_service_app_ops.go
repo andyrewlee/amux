@@ -85,6 +85,17 @@ func (s *Service) WorkspacePortInterval(ws *data.Workspace) (base, end int, foun
 	return s.scripts.PortInterval(ws)
 }
 
+// ReservedPortIntervals snapshots the durable reservation registry —
+// workspace metadata ID → interval — for read-only enumeration. Nil runner
+// or transient mode reports (nil, nil): no shared registry exists to read.
+// Real I/O — callers route it through the async fetch cmd.
+func (s *Service) ReservedPortIntervals() (map[string]data.PortReservationInterval, error) {
+	if s == nil || s.scripts == nil {
+		return nil, nil
+	}
+	return s.scripts.ReservedPortIntervals()
+}
+
 // LastScriptOutputs returns the runner's recorded lifecycle-script
 // transcripts for the workspace; nil runner reports an empty set.
 func (s *Service) LastScriptOutputs(ws *data.Workspace) map[process.ScriptType]process.ScriptOutput {

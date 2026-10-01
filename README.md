@@ -343,8 +343,11 @@ configured base/width shapes only new reservations; an interval minted under
 earlier settings keeps its original bounds. Reservations are never reclaimed
 in this release — a workspace keeps its range even after its sessions end — and
 when no disjoint interval remains, amux reports a typed exhaustion error
-instead of silently reusing one. Treat the registry as live state: do not
-delete `port-reservations.json` while any amux session exists.
+instead of silently reusing one. The `i` workspace-status dialog reports how
+many reservations are held by workspace IDs that no longer exist (no record,
+no tagged session); the count is read-only — release stays manual. Treat the
+registry as live state: do not delete `port-reservations.json` while any amux
+session exists.
 
 On top of those injected values, custom environment layers in for all script
 spawns (`setup-workspace`, `run`, `on-done`, `archive`), lowest to highest

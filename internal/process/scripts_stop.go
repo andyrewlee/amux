@@ -136,6 +136,17 @@ func (r *ScriptRunner) PortInterval(ws *data.Workspace) (base, end int, found bo
 	return r.portAllocator.LookupWorkspaceInterval(ws)
 }
 
+// ReservedPortIntervals snapshots the durable reservation registry for
+// read-only enumeration (e.g. reporting reservations held by deleted
+// workspaces). Nil allocator or transient mode reports (nil, nil). Performs
+// disk I/O — callers on the Update loop route it through a tea.Cmd.
+func (r *ScriptRunner) ReservedPortIntervals() (map[string]data.PortReservationInterval, error) {
+	if r == nil || r.portAllocator == nil {
+		return nil, nil
+	}
+	return r.portAllocator.ReservedIntervals()
+}
+
 // ReleaseWorkspace releases the workspace's port allocation once no script is
 // running for it, so a deleted workspace's port-range entry does not leak in the
 // allocator's map for the lifetime of the process. It is a no-op while a script
