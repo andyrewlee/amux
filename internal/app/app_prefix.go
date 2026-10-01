@@ -12,7 +12,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -303,9 +302,10 @@ func (a *App) activeTranscript() string {
 }
 
 // copyTranscriptCommand copies the focused terminal pane's transcript to the
-// clipboard. The clipboard write runs off-lock in a goroutine — the
-// CopyToClipboardWithLog contract. User-initiated, so the OSC52 env gate does
-// not apply.
+// clipboard. The clipboard write runs inside the returned cmd — off the Update
+// goroutine and off any tab lock, per the CopyToClipboardE contract — and the
+// toast reports the real result instead of pre-claiming success.
+// User-initiated, so the OSC52 env gate does not apply.
 func (a *App) copyTranscriptCommand() tea.Cmd {
 	text := a.activeTranscript()
 	if text == "" {
@@ -314,15 +314,26 @@ func (a *App) copyTranscriptCommand() tea.Cmd {
 	text, truncated := common.TruncateTranscriptTail(text)
 	copyFn := a.copyToClipboardFn
 	if copyFn == nil {
-		copyFn = common.CopyToClipboardWithLog
+		copyFn = common.CopyToClipboardE
 	}
-	safego.Go("app.transcript_clipboard", func() {
-		copyFn(text, "transcript")
-	})
-	if truncated {
-		return a.toast.ShowSuccess(fmt.Sprintf("Copied transcript — truncated to last %d chars", len(text)))
+	return func() tea.Msg {
+		if err := copyFn(text, "transcript"); err != nil {
+			return messages.Toast{
+				Message: fmt.Sprintf("Copy transcript failed: %v", err),
+				Level:   messages.ToastError,
+			}
+		}
+		if truncated {
+			return messages.Toast{
+				Message: fmt.Sprintf("Copied transcript — truncated to last %d chars", len(text)),
+				Level:   messages.ToastSuccess,
+			}
+		}
+		return messages.Toast{
+			Message: fmt.Sprintf("Copied transcript — %d chars", len(text)),
+			Level:   messages.ToastSuccess,
+		}
 	}
-	return a.toast.ShowSuccess(fmt.Sprintf("Copied transcript — %d chars", len(text)))
 }
 
 // saveTranscriptCommand opens an input dialog for a destination path and

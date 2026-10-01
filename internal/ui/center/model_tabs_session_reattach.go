@@ -7,6 +7,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -277,7 +278,12 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		// The subsequent CreateAgentWithConfig uses `new-session -Ads` which is
 		// atomic (attach-if-exists, create-if-not), providing an additional
 		// safety net in the unlikely event of cleanup lag.
-		_ = killSessionFn(sessionName, tmuxOpts)
+		if err := killSessionFn(sessionName, tmuxOpts); err != nil {
+			// new-session -Ads below reattaches the survivor when the kill
+			// failed — a restart that silently keeps the old session must be
+			// diagnosable.
+			logging.Error("Failed to kill tmux session %s during agent restart: %v", sessionName, err)
+		}
 
 		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, true)
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)

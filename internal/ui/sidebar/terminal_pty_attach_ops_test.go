@@ -2,11 +2,13 @@ package sidebar
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -176,6 +178,43 @@ func TestDetachActiveTab_DetachesRunningSession(t *testing.T) {
 	}
 	if ts.Terminal != nil {
 		t.Fatal("expected Terminal to be cleared after detach")
+	}
+}
+
+// TestRestartActiveTab_LogsKillFailure proves a failed session kill during
+// restart is not silent: the attach still proceeds (has-session||new-session
+// would reattach a survivor), but an Error lands in the log so a "restart"
+// that quietly kept the old session is diagnosable.
+func TestRestartActiveTab_LogsKillFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := logging.Initialize(dir, logging.LevelDebug); err != nil {
+		t.Fatalf("logging init: %v", err)
+	}
+	defer logging.Close()
+
+	oldKill := restartKillSessionFn
+	restartKillSessionFn = func(string, tmux.Options) error {
+		return errors.New("tmux server gone")
+	}
+	t.Cleanup(func() { restartKillSessionFn = oldKill })
+
+	m := NewTerminalModel()
+	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
+	registerActiveTab(m, ws, &TerminalTab{
+		ID:    generateTerminalTabID(),
+		State: &TerminalState{SessionName: "amux-restart-victim"},
+	})
+
+	// The kill runs inline; the returned cmd is the attach attempt, which the
+	// attach-path tests cover — here only the failure reporting matters.
+	if cmd := m.RestartActiveTab(); cmd == nil {
+		t.Fatal("expected the attach cmd even after a kill failure")
+	}
+
+	logging.Close()
+	logText := readLogText(t, dir)
+	if !strings.Contains(logText, "amux-restart-victim") || !strings.Contains(logText, "tmux server gone") {
+		t.Fatalf("expected restart kill failure logged with session name and cause, log:\n%s", logText)
 	}
 }
 

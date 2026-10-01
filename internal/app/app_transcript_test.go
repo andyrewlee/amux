@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,10 @@ func TestHandlePrefixCopyTranscript_NoTerminal(t *testing.T) {
 	app, _, _ := newPrefixTestApp(t)
 	app.toast = common.NewToastModel()
 	copied := make(chan string, 1)
-	app.copyToClipboardFn = func(text, _ string) { copied <- text }
+	app.copyToClipboardFn = func(text, _ string) error {
+		copied <- text
+		return nil
+	}
 
 	status, _ := app.handlePrefixCommand(tea.KeyPressMsg{Code: 't', Text: "t"})
 	if status != prefixMatchPartial {
@@ -53,7 +57,10 @@ func TestHandlePrefixCopyTranscript_CopiesActiveTab(t *testing.T) {
 	app, ws, centerModel := newPrefixTestApp(t)
 	app.toast = common.NewToastModel()
 	copied := make(chan string, 1)
-	app.copyToClipboardFn = func(text, _ string) { copied <- text }
+	app.copyToClipboardFn = func(text, _ string) error {
+		copied <- text
+		return nil
+	}
 
 	tab := &center.Tab{
 		ID:        center.TabID("tab-1"),
@@ -68,8 +75,9 @@ func TestHandlePrefixCopyTranscript_CopiesActiveTab(t *testing.T) {
 	app.handlePrefixCommand(tea.KeyPressMsg{Code: 't', Text: "t"})
 	_, cmd := app.handlePrefixCommand(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	if cmd == nil {
-		t.Fatal("expected the success toast cmd")
+		t.Fatal("expected the copy cmd")
 	}
+	msg := cmd()
 	select {
 	case text := <-copied:
 		if !strings.Contains(text, "transcript-marker line") {
@@ -78,8 +86,47 @@ func TestHandlePrefixCopyTranscript_CopiesActiveTab(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("clipboard write never ran")
 	}
-	if view := ansi.Strip(app.toast.View()); !strings.Contains(view, "Copied transcript") {
-		t.Fatalf("toast = %q, want the copied confirmation", view)
+	toast, ok := msg.(messages.Toast)
+	if !ok || toast.Level != messages.ToastSuccess {
+		t.Fatalf("msg = %#v, want success toast after a successful copy", msg)
+	}
+	if !strings.Contains(toast.Message, "Copied transcript") {
+		t.Fatalf("toast = %q, want the copied confirmation", toast.Message)
+	}
+}
+
+// TestHandlePrefixCopyTranscript_CopyFailureToastsError proves a failed
+// clipboard write surfaces an error toast instead of the pre-claimed success.
+func TestHandlePrefixCopyTranscript_CopyFailureToastsError(t *testing.T) {
+	app, ws, centerModel := newPrefixTestApp(t)
+	app.toast = common.NewToastModel()
+	app.copyToClipboardFn = func(_, _ string) error {
+		return errors.New("no clipboard tool found on PATH")
+	}
+
+	tab := &center.Tab{
+		ID:        center.TabID("tab-1"),
+		Assistant: "claude",
+		Workspace: ws,
+		Terminal:  vterm.New(40, 5),
+		Running:   true,
+	}
+	centerModel.AddTab(tab)
+	tab.Terminal.Write([]byte("transcript-marker line\r\n"))
+
+	app.handlePrefixCommand(tea.KeyPressMsg{Code: 't', Text: "t"})
+	_, cmd := app.handlePrefixCommand(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if cmd == nil {
+		t.Fatal("expected the copy cmd")
+	}
+	msg := cmd()
+	toast, ok := msg.(messages.Toast)
+	if !ok || toast.Level != messages.ToastError {
+		t.Fatalf("msg = %#v, want error toast on copy failure", msg)
+	}
+	if !strings.Contains(toast.Message, "Copy transcript failed") ||
+		!strings.Contains(toast.Message, "no clipboard tool") {
+		t.Fatalf("toast = %q, want the copy failure with the cause", toast.Message)
 	}
 }
 

@@ -231,12 +231,12 @@ func (a *App) restoredToastCmd(ws *data.Workspace) tea.Cmd {
 // handleWorkspaceRestoreFailed surfaces a restore failure and releases the
 // lifecycle guard so the shelved row can be retried.
 func (a *App) handleWorkspaceRestoreFailed(msg messages.WorkspaceRestoreFailed) tea.Cmd {
-	if msg.Workspace != nil {
-		a.markWorkspaceMutationInFlight(msg.Workspace, false)
-		a.dashboard.SetWorkspaceBusy(msg.Workspace.Root, dashboard.WorkspaceOpRestore, false)
-	}
 	var cmds []tea.Cmd
 	if msg.Workspace != nil {
+		a.markWorkspaceMutationInFlight(msg.Workspace, false)
+		if cmd := a.dashboard.SetWorkspaceBusy(msg.Workspace.Root, dashboard.WorkspaceOpRestore, false); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		// Same mid-flight-skip compensation as the shelve-failure path: a
 		// save skipped by the guard must not strand the dirty marker.
 		if cmd := a.persistWorkspaceTabs(string(msg.Workspace.ID())); cmd != nil {

@@ -172,9 +172,10 @@ type App struct {
 	abortMergeFn       func(context.Context, string) error
 	checkedOutBranchFn func(string) (string, error)
 	// copyToClipboardFn is the transcript-export sink seam: nil in
-	// production (falls back to common.CopyToClipboardWithLog); tests stub
-	// it so the copy path never shells out to pbcopy mid-test.
-	copyToClipboardFn func(text, label string)
+	// production (falls back to common.CopyToClipboardE); tests stub it so
+	// the copy path never shells out to pbcopy mid-test. The error return
+	// feeds the result toast — the copy outcome is reported to the user.
+	copyToClipboardFn func(text, label string) error
 	localBaseBranchFn func(repoPath, base string) string
 
 	// Git status management

@@ -82,7 +82,13 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	// detaches the client while the script keeps running.
 	if sessionName != "" && !tab.DetachOnly {
 		killCmd := func() tea.Msg {
-			_ = killSessionFn(sessionName, tmuxOpts)
+			if err := killSessionFn(sessionName, tmuxOpts); err != nil {
+				// Log-only: the tab is already closed, so a toast would be
+				// noise — but the leaked session can be rediscovered as a
+				// zombie tab, and a surviving pane can fail a later worktree
+				// remove, so the failure must be diagnosable.
+				logging.Error("Failed to kill tmux session %s on tab close: %v", sessionName, err)
+			}
 			return nil
 		}
 		return tea.Batch(closedCmd, killCmd)

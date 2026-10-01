@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
@@ -124,7 +125,12 @@ func closeSessionIfUnattached(sessionName string, opts tmux.Options) tea.Cmd {
 				return nil
 			}
 			if !hasClients {
-				_ = closeKillSessionFn(sessionName, opts)
+				if err := closeKillSessionFn(sessionName, opts); err != nil {
+					// Background cleanup after close — the user already
+					// detached, so Warn (not Error), but the leak must not be
+					// invisible.
+					logging.Warn("Failed to kill detached tmux session %s after close: %v", sessionName, err)
+				}
 				return nil
 			}
 			if time.Now().After(deadline) {
