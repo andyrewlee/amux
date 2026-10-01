@@ -89,7 +89,8 @@ func (a *App) resolveMergePreconditionAsync(ws *data.Workspace) tea.Cmd {
 		if head != base {
 			return refusal(ws, fmt.Sprintf(
 				"Cannot merge: %s is on '%s', not the base '%s'. Check out '%s' there and retry.",
-				ws.Repo, head, base, base))
+				ws.Repo, head, base, base,
+			))
 		}
 
 		return messages.ShowMergeWorkspaceDialog{Workspace: ws, Base: base}
@@ -198,7 +199,8 @@ func (a *App) mergeWorkspaceAsync(ws *data.Workspace, base string) tea.Cmd {
 		if head != base {
 			return refusal(ws, fmt.Sprintf(
 				"Cannot merge: %s moved to '%s' since the dialog opened; expected '%s'. Check out '%s' there and retry.",
-				ws.Repo, head, base, base))
+				ws.Repo, head, base, base,
+			))
 		}
 		return messages.WorkspaceMerged{
 			Workspace: ws,

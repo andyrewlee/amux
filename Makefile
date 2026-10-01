@@ -9,11 +9,11 @@ HARNESS_HEIGHT ?= 48
 HARNESS_SCROLLBACK_FRAMES ?= 600
 # GOFUMPT/GOIMPORTS pins must match the versions bundled in the golangci-lint
 # pinned by .golangci-version (CI runs `golangci-lint fmt --diff` against its
-# bundled formatters): golangci-lint v2.12.2 vendors gofumpt v0.9.2 and
-# x/tools v0.44.0 — bump both pins when .golangci-version bumps. Enforced by
+# bundled formatters): golangci-lint v2.14.0 vendors gofumpt v0.12.0 and
+# x/tools v0.50.0 — bump both pins when .golangci-version bumps. Enforced by
 # `make check-fmt-versions` (scripts/check_fmt_versions.sh).
-GOFUMPT ?= go run mvdan.cc/gofumpt@v0.9.2
-GOIMPORTS ?= go run golang.org/x/tools/cmd/goimports@v0.44.0
+GOFUMPT ?= go run mvdan.cc/gofumpt@v0.12.0
+GOIMPORTS ?= go run golang.org/x/tools/cmd/goimports@v0.50.0
 # LOCAL_PREFIXES mirrors `formatters.settings.goimports.local-prefixes` in
 # .golangci.yml/.golangci.strict.yml — keep in sync.
 LOCAL_PREFIXES ?= github.com/andyrewlee/amux
@@ -150,6 +150,8 @@ ci-nightly:
 	go test -race ./... -timeout 30m
 	$(MAKE) soak
 	$(MAKE) fuzz
+	@# Informational pin-staleness report — never fails.
+	-bash scripts/check_tool_versions.sh
 
 # harness-smoke mirrors the former CI test job's three quick harness asserts.
 harness-smoke:

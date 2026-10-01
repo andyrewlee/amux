@@ -255,7 +255,8 @@ func (a *App) handleWorkspaceSetupComplete(msg messages.WorkspaceSetupComplete) 
 			}
 			toastCmd := a.toast.ShowWarning(fmt.Sprintf(
 				"Skipped .amux/workspaces.json scripts for %s: repo not trusted yet (scripts run only after you trust this repo)",
-				msg.Workspace.Name))
+				msg.Workspace.Name,
+			))
 			dialogCmd := func() tea.Msg {
 				return messages.ShowTrustScriptsDialog{Workspace: msg.Workspace, ConfigHash: configHash}
 			}
