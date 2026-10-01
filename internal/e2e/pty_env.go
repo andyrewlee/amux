@@ -26,6 +26,13 @@ func childEnv(parent []string, home string, optEnv []string) []string {
 		"TERM=xterm-256color",
 		"AMUX_PROFILE=0",
 		"AMUX_PROFILE_INTERVAL_MS=0",
+		// macOS bash writes ~/.bash_sessions/* and ~/.bash_history on
+		// interactive exit — into the fixture HOME, racing t.TempDir's
+		// RemoveAll ("directory not empty"). /etc/bashrc_Apple_Terminal only
+		// engages session state when TERM_SESSION_ID is non-empty, and
+		// HISTFILE=/dev/null suppresses the history write.
+		"TERM_SESSION_ID=",
+		"HISTFILE=/dev/null",
 		config.WorkspacesRootEnvVar+"="+filepath.Join(home, ".amux", "workspaces"),
 	)
 	return append(env, optEnv...)
