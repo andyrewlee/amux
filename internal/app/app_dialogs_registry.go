@@ -45,6 +45,7 @@ var appDialogHandlers = map[string]dialogResultHandler{
 	DialogQuit:                      dialogResultQuit,
 	DialogCleanupTmux:               dialogResultCleanupTmux,
 	DialogReleasePortReservations:   dialogResultReleasePortReservations,
+	DialogMergedWorkspace:           dialogResultMergedWorkspace,
 	DialogSaveTranscript:            dialogResultSaveTranscript,
 	DialogBrowseTranscripts:         dialogResultBrowseTranscripts,
 }

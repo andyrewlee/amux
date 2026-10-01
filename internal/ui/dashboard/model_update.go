@@ -187,6 +187,9 @@ func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*
 	case key.Matches(msg, key.NewBinding(key.WithKeys("R"))):
 		return m, m.handleRename()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("M"))):
+		// Single-row by design: merge can stop mid-flight on conflicts,
+		// and a batch of N merges would strand N interactive conflict
+		// surfaces. Marks are ignored; shelve/delete/purge batch instead.
 		return m, m.handleMerge()
 	case key.Matches(msg, key.NewBinding(key.WithKeys("S"))):
 		return m, m.handleShelve()

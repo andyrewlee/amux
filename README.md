@@ -170,7 +170,9 @@ Dashboard rows (workspace/project/shelved list):
   are a typed confirm — type the workspace count — and drain each workspace
   through the same guarded path a single delete uses.
 - `R` renames a workspace; `M` merges its branch into the base (see
-  [How it works](#how-it-works)); `S` shelves it (bulk-shelves the marked set).
+  [How it works](#how-it-works)) — single-row by design since a merge can
+  stop on conflicts; on success a follow-up offers to shelve or delete the
+  now-merged workspace; `S` shelves it (bulk-shelves the marked set).
 - `space` marks a row (`●`); `esc` clears marks.
 - `r` rescans — refreshes the list and imports worktrees created outside
   amux as workspaces.

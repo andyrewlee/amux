@@ -97,6 +97,20 @@ func NewInputDialog(id, title, placeholder string) *Dialog {
 	}
 }
 
+// NewSelectDialog creates a single-choice list dialog with caller-owned
+// options — the generic counterpart to NewRunSessionPicker for choices that
+// are not tmux sessions (e.g. a post-action follow-up). The result carries
+// the chosen row's Index; esc cancels.
+func NewSelectDialog(id, title, message string, options []string) *Dialog {
+	return &Dialog{
+		id:      id,
+		dtype:   DialogSelect,
+		title:   title,
+		message: message,
+		options: options,
+	}
+}
+
 // NewConfirmDialog creates a new confirmation dialog
 func NewConfirmDialog(id, title, message string) *Dialog {
 	return &Dialog{

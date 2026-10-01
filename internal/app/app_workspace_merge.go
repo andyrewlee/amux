@@ -244,7 +244,49 @@ func (a *App) handleWorkspaceMerged(msg messages.WorkspaceMerged) tea.Cmd {
 	// cached status has to be dropped or it keeps showing pre-merge state.
 	cmds = append(cmds, a.refreshPrimaryCheckoutStatus(msg.Workspace.Repo)...)
 
+	// Post-merge follow-up: a merged workspace is usually shelved or
+	// deleted next. Offer the choice only while the row still exists —
+	// a foreign-workspace completion or an already-removed row gets no
+	// dangling dialog.
+	if ws, proj := a.findWorkspaceAndProjectByID(string(msg.Workspace.ID())); ws != nil && proj != nil {
+		a.requestOverlayOpen(func() {
+			a.clearPendingWorkspaceCreate()
+			a.dlg.project = proj
+			a.dlg.workspace = ws
+			a.dialog = common.NewSelectDialog(
+				DialogMergedWorkspace,
+				"Merged into "+common.SanitizeDisplayText(msg.Base, 64),
+				fmt.Sprintf("'%s' is fully merged. What next?", common.SanitizeDisplayText(ws.Name, 64)),
+				[]string{"Keep workspace", "Shelve workspace", "Delete workspace"},
+			)
+			a.presentDialog(a.dialog)
+		})
+	}
+
 	return common.SafeBatch(cmds...)
+}
+
+// dialogResultMergedWorkspace routes the post-merge follow-up pick. Shelve
+// emits the same message the shelve confirm's own result produces; delete
+// re-opens the existing single-delete confirm rather than short-cutting its
+// gate; keep (or esc) does nothing.
+func dialogResultMergedWorkspace(a *App, result common.DialogResult, dlg dialogContext) tea.Cmd {
+	if !result.Confirmed || dlg.workspace == nil || dlg.project == nil {
+		return nil
+	}
+	switch result.Index {
+	case 1:
+		project, ws := dlg.project, dlg.workspace
+		return func() tea.Msg {
+			return messages.ShelveWorkspace{Project: project, Workspace: ws}
+		}
+	case 2:
+		a.handleShowDeleteWorkspaceDialog(messages.ShowDeleteWorkspaceDialog{
+			Project:   dlg.project,
+			Workspace: dlg.workspace,
+		})
+	}
+	return nil
 }
 
 // refreshPrimaryCheckoutStatus drops the cached git status for a project's
