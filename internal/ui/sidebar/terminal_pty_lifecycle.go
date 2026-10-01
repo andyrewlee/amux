@@ -199,6 +199,7 @@ func (m *TerminalModel) teardownTabState(ts *TerminalState, reason string) (sess
 	// An attach in flight for this tab must not apply after teardown: bump
 	// the epoch so its late result is rejected and its client closed.
 	ts.invalidateReattachLocked()
+	ts.stopSidebarWriterLocked()
 	ts.Running = false
 	ts.RestartBackoff = 0
 	ts.mu.Unlock()
@@ -223,6 +224,7 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	// Invalidate any in-flight attach so its late outcome cannot resurrect a
 	// detached tab; a user detach is a decision the attach must not reverse.
 	ts.invalidateReattachLocked()
+	ts.stopSidebarWriterLocked()
 	term := ts.Terminal
 	ts.Terminal = nil
 	ts.Running = false

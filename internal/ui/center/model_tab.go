@@ -93,6 +93,7 @@ type Tab struct {
 	tabActivityState
 	tabActorWriteState
 	tabCursorState
+	tabFrameProbeState
 
 	ptyRows int
 	ptyCols int
@@ -155,6 +156,18 @@ type tabCursorState struct {
 	stableCursorVersion      uint64
 	lastRestrictedVersion    uint64
 	pendingIdleCursorRelearn bool
+}
+
+// tabFrameProbeState groups lock-free fallbacks for App's frame-version probe:
+// when the actor holds t.mu mid-write, View() must not queue behind it — the
+// probe falls back to these last-published values (a contended tab is by
+// definition mid-mutation, so serving the previous frame key matches what the
+// pre-TryLock code rendered once it finished waiting).
+type tabFrameProbeState struct {
+	frameContentVer uint64 // atomic
+	frameTitleVer   uint64 // atomic
+	activeBit       uint32 // atomic — last isTabVisiblyActiveLocked result
+	cursorActiveBit uint32 // atomic — last isTabCursorOutputActiveLocked result
 }
 
 func (t *Tab) isClosed() bool {

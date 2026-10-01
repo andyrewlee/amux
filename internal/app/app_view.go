@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"runtime/debug"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -10,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/perf"
+	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -47,6 +49,11 @@ func (a *App) view() tea.View {
 		return a.finalizeView(cached)
 	}
 	perf.Count("full_frame_cache_miss", 1)
+	if stale, ok := a.renderCache.frame.coalesce(time.Now()); ok {
+		perf.Count("frame_rebuild_coalesced", 1)
+		a.scheduleFrameCoalesceKick()
+		return a.finalizeView(stale)
+	}
 
 	baseView := func() tea.View {
 		var view tea.View
@@ -73,6 +80,28 @@ func (a *App) view() tea.View {
 
 	// Use layer-based rendering
 	return a.storeFrame(frameVersion, a.viewLayerBased())
+}
+
+// frameCoalesceKick is the self-message that guarantees a coalesced tail
+// rebuilds: View() cannot schedule a Cmd, so serving a stale frame arms this
+// one-shot re-entry — its arrival runs Update→View again after the window,
+// where the expired window forces a real rebuild. Update treats it as a no-op.
+type frameCoalesceKick struct{}
+
+// scheduleFrameCoalesceKick arms the one-shot kick (deduped until the next
+// build resets the flag). If the external queue is momentarily full the send
+// drops silently — safe because a full queue means more messages are already
+// on their way and those Views rebuild naturally once the window expires.
+func (a *App) scheduleFrameCoalesceKick() {
+	c := &a.renderCache.frame
+	if c.coalesceKickSent {
+		return
+	}
+	c.coalesceKickSent = true
+	safego.Go("app.frame_coalesce_kick", func() {
+		time.Sleep(frameRebuildWindow)
+		a.enqueueExternalMsg(frameCoalesceKick{})
+	})
 }
 
 func (a *App) visibleFrameVersion() visibleFrameVersion {
