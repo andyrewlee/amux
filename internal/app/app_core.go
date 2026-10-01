@@ -45,10 +45,13 @@ const (
 	// DialogBulkPurgeWorkspace is the typed confirm for permanently deleting
 	// the dashboard's marked shelved rows — the input must equal the count.
 	DialogBulkPurgeWorkspace = "bulk_purge_workspace"
-	DialogRemoveProject      = "remove_project"
-	DialogQuit               = "quit"
-	DialogCleanupTmux        = "cleanup_tmux"
-	DialogSaveTranscript     = "save_transcript"
+	// DialogBulkDeleteWorkspace is the typed confirm for permanently
+	// deleting the dashboard's marked live rows — same gate as bulk purge.
+	DialogBulkDeleteWorkspace = "bulk_delete_workspace"
+	DialogRemoveProject       = "remove_project"
+	DialogQuit                = "quit"
+	DialogCleanupTmux         = "cleanup_tmux"
+	DialogSaveTranscript      = "save_transcript"
 	// DialogBrowseTranscripts is the FilePicker ID for browsing saved
 	// transcripts — distinct from DialogAddProject so the confirm routes to
 	// the file viewer, not project creation.

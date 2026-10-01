@@ -165,8 +165,10 @@ Dashboard rows (workspace/project/shelved list):
   a shelved workspace. With marks present it bulk-restores the marked shelved
   set.
 - `D` deletes the row (each behind a confirmation): deletes a live workspace,
-  removes a project, purges a shelved workspace. With marks on shelved rows
-  it bulk-purges the marked set.
+  removes a project, purges a shelved workspace. With marks on live rows it
+  bulk-deletes them; with marks on shelved rows it bulk-purges. Bulk deletes
+  are a typed confirm — type the workspace count — and drain each workspace
+  through the same guarded path a single delete uses.
 - `R` renames a workspace; `M` merges its branch into the base (see
   [How it works](#how-it-works)); `S` shelves it (bulk-shelves the marked set).
 - `space` marks a row (`●`); `esc` clears marks.

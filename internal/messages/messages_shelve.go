@@ -50,6 +50,16 @@ type ShowBulkPurgeWorkspaceDialog struct {
 	Items []BulkWorkspaceItem
 }
 
+// ShowBulkDeleteWorkspaceDialog requests the bulk-delete confirmation for
+// the dashboard's marked live rows. Delete is destructive — worktree,
+// branch, metadata, and settings go too — so like bulk purge the dialog
+// requires typing the workspace count before the drain starts.
+// Confirmed, each item flows through the same DeleteWorkspace path a
+// single delete uses.
+type ShowBulkDeleteWorkspaceDialog struct {
+	Items []BulkWorkspaceItem
+}
+
 // WorkspaceShelved signals a shelve completed. Warning carries a best-effort
 // archive-script notice, same as WorkspaceDeleted.Warning.
 type WorkspaceShelved struct {

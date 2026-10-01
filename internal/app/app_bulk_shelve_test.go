@@ -354,3 +354,92 @@ func TestBulkFinishedForeignKindIgnored(t *testing.T) {
 		t.Fatalf("foreign completion corrupted the batch: %+v", app.bulk)
 	}
 }
+
+// TestBulkDeleteDrainsThroughDeleteHandler proves marked live rows flow
+// one at a time through the same per-row delete handler a single D uses —
+// the batch is sequencing, not a parallel op.
+func TestBulkDeleteDrainsThroughDeleteHandler(t *testing.T) {
+	app := newBulkTestApp()
+	targets := []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}
+	app.dashboard.MarkWorkspaceIDs([]string{targets[0].markID, targets[1].markID})
+
+	if cmd := app.startBulkOp(bulkOpDelete, targets); cmd == nil {
+		t.Fatal("expected the first op's cmds")
+	}
+	if !app.isWorkspaceMutationInFlight(string(targets[0].workspace.ID())) {
+		t.Fatal("head workspace not marked in-flight")
+	}
+	app.bulkFinished(targets[0].workspace, true)
+	app.bulkFinished(targets[1].workspace, true)
+	if view := ansi.Strip(app.toast.View()); !strings.Contains(view, "Deleted 2 of 2") {
+		t.Fatalf("summary toast = %q, want 'Deleted 2 of 2'", view)
+	}
+	if app.dashboard.MarkedCount() != 0 {
+		t.Fatal("marks not cleared at drain")
+	}
+}
+
+// TestBulkDeleteGuardRejectionCounts proves a live row that entered
+// another lifecycle phase between dialog open and drain is
+// skipped+counted, not stalled.
+func TestBulkDeleteGuardRejectionCounts(t *testing.T) {
+	app := newBulkTestApp()
+	targets := []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}
+	app.markWorkspaceMutationInFlight(targets[0].workspace, true)
+
+	app.startBulkOp(bulkOpDelete, targets)
+	if app.bulk.failed != 1 || app.bulk.headID != targets[1].markID {
+		t.Fatalf("rejected head should count+skip: %+v", app.bulk)
+	}
+}
+
+// TestDialogResultBulkDeleteRejectsWrongCount is the typed-confirm gate:
+// any value other than the exact count must not start the drain.
+func TestDialogResultBulkDeleteRejectsWrongCount(t *testing.T) {
+	for _, value := range []string{"", "1", "3", "two", " 2 x"} {
+		app := newBulkTestApp()
+		dlg := dialogContext{bulkTargets: []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}}
+		cmd := dialogResultBulkDeleteWorkspace(app, common.DialogResult{ID: DialogBulkDeleteWorkspace, Confirmed: true, Value: value}, dlg)
+		if app.bulk.active() {
+			t.Fatalf("value %q started the drain — the gate failed", value)
+		}
+		if cmd == nil {
+			t.Fatalf("value %q: expected a cancel-feedback cmd, got nil", value)
+		}
+	}
+}
+
+func TestDialogResultBulkDeleteAcceptsExactCount(t *testing.T) {
+	app := newBulkTestApp()
+	targets := []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}
+	dlg := dialogContext{bulkTargets: targets}
+
+	cmd := dialogResultBulkDeleteWorkspace(app, common.DialogResult{ID: DialogBulkDeleteWorkspace, Confirmed: true, Value: "2"}, dlg)
+	if cmd == nil {
+		t.Fatal("exact count must start the drain")
+	}
+	if !app.bulk.active() || app.bulk.kind != bulkOpDelete {
+		t.Fatalf("delete batch not started: %+v", app.bulk)
+	}
+	if app.bulk.headID != targets[0].markID {
+		t.Fatalf("head = %q, want %q", app.bulk.headID, targets[0].markID)
+	}
+}
+
+// TestBulkDeleteForeignCompletionIgnored proves a manual single delete
+// completing mid-batch (the interleaved-delete case) cannot corrupt the
+// drain's accounting — headID-mismatch completions are left to their own
+// flow.
+func TestBulkDeleteForeignCompletionIgnored(t *testing.T) {
+	app := newBulkTestApp()
+	targets := []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}
+	app.startBulkOp(bulkOpDelete, targets)
+
+	foreign := makeBulkTarget("other")
+	if cmd := app.bulkFinished(foreign.workspace, true); cmd != nil {
+		t.Fatal("foreign completion must be ignored")
+	}
+	if app.bulk.headID != targets[0].markID || app.bulk.succeeded != 0 {
+		t.Fatalf("foreign completion corrupted the batch: %+v", app.bulk)
+	}
+}
