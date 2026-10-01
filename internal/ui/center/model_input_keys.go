@@ -80,18 +80,29 @@ func (m *Model) forwardKeyToActiveTab(msg tea.KeyPressMsg, tab *Tab) (*Model, te
 }
 
 func (m *Model) handleDiffViewerKey(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd) {
-	if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))) {
-		return m, m.closeCurrentTab()
+	// While the viewer's `/` query field owns input, the tab-level chords
+	// stand down — ctrl+w deletes a word of the query, it must not close
+	// the tab mid-typing.
+	searching := false
+	tab.mu.Lock()
+	if tab.DiffViewer != nil {
+		searching = tab.DiffViewer.Searching()
 	}
-	if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))) {
-		before := m.getActiveTabIdx()
-		m.nextTab()
-		return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
-	}
-	if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))) {
-		before := m.getActiveTabIdx()
-		m.prevTab()
-		return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
+	tab.mu.Unlock()
+	if !searching {
+		if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))) {
+			return m, m.closeCurrentTab()
+		}
+		if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+n"))) {
+			before := m.getActiveTabIdx()
+			m.nextTab()
+			return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
+		}
+		if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+p"))) {
+			before := m.getActiveTabIdx()
+			m.prevTab()
+			return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before)
+		}
 	}
 	if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 		return m, cmd

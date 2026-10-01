@@ -16,10 +16,11 @@ import (
 // so individual tests can opt into a specific View() branch.
 func newSizedModel() *Model {
 	return &Model{
-		change: &git.Change{Path: "foo.go"},
-		mode:   git.DiffModeUnstaged,
-		width:  80,
-		height: 24,
+		change:   &git.Change{Path: "foo.go"},
+		mode:     git.DiffModeUnstaged,
+		width:    80,
+		height:   24,
+		matchIdx: -1, // no search selection until a query lands
 	}
 }
 

@@ -69,6 +69,18 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			if !m.focused {
 				return m, nil
 			}
+			// A diff viewer's `/` query field owns paste while editing —
+			// the PTY path must not touch it.
+			tab.mu.Lock()
+			dv := tab.DiffViewer
+			searching := dv != nil && dv.Searching()
+			tab.mu.Unlock()
+			if searching {
+				if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
+					return m, cmd
+				}
+				return m, nil
+			}
 			if m.isTabActorReady() {
 				queued := m.sendTabEvent(tabEvent{
 					tab:         tab,

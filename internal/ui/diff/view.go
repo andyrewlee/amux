@@ -16,15 +16,20 @@ import (
 // input — a static diff tab composing each frame reuses the last build.
 func (m *Model) View() string {
 	key := diffViewKey{
-		diff:      m.diff,
-		loading:   m.loading,
-		scroll:    m.scroll,
-		hunkIdx:   m.hunkIdx,
-		wrap:      m.wrap,
-		focused:   m.focused,
-		width:     m.width,
-		height:    m.height,
-		stylesRev: m.stylesRev,
+		diff:          m.diff,
+		loading:       m.loading,
+		scroll:        m.scroll,
+		hunkIdx:       m.hunkIdx,
+		wrap:          m.wrap,
+		focused:       m.focused,
+		width:         m.width,
+		height:        m.height,
+		stylesRev:     m.stylesRev,
+		searching:     m.searching,
+		query:         m.query,
+		matchIdx:      m.matchIdx,
+		searchWrapped: m.searchWrapped,
+		matchCount:    len(m.matches),
 	}
 	if m.err != nil {
 		key.errStr = m.err.Error()
@@ -220,8 +225,13 @@ func (m *Model) renderDiff() string {
 	capacity := m.contentHeight()
 	emitted := 0
 	for i := m.scroll; i < len(rows.rows) && emitted < capacity; i++ {
+		row := rows.rows[i]
 		b.WriteString("\n")
-		b.WriteString(rows.rows[i].text)
+		if m.matchIdx >= 0 && m.matchIdx < len(m.matches) {
+			b.WriteString(m.renderRowMatch(row, m.matches[m.matchIdx]))
+		} else {
+			b.WriteString(row.text)
+		}
 		emitted++
 	}
 	for i := emitted; i < capacity; i++ {
@@ -236,10 +246,17 @@ func (m *Model) renderDiff() string {
 	return b.String()
 }
 
-// renderFooter renders the footer with keybindings and scroll info
+// renderFooter renders the footer with keybindings and scroll info. While
+// the query field is editing it echoes `/query█`; with an accepted query it
+// shows `match k/N` (or `0 matches`) plus a `(wrapped)` marker on the jump
+// that wrapped — the output viewers' footer contract.
 func (m *Model) renderFooter() string {
 	footerStyle := lipgloss.NewStyle().
 		Foreground(common.ColorMuted())
+
+	if m.searching {
+		return footerStyle.Render("/"+m.query+"█") + footerStyle.Render("  esc done · enter accept")
+	}
 
 	var parts []string
 
@@ -259,16 +276,34 @@ func (m *Model) renderFooter() string {
 		parts = append(parts, fmt.Sprintf("hunk %d/%d", m.hunkIdx+1, len(m.diff.Hunks)))
 	}
 
+	// Match position — `match k/N`, `0 matches`, `(wrapped)` on the wrap jump.
+	if m.query != "" {
+		if len(m.matches) > 0 && m.matchIdx >= 0 {
+			hit := fmt.Sprintf("match %d/%d", m.matchIdx+1, len(m.matches))
+			if m.searchWrapped {
+				hit += " (wrapped)"
+			}
+			parts = append(parts, hit)
+		} else {
+			parts = append(parts, "0 matches")
+		}
+	}
+
 	// Wrap indicator
 	if m.wrap {
 		parts = append(parts, "[wrap]")
 	}
 
-	// Keybindings
+	// Keybindings — n/N's meaning flips while a query has matches.
 	keyStyle := lipgloss.NewStyle().Foreground(common.ColorPrimary())
+	navHint := keyStyle.Render("n/p") + ":hunk"
+	if m.matchIdx >= 0 {
+		navHint = keyStyle.Render("n/N") + ":match"
+	}
 	helpItems := []string{
 		keyStyle.Render("j/k") + ":scroll",
-		keyStyle.Render("n/p") + ":hunk",
+		keyStyle.Render("/") + ":search",
+		navHint,
 		keyStyle.Render("w") + ":wrap",
 		keyStyle.Render("q") + ":close",
 	}
