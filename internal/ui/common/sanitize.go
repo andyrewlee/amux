@@ -10,11 +10,12 @@ import (
 // SanitizeDisplayText returns s safe to render into a frame when a repository
 // or filesystem entry can influence it: well-formed ANSI escape sequences are
 // removed whole (ansi.Strip — so OSC hyperlink targets don't survive as
-// literal text), then any remaining terminal control bytes/runes — C0
-// controls, DEL, and C1 controls (0x80–0x9f), including a truncated or
-// malformed sequence's stray bytes — are dropped, capped at maxRunes runes.
-// The result is single-line — callers composing multi-line text should
-// sanitize each piece before joining. Logs and PTY output stay raw by design.
+// literal text), then any remaining unsafe display bytes/runes — C0 controls,
+// DEL, C1 controls (0x80–0x9f), and Unicode bidi/format controls that can
+// reorder or conceal rendered text (Trojan-Source class) — are dropped,
+// capped at maxRunes runes. The result is single-line — callers composing
+// multi-line text should sanitize each piece before joining. Logs and PTY
+// output stay raw by design.
 func SanitizeDisplayText(s string, maxRunes int) string {
 	if s == "" || maxRunes <= 0 {
 		return ""
@@ -33,7 +34,7 @@ func SanitizeDisplayText(s string, maxRunes int) string {
 		} else {
 			s = s[size:]
 		}
-		if isTerminalControlRune(r) {
+		if isUnsafeDisplayRune(r) {
 			continue
 		}
 		if b.Len() == 0 {
@@ -64,6 +65,29 @@ func isTerminalControlByte(b byte) bool {
 	return b <= 0x1f || b == 0x7f || (b >= 0x80 && b <= 0x9f)
 }
 
-func isTerminalControlRune(r rune) bool {
-	return r <= 0x1f || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+// isUnsafeDisplayRune reports whether r must be stripped from text rendered
+// into a frame: C0 controls, DEL, C1 controls, plus the Unicode bidi/format
+// controls that let attacker text render differently from its real bytes —
+// embedding/override and isolate runs, the LRM/RLM marks, and the Arabic
+// letter mark.
+//
+// The list is deliberately targeted rather than all of category Cf: ZWJ/ZWNJ
+// (emoji sequences), variation selectors, and joiner marks are legitimate
+// display text and must survive. tmux keeps an identical set inline in
+// sanitizeTagValue (internal/tmux/command.go) — it cannot import the UI
+// layer, so the two lists must be updated together.
+func isUnsafeDisplayRune(r rune) bool {
+	switch {
+	case r <= 0x1f, r == 0x7f, r >= 0x80 && r <= 0x9f:
+		return true // C0 controls, DEL, C1 controls
+	case r >= 0x202a && r <= 0x202e: // LRE/RLE/PDF/LRO/RLO — bidi embed/override
+		return true
+	case r >= 0x2066 && r <= 0x2069: // LRI/RLI/FSI/PDI — bidi isolates
+		return true
+	case r == 0x200e || r == 0x200f: // LRM/RLM — directional marks
+		return true
+	case r == 0x061c: // ALM — Arabic letter mark
+		return true
+	}
+	return false
 }

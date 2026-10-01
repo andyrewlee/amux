@@ -116,6 +116,28 @@ func TestTrustDialog_ManifestSanitizesEnvKeys(t *testing.T) {
 	}
 }
 
+// TestTrustDialog_ManifestStripsBidiControls pins the Trojan-Source fix: a
+// repo command carrying Unicode bidi/format controls (which make the rendered
+// dialog text differ from the bytes that would run) must not reach the frame.
+func TestTrustDialog_ManifestStripsBidiControls(t *testing.T) {
+	repo := t.TempDir()
+	workspaceSetupConfig(t, repo, `{"run":"echo \u202e hello", "env":{"K\u202eY":"v"}}`)
+	ws := data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "ws"))
+
+	app := newTrustDialogApp()
+	app.handleShowTrustScriptsDialog(messages.ShowTrustScriptsDialog{Workspace: ws, ConfigHash: "hash"})
+
+	view := dialogView(t, app.dialog)
+	for _, r := range []rune{0x202a, 0x202e, 0x2066, 0x2069, 0x200e, 0x200f, 0x061c} {
+		if strings.ContainsRune(view, r) {
+			t.Fatalf("trust dialog rendered bidi/format rune U+%04X, got:\n%s", r, view)
+		}
+	}
+	if !strings.Contains(view, "run: echo  hello") {
+		t.Fatalf("sanitized command text missing, got:\n%s", view)
+	}
+}
+
 // TestRepoScriptCommandsForTrust_IncludesOnDone pins the coverage fix: on-done
 // joins the indirection-scan command set.
 func TestRepoScriptCommandsForTrust_IncludesOnDone(t *testing.T) {

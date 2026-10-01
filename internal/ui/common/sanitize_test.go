@@ -34,6 +34,7 @@ func TestSanitizeDisplayText(t *testing.T) {
 		{"cap honored", strings.Repeat("x", 20), 5, "xxxxx"},
 		{"cap counts runes not bytes", "日本語テスト", 3, "日本語"},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := SanitizeDisplayText(tt.in, tt.maxRunes)
@@ -51,5 +52,49 @@ func TestSanitizeDisplayTextPreservesValidUTF8(t *testing.T) {
 	}
 	if !utf8.ValidString(SanitizeDisplayText("ok\x1b[0m", 100)) {
 		t.Fatal("result should be valid UTF-8 after stripping")
+	}
+}
+
+// TestSanitizeStripsBidiControls pins the Trojan-Source fix: bidi override,
+// isolate, and directional-mark runes are all stripped — they are how
+// attacker-controlled text renders differently from its real bytes (e.g. the
+// trust-dialog manifest, branch labels, project tree). Legitimate format
+// characters — ZWJ/ZWNJ in emoji sequences, VS16 selectors, combining marks,
+// and ordinary RTL-script letters — must survive.
+func TestSanitizeStripsBidiControls(t *testing.T) {
+	// Escaped inputs keep the test's own bytes visible — invisible literals
+	// would reproduce the exact review hazard this strip exists to remove.
+	stripped := []struct{ name, in, want string }{
+		{"RLO", "a\u202eb", "ab"},
+		{"LRO", "a\u202db", "ab"},
+		{"embed run", "a\u202a\u202c\u202bb", "ab"},
+		{"LRI", "a\u2066b", "ab"},
+		{"isolate run", "a\u2066\u2067\u2068\u2069b", "ab"},
+		{"LRM", "a\u200eb", "ab"},
+		{"RLM", "a\u200fb", "ab"},
+		{"ALM", "a\u061cb", "ab"},
+	}
+	for _, tt := range stripped {
+		t.Run("strip "+tt.name, func(t *testing.T) {
+			if got := SanitizeDisplayText(tt.in, 100); got != tt.want {
+				t.Fatalf("SanitizeDisplayText(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+
+	// ZWJ, VS16, ZWNJ, combining acute/tilde, and Hebrew letters.
+	preserved := []struct{ name, in string }{
+		{"emoji ZWJ family", "\U0001f468\u200d\U0001f4bb family"},
+		{"emoji VS16 heart", "\u2764\ufe0f heart"},
+		{"ZWNJ text", "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645"},
+		{"combining marks", "cafe\u0301 n\u0303"},
+		{"plain RTL text", "\u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd"},
+	}
+	for _, tt := range preserved {
+		t.Run("keep "+tt.name, func(t *testing.T) {
+			if got := SanitizeDisplayText(tt.in, 100); got != tt.in {
+				t.Fatalf("SanitizeDisplayText(%q) = %q, want unchanged", tt.in, got)
+			}
+		})
 	}
 }

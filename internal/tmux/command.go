@@ -278,11 +278,14 @@ func sessionTagArgs(session string, tags SessionTags) [][]string {
 // fixed-format and never reach the sanitizer.
 const tagValueMaxRunes = 128
 
-// sanitizeTagValue strips terminal control runes (C0 including newline/tab,
-// DEL, C1) from a display tag value and caps its length — the tmux-option
-// equivalent of ui/common.SanitizeDisplayText (kept local: tmux must not
-// import the UI layer). It also strips '|', the field separator used by
-// list-sessions tag rows, so a stored value cannot shift the positional parse.
+// sanitizeTagValue strips unsafe display runes from a tag value and caps its
+// length — the tmux-option twin of isUnsafeDisplayRune in
+// ui/common/sanitize.go (kept local: tmux must not import the UI layer; the
+// two lists must be updated together). It drops C0 (including newline/tab),
+// DEL, C1, and the Unicode bidi/format controls (embed/override, isolates,
+// LRM/RLM, ALM) that would let a stored value reorder or conceal rendered
+// text — plus '|', the field separator used by list-sessions tag rows, so a
+// stored value cannot shift the positional parse.
 // Workspace names are already validated to a strict
 // identifier charset; this guards the filesystem-controlled project basename.
 func sanitizeTagValue(s string) string {
@@ -292,7 +295,9 @@ func sanitizeTagValue(s string) string {
 		if written >= tagValueMaxRunes {
 			break
 		}
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == '|' {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == '|' ||
+			(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) ||
+			r == 0x200e || r == 0x200f || r == 0x061c {
 			continue
 		}
 		b.WriteRune(r)
