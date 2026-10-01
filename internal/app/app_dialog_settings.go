@@ -24,6 +24,11 @@ func (a *App) handleShowSettingsDialog() {
 			a.config.UI.TmuxConfigPath,
 			a.config.UI.TmuxSyncInterval,
 		)
+		a.overlays.settings.SetUIOptions(
+			a.config.UI.ShowKeymapHints,
+			a.config.UI.NotifyOnDone,
+			a.config.UI.ViewerCommand,
+		)
 		a.overlays.settings.SetAssistants(a.config.AssistantNames(), assistantCommandMap(a.config.Assistants))
 		// Apply the same name rules the config loader enforces so a name added
 		// in the dialog can't be silently dropped on the next load.
@@ -108,6 +113,38 @@ func (a *App) applySettingsTmux(d *common.SettingsDialog) bool {
 	return changed
 }
 
+// applySettingsUI copies the dialog's Interface-section values into config and
+// pushes them through the live setters — keymap hints and the done-bell take
+// effect immediately; the viewer command lands on the next viewer tab (open
+// viewers keep the command they launched with). Returns whether anything
+// changed so the caller knows a SaveUISettings is owed.
+func (a *App) applySettingsUI(d *common.SettingsDialog) bool {
+	changed := false
+	if v := d.ShowKeymapHints(); v != a.config.UI.ShowKeymapHints {
+		a.setKeymapHintsEnabled(v)
+		changed = true
+	}
+	if v := d.NotifyOnDone(); v != a.config.UI.NotifyOnDone {
+		a.config.UI.NotifyOnDone = v
+		a.dashboard.SetNotifyOnDone(v)
+		changed = true
+	}
+	if v := d.ViewerCommand(); v != a.config.UI.ViewerCommand {
+		// Match center.SetViewerCommand's normalization so the persisted
+		// value equals what the next viewer actually runs.
+		v = strings.TrimSpace(v)
+		if v == "" {
+			v = "vim"
+		}
+		a.config.UI.ViewerCommand = v
+		if a.center != nil {
+			a.center.SetViewerCommand(v)
+		}
+		changed = true
+	}
+	return changed
+}
+
 // assistantCommandMap flattens an assistants config map to name->command, the
 // shape SettingsDialog.SetAssistants wants (it only exposes command editing;
 // interrupt tuning stays config.json-only in this first cut).
@@ -159,26 +196,28 @@ func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
 		return nil
 	}
 	tmuxChanged := false
+	uiChanged := false
 	assistantsChanged := false
 	if a.overlays.settings != nil {
 		a.applyTheme(a.overlays.settings.SelectedTheme())
 		tmuxChanged = a.applySettingsTmux(a.overlays.settings)
+		uiChanged = a.applySettingsUI(a.overlays.settings)
 		assistantsChanged = a.applySettingsAssistants(a.overlays.settings)
 	}
 	a.overlays.settings = nil
 	a.overlays.settingsSession++
 
-	// A dirty theme save already persists the whole UI struct (tmux fields
-	// included, since applySettingsTmux wrote them). Only persist separately
-	// when tmux changed but the theme did not. Assistants live in a different
-	// config-file section (SaveAssistants, not SaveUISettings), so it is
-	// always persisted independently of the theme/tmux save above.
+	// A dirty theme save already persists the whole UI struct (tmux and
+	// interface fields included, since the apply wrote them). Only persist
+	// separately when one of them changed but the theme did not. Assistants
+	// live in a different config-file section (SaveAssistants, not
+	// SaveUISettings), so it is always persisted independently.
 	var saveCmd tea.Cmd
 	if a.overlays.settingsThemeDirty {
 		saveCmd = a.persistSettingsThemeIfDirty()
-	} else if tmuxChanged {
+	} else if tmuxChanged || uiChanged {
 		if err := a.config.SaveUISettings(); err != nil {
-			saveCmd = common.ReportError("saving tmux settings", err, "Failed to save tmux settings")
+			saveCmd = common.ReportError("saving UI settings", err, "Failed to save settings")
 		}
 	}
 	var assistantsSaveCmd tea.Cmd

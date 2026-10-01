@@ -67,6 +67,31 @@ func (s *SettingsDialog) renderLines() []string {
 	}
 	lines = append(lines, "")
 
+	// Interface section — ui.* keys that used to be JSON-only. The two
+	// toggles flip with enter/space and apply immediately on close; the
+	// viewer command is a text field and lands on the next viewer tab.
+	lines = append(lines, label.Render("Interface"))
+	uiRows := []struct {
+		item  settingsItem
+		name  string
+		value string
+	}{
+		{settingsItemKeymapHints, "Keybinding hints", checkValue(s.keymapHints)},
+		{settingsItemNotifyOnDone, "Bell when agent finishes", checkValue(s.notifyOnDone)},
+		{settingsItemViewerCmd, "Viewer command", s.viewerCmd},
+	}
+	for _, f := range uiRows {
+		style, prefix := muted, "  "
+		if s.focusedItem == f.item {
+			style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+			prefix = Icons.Cursor + " "
+		}
+		y := len(lines)
+		lines = append(lines, prefix+style.Render(f.name+": "+f.value))
+		s.addHit(f.item, -1, y)
+	}
+	lines = append(lines, "")
+
 	lines = s.renderAssistantLines(lines, label, muted)
 
 	lines = append(lines, label.Render("Version"))
@@ -99,6 +124,15 @@ func (s *SettingsDialog) renderLines() []string {
 	s.addHit(settingsItemClose, -1, y)
 
 	return lines
+}
+
+// checkValue renders a bool row's value in the same `name: value` idiom the
+// text rows use — no checkbox glyph, just on/off.
+func checkValue(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }
 
 // renderAssistantLines appends the Assistants section: one row per roster

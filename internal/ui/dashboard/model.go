@@ -247,6 +247,12 @@ func (m *Model) SetNotifyOnDone(enabled bool) {
 	m.notifyOnDone = enabled
 }
 
+// NotifyOnDone reports whether the done-bell is on (the Settings dialog's
+// Interface section reads it back for its toggle row).
+func (m *Model) NotifyOnDone() bool {
+	return m.notifyOnDone
+}
+
 // SetAgentStates updates the per-workspace semantic agent states.
 // It also clears the doneAcked flag for any workspace that has started
 // working again, so the next "done" is visible to the user.

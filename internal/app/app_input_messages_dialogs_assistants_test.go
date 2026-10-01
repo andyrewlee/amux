@@ -212,8 +212,8 @@ func TestHandleSettingsResult_PersistsNewAssistant(t *testing.T) {
 	h.app.handleShowSettingsDialog()
 
 	d := h.app.overlays.settings
-	// Tab from Theme through the three tmux fields lands on Assistants.
-	for range 4 {
+	// Tab from Theme through the tmux and interface fields lands on Assistants.
+	for range 7 {
 		d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	}
 	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
@@ -267,7 +267,10 @@ func TestHandleShowSettingsDialog_RejectsInvalidAssistantName(t *testing.T) {
 	h.app.handleShowSettingsDialog()
 
 	d := h.app.overlays.settings
-	for range 4 {
+	// The grown body puts the add input under the fold at 40 rows; size the
+	// dialog so the rejection row is on-screen.
+	d.SetSize(120, 60)
+	for range 7 {
 		d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	}
 	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})

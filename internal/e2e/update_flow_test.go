@@ -45,10 +45,11 @@ func TestDevBuildShowsNoUpdatePrompt(t *testing.T) {
 	// "[Settings]" hint. "restart to apply" only renders inside the dialog.
 	waitForUIContains(t, session, "restart to apply", workspaceAgentTimeout)
 	// The Version row sits at the bottom of the scrollable dialog. Tab advances
-	// one settings item at a time (theme → three tmux fields → assistants →
-	// close); exactly five tabs land focus on [Close], which pulls the scroll
-	// offset to the bottom. Extra tabs wrap, so the count matters.
-	if err := session.SendString(strings.Repeat("\t", 5)); err != nil {
+	// one settings item at a time (theme → three tmux fields → three interface
+	// fields → assistants → close; update is skipped when unavailable); exactly
+	// eight tabs land focus on [Close], which pulls the scroll offset to the
+	// bottom. Extra tabs wrap, so the count matters.
+	if err := session.SendString(strings.Repeat("\t", 8)); err != nil {
 		t.Fatalf("scroll settings to bottom: %v", err)
 	}
 	waitForUIContains(t, session, "Development build", workspaceAgentTimeout)
