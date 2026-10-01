@@ -151,7 +151,7 @@ func dialogResultCreateWorkspace(a *App, result common.DialogResult, dlg dialogC
 	}
 	a.pendingWorkspaceCreate.project = dlg.project
 	a.pendingWorkspaceCreate.name = name
-	a.pendingWorkspaceCreate.base = ""
+	a.pendingWorkspaceCreate.base = "" // create dialog is name-only; see field comment
 	return func() tea.Msg {
 		return messages.ShowSelectAssistantDialog{}
 	}

@@ -71,8 +71,12 @@ type ShowRemoveProjectDialog struct {
 
 // CreateWorkspace requests creating a new workspace
 type CreateWorkspace struct {
-	Project   *data.Project
-	Name      string
+	Project *data.Project
+	Name    string
+	// Base is the optional base ref (empty = detected default branch, via
+	// workspacesvc.ResolveBase → validation.ValidateBaseRef). No dialog
+	// currently collects it — every producer passes "" — but the service and
+	// validation chain already honor an explicit value.
 	Base      string
 	Assistant string
 }

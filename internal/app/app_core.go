@@ -262,5 +262,9 @@ type dialogContext struct {
 type pendingWorkspaceCreateState struct {
 	project *data.Project
 	name    string
-	base    string
+	// base is reserved for a create-dialog "base branch" field that does not
+	// exist yet — the dialog collects only a name, so this is always "".
+	// workspacesvc.ResolveBase treats empty as "detect the default branch".
+	// Kept so the handoff is already shaped for a future base-branch input.
+	base string
 }
