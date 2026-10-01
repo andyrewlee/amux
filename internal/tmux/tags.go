@@ -8,12 +8,19 @@ import (
 )
 
 type sessionTagRow struct {
+	// ID is the server-assigned "#{session_id}" token ("$N"): unforgeable by
+	// any other session and immune to name prefix matching and rename/death
+	// races, so it is the preferred target for destructive operations.
+	ID   string
 	Name string
 	Tags map[string]string
 }
 
 // SessionTagValues stores tag values for a tmux session.
 type SessionTagValues struct {
+	// ID is the server-assigned "#{session_id}" token ("$N") — see
+	// sessionTagRow.ID for why it is the trusted target.
+	ID   string
 	Name string
 	Tags map[string]string
 }
@@ -78,10 +85,18 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	format := "#{session_name}"
+	// Field order is deliberate: the server-assigned #{session_id} leads, the
+	// fixed count of requested tag fields follows, and #{session_name} trails.
+	// tmux accepts '|' in session names, so a name-first layout lets a foreign
+	// session named "victim|1" shift later fields and forge tag values (which
+	// previously redirected KillSessionsMatchingTags onto the innocent
+	// "victim"). Name-last confines '|' bytes to the free-form tail field,
+	// where SplitN preserves them verbatim.
+	format := "#{session_id}"
 	for _, key := range keys {
 		format = fmt.Sprintf("%s%s#{%s}", format, tagFieldSeparator, key)
 	}
+	format = fmt.Sprintf("%s%s#{session_name}", format, tagFieldSeparator)
 	cmd, cancel := tmuxCommand(opts, "list-sessions", "-F", format)
 	defer cancel()
 	output, err := runTmuxCmd(cmd)
@@ -95,34 +110,51 @@ func listSessionsWithTags(tags map[string]string, opts Options) ([]sessionTagRow
 }
 
 // parseSessionTagRows is the pure parse half of listSessionsWithTags. It takes
-// the `list-sessions -F` output lines (session_name followed by one
-// tagFieldSeparator-joined field per requested key, in the same order as keys)
-// and returns one sessionTagRow per line. When a line has fewer fields than
-// expected — for example a session missing trailing tags — the off-by-one
-// guard (i+1 >= len(parts)) records those keys as empty strings rather than
-// panicking. Extracting it makes the separator split and the empty-tag
-// off-by-one branch unit-testable without a live tmux server.
+// the `list-sessions -F` output lines (session_id, then one
+// tagFieldSeparator-joined field per requested key in keys order, then the
+// free-form session_name tail) and returns one sessionTagRow per line.
+//
+// The name is emitted last because tmux accepts '|' in session names:
+// SplitN(len(keys)+2) joins any separator bytes inside the name into the tail
+// field, so name content can never shift the positional tag fields. Rows are
+// dropped when they are malformed (fewer fields than the fixed prefix + name)
+// or carry a non-"$N" id — a corrupt row must not attribute tags to the wrong
+// session. Extracting it makes the split and the validation branches
+// unit-testable without a live tmux server.
 func parseSessionTagRows(lines, keys []string) []sessionTagRow {
 	var rows []sessionTagRow
+	want := len(keys) + 2 // id + one field per key + name
 	for _, line := range lines {
-		parts := strings.Split(line, tagFieldSeparator)
-		if len(parts) == 0 {
+		parts := strings.SplitN(line, tagFieldSeparator, want)
+		if len(parts) != want {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		if !isSessionIDToken(id) {
 			continue
 		}
 		row := sessionTagRow{
-			Name: strings.TrimSpace(parts[0]),
+			ID:   id,
+			Name: parts[want-1],
 			Tags: make(map[string]string, len(keys)),
 		}
 		for i, key := range keys {
-			if i+1 >= len(parts) {
-				row.Tags[key] = ""
-				continue
-			}
 			row.Tags[key] = strings.TrimSpace(parts[i+1])
 		}
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// isSessionIDToken reports whether s is a well-formed tmux session id ("$N").
+// Ids are assigned by the server and never reused for its lifetime, so they
+// are the unforgeable anchor for reads and kills.
+func isSessionIDToken(s string) bool {
+	if len(s) < 2 || s[0] != '$' {
+		return false
+	}
+	_, err := strconv.ParseUint(s[1:], 10, 64)
+	return err == nil
 }
 
 func matchesTags(row sessionTagRow, tags map[string]string, orderedKeys []string) bool {
@@ -257,15 +289,30 @@ func parseSessionOptionTargets(requested map[string]struct{}, lines []string) []
 			continue
 		}
 		id := strings.TrimSpace(parts[1])
-		if len(id) < 2 || id[0] != '$' {
-			continue
-		}
-		if _, err := strconv.ParseUint(id[1:], 10, 64); err != nil {
+		if !isSessionIDToken(id) {
 			continue
 		}
 		targets = append(targets, id)
 	}
 	return targets
+}
+
+// sessionTagValueByID reads one session option against a "$N" session-id
+// target. Id targets are exact by construction — tmux cannot prefix-match or
+// rebind them — so unlike a bare-name read this cannot return a sibling's
+// value when the named session died between resolution and read. A stale id
+// surfaces as exit 1, which the read contract reports as an empty value.
+func sessionTagValueByID(sessionID, key string, opts Options) (string, error) {
+	cmd, cancel := tmuxCommand(opts, "show-options", "-t", sessionID, "-v", key)
+	defer cancel()
+	output, err := runTmuxCmd(cmd)
+	if err != nil {
+		if isExitCode1(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func buildSessionTagBatchArgs(sessionTargets []string, key, value string) ([]string, int) {

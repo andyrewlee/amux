@@ -18,8 +18,9 @@ import (
 //     sessionLatestActivitySeconds.
 //   - parseSessionStates (tmux.go) — the pane_dead==0 → HasLivePane aggregation
 //     across multiple panes per session behind AllSessionStates.
-//   - parseSessionTagRows (tags.go) — tag field split and the i+1>=len(parts)
-//     empty-tag off-by-one behind listSessionsWithTags.
+//   - parseSessionTagRows (tags.go) — the id|tags|name field split, "$N" id
+//     validation, and the separator-in-name tail join behind
+//     listSessionsWithTags.
 //
 // Each was previously reachable only through a real tmux server, so this is the
 // first non-integration coverage of the genuinely bug-prone parse loops.
@@ -360,7 +361,9 @@ func TestParseSessionStates(t *testing.T) {
 
 func TestParseSessionTagRows(t *testing.T) {
 	// sep mirrors tagFieldSeparator so the test stays correct if the constant
-	// changes.
+	// changes. The wire order is id|key1|…|keyN|name — session_id leads and
+	// the free-form session_name trails so '|' bytes inside a name cannot
+	// shift the positional tag fields.
 	sep := tagFieldSeparator
 
 	join := func(parts ...string) string {
@@ -380,71 +383,78 @@ func TestParseSessionTagRows(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name:  "name only, no keys requested",
-			lines: []string{"sess-a"},
+			name:  "id and name only, no keys requested",
+			lines: []string{join("$1", "sess-a")},
 			keys:  nil,
-			want:  []sessionTagRow{{Name: "sess-a", Tags: map[string]string{}}},
+			want:  []sessionTagRow{{ID: "$1", Name: "sess-a", Tags: map[string]string{}}},
 		},
 		{
 			name:  "all tags present and split on the separator",
-			lines: []string{join("sess-a", "v1", "v2")},
+			lines: []string{join("$1", "v1", "v2", "sess-a")},
 			keys:  []string{"@a", "@b"},
 			want: []sessionTagRow{
-				{Name: "sess-a", Tags: map[string]string{"@a": "v1", "@b": "v2"}},
+				{ID: "$1", Name: "sess-a", Tags: map[string]string{"@a": "v1", "@b": "v2"}},
 			},
 		},
 		{
 			name:  "tag values are whitespace-trimmed",
-			lines: []string{join("sess-a", "  v1  ", " v2 ")},
+			lines: []string{join("$1", "  v1  ", " v2 ", "sess-a")},
 			keys:  []string{"@a", "@b"},
 			want: []sessionTagRow{
-				{Name: "sess-a", Tags: map[string]string{"@a": "v1", "@b": "v2"}},
+				{ID: "$1", Name: "sess-a", Tags: map[string]string{"@a": "v1", "@b": "v2"}},
 			},
 		},
 		{
-			name: "session-name is trimmed",
-			// parseOutputLines normally trims, but the helper trims defensively too.
-			lines: []string{join("  sess-a  ", "v1")},
+			name: "name containing the separator stays verbatim in the tail field",
+			// A session literally named "probe|pipe" emits its '|' inside the
+			// trailing field; SplitN joins it back so tags stay positional.
+			lines: []string{join("$7", "v1", "probe|pipe")},
 			keys:  []string{"@a"},
 			want: []sessionTagRow{
-				{Name: "sess-a", Tags: map[string]string{"@a": "v1"}},
+				{ID: "$7", Name: "probe|pipe", Tags: map[string]string{"@a": "v1"}},
 			},
 		},
 		{
-			name: "missing trailing tag uses the i+1>=len(parts) empty branch",
-			// Only the name and the first tag are present; @b has no field.
-			lines: []string{join("sess-a", "v1")},
-			keys:  []string{"@a", "@b"},
-			want: []sessionTagRow{
-				{Name: "sess-a", Tags: map[string]string{"@a": "v1", "@b": ""}},
-			},
+			name: "forged name cannot populate tag fields",
+			// The old name-first parse read line "victim|1" as
+			// Name="victim" @a="1" — letting a foreign session redirect kills.
+			// Under id-first it is just a malformed id and drops entirely.
+			lines: []string{"victim" + sep + "1"},
+			keys:  []string{"@a"},
+			want:  nil,
 		},
 		{
-			name:  "name only with keys requested: every key reads empty",
-			lines: []string{"sess-a"},
-			keys:  []string{"@a", "@b"},
-			want: []sessionTagRow{
-				{Name: "sess-a", Tags: map[string]string{"@a": "", "@b": ""}},
-			},
+			name:  "non-numeric id token is dropped",
+			lines: []string{join("$x", "v1", "sess-a")},
+			keys:  []string{"@a"},
+			want:  nil,
 		},
 		{
-			name:  "empty-string field is kept as empty (not skipped)",
-			lines: []string{join("sess-a", "", "v2")},
+			name: "row with fewer fields than id+keys+name is dropped",
+			// tmux always emits every requested field (empty when unset), so a
+			// short line is corruption — never partial output to tolerate.
+			lines: []string{join("$1", "v1")},
+			keys:  []string{"@a", "@b"},
+			want:  nil,
+		},
+		{
+			name:  "unset tags emit as empty fields, not missing fields",
+			lines: []string{join("$1", "", "v2", "sess-a")},
 			keys:  []string{"@a", "@b"},
 			want: []sessionTagRow{
-				{Name: "sess-a", Tags: map[string]string{"@a": "", "@b": "v2"}},
+				{ID: "$1", Name: "sess-a", Tags: map[string]string{"@a": "", "@b": "v2"}},
 			},
 		},
 		{
 			name: "multiple rows",
 			lines: []string{
-				join("sess-a", "1"),
-				join("sess-b", "2"),
+				join("$1", "1", "sess-a"),
+				join("$2", "2", "sess-b"),
 			},
 			keys: []string{"@a"},
 			want: []sessionTagRow{
-				{Name: "sess-a", Tags: map[string]string{"@a": "1"}},
-				{Name: "sess-b", Tags: map[string]string{"@a": "2"}},
+				{ID: "$1", Name: "sess-a", Tags: map[string]string{"@a": "1"}},
+				{ID: "$2", Name: "sess-b", Tags: map[string]string{"@a": "2"}},
 			},
 		},
 	}
@@ -465,10 +475,13 @@ func TestParseSessionTagRows(t *testing.T) {
 // would silently misattribute tag values.
 func TestParseSessionTagRows_KeyOrderIsPositional(t *testing.T) {
 	keys := []string{"@z", "@a"} // intentionally not sorted
-	line := "sess" + tagFieldSeparator + "zval" + tagFieldSeparator + "aval"
+	line := "$4" + tagFieldSeparator + "zval" + tagFieldSeparator + "aval" + tagFieldSeparator + "sess"
 	got := parseSessionTagRows([]string{line}, keys)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(got))
+	}
+	if got[0].ID != "$4" || got[0].Name != "sess" {
+		t.Fatalf("expected id/name $4/sess, got %#v", got[0])
 	}
 	if got[0].Tags["@z"] != "zval" || got[0].Tags["@a"] != "aval" {
 		t.Fatalf("expected positional mapping @z=zval @a=aval, got %#v", got[0].Tags)

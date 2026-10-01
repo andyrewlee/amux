@@ -174,8 +174,15 @@ List sessions and their tags in one call, mirroring amux's own reader
 
 ```sh
 tmux -L "${AMUX_TMUX_SERVER:-amux}" list-sessions \
-  -F '#{session_name}|#{@amux_workspace}|#{@amux_tab}|#{@amux_type}'
+  -F '#{session_id}|#{@amux_workspace}|#{@amux_tab}|#{@amux_type}|#{session_name}'
 ```
+
+Field order matters: `#{session_id}` and the tag fields lead, `#{session_name}`
+trails. tmux accepts `|` in session names, so split only the first N
+separators and treat the remainder as the name — a name-first layout lets a
+foreign session named e.g. `victim|1` forge tag values and redirect
+name-targeted commands at `victim`. When driving kills/reads, target the
+`$N` id column, not the name.
 
 Keep the lines whose `session_name` starts with `amux-`. The `@amux_workspace`
 tag is the authoritative workspace ID for a session — for tab sessions it

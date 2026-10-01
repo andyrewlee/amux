@@ -281,7 +281,9 @@ const tagValueMaxRunes = 128
 // sanitizeTagValue strips terminal control runes (C0 including newline/tab,
 // DEL, C1) from a display tag value and caps its length — the tmux-option
 // equivalent of ui/common.SanitizeDisplayText (kept local: tmux must not
-// import the UI layer). Workspace names are already validated to a strict
+// import the UI layer). It also strips '|', the field separator used by
+// list-sessions tag rows, so a stored value cannot shift the positional parse.
+// Workspace names are already validated to a strict
 // identifier charset; this guards the filesystem-controlled project basename.
 func sanitizeTagValue(s string) string {
 	var b strings.Builder
@@ -290,7 +292,7 @@ func sanitizeTagValue(s string) string {
 		if written >= tagValueMaxRunes {
 			break
 		}
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == '|' {
 			continue
 		}
 		b.WriteRune(r)
