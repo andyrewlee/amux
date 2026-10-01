@@ -3,3 +3,10 @@
 /tmp/
 .gemini-clipboard/
 /.cache/
+
+# feature-audit generated outputs — regenerate via build_audit.py; committing
+# them guarantees staleness (they self-date to the generating commit).
+feature-audit/FEATURES.csv
+feature-audit/FEATURES.json
+feature-audit/FEATURES.md
+feature-audit/SUMMARY.md
