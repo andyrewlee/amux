@@ -15,10 +15,10 @@ read the code.
 |------|------|
 | `build_audit.py` | Canonical generator. `ROWS` holds the user-story catalog; emits `FEATURES.csv`/`FEATURES.md`/`FEATURES.json`/`SUMMARY.md`. |
 | `merge_findings.py` | Merges verification findings into `results.json` (`--phase 2|4`). |
-| `results.json` | Incremental overlay consumed by `build_audit.py` (status/test_method/result per row id). |
-| `phase2_findings.json` | Raw Phase-2 multi-agent findings (input to `merge_findings.py`). |
+| `results.json` | Incremental overlay consumed by `build_audit.py` (status/test_method/result per row id). Tracked — it's generator input. |
+| `phase2_findings.json` | Raw Phase-2 multi-agent findings (input to `merge_findings.py`). Tracked — generator input. |
 | `REPORT.md` | Hand-written phase report. |
-| `FEATURES.csv`/`FEATURES.md`/`FEATURES.json`/`SUMMARY.md` | Generated outputs — regenerate, don't hand-edit. |
+| `FEATURES.csv`/`FEATURES.md`/`FEATURES.json`/`SUMMARY.md` | Generated outputs — **gitignored**, regenerate locally via `build_audit.py`; committing them guaranteed staleness since each self-dates to the generating commit. |
 
 ## Regenerating
 
