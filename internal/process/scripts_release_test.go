@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 // TestScriptRunnerReleaseWorkspace proves a workspace's port allocation is
@@ -76,13 +78,9 @@ func TestScriptRunnerReleaseWorkspaceGatedByRunningSetup(t *testing.T) {
 		done <- runner.RunSetup(ws)
 	}()
 
-	deadline := time.Now().Add(time.Second)
-	for !runner.IsRunning(ws) {
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for setup script to be tracked as running")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.Eventually(t, 3*time.Second, 10*time.Millisecond, func() bool {
+		return runner.IsRunning(ws)
+	}, "timed out waiting for setup script to be tracked as running")
 
 	runner.ReleaseWorkspace(ws)
 

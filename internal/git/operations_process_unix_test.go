@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/process"
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 // TestGitHelperProcess is not a test — it is the child payload re-executed by
@@ -80,15 +81,10 @@ func helperCmd(t *testing.T, mode, pidFile string) *exec.Cmd {
 
 func readHelperPID(t *testing.T, pidFile string) int {
 	t.Helper()
-	var raw []byte
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if b, err := os.ReadFile(pidFile); err == nil && len(b) > 0 {
-			raw = b
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	raw := testutil.PollUntil(5*time.Second, 10*time.Millisecond, func() ([]byte, bool) {
+		b, err := os.ReadFile(pidFile)
+		return b, err == nil && len(b) > 0
+	})
 	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
 	if err != nil || pid <= 0 {
 		t.Fatalf("helper wrote no valid pid to %q: %q err=%v", pidFile, raw, err)
@@ -98,14 +94,9 @@ func readHelperPID(t *testing.T, pidFile string) int {
 
 func waitForPIDExit(t *testing.T, pid int, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	t.Fatalf("descendant pid %d still running %v after cancellation", pid, timeout)
+	testutil.Eventually(t, timeout, 25*time.Millisecond, func() bool {
+		return syscall.Kill(pid, 0) == syscall.ESRCH
+	}, "descendant pid %d still running %v after cancellation", pid, timeout)
 }
 
 func TestRunGitCommandCancelTerminatesProcessGroup(t *testing.T) {

@@ -5,12 +5,32 @@ package process
 import (
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/testutil"
 )
+
+// pgidEstablished polls until the process group rooted at pid has a member —
+// cmd.Start returns before the child has exec'd into the group, and signaling
+// a not-yet-populated group silently does nothing.
+func pgidEstablished(pid int) bool {
+	return syscall.Kill(-pid, 0) == nil
+}
+
+// groupMembers returns the live member count of the process group — used to
+// wait for forked children to join before asserting a group kill reaches them.
+func groupMembers(t *testing.T, pgid int) int {
+	t.Helper()
+	out, err := exec.Command("pgrep", "-g", strconv.Itoa(pgid)).Output()
+	if err != nil {
+		return 0
+	}
+	return len(strings.Fields(string(out)))
+}
 
 func TestKillProcessGroup_BasicTermination(t *testing.T) {
 	// Start a process that responds to SIGTERM
@@ -23,8 +43,9 @@ func TestKillProcessGroup_BasicTermination(t *testing.T) {
 
 	pid := cmd.Process.Pid
 
-	// Give the process group time to be established
-	time.Sleep(20 * time.Millisecond)
+	testutil.Eventually(t, 2*time.Second, 5*time.Millisecond, func() bool {
+		return pgidEstablished(pid)
+	}, "process group for %d never established", pid)
 
 	// Kill the process group
 	err := KillProcessGroup(pid, KillOptions{GracePeriod: 100 * time.Millisecond})
@@ -56,8 +77,9 @@ func TestKillProcessGroup_EscalationToSIGKILL(t *testing.T) {
 
 	pid := cmd.Process.Pid
 
-	// Give the process group time to be established
-	time.Sleep(20 * time.Millisecond)
+	testutil.Eventually(t, 2*time.Second, 5*time.Millisecond, func() bool {
+		return pgidEstablished(pid)
+	}, "process group for %d never established", pid)
 
 	// Kill with short grace period - should escalate to SIGKILL
 	start := time.Now()
@@ -118,13 +140,15 @@ func TestKillProcessGroup_ChildProcessCleanup(t *testing.T) {
 
 	pid := cmd.Process.Pid
 
-	// Give children time to spawn
-	time.Sleep(50 * time.Millisecond)
-
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
 		t.Fatalf("failed to get pgid: %v", err)
 	}
+	// Wait for both `sleep 60` children to join the group — killing before
+	// they exist would pass vacuously on an empty group.
+	testutil.Eventually(t, 2*time.Second, 5*time.Millisecond, func() bool {
+		return groupMembers(t, pgid) >= 3
+	}, "children never joined process group %d", pgid)
 
 	// Kill the process group
 	err = KillProcessGroup(pid, KillOptions{GracePeriod: 100 * time.Millisecond})
@@ -163,11 +187,14 @@ func TestKillProcessGroup_OrphanedGroupReaped(t *testing.T) {
 
 	pid := cmd.Process.Pid
 
-	// Give the child time to spawn
-	time.Sleep(50 * time.Millisecond)
-
 	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
+	if err == nil {
+		// Wait for the orphaned `sleep 60` child to join the group before
+		// killing the leader, so the group genuinely outlives it.
+		testutil.Eventually(t, 2*time.Second, 5*time.Millisecond, func() bool {
+			return groupMembers(t, pgid) >= 2
+		}, "child never joined process group %d", pgid)
+	} else {
 		t.Fatalf("failed to get pgid: %v", err)
 	}
 
