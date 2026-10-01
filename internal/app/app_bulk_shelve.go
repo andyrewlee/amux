@@ -17,6 +17,8 @@ import (
 // drains through.
 type bulkOpKind int
 
+// NOTE: adding a new bulkOpKind must update the "Bulk Operations Flow"
+// section in MESSAGE_FLOW.md — it is the documented contract for this driver.
 const (
 	bulkOpShelve bulkOpKind = iota
 	bulkOpRestore
@@ -47,7 +49,7 @@ type bulkTarget struct {
 }
 
 // bulkOpState is the sequential bulk-op driver shared by shelve, restore,
-// and purge. The queue drains one workspace at a time through the kind's
+// purge, and delete. The queue drains one workspace at a time through the kind's
 // literal per-row handler — the same guarded, spinner-backed op a single
 // workspace runs — so worktree add/removals never run in parallel. headID
 // is the in-flight op's MetadataID: the matching completion message

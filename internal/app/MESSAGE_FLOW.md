@@ -177,28 +177,39 @@ spinner labels.
    same `persistWorkspaceTabs` re-dirty compensation as shelve failure, and
    reports the error.
 
-## Bulk Shelve Flow
+## Bulk Operations Flow
 
-1. `messages.ShowBulkShelveWorkspaceDialog` (dashboard `S` with marks) →
-   `handleShowBulkShelveWorkspaceDialog` (`app_bulk_shelve.go`): converts the
-   marked items to `bulkShelveTarget`s (each carries its project — marks can
-   span projects — and its `MetadataID` as a mark-clearing key) and opens a
-   single confirm dialog listing the names.
-2. On confirm, `dialogResultBulkShelveWorkspace` → `startBulkShelve`: a
-   second batch while one drains is rejected rather than queued (overwriting
-   state would orphan the in-flight head). Initializes `bulkShelveState` and
-   calls `advanceBulkShelve`.
-3. `advanceBulkShelve` pops one target and drives it through the literal
-   `handleShelveWorkspace` — worktree removals therefore never run in
-   parallel, and each item gets the full guarded/spinner path. A guard
-   rejection returns no cmds: the target is counted failed and skipped
-   immediately rather than stalling the drain.
-4. Each `WorkspaceShelved`/`WorkspaceShelveFailed` calls
-   `bulkShelveFinished`: only a completion matching `headID` (the in-flight
-   `MetadataID`) counts and advances — a foreign completion from a manual
-   shelve interleaving belongs to its own flow and cannot corrupt the
-   accounting.
-5. Queue empty → `finishBulkShelve`: clears the batch members' dashboard
-   marks and emits one summary toast ("Shelved N of M"). Per-row "Shelved X"
-   toasts are suppressed while `bulkShelve.active()` — the batch summary
-   replaces N row toasts.
+All four marked-set operations — shelve, restore, purge, delete — share one
+sequential driver (`bulkOpState`) in `app_bulk_shelve.go` (the filename is
+stale: it houses all four `bulkOpKind` values, not just shelve).
+
+1. `messages.ShowBulk{Shelve,Restore,Purge,Delete}WorkspaceDialog`
+   (dashboard `S`/`Enter`/`P`/`D` with marks) → the matching
+   `handleShowBulk*` handler: `bulkTargetsFromItems` converts the marked
+   items to `bulkTarget`s (each carries its project — marks can span
+   projects — and its `MetadataID` as `markID`, the mark-clearing key) and
+   opens a confirm dialog. Shelve and restore get a plain confirm listing
+   the names; purge and delete are destructive and use the typed-count
+   `InputDialog` (`bulkConfirmBody` renders the body).
+2. On confirm, `dialogResultBulk*` → `startBulkOp(kind, targets)`: a second
+   batch while one drains is rejected rather than queued (overwriting state
+   would orphan the in-flight head). For purge/delete the result handler
+   re-verifies the typed count before the drain starts — the input
+   validator is UX; the handler check is the gate.
+3. `advanceBulk` pops the next target and drives it through the kind's
+   literal per-row handler — `handleShelveWorkspace`,
+   `handleRestoreWorkspace`, or `handleDeleteWorkspace` (purge and delete
+   share it; the handler tolerates purge's absent worktree). Worktree
+   removals therefore never run in parallel, and each item gets the full
+   guarded/spinner path. A guard rejection returns no cmds: the target is
+   counted failed and skipped immediately rather than stalling the drain.
+4. Each completion (`WorkspaceShelved`/`WorkspaceShelveFailed`,
+   `WorkspaceRestored`/`WorkspaceRestoreFailed`, `WorkspaceDeleted`/
+   `WorkspaceDeleteFailed`) funnels into `bulkFinished(ws, ok)`: only a
+   completion matching `headID` (the in-flight `MetadataID`) counts and
+   advances — a foreign completion from a manual op interleaving belongs to
+   its own flow and cannot corrupt the accounting.
+5. Queue empty → `finishBulk`: clears the batch members' dashboard marks
+   (`markIDs`) and emits one summary toast ("<verb> N of M"). Per-row
+   toasts are suppressed while `bulk.active()` (per-kind:
+   `bulk.activeFor(kind)`) — the batch summary replaces N row toasts.

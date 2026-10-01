@@ -21,6 +21,10 @@ This runs:
   in `.golangci.yml`
 - `check-fmt-config` — fails if the Makefile `LOCAL_PREFIXES` no longer
   mirrors `.golangci.yml`'s local-prefixes
+- `check-fmt-versions` — fetches golangci-lint's `go.mod` and compares its
+  vendored `gofumpt`/`x/tools` versions against the Makefile pins
+  (`scripts/check_fmt_versions.sh`); NOTEs when offline, FAILs under
+  `FMT_VERSION_STRICT=1` (which `make ci` sets)
 - `make lint` — `golangci-lint run`, `golangci-lint fmt --diff`, and the file
   length guard (`*.go` files must be <= 500 lines)
 

@@ -9,9 +9,9 @@ import (
 // minisignPublicKey is the base64 minisign public key used to verify release
 // signatures (the detached checksums.txt.minisig asset signed at release
 // time). The operator fills in the real value when the signing keypair is
-// provisioned; see the release runbook. It must always match the key whose
-// secret half CI uses to sign releases, and the MINISIGN_PUBKEY value in
-// install.sh.
+// provisioned; see the release runbook. It must always match the minisign
+// secret key used by `goreleaser release --clean` in the release operator's
+// local environment, and the MINISIGN_PUBKEY value in install.sh.
 //
 // A placeholder empty value disables signature verification ONLY for dev
 // builds via verifyReleaseSignature below — release (non-dev) builds fail
