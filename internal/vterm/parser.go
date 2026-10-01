@@ -138,7 +138,7 @@ func AdvanceParserCarryState(seed ParserCarryState, data []byte) ParserCarryStat
 			}
 		case ParserCarryOSC:
 			switch b {
-			case 0x07:
+			case 0x07, 0x9c:
 				state.Mode = ParserCarryText
 			case 0x1b:
 				state.Mode = ParserCarryOSCEscape
@@ -161,8 +161,11 @@ func AdvanceParserCarryState(seed ParserCarryState, data []byte) ParserCarryStat
 				state.Mode = ParserCarryText
 			}
 		case ParserCarryDCS:
-			if b == 0x1b {
+			switch b {
+			case 0x1b:
 				state.Mode = ParserCarryDCSEscape
+			case 0x9c:
+				state.Mode = ParserCarryText
 			}
 		case ParserCarryDCSEscape:
 			switch b {

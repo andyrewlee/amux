@@ -160,6 +160,67 @@ func TestOSCMalformedEscapeDoesNotDispatch(t *testing.T) {
 	})
 }
 
+// TestOSCC1STTermination proves the 8-bit C1 ST byte (0x9c) terminates the
+// parser's string states exactly like BEL/ESC-\: a producer in 8-bit control
+// mode must not have its output swallowed into the OSC/DCS buffers forever.
+func TestOSCC1STTermination(t *testing.T) {
+	t.Parallel()
+
+	t.Run("OSC 0 title terminated by C1 ST executes", func(t *testing.T) {
+		t.Parallel()
+		v := New(80, 24)
+		v.Write([]byte("\x1b]0;c1-title\x9c"))
+		if got := v.Title(); got != "c1-title" {
+			t.Fatalf("Title() = %q, want %q", got, "c1-title")
+		}
+	})
+
+	t.Run("text after C1-ST OSC lands on screen", func(t *testing.T) {
+		t.Parallel()
+		v := New(80, 24)
+		v.Write([]byte("\x1b]0;t\x9cAB"))
+		screen := v.VisibleScreen()
+		if screen[0][0].Rune != 'A' || screen[0][1].Rune != 'B' {
+			t.Fatalf("row 0 = %q%q, want AB after C1-ST OSC", screen[0][0].Rune, screen[0][1].Rune)
+		}
+	})
+
+	t.Run("DCS terminated by C1 ST leaves screen clean", func(t *testing.T) {
+		t.Parallel()
+		v := New(20, 2)
+		v.Write([]byte("\x1bP1$r0m\x9cvisible"))
+		if got := lineText(v.Screen[0]); got != "visible" {
+			t.Fatalf("row 0 = %q, want %q after C1-ST DCS", got, "visible")
+		}
+	})
+
+	t.Run("OSC ignore state exits on C1 ST", func(t *testing.T) {
+		t.Parallel()
+		v := New(80, 24)
+		// Overflow the OSC buffer into stateOSCIgnore, then terminate with
+		// 0x9c — the trailing text must render rather than stay swallowed.
+		v.Write([]byte("\x1b]0;" + strings.Repeat("x", maxOSCSequenceBytes+1)))
+		v.Write([]byte("\x9cOK"))
+		screen := v.VisibleScreen()
+		if screen[0][0].Rune != 'O' || screen[0][1].Rune != 'K' {
+			t.Fatalf("row 0 = %q%q, want OK after C1-ST from OSC ignore", screen[0][0].Rune, screen[0][1].Rune)
+		}
+	})
+
+	t.Run("carry state returns to text on C1 ST", func(t *testing.T) {
+		t.Parallel()
+		v := New(80, 24)
+		v.Write([]byte("\x1b]0;t"))
+		if got := v.ParserCarryState().Mode; got != ParserCarryOSC {
+			t.Fatalf("carry mode mid-OSC = %d, want ParserCarryOSC", got)
+		}
+		v.Write([]byte{0x9c})
+		if got := v.ParserCarryState(); got != (ParserCarryState{}) {
+			t.Fatalf("carry after C1 ST = %+v, want zero", got)
+		}
+	})
+}
+
 func TestOSCSTTerminatorCanSplitAcrossWrites(t *testing.T) {
 	t.Parallel()
 

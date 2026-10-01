@@ -1,7 +1,9 @@
 package vterm
 
 func (p *Parser) parseOSC(b byte) {
-	if b == 0x07 {
+	// BEL and the 8-bit C1 ST both terminate OSC; a producer in 8-bit control
+	// mode emits 0x9c instead of ESC \.
+	if b == 0x07 || b == 0x9c {
 		p.executeOSC()
 		p.oscBuf.Reset()
 		p.state = stateGround
@@ -41,7 +43,7 @@ func (p *Parser) executeOSC() {
 
 func (p *Parser) parseOSCIgnore(b byte) {
 	switch b {
-	case 0x07:
+	case 0x07, 0x9c:
 		p.state = stateGround
 	case 0x1b:
 		p.state = stateOSCIgnoreEscape
@@ -67,7 +69,13 @@ func (p *Parser) parseDCS(b byte) {
 		p.state = stateDCSEscape
 		return
 	}
-	// Stay in DCS until we see ESC \
+	// The 8-bit C1 ST also terminates DCS — without it a 0x9c-terminated
+	// sequence swallows every subsequent byte.
+	if b == 0x9c {
+		p.state = stateGround
+		return
+	}
+	// Stay in DCS until we see ESC \ or C1 ST
 }
 
 func (p *Parser) parseDCSEscape(b byte) {
