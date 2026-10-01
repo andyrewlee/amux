@@ -381,6 +381,14 @@ func (m *Model) handleDelete() tea.Cmd {
 		}
 	}
 	if row.Type == RowWorkspace && row.Workspace != nil {
+		// Marked live rows upgrade D to the bulk delete — the same
+		// typed-confirm batch the shelved section's purge uses, without
+		// the shelve-all → re-mark → purge dance.
+		if items := m.markedShelveItems(); len(items) > 0 {
+			return func() tea.Msg {
+				return messages.ShowBulkDeleteWorkspaceDialog{Items: items}
+			}
+		}
 		return func() tea.Msg {
 			return messages.ShowDeleteWorkspaceDialog{
 				Project:   row.Project,

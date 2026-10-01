@@ -372,6 +372,8 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowBulkRestoreWorkspaceDialog(msg)
 	case messages.ShowBulkPurgeWorkspaceDialog:
 		a.handleShowBulkPurgeWorkspaceDialog(msg)
+	case messages.ShowBulkDeleteWorkspaceDialog:
+		a.handleShowBulkDeleteWorkspaceDialog(msg)
 	case messages.ShowWorkspaceScriptsDialog:
 		a.handleShowWorkspaceScriptsDialog(msg)
 	case messages.ShowRunScriptOutput:

@@ -257,3 +257,55 @@ func TestDashboardShelvedRowRendersTagAndHelp(t *testing.T) {
 		t.Fatalf("shelved row help = %q, want restore + purge", help)
 	}
 }
+
+// TestDashboardDeleteOnLiveRowWithMarksEmitsBulkDelete proves marked live
+// rows upgrade D to the typed bulk-delete dialog and that the items are
+// the marked live rows — not the cursor row alone.
+func TestDashboardDeleteOnLiveRowWithMarksEmitsBulkDelete(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProjectMulti()})
+	m.cursor = findRow(m, RowWorkspace)
+	if m.cursor < 0 {
+		t.Fatal("no live workspace row")
+	}
+	for _, row := range m.rows {
+		if row.Type == RowWorkspace {
+			m.MarkWorkspaceIDs([]string{string(row.Workspace.MetadataID())})
+		}
+	}
+
+	cmd := m.handleDelete()
+	if cmd == nil {
+		t.Fatal("expected bulk delete command")
+	}
+	msg, ok := cmd().(messages.ShowBulkDeleteWorkspaceDialog)
+	if !ok {
+		t.Fatalf("expected ShowBulkDeleteWorkspaceDialog, got %T", cmd())
+	}
+	if len(msg.Items) != 2 {
+		t.Fatalf("bulk items = %d, want 2", len(msg.Items))
+	}
+}
+
+// TestDashboardDeleteOnUnmarkedLiveRowStaysSingle proves the single-row
+// delete dialog is untouched when no live rows are marked.
+func TestDashboardDeleteOnUnmarkedLiveRowStaysSingle(t *testing.T) {
+	m := New()
+	m.SetProjects([]data.Project{makeProjectMulti()})
+	m.cursor = findRow(m, RowWorkspace)
+	if m.cursor < 0 {
+		t.Fatal("no live workspace row")
+	}
+
+	cmd := m.handleDelete()
+	if cmd == nil {
+		t.Fatal("expected single delete command")
+	}
+	msg, ok := cmd().(messages.ShowDeleteWorkspaceDialog)
+	if !ok {
+		t.Fatalf("expected ShowDeleteWorkspaceDialog, got %T", cmd())
+	}
+	if msg.Workspace == nil || msg.Workspace.Name != "alpha" {
+		t.Fatalf("single delete target = %+v, want alpha", msg.Workspace)
+	}
+}

@@ -21,6 +21,7 @@ const (
 	bulkOpShelve bulkOpKind = iota
 	bulkOpRestore
 	bulkOpPurge
+	bulkOpDelete
 )
 
 // verb is the summary word for the finished batch ("Shelved 3 of 4").
@@ -30,6 +31,8 @@ func (k bulkOpKind) verb() string {
 		return "Restored"
 	case bulkOpPurge:
 		return "Purged"
+	case bulkOpDelete:
+		return "Deleted"
 	default:
 		return "Shelved"
 	}
@@ -176,6 +179,40 @@ func (a *App) handleShowBulkPurgeWorkspaceDialog(msg messages.ShowBulkPurgeWorks
 	})
 }
 
+// handleShowBulkDeleteWorkspaceDialog opens the typed confirmation for the
+// marked live set. Deleting a live row removes worktree, branch, metadata,
+// and settings — the same op a single delete runs — so it shares purge's
+// typed-count gate rather than the shelve/restore plain confirm.
+func (a *App) handleShowBulkDeleteWorkspaceDialog(msg messages.ShowBulkDeleteWorkspaceDialog) {
+	targets := bulkTargetsFromItems(msg.Items)
+	if len(targets) == 0 {
+		return
+	}
+	if a.dialogOpen() {
+		return
+	}
+	a.requestOverlayOpen(func() {
+		a.clearPendingWorkspaceCreate()
+		a.dlg.bulkTargets = targets
+		want := strconv.Itoa(len(targets))
+		a.dialog = common.NewInputDialog(
+			DialogBulkDeleteWorkspace,
+			fmt.Sprintf("Delete %d Workspaces", len(targets)),
+			"Type "+want+" to confirm",
+		)
+		a.dialog.SetInputValidate(func(s string) string {
+			if s == "" {
+				return "" // no nag on empty — the hint is already visible
+			}
+			if strings.TrimSpace(s) != want {
+				return "Type " + want + " to confirm the delete"
+			}
+			return ""
+		})
+		a.presentDialog(a.dialog)
+	})
+}
+
 // bulkConfirmBody lists the marked workspace names — the bulk version of
 // the single op's "what happens" copy. Names are capped so a large fleet
 // doesn't overflow the dialog.
@@ -225,6 +262,18 @@ func dialogResultBulkPurgeWorkspace(a *App, result common.DialogResult, dlg dial
 	return a.startBulkOp(bulkOpPurge, dlg.bulkTargets)
 }
 
+// dialogResultBulkDeleteWorkspace re-verifies the typed count before the
+// destructive live-row drain starts — same gate as bulk purge.
+func dialogResultBulkDeleteWorkspace(a *App, result common.DialogResult, dlg dialogContext) tea.Cmd {
+	if len(dlg.bulkTargets) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(result.Value) != strconv.Itoa(len(dlg.bulkTargets)) {
+		return a.toast.ShowWarning("Delete canceled — the count did not match")
+	}
+	return a.startBulkOp(bulkOpDelete, dlg.bulkTargets)
+}
+
 // startBulkOp initializes the batch and kicks the first op. A second
 // batch while one drains is rejected, not queued — overwriting the state
 // would orphan the in-flight op's headID and run two drains in parallel.
@@ -259,7 +308,9 @@ func (a *App) advanceBulk() tea.Cmd {
 				Project:   next.project,
 				Workspace: next.workspace,
 			})
-		case bulkOpPurge:
+		case bulkOpPurge, bulkOpDelete:
+			// Live and shelved rows share the delete flow — the per-row
+			// handler already tolerates the absent worktree on purge.
 			cmds = a.handleDeleteWorkspace(messages.DeleteWorkspace{
 				Project:   next.project,
 				Workspace: next.workspace,
