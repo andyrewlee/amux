@@ -229,7 +229,7 @@ func TestCreateAgentTabWithSession_NilWorkspaceReturnsError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newTestModel()
 
-			cmd := m.createAgentTabWithSession(tt.assistant, nil, tt.sessionName, tt.displayName, tt.activate)
+			cmd := m.createAgentTabWithSession(tt.assistant, nil, tt.sessionName, tt.displayName, "", tt.activate)
 			if cmd == nil {
 				t.Fatal("expected a command even when workspace is nil")
 			}
@@ -265,7 +265,7 @@ func TestCreateAgentTabWithSession_NonNilWorkspaceReturnsCommand(t *testing.T) {
 			m := newTestModel()
 			ws := newTestWorkspace("ws", "/repo/ws")
 
-			cmd := m.createAgentTabWithSession("claude", ws, tt.sessionName, "Claude", true)
+			cmd := m.createAgentTabWithSession("claude", ws, tt.sessionName, "Claude", "", true)
 			if cmd == nil {
 				t.Fatal("expected a non-nil command for a real workspace")
 			}

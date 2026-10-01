@@ -79,6 +79,14 @@ func (v *VTerm) Version() uint64 {
 	return v.version
 }
 
+// PrivateModesSeen reports whether the application has issued at least one
+// private-mode (DECSET/DECRST) sequence — the cheapest "input loop is live"
+// signal available: TUI agents enable mouse reporting, alt screen, or
+// synchronized output only after their event loop starts reading stdin.
+func (v *VTerm) PrivateModesSeen() bool {
+	return v.privateModesSeen > 0
+}
+
 // bumpVersion increments the version counter.
 // Called internally when content changes.
 func (v *VTerm) bumpVersion() {

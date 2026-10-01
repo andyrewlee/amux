@@ -28,6 +28,7 @@ func (p *Parser) executeMode(set bool) {
 	if p.intermediate != '?' {
 		return
 	}
+	p.vt.privateModesSeen++
 
 	for _, param := range p.params {
 		switch param {

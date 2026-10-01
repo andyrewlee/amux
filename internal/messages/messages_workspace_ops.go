@@ -113,6 +113,13 @@ type ShowSelectAssistantDialog struct{}
 type LaunchAgent struct {
 	Assistant string
 	Workspace *data.Workspace
+	// Task is the optional initial task text. When set it is queued on the
+	// tab and sent once the agent's TUI reports readiness (first private-mode
+	// set — see vterm.PrivateModesSeen). No UI collects it today; it is
+	// plumbed and tested so a future create-flow field or CLI flag can set
+	// it. Agents that never emit a private-mode set never receive it — a
+	// silent no-send beats a task mangled into a pre-TUI line discipline.
+	Task string
 }
 
 // OpenDiff requests opening a diff viewer for a file
