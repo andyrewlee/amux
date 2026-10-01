@@ -245,7 +245,13 @@ func listTmux(opts Options, args ...string) ([]string, error) {
 }
 
 func hasSession(sessionName string, opts Options) (bool, error) {
-	cmd, cancel := tmuxCommand(opts, "has-session", "-t", sessionTarget(sessionName))
+	return hasSessionTarget(sessionTarget(sessionName), opts)
+}
+
+// hasSessionTarget is hasSession against a raw tmux target — either an
+// "=name" exact-match target or a "$N" session id.
+func hasSessionTarget(target string, opts Options) (bool, error) {
+	cmd, cancel := tmuxCommand(opts, "has-session", "-t", target)
 	defer cancel()
 	if _, err := runTmuxCmd(cmd); err != nil {
 		if isExitCode1(err) {
@@ -277,33 +283,53 @@ func KillSession(sessionName string, opts Options) error {
 	if sessionName == "" {
 		return nil
 	}
+	return killSessionTarget(sessionTarget(sessionName), opts)
+}
+
+// KillSessionByID kills a session by its server-assigned "#{session_id}" ("$N")
+// token. Unlike a name — even an "=" exact-matched one — an id can neither
+// prefix-match a sibling nor rebind to a different session created under the
+// same name after discovery, so tag-matched cleanup prefers it.
+func KillSessionByID(sessionID string, opts Options) error {
+	if !isSessionIDToken(sessionID) {
+		return fmt.Errorf("invalid tmux session id %q", sessionID)
+	}
+	return killSessionTarget(sessionID, opts)
+}
+
+func killSessionTarget(target string, opts Options) error {
 	if err := EnsureAvailable(); err != nil {
 		return err
 	}
 	// Kill each pane's process tree first: node/turbo/pnpm trees survive the SIGHUP from kill-session.
-	pids, err := panePIDs(sessionName, opts)
+	pids, err := panePIDsTarget(target, opts)
 	if err != nil { // retry once — a transient list-panes failure may clear
-		if pids, err = panePIDs(sessionName, opts); err != nil {
-			logging.Warn("KillSession %q: pane-PID lookup failed after retry; skipping process-tree reap: %v", sessionName, err)
+		if pids, err = panePIDsTarget(target, opts); err != nil {
+			logging.Warn("KillSession %q: pane-PID lookup failed after retry; skipping process-tree reap: %v", target, err)
 		}
 	}
 	for _, pid := range pids {
 		_ = process.KillProcessGroup(pid, process.KillOptions{})
 	}
-	return runTmux(opts, "kill-session", "-t", sessionTarget(sessionName))
+	return runTmux(opts, "kill-session", "-t", target)
 }
 
 // panePIDs returns the PID of each pane's initial process in the given session.
 // The -s flag lists panes across all windows in the session, not just the active one.
 func panePIDs(sessionName string, opts Options) ([]int, error) {
-	exists, err := hasSession(sessionName, opts)
+	return panePIDsTarget(sessionTarget(sessionName), opts)
+}
+
+// panePIDsTarget is panePIDs against a raw tmux target ("=name" or "$id").
+func panePIDsTarget(target string, opts Options) ([]int, error) {
+	exists, err := hasSessionTarget(target, opts)
 	if err != nil {
 		return nil, err
 	}
 	if !exists {
 		return nil, nil
 	}
-	lines, err := listTmux(opts, "list-panes", "-s", "-t", sessionTarget(sessionName), "-F", "#{pane_pid}")
+	lines, err := listTmux(opts, "list-panes", "-s", "-t", target, "-F", "#{pane_pid}")
 	if err != nil {
 		return nil, err
 	}

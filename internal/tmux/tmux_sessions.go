@@ -10,27 +10,54 @@ func ListSessions(opts Options) ([]string, error) {
 	return listTmux(opts, "list-sessions", "-F", "#{session_name}")
 }
 
+// sessionIDName pairs a session's server-assigned id with its name.
+type sessionIDName struct {
+	id   string
+	name string
+}
+
+// listSessionIDNames returns every session as an (id, name) pair. Kills and
+// option reads go through the id — a "$N" token cannot prefix-match a sibling
+// or rebind to a same-named session created after the listing, which a
+// name target can.
+func listSessionIDNames(opts Options) ([]sessionIDName, error) {
+	lines, err := listTmux(opts, "list-sessions", "-F", "#{session_id}\t#{session_name}")
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]sessionIDName, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		if !isSessionIDToken(id) {
+			continue
+		}
+		rows = append(rows, sessionIDName{id: id, name: parts[1]})
+	}
+	return rows, nil
+}
+
 // KillSessionsWithPrefix kills all sessions with a matching name prefix.
 func KillSessionsWithPrefix(prefix string, opts Options) error {
 	if prefix == "" {
 		return nil
 	}
-	sessions, err := ListSessions(opts)
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	sessions, err := listSessionIDNames(opts)
 	if err != nil {
 		return err
 	}
-	var matched []string
-	for _, name := range sessions {
-		if strings.HasPrefix(name, prefix) {
-			matched = append(matched, name)
-		}
-	}
-	if len(matched) == 0 {
-		return nil
-	}
 	var firstErr error
-	for _, name := range matched {
-		if err := KillSession(name, opts); err != nil && firstErr == nil {
+	for _, s := range sessions {
+		if !strings.HasPrefix(s.name, prefix) {
+			continue
+		}
+		if err := KillSessionByID(s.id, opts); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -45,16 +72,19 @@ func KillSessionsWithPrefixMissingTag(prefix, tag string, opts Options) error {
 	if prefix == "" || tag == "" {
 		return nil
 	}
-	sessions, err := ListSessions(opts)
+	if err := EnsureAvailable(); err != nil {
+		return err
+	}
+	sessions, err := listSessionIDNames(opts)
 	if err != nil {
 		return err
 	}
 	var firstErr error
-	for _, name := range sessions {
-		if !strings.HasPrefix(name, prefix) {
+	for _, s := range sessions {
+		if !strings.HasPrefix(s.name, prefix) {
 			continue
 		}
-		value, err := SessionTagValue(name, tag, opts)
+		value, err := sessionTagValueByID(s.id, tag, opts)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -64,7 +94,7 @@ func KillSessionsWithPrefixMissingTag(prefix, tag string, opts Options) error {
 		if strings.TrimSpace(value) != "" {
 			continue
 		}
-		if err := KillSession(name, opts); err != nil && firstErr == nil {
+		if err := KillSessionByID(s.id, opts); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -98,20 +128,28 @@ func ListSessionsMatchingTags(tags map[string]string, opts Options) ([]string, e
 	return matches, nil
 }
 
-// KillSessionsMatchingTags kills sessions that match all provided tags.
+// KillSessionsMatchingTags kills sessions that match all provided tags. Kills
+// target the parsed "#{session_id}" — not the name — so a foreign session
+// whose name contains the field separator cannot redirect the kill onto a
+// session whose name only resembles the parsed prefix.
 func KillSessionsMatchingTags(tags map[string]string, opts Options) (bool, error) {
-	sessions, err := ListSessionsMatchingTags(tags, opts)
+	if len(tags) == 0 {
+		return false, nil
+	}
+	rows, orderedKeys, err := listSessionsWithTags(tags, opts)
 	if err != nil {
 		return false, err
 	}
-	if len(sessions) == 0 {
-		return false, nil
-	}
+	matched := false
 	var firstErr error
-	for _, name := range sessions {
-		if err := KillSession(name, opts); err != nil && firstErr == nil {
+	for _, row := range rows {
+		if !matchesTags(row, tags, orderedKeys) {
+			continue
+		}
+		matched = true
+		if err := KillSessionByID(row.ID, opts); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
-	return true, firstErr
+	return matched, firstErr
 }

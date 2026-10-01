@@ -212,8 +212,8 @@ func TestRunSessionTail_TrimsTrailingWhitespace(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // FindRunSessions — the rows arrive as
-// name|@amux|@amux_instance|@amux_type|@amux_workspace (keys sorted by
-// listSessionsWithTags).
+// $id|@amux|@amux_instance|@amux_type|@amux_workspace|name (keys sorted by
+// listSessionsWithTags, id first and the free-form name last).
 // ---------------------------------------------------------------------------
 
 func findRunSeam(t *testing.T, lines []byte, err error) {
@@ -221,17 +221,17 @@ func findRunSeam(t *testing.T, lines []byte, err error) {
 	fakeRunTmuxCmd(t, lines, err)
 }
 
-func runRow(name, instance string) string {
-	return name + "|1|" + instance + "|run|ws-1"
+func runRow(id, name, instance string) string {
+	return id + "|1|" + instance + "|run|ws-1|" + name
 }
 
 func TestFindRunSessions_NamespaceFilter(t *testing.T) {
 	skipIfNoTmux(t)
 	findRunSeam(t, []byte(strings.Join([]string{
-		runRow("amux-ws1-run-a", "abc.launch1"),
-		runRow("amux-ws1-run-b", "abc.launch2"), // same ns, different launch
-		runRow("amux-ws1-run-c", "xyz.launch1"), // foreign ns
-		runRow("amux-ws1-run-d", ""),            // untagged legacy -> match
+		runRow("$1", "amux-ws1-run-a", "abc.launch1"),
+		runRow("$2", "amux-ws1-run-b", "abc.launch2"), // same ns, different launch
+		runRow("$3", "amux-ws1-run-c", "xyz.launch1"), // foreign ns
+		runRow("$4", "amux-ws1-run-d", ""),            // untagged legacy -> match
 	}, "\n")+"\n"), nil)
 
 	names, err := FindRunSessions("ws-1", "abc.mine", testOpts())
@@ -247,7 +247,7 @@ func TestFindRunSessions_NamespaceFilter(t *testing.T) {
 
 func TestFindRunSessions_EmptyInstanceIDMatchesAll(t *testing.T) {
 	skipIfNoTmux(t)
-	findRunSeam(t, []byte(runRow("amux-ws1-run-a", "xyz.other")+"\n"), nil)
+	findRunSeam(t, []byte(runRow("$1", "amux-ws1-run-a", "xyz.other")+"\n"), nil)
 	names, err := FindRunSessions("ws-1", "", testOpts())
 	if err != nil || len(names) != 1 {
 		t.Fatalf("empty instanceID must not filter, got %v err=%v", names, err)
@@ -258,7 +258,7 @@ func TestFindRunSessions_TagMatchFilter(t *testing.T) {
 	skipIfNoTmux(t)
 	// Row with a different workspace tag: matchesTags drops it before the
 	// instance check ever runs.
-	findRunSeam(t, []byte("amux-other-run|1|abc.x|run|ws-2\n"), nil)
+	findRunSeam(t, []byte("$9|1|abc.x|run|ws-2|amux-other-run\n"), nil)
 	names, err := FindRunSessions("ws-1", "abc.y", testOpts())
 	if err != nil || len(names) != 0 {
 		t.Fatalf("workspace mismatch must filter, got %v err=%v", names, err)
@@ -267,7 +267,9 @@ func TestFindRunSessions_TagMatchFilter(t *testing.T) {
 
 func TestFindRunSessions_TrimsAndSkipsEmptyNames(t *testing.T) {
 	skipIfNoTmux(t)
-	findRunSeam(t, []byte("  amux-ws1-run-a  |1|abc.x|run|ws-1\n|1|abc.x|run|ws-1\n"), nil)
+	// Second row is a session whose name field is empty — FindRunSessions
+	// drops it rather than returning "".
+	findRunSeam(t, []byte("$1|1|abc.x|run|ws-1|amux-ws1-run-a\n$2|1|abc.x|run|ws-1|\n"), nil)
 	names, err := FindRunSessions("ws-1", "abc.y", testOpts())
 	if err != nil || len(names) != 1 || names[0] != "amux-ws1-run-a" {
 		t.Fatalf("names = %#v err=%v, want [amux-ws1-run-a]", names, err)

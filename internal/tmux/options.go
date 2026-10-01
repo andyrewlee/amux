@@ -6,27 +6,27 @@ import (
 )
 
 // SessionTagValue returns a session option value for the given tag key.
+//
+// The read resolves the name to its server-assigned "#{session_id}" first and
+// then targets that id: show-options does not support the "=" exact-match
+// prefix, so the old has-session + bare-name pair was check-then-act — a
+// session dying between the two could prefix-match a sibling and return its
+// value. A "$N" id is exact by construction and errors if the session died.
 func SessionTagValue(sessionName, key string, opts Options) (string, error) {
 	if sessionName == "" || key == "" {
 		return "", nil
 	}
-	exists, err := hasSession(sessionName, opts)
+	if err := EnsureAvailable(); err != nil {
+		return "", err
+	}
+	targets, err := sessionOptionTargets([]string{sessionName}, opts)
 	if err != nil {
 		return "", err
 	}
-	if !exists {
+	if len(targets) == 0 {
 		return "", nil
 	}
-	cmd, cancel := tmuxCommand(opts, "show-options", "-t", exactSessionOptionTarget(sessionName), "-v", key)
-	defer cancel()
-	output, err := runTmuxCmd(cmd)
-	if err != nil {
-		if isExitCode1(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
+	return sessionTagValueByID(targets[0], key, opts)
 }
 
 // GlobalOptionValue returns a tmux global option value for the given key.
