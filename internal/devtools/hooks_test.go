@@ -78,6 +78,7 @@ func TestHookSkipFlags(t *testing.T) {
 				{"repo root lookup", []string{"git", "rev-parse", "--show-toplevel"}, true},
 				{"strict lint", []string{"make", "lint-strict-base"}, true},
 				{"harness run", []string{"go", "run", "./cmd/amux-harness"}, true},
+				{"race smoke", []string{"go", "test", "-race"}, true},
 				{"e2e tests", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe", []string{"tmux", "-L"}, true},
 			},
@@ -89,6 +90,7 @@ func TestHookSkipFlags(t *testing.T) {
 			expects: []expectation{
 				{"strict lint skipped", []string{"make", "lint-strict-base"}, false},
 				{"harness run retained", []string{"go", "run", "./cmd/amux-harness"}, true},
+				{"race smoke retained", []string{"go", "test", "-race"}, true},
 				{"e2e tests retained", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe retained", []string{"tmux", "-L"}, true},
 			},
@@ -100,6 +102,19 @@ func TestHookSkipFlags(t *testing.T) {
 			expects: []expectation{
 				{"strict lint retained", []string{"make", "lint-strict-base"}, true},
 				{"harness skipped", []string{"go", "run", "./cmd/amux-harness"}, false},
+				{"race smoke retained", []string{"go", "test", "-race"}, true},
+				{"e2e tests retained", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
+				{"tmux probe retained", []string{"tmux", "-L"}, true},
+			},
+		},
+		{
+			name: "pre-push skip-race removes only the race smoke",
+			hook: "pre-push",
+			env:  map[string]string{"AMUX_SKIP_RACE": "1"},
+			expects: []expectation{
+				{"strict lint retained", []string{"make", "lint-strict-base"}, true},
+				{"harness run retained", []string{"go", "run", "./cmd/amux-harness"}, true},
+				{"race smoke skipped", []string{"go", "test", "-race"}, false},
 				{"e2e tests retained", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe retained", []string{"tmux", "-L"}, true},
 			},
@@ -111,6 +126,7 @@ func TestHookSkipFlags(t *testing.T) {
 			expects: []expectation{
 				{"strict lint skipped", []string{"make", "lint-strict-base"}, false},
 				{"harness skipped", []string{"go", "run", "./cmd/amux-harness"}, false},
+				{"race smoke retained", []string{"go", "test", "-race"}, true},
 				{"e2e tests retained", []string{"go", "test", "./internal/e2e", "-count=1"}, true},
 				{"tmux probe retained", []string{"tmux", "-L"}, true},
 			},
@@ -183,6 +199,11 @@ func TestHookRetainedGatesFail(t *testing.T) {
 		{
 			"pre-push harness skipped but e2e fails", "pre-push",
 			map[string]string{"AMUX_SKIP_HARNESS": "1", "STUB_FAIL_GO": "test"},
+		},
+		{
+			// "-race" only matches the race-smoke argv — e2e runs without it.
+			"pre-push race smoke failure fails the push", "pre-push",
+			map[string]string{"STUB_FAIL_GO": "-race"},
 		},
 	}
 	for _, tc := range cases {
