@@ -28,6 +28,12 @@ var ErrScriptsNotTrusted = errors.New("project scripts not trusted")
 // after the repo config changed from the content that originally triggered the prompt.
 var ErrScriptsChangedSincePrompt = errors.New("project scripts changed since trust prompt")
 
+// ErrTrustApprovalRequiresHash is returned when a hash-bound trust approval
+// arrives without the hash of the content the user reviewed. The binding
+// would be unverifiable, so the gate fails closed rather than degrading to an
+// unbound trust of whatever happens to be on disk.
+var ErrTrustApprovalRequiresHash = errors.New("trust approval requires the reviewed config hash")
+
 // ScriptsNotTrustedError carries the hash of the repo config content that was
 // blocked, so the UI can bind a later approval to the exact reviewed content.
 type ScriptsNotTrustedError struct {
@@ -257,7 +263,10 @@ func (r *ScriptRunner) TrustRepoScripts(repoPath string) error {
 }
 
 // TrustRepoScriptsIfHash records trust only if the repo config still matches the
-// content hash that originally triggered the user approval prompt.
+// content hash that originally triggered the user approval prompt. An empty
+// expectedHash is a fail-closed error: the approval would be unbound to any
+// reviewed content, which is exactly the prompt→approval substitution the hash
+// exists to prevent. Callers without a hash must re-prompt, not trust.
 func (r *ScriptRunner) TrustRepoScriptsIfHash(repoPath, expectedHash string) error {
 	_, raw, err := r.loadConfigRaw(repoPath)
 	if err != nil {
@@ -266,7 +275,10 @@ func (r *ScriptRunner) TrustRepoScriptsIfHash(repoPath, expectedHash string) err
 	if raw == nil {
 		return nil
 	}
-	if expectedHash != "" && hashConfig(raw) != expectedHash {
+	if expectedHash == "" {
+		return ErrTrustApprovalRequiresHash
+	}
+	if hashConfig(raw) != expectedHash {
 		return ErrScriptsChangedSincePrompt
 	}
 	return r.trust.Trust(repoPath, raw)
