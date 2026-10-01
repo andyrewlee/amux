@@ -172,9 +172,12 @@ devcheck:
 # package source). The -v output exposes
 # per-test `--- SKIP:` lines, failures propagate, and skipped real-tmux
 # coverage still prints the same non-fatal NOTE unless STRICT_TMUX=1.
+# -count=1 is load-bearing: the tmux environment is not part of Go's test
+# cache key, so without it this environment-detector gate can replay stale
+# `-v` output and false-green (or false-fail STRICT_TMUX).
 tmux-skip-check:
 	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
-	if ! go test ./internal/tmux ./internal/e2e ./internal/app ./internal/pty -v >"$$output" 2>&1; then \
+	if ! go test -count=1 ./internal/tmux ./internal/e2e ./internal/app ./internal/pty -v >"$$output" 2>&1; then \
 		cat "$$output"; \
 		exit 1; \
 	fi; \
@@ -230,9 +233,11 @@ verify-loop:
 
 # doctor checks that this host can build, test, and run amux: required tools
 # present and usable (go at the go.mod version floor, git, a working tmux
-# server), plus warn-only environment hints (pre-commit hooks path,
-# golangci-lint for the lint targets). Exits nonzero only when a REQUIRED
-# tool is missing or unusable.
+# server >= 3.2 — internal/tmux EnsureAvailable's floor), plus warn-only
+# environment hints (pre-commit hooks path, golangci-lint for the lint
+# targets, air for `make dev`, curl for check-fmt-versions/install.sh,
+# docker for ci-tmux-matrix — keep these rows in lockstep with the gates'
+# tool set). Exits nonzero only when a REQUIRED tool is missing or unusable.
 doctor:
 	@fail=0; \
 	if command -v go >/dev/null 2>&1; then \
@@ -252,12 +257,18 @@ doctor:
 		echo "FAIL git: not installed"; fail=1; \
 	fi; \
 	if command -v tmux >/dev/null 2>&1; then \
-		server="amux-doctor-check-$$$$"; \
-		if tmux -L "$$server" -f /dev/null new-session -d -s probe "sleep 5" >/dev/null 2>&1; then \
-			echo "ok   tmux $$(tmux -V | awk '{print $$2}') (server probe passed)"; \
-			tmux -L "$$server" kill-server >/dev/null 2>&1 || true; \
+		tmuxv=$$(tmux -V | awk '{print $$2}' | sed 's/^next-//; s/[a-zA-Z].*$$//'); \
+		tmajor=$${tmuxv%%.*}; tminor=$${tmuxv#*.}; tminor=$${tminor%%.*}; \
+		if [ "$${tmajor:-0}" -lt 3 ] || { [ "$${tmajor:-0}" -eq 3 ] && [ "$${tminor:-0}" -lt 2 ]; }; then \
+			echo "FAIL tmux $${tmuxv:-unparseable} < 3.2 (amux requires >= 3.2)"; fail=1; \
 		else \
-			echo "FAIL tmux is installed but cannot start a server"; fail=1; \
+			server="amux-doctor-check-$$$$"; \
+			if tmux -L "$$server" -f /dev/null new-session -d -s probe "sleep 5" >/dev/null 2>&1; then \
+				echo "ok   tmux $$tmuxv (>= 3.2, server probe passed)"; \
+				tmux -L "$$server" kill-server >/dev/null 2>&1 || true; \
+			else \
+				echo "FAIL tmux $$tmuxv is installed but cannot start a server"; fail=1; \
+			fi; \
 		fi; \
 	else \
 		echo "FAIL tmux: not installed (real-tmux tests and verify-loop need it)"; fail=1; \
@@ -269,10 +280,20 @@ doctor:
 		echo "warn core.hooksPath is '$${hooks:-unset}' — run scripts/install-hooks.sh to enable the repo's pre-commit hooks"; \
 	fi; \
 	if [ -x .cache/bin/golangci-lint ] || command -v golangci-lint >/dev/null 2>&1; then \
-		echo "ok   golangci-lint present"; \
+		glbin=$$( [ -x .cache/bin/golangci-lint ] && echo .cache/bin/golangci-lint || command -v golangci-lint ); \
+		glv=$$("$$glbin" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+		glpin=$$(tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'); \
+		if [ -n "$$glpin" ] && [ "$${glv#v}" != "$$glpin" ]; then \
+			echo "warn golangci-lint $$glv resolved but .golangci-version pins $$glpin (run 'make lint-tools'; diagnostics may differ)"; \
+		else \
+			echo "ok   golangci-lint $$glv present"; \
+		fi; \
 	else \
 		echo "warn golangci-lint not found — fetched on demand by make lint"; \
 	fi; \
+	if command -v air >/dev/null 2>&1; then echo "ok   air present"; else echo "warn air not found — 'make dev' needs it (install with AIR_VERSION pin from Makefile)"; fi; \
+	if command -v curl >/dev/null 2>&1; then echo "ok   curl present"; else echo "warn curl not found — check-fmt-versions and install.sh need it"; fi; \
+	if command -v docker >/dev/null 2>&1; then echo "ok   docker present"; else echo "warn docker not found — 'make ci-tmux-matrix' needs it"; fi; \
 	if [ "$$fail" -ne 0 ]; then exit 1; fi; \
 	echo "doctor: environment looks good"
 
@@ -379,8 +400,17 @@ lint-strict-base: check-golangci-version # CACHE_ROOT defaults to a gitignored r
 	mkdir -p "$$GO_CACHE_DIR" "$$GOLANGCI_CACHE_DIR"; \
 	if git rev-parse --verify "$$BASE_REF" >/dev/null 2>&1; then \
 		BASE=$$(git merge-base HEAD "$$BASE_REF"); \
-		echo "Running strict lint against changes since $$BASE_REF ($$BASE)"; \
-		$(call run-strict-lint,--new-from-rev "$$BASE") \
+		if [ -z "$$BASE" ]; then \
+			echo "WARNING: base ref $$BASE_REF resolves but merge-base is empty (shallow clone? unrelated histories?)"; \
+			if [ "$${REQUIRE_BASE:-0}" = "1" ]; then \
+				echo "ERROR: REQUIRE_BASE=1 — refusing to run a strict gate that can pass vacuously"; \
+				exit 1; \
+			fi; \
+			$(call run-strict-lint,--new) \
+		else \
+			echo "Running strict lint against changes since $$BASE_REF ($$BASE)"; \
+			$(call run-strict-lint,--new-from-rev "$$BASE") \
+		fi; \
 	else \
 		echo "WARNING: base ref $$BASE_REF is unresolvable — strict lint covers only uncommitted changes"; \
 		if [ "$${REQUIRE_BASE:-0}" = "1" ]; then \
@@ -490,8 +520,9 @@ help:
 	@echo "  check-fmt-config - Fail if Makefile LOCAL_PREFIXES drifts from .golangci.yml local-prefixes"
 	@echo "  check-fmt-versions - Fail if GOFUMPT/GOIMPORTS pins drift from golangci-lint's vendored formatters"
 	@echo "  check-file-length - Check Go file lengths only (max 500 lines)"
+	@echo "  check-golangci-version - Warn if the resolved golangci-lint differs from the .golangci-version pin"
 	@echo "  fmt        - Format code with gofumpt and goimports"
-	@echo "  fmt-check  - Check gofumpt formatting"
+	@echo "  fmt-check  - Check gofumpt + goimports formatting"
 	@echo "  vet        - Run go vet"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  run        - Build and run"
@@ -508,6 +539,7 @@ help:
 	@echo "  perf-check      - Compare harness p95 against host baselines (DARWIN_ARM64_* here; PERF_STRICT=1 to fail on missing baseline)"
 	@echo "  release-check - Full ci gate set + harness smoke + goreleaser config check"
 	@echo "  release-tag   - Create an annotated tag (VERSION=vX.Y.Z)"
+	@echo "  help       - Show this list"
 	@echo "  release-push  - Push the tag to origin (VERSION=vX.Y.Z)"
 	@echo "  release       - release-check + release-tag + release-push"
 
