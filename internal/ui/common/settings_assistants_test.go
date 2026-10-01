@@ -25,12 +25,13 @@ func TestSettingsDialogEditsAssistantCommand(t *testing.T) {
 	})
 	d.Show()
 
-	// Tab from Theme through the three tmux fields lands on Assistants.
-	for range 4 {
+	// Tab from Theme through the tmux and interface fields lands on
+	// Assistants (3 tmux + 2 toggles + 1 text = 6 intermediate stops).
+	for range 7 {
 		d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	}
 	if d.focusedItem != settingsItemAssistants {
-		t.Fatalf("focusedItem after 4 tabs = %d, want settingsItemAssistants", d.focusedItem)
+		t.Fatalf("focusedItem after 7 tabs = %d, want settingsItemAssistants", d.focusedItem)
 	}
 	if d.assistantCursor != 0 {
 		t.Fatalf("assistantCursor = %d, want 0 (claude, the first row)", d.assistantCursor)
@@ -200,7 +201,7 @@ func TestSettingsClickOnAssistantRowFocusesAndSetsCursor(t *testing.T) {
 		"claude": "claude",
 		"codex":  "codex",
 	})
-	d.SetSize(120, 40)
+	d.SetSize(120, 60)
 	d.Show()
 
 	lines := d.composeVisibleLines()

@@ -99,11 +99,13 @@ func TestHandleNextSectionReachesAssistantsAfterTmux(t *testing.T) {
 	d := NewSettingsDialog(ThemeAyuDark, "", "", "")
 	d.focusedItem = settingsItemTmuxSync
 
-	_, _ = d.handleNextSection()
-	// TmuxSync -> Assistants (never skipped; only Update is conditionally
-	// skipped when no update is available).
-	if d.focusedItem != settingsItemAssistants {
-		t.Fatalf("focusedItem = %d, want settingsItemAssistants", d.focusedItem)
+	// TmuxSync -> KeymapHints -> NotifyOnDone -> ViewerCmd -> Assistants
+	// (interface rows are never skipped; only Update is conditional).
+	for want := settingsItemKeymapHints; want <= settingsItemAssistants; want++ {
+		_, _ = d.handleNextSection()
+		if d.focusedItem != want {
+			t.Fatalf("focusedItem = %d, want %d", d.focusedItem, want)
+		}
 	}
 }
 

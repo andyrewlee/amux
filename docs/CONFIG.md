@@ -30,6 +30,12 @@ each config section and the environment variables amux honors.
 | `notify_on_done`     | bool   | Ring the terminal bell when an agent finishes. Default `false`.                 |
 | `viewer_command`     | string | Shell command the file viewer tab runs as `<command> -- <file>` (e.g. `nvim`, `less -R`). Default `"vim"`. Expects a TUI program — a GUI command opens nothing visible in the pane. |
 
+`theme`, the three tmux keys, `show_keymap_hints`, `notify_on_done`, and
+`viewer_command` are also editable in the Settings dialog (`Interface`
+section). Dialog edits persist here and apply live — except
+`viewer_command`, which lands on the next viewer tab, and the tmux keys,
+which apply on next launch (the dialog shows a restart hint).
+
 The tmux keys map to environment variables of the same purpose —
 `AMUX_TMUX_SERVER`, `AMUX_TMUX_CONFIG`, `AMUX_TMUX_SYNC_INTERVAL` — which amux
 also accepts directly. A non-empty config value wins over the environment.

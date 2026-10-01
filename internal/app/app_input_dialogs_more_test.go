@@ -208,7 +208,7 @@ func TestHandleUpdateCheckComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDialogHarness(t)
 			h.app.overlays.settings = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
-			h.app.overlays.settings.SetSize(h.app.width, h.app.height)
+			h.app.overlays.settings.SetSize(h.app.width, 60) // tall enough for the grown body — version rows must stay on-screen
 			if tc.visible {
 				h.app.overlays.settings.Show()
 			}
@@ -349,7 +349,7 @@ func assertReportErrorMessages(t *testing.T, cmd tea.Cmd, wantText string) {
 func TestHandleUpgradeComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 	h := newDialogHarness(t)
 	h.app.overlays.settings = common.NewSettingsDialog(common.ThemeID(h.app.config.UI.Theme), "", "", "")
-	h.app.overlays.settings.SetSize(h.app.width, h.app.height)
+	h.app.overlays.settings.SetSize(h.app.width, 60) // tall enough for the grown body — version rows must stay on-screen
 	h.app.overlays.settings.SetUpdateInfo("1.0.0", "2.0.0", true)
 	h.app.overlays.settings.Show()
 	h.app.upgradeRunning = true
