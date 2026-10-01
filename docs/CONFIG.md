@@ -229,6 +229,18 @@ footer's position counter and the wheel affordance count display rows.
 `n`/`p` continue to jump between hunk headers, and resizing or toggling wrap
 re-anchors the view to the same source line when possible.
 
+## Output viewer search
+
+Not a config knob — documented here because it is observable behavior: the
+`R` (run output) and `O` (script output) viewers accept `/` to open a query
+field. Matching is literal and case-insensitive — no regex, no quoting
+syntax — and covers only the viewer's retained, sanitized snapshot; output
+dropped from the tail buffer is not searchable. `enter` accepts the query
+and jumps to the first match, `n`/`N` cycle matches (the footer shows
+`match k/N` and `(wrapped)` after a wrapped jump), and `esc` exits the
+query field before it can close the viewer. The `i` workspace-status panel
+has no search.
+
 ## Project tree loading model
 
 Not a config knob — documented here because it is observable behavior: the

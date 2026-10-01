@@ -126,6 +126,7 @@ func (a *App) handleRunOutputOpened(msg runOutputOpenedMsg) tea.Cmd {
 		a.overlays.runOutputAttachable = true
 		a.overlays.runOutput = common.NewOutputDialog("Run output — "+msg.ws.Name+runSessionTitleSuffix(msg.session), msg.content)
 		a.overlays.runOutput.SetAttachHint(true)
+		a.overlays.runOutput.SetSearchable(true)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()
 	})
