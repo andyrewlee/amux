@@ -227,6 +227,7 @@ func (a *App) handleShowScriptOutput(msg messages.ShowScriptOutput) tea.Cmd {
 		a.overlays.runOutputAttachable = false
 		a.overlays.runOutputToken++
 		a.overlays.runOutput = common.NewOutputDialog("Script output — "+msg.Workspace.Name, content)
+		a.overlays.runOutput.SetSearchable(true)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()
 	})

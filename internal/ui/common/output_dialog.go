@@ -1,7 +1,10 @@
 package common
 
 import (
+	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -17,6 +20,12 @@ type OutputDialogResult struct{}
 // Enter closes. Callers refresh the snapshot via SetContent; `f` toggles
 // follow mode, which pins the view to the bottom on every refresh (standard
 // tail -f UX: any manual scroll disengages, G re-engages).
+//
+// Search is opt-in via SetSearchable: `/` opens a query field (literal
+// case-insensitive substring over the retained snapshot only), `enter`
+// accepts and jumps to the first match, `n`/`N` cycle matches. It is
+// appropriate only for free-form transcript flavors (run output, script
+// output) — fixed-field panels like workspace status leave it off.
 type OutputDialog struct {
 	visible bool
 	width   int
@@ -30,6 +39,23 @@ type OutputDialog struct {
 	// attachHint advertises the app-level `a` (attach live session) binding;
 	// only the live-run flavor sets it — the dialog itself never handles `a`.
 	attachHint bool
+	// Search state. While editing, the dialog consumes ALL input (keys and
+	// paste) into the query field — nothing reaches the terminal or the
+	// app-level `a` intercept. The app reads Editing() to gate those.
+	searchable bool
+	editing    bool
+	query      string
+	matches    []outputDialogMatch
+	matchIdx   int  // selected match; -1 when query empty or no matches
+	wrapped    bool // the most recent n/N jump wrapped (one-jump footer marker)
+}
+
+// outputDialogMatch is one literal-substring hit as a rune span inside a
+// sanitized line — rune offsets, not bytes, so the highlight renderer can
+// slice the displayed runes directly.
+type outputDialogMatch struct {
+	line               int
+	startRune, endRune int
 }
 
 // outputDialogMaxLineRunes bounds a single content line — generous; the
@@ -79,13 +105,17 @@ func (d *OutputDialog) SetSize(w, h int) {
 // SetContent replaces the viewed text (e.g. a refreshed capture) and clamps
 // the scroll offset to the new length — pinned to the bottom while
 // following, clamped in place otherwise so a scrolled reader's position is
-// preserved.
+// preserved. An active query is re-run against the new snapshot; the
+// selection repairs to the nearest surviving match.
 func (d *OutputDialog) SetContent(content string) {
 	d.lines = sanitizeOutputLines(content)
 	if d.following {
 		d.offset = len(d.lines)
 	}
 	d.clampOffset()
+	if d.query != "" {
+		d.recomputeMatches()
+	}
 }
 
 // Following reports whether follow mode is on (SetContent pins to bottom).
@@ -95,9 +125,22 @@ func (d *OutputDialog) Following() bool { return d.following }
 // The dialog does not handle `a` itself — the owning overlay slot does.
 func (d *OutputDialog) SetAttachHint(on bool) { d.attachHint = on }
 
+// SetSearchable enables the `/` query field and `n`/`N` match cycling.
+// Enable only for free-form transcript flavors; fixed panels stay default.
+func (d *OutputDialog) SetSearchable(on bool) { d.searchable = on }
+
+// Editing reports whether the dialog is in query-edit mode — consuming all
+// input including paste. The owning overlay uses it to gate app-level key
+// intercepts (`a` attach) and paste fall-through.
+func (d *OutputDialog) Editing() bool { return d.editing }
+
 func (d *OutputDialog) Update(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 	if !d.visible {
 		return d, nil
+	}
+	// Query-edit mode consumes all input and never emits a close result.
+	if d.editing {
+		return d.updateQueryEdit(msg)
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -107,33 +150,230 @@ func (d *OutputDialog) Update(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("esc", "enter"))):
 		d.visible = false
 		return d, func() tea.Msg { return OutputDialogResult{} }
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("/"))) && d.searchable:
+		d.editing = true
+		return d, nil
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("n"))):
+		d.jumpMatch(1)
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("N"))):
+		d.jumpMatch(-1)
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("f"))):
 		d.following = !d.following
+		d.wrapped = false
 		if d.following {
 			d.offset = len(d.lines)
 		}
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("up", "k"))):
 		d.following = false
+		d.wrapped = false
 		d.offset--
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("down", "j"))):
 		d.following = false
+		d.wrapped = false
 		d.offset++
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("pgup"))):
 		d.following = false
+		d.wrapped = false
 		d.offset -= d.viewCap
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("pgdown"))):
 		d.following = false
+		d.wrapped = false
 		d.offset += d.viewCap
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("g"))):
 		d.following = false
+		d.wrapped = false
 		d.offset = 0
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("G"))):
 		// Jump-to-bottom doubles as follow-resume (tail -f convention).
 		d.following = true
+		d.wrapped = false
 		d.offset = len(d.lines)
 	}
 	d.clampOffset()
 	return d, nil
+}
+
+// updateQueryEdit is the query-field input loop: every key edits the query
+// (recomputing matches live — the selection never jumps until accept), and
+// nothing in this mode can close the dialog. esc leaves edit mode only
+// (query retained); enter accepts. A pasted newline acts as enter — paste
+// followed by accept is one gesture.
+func (d *OutputDialog) updateQueryEdit(msg tea.Msg) (*OutputDialog, tea.Cmd) {
+	if pm, ok := msg.(tea.PasteMsg); ok {
+		if strings.ContainsAny(pm.Content, "\r\n") {
+			d.query += pasteFirstLine(pm.Content)
+			d.recomputeMatches()
+			d.acceptSearch()
+			return d, nil
+		}
+		d.query += keepRunes(pm.Content, isPrintableFieldRune)
+		d.recomputeMatches()
+		return d, nil
+	}
+	keyMsg, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return d, nil
+	}
+	switch {
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("esc"))):
+		d.editing = false
+		return d, nil
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))):
+		d.acceptSearch()
+		return d, nil
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("backspace"))):
+		d.query = trimLastRune(d.query)
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("ctrl+u"))):
+		d.query = ""
+	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("ctrl+w"))):
+		d.query = trimLastWord(d.query)
+	default:
+		if keyMsg.Text != "" {
+			d.query += keepRunes(keyMsg.Text, isPrintableFieldRune)
+		} else {
+			return d, nil
+		}
+	}
+	d.recomputeMatches()
+	return d, nil
+}
+
+// acceptSearch leaves edit mode: an empty query clears search state
+// entirely; with matches it selects the first and centers it (a manual
+// scroll, so follow disengages); with none it keeps the query so `0
+// matches` shows in the footer and n/N stay inert.
+func (d *OutputDialog) acceptSearch() {
+	d.editing = false
+	d.wrapped = false
+	if d.query == "" {
+		d.matches = nil
+		d.matchIdx = -1
+		return
+	}
+	if len(d.matches) == 0 {
+		d.matchIdx = -1
+		return
+	}
+	d.matchIdx = 0
+	d.following = false
+	d.centerOnMatch()
+}
+
+// jumpMatch advances the match selection by dir, wrapping at the ends and
+// marking the jump so the footer can show (wrapped) for it. Inert when no
+// match is selected.
+func (d *OutputDialog) jumpMatch(dir int) {
+	if d.matchIdx < 0 || len(d.matches) == 0 {
+		return
+	}
+	next := d.matchIdx + dir
+	d.wrapped = false
+	if next >= len(d.matches) {
+		next = 0
+		d.wrapped = true
+	} else if next < 0 {
+		next = len(d.matches) - 1
+		d.wrapped = true
+	}
+	d.matchIdx = next
+	d.following = false
+	d.centerOnMatch()
+}
+
+func (d *OutputDialog) centerOnMatch() {
+	if d.matchIdx < 0 || d.matchIdx >= len(d.matches) {
+		return
+	}
+	d.offset = d.matches[d.matchIdx].line - d.viewCap/2
+	d.clampOffset()
+}
+
+// recomputeMatches scans the current sanitized snapshot for the query —
+// literal, case-insensitive substring over d.lines only (dropped history is
+// never searchable). Case folding is strings.ToLower per rune on both
+// sides; byte offsets are converted to rune spans on the original line so
+// the highlight slices render runes directly.
+func (d *OutputDialog) recomputeMatches() {
+	prevLine := -1
+	if d.matchIdx >= 0 && d.matchIdx < len(d.matches) {
+		prevLine = d.matches[d.matchIdx].line
+	}
+	d.matches = d.matches[:0]
+	if d.query == "" {
+		d.matchIdx = -1
+		d.wrapped = false
+		return
+	}
+	lq := strings.ToLower(d.query)
+	for li, line := range d.lines {
+		ll := strings.ToLower(line)
+		for off := 0; off+len(lq) <= len(ll); {
+			i := strings.Index(ll[off:], lq)
+			if i < 0 {
+				break
+			}
+			byteStart := off + i
+			byteEnd := byteStart + len(lq)
+			startRune := utf8.RuneCountInString(line[:byteStart])
+			endRune := startRune + utf8.RuneCountInString(line[byteStart:byteEnd])
+			d.matches = append(d.matches, outputDialogMatch{line: li, startRune: startRune, endRune: endRune})
+			off = byteEnd // non-overlapping matches only
+		}
+	}
+	d.repairMatchSelection(prevLine)
+}
+
+// repairMatchSelection keeps the selection pointing at the same line after
+// a recompute when possible, else the first match at-or-after it (nearest
+// surviving match), else -1.
+func (d *OutputDialog) repairMatchSelection(prevLine int) {
+	if len(d.matches) == 0 {
+		d.matchIdx = -1
+		return
+	}
+	if prevLine < 0 {
+		d.matchIdx = 0
+		return
+	}
+	for i, m := range d.matches {
+		if m.line == prevLine {
+			d.matchIdx = i
+			return
+		}
+	}
+	for i, m := range d.matches {
+		if m.line > prevLine {
+			d.matchIdx = i
+			return
+		}
+	}
+	d.matchIdx = -1
+}
+
+// trimLastWord drops a trailing run of spaces then the preceding word —
+// ctrl+w behavior in the query field.
+func trimLastWord(s string) string {
+	rs := []rune(s)
+	i := len(rs)
+	for i > 0 && unicode.IsSpace(rs[i-1]) {
+		i--
+	}
+	for i > 0 && !unicode.IsSpace(rs[i-1]) {
+		i--
+	}
+	return string(rs[:i])
+}
+
+// highlightedLine renders line with the selected match's rune span in
+// reverse video. Only the selected match is highlighted — full-buffer
+// multi-match highlighting is intentionally deferred (scope).
+func highlightedLine(line string, m outputDialogMatch) string {
+	rs := []rune(line)
+	if m.startRune < 0 || m.endRune > len(rs) || m.startRune >= m.endRune {
+		return line
+	}
+	hl := lipgloss.NewStyle().Reverse(true)
+	return string(rs[:m.startRune]) + hl.Render(string(rs[m.startRune:m.endRune])) + string(rs[m.endRune:])
 }
 
 func (d *OutputDialog) clampOffset() {
@@ -157,10 +397,10 @@ func (d *OutputDialog) View() string {
 	if d.width > 0 {
 		w = min(90, max(50, d.width-16))
 	}
-	return dialogBorderStyle(w).Render(strings.Join(d.renderLines(), "\n"))
+	return dialogBorderStyle(w).Render(strings.Join(d.renderLines(w), "\n"))
 }
 
-func (d *OutputDialog) renderLines() []string {
+func (d *OutputDialog) renderLines(w int) []string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary())
 	muted := lipgloss.NewStyle().Foreground(ColorMuted())
 
@@ -176,20 +416,67 @@ func (d *OutputDialog) renderLines() []string {
 		if end > len(d.lines) {
 			end = len(d.lines)
 		}
-		lines = append(lines, d.lines[d.offset:end]...)
+		matchLine, match := -1, outputDialogMatch{}
+		if d.matchIdx >= 0 && d.matchIdx < len(d.matches) {
+			matchLine = d.matches[d.matchIdx].line
+			match = d.matches[d.matchIdx]
+		}
+		for i := d.offset; i < end; i++ {
+			line := d.lines[i]
+			if i == matchLine {
+				line = highlightedLine(line, match)
+			}
+			lines = append(lines, line)
+		}
 	}
+	return append(lines, "", d.renderFooter(w, capLines, muted))
+}
+
+// renderFooter builds the footer for the dialog's current mode. While
+// editing it echoes the query (`/query█`) with the accept/done hints; in
+// browse mode an accepted query shows `match k/N` (or `0 matches`) plus a
+// `(wrapped)` marker on the jump that wrapped; otherwise the standard
+// scroll/follow/close hints show.
+func (d *OutputDialog) renderFooter(w, capLines int, muted lipgloss.Style) string {
 	attach := ""
 	if d.attachHint {
 		attach = "a attach  "
+	}
+	accent := lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
+	switch {
+	case d.editing:
+		hint := "  esc done · enter accept"
+		echo := "/" + d.query + "█"
+		// Truncate the echo (leading …, tail kept — the newest chars matter)
+		// to the footer width when the layout is narrow.
+		if maxEcho := w - lipgloss.Width(hint) - 2; lipgloss.Width(echo) > maxEcho && maxEcho > 2 {
+			rs := []rune(echo)
+			echo = "…" + string(rs[len(rs)-(maxEcho-1):])
+		}
+		return accent.Render(echo) + muted.Render(hint)
+	case d.query != "":
+		status := "0 matches"
+		if len(d.matches) > 0 {
+			status = fmt.Sprintf("match %d/%d", d.matchIdx+1, len(d.matches))
+			if d.wrapped {
+				status += " (wrapped)"
+			}
+		}
+		prefix := ""
+		if d.following {
+			prefix = accent.Render("[following] ")
+		}
+		return prefix + accent.Render(status) + muted.Render("  n/N next/prev  "+attach+"f follow  esc close")
 	}
 	footer := "up/down scroll  " + attach + "f follow  esc close"
 	if len(d.lines) > capLines {
 		footer = "up/down scroll  pgup/pgdn page  G bottom  " + attach + "f follow  esc close"
 	}
-	if d.following {
-		footer = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true).Render("[following] ") + muted.Render(footer)
-	} else {
-		footer = muted.Render(footer)
+	if d.searchable {
+		footer = "/ search  " + footer
 	}
-	return append(lines, "", footer)
+	if d.following {
+		return accent.Render("[following] ") + muted.Render(footer)
+	}
+	return muted.Render(footer)
 }

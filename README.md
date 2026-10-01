@@ -188,7 +188,13 @@ Sidebar (Changes tab, focused):
   tab detaches — the script keeps running). All output viewers (`R`, `O`,
   `i`) share the same scroll keys: `j`/`k` scroll, `PgUp`/`PgDn` page,
   `g`/`G` jump to the top/bottom (`G` resumes following), `f` toggles
-  follow mode, `esc`/`enter` closes.
+  follow mode, `esc`/`enter` closes. The `R` and `O` transcript viewers
+  also support `/` to search (literal, case-insensitive; only the retained
+  buffer is searched — scrollback dropped from the tail is not), with
+  `n`/`N` jumping between matches. While typing the query every key is
+  literal text; `enter` accepts and jumps to the first match, `esc` exits
+  the query field (a second `esc` closes the viewer). The `i` status
+  panel is not searchable.
 - Workspace lifecycle keys (`S` shelve, `space` mark, `esc` clear marks) are on
   dashboard rows — see [How it works](#how-it-works).
 

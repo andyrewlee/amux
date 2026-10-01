@@ -217,7 +217,16 @@ scripts, and Settings text fields accept terminal bracketed paste but only
 append the **first line** of the payload to the focused field — later lines
 and control bytes are dropped, and a paste never submits, cancels, or toggles
 a row. An orchestrator that pastes multi-line text into an amux dialog should
-split and submit lines itself.
+split and submit lines itself. (One exception by design: the output
+viewers' `/` search field treats a pasted newline as `enter`, accepting the
+first pasted line as the query — convenient when pasting a copied error
+line, surprising if the payload is multi-line.)
+
+When a lifecycle script fails, `O` opens its captured output and `/`
+searches it — literal, case-insensitive, retained buffer only — which is
+usually the fastest way to find the error line an orchestrator needs to
+react to. `n`/`N` step between matches. The same search works in `R` for
+run-script output.
 
 Path pickers (add project, transcript browser) resolve explicit typed paths
 before row selection: an absolute path, `~`, `~/…`, `./…`, `../…`, or any

@@ -103,13 +103,18 @@ func (a *App) overlayChain() []overlayInputSlot {
 // other key and the other OutputDialog flavors pass through to the dialog
 // unchanged.
 func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
-	if a.overlays.runOutputAttachable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() {
+	// While the search query field is editing, `a` is literal query text —
+	// the dialog owns all input, so the attach intercept is disabled.
+	if a.overlays.runOutputAttachable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
 		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "a" {
 			*cmds = append(*cmds, a.attachRunViewerCmd(a.overlays.runOutputWorkspace, a.overlays.runOutputSession))
 			return true
 		}
 	}
-	updated, consumed := handleOverlayInput(a.overlays.runOutput, msg, cmds, false)
+	// Query-edit mode owns paste (pasted text is query input); browse mode
+	// leaves it to the shared chain.
+	updated, consumed := handleOverlayInput(a.overlays.runOutput, msg, cmds,
+		a.overlays.runOutput != nil && a.overlays.runOutput.Editing())
 	a.overlays.runOutput = updated
 	return consumed
 }
