@@ -102,6 +102,13 @@ type VTerm struct {
 	// the parser-to-tab handoff for the agents' attention/escalation signal.
 	pendingBell bool
 
+	// privateModesSeen counts DECSET/DECRST sequences the application has
+	// issued. A TUI agent sets application modes (mouse reporting, alt
+	// screen, synchronized output) when its input loop is live — the only
+	// reliable readiness signal a generic terminal emulator can offer. Read
+	// under the caller's lock, like every other VTerm field.
+	privateModesSeen uint64
+
 	// Selection state for copy/paste highlighting
 	// Uses absolute line numbers (0 = first scrollback line)
 	selActive               bool

@@ -140,6 +140,11 @@ type tabActorWriteState struct {
 	actorWriteEpoch          uint64
 	actorQueuedCarry         vterm.ParserCarryState
 	actorQueuedNoiseTrailing []byte
+	// pendingInitialTask is the launch-time task queued for the agent: sent
+	// once, verbatim + "\r", on the first write pass after the vterm observes
+	// a private-mode set (the agent's input loop is live). Cleared on reset
+	// and detach so it can never leak into a reattached session.
+	pendingInitialTask string
 }
 
 // tabCursorState groups cursor stabilization/refresh state used by the chat
@@ -292,6 +297,7 @@ func (t *Tab) resetActorWriteStateLocked() {
 	t.NoiseTrailing = nil
 	t.actorQueuedNoiseTrailing = t.actorQueuedNoiseTrailing[:0]
 	t.actorQueuedCarry = t.Terminal.ParserCarryState()
+	t.pendingInitialTask = ""
 }
 
 func (t *Tab) expireCatchUpLocked() {

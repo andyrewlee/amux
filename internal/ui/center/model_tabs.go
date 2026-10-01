@@ -59,8 +59,10 @@ type ptyTabCreateResult struct {
 	// DetachOnly marks a tab whose tmux session it does not own (run-session
 	// attach): close detaches the client but never kills the session.
 	DetachOnly bool
-	Rows       int
-	Cols       int
+	// Task is the optional initial task queued for post-readiness send.
+	Task string
+	Rows int
+	Cols int
 	ptyio.SessionRestoreCapture
 }
 
@@ -104,10 +106,10 @@ func assistantConfigSnapshot(cfg *config.Config, assistant string) (config.Assis
 
 // createAgentTab creates a new agent tab
 func (m *Model) createAgentTab(assistant string, ws *data.Workspace) tea.Cmd {
-	return m.createAgentTabWithSession(assistant, ws, "", "", true)
+	return m.createAgentTabWithSession(assistant, ws, "", "", "", true)
 }
 
-func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, sessionName, displayName string, activate bool) tea.Cmd {
+func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, sessionName, displayName, task string, activate bool) tea.Cmd {
 	if ws == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: errors.New("no workspace selected"), Context: "creating agent"}
@@ -167,6 +169,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			Agent:       agent,
 			TabID:       tabID,
 			DisplayName: displayName,
+			Task:        task,
 			Activate:    activate,
 			Rows:        captureRows,
 			Cols:        captureCols,
@@ -286,6 +289,11 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tab.SessionName = msg.Agent.Session
 		tab.markAttachedLocked()
 		tab.resetActorWriteStateLocked()
+		// Queue the launch task for the post-readiness send — assigned after
+		// the actor-state reset, which clears it on reattach.
+		if msg.Task != "" {
+			tab.pendingInitialTask = msg.Task
+		}
 		m.applyTerminalCursorPolicyLocked(tab)
 		if tab.createdAt == 0 {
 			tab.createdAt = now.Unix()

@@ -34,6 +34,9 @@ func (t *Tab) markAttachedLocked() {
 func (t *Tab) markDetachedLocked() {
 	t.Running = false
 	t.Detached = true
+	// A queued initial task belongs to the dead stream — never send it to
+	// whatever reattaches next.
+	t.pendingInitialTask = ""
 }
 
 // markDetachedEndingReattachLocked transitions to detached and releases the

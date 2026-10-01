@@ -47,7 +47,7 @@ func (m *Model) userInputActivityTagCmd(tab *Tab) tea.Cmd {
 
 // updateLaunchAgent handles messages.LaunchAgent.
 func (m *Model) updateLaunchAgent(msg messages.LaunchAgent) (*Model, tea.Cmd) {
-	return m, m.createAgentTab(msg.Assistant, msg.Workspace)
+	return m, m.createAgentTabWithSession(msg.Assistant, msg.Workspace, "", "", msg.Task, true)
 }
 
 // updateOpenFileInVim handles messages.OpenFileInVim.
