@@ -34,7 +34,12 @@ each config section and the environment variables amux honors.
 `viewer_command` are also editable in the Settings dialog (`Interface`
 section). Dialog edits persist here and apply live — except
 `viewer_command`, which lands on the next viewer tab, and the tmux keys,
-which apply on next launch (the dialog shows a restart hint).
+which apply on next launch (the dialog shows a restart hint). If the write
+fails, the error is reported and the confirmed values stay active in memory;
+reopening Settings and confirming retries the pending save even when that
+dialog changed nothing — theme/interface/tmux share one save, assistants
+retry independently. Esc drops the open dialog's unconfirmed edits without
+clearing a save obligation from an earlier confirmation.
 
 The tmux keys map to environment variables of the same purpose —
 `AMUX_TMUX_SERVER`, `AMUX_TMUX_CONFIG`, `AMUX_TMUX_SYNC_INTERVAL` — which amux

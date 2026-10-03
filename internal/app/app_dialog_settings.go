@@ -80,16 +80,14 @@ func (a *App) handleThemePreview(msg common.ThemePreview) tea.Cmd {
 	return nil
 }
 
+// persistSettingsThemeIfDirty is the upgrade entry point: it stays gated on
+// the theme being dirty, then delegates to the shared UI-section save so a
+// failure becomes a pending obligation like any other UI save.
 func (a *App) persistSettingsThemeIfDirty() tea.Cmd {
 	if !a.overlays.settingsThemeDirty {
 		return nil
 	}
-	if err := a.config.SaveUISettings(); err != nil {
-		return common.ReportError("saving theme setting", err, "Failed to save theme setting")
-	}
-	a.overlays.settingsPersistedTheme = common.ThemeID(a.config.UI.Theme)
-	a.overlays.settingsThemeDirty = false
-	return nil
+	return a.persistSettingsUIIfDirty(a.config.SaveUISettings)
 }
 
 // applySettingsTmux copies the dialog's (possibly edited) tmux values into the
@@ -207,24 +205,19 @@ func (a *App) handleSettingsResult(res common.SettingsResult) tea.Cmd {
 	a.overlays.settings = nil
 	a.overlays.settingsSession++
 
-	// A dirty theme save already persists the whole UI struct (tmux and
-	// interface fields included, since the apply wrote them). Only persist
-	// separately when one of them changed but the theme did not. Assistants
-	// live in a different config-file section (SaveAssistants, not
-	// SaveUISettings), so it is always persisted independently.
-	var saveCmd tea.Cmd
-	if a.overlays.settingsThemeDirty {
-		saveCmd = a.persistSettingsThemeIfDirty()
-	} else if tmuxChanged || uiChanged {
-		if err := a.config.SaveUISettings(); err != nil {
-			saveCmd = common.ReportError("saving UI settings", err, "Failed to save settings")
-		}
-	}
-	var assistantsSaveCmd tea.Cmd
-	if assistantsChanged {
-		if err := a.config.SaveAssistants(); err != nil {
-			assistantsSaveCmd = common.ReportError("saving assistants", err, "Failed to save assistant settings")
-		}
-	}
+	// Confirmed edits become save obligations. "Changed in this dialog" and
+	// "successfully saved" are different facts: once a save is owed it stays
+	// pending until that section's write succeeds, so a later confirmation
+	// retries it even when that dialog changed nothing. A dirty theme save
+	// already persists the whole UI struct (tmux and interface fields
+	// included, since the apply wrote them), so all three share the UI
+	// obligation. Assistants live in a different config-file section
+	// (SaveAssistants, not SaveUISettings), so it is tracked and attempted
+	// independently — one failed section must not skip the other's attempt.
+	a.overlays.settingsUIPersistPending = a.overlays.settingsUIPersistPending ||
+		tmuxChanged || uiChanged || a.overlays.settingsThemeDirty
+	a.overlays.settingsAssistantsPersistPending = a.overlays.settingsAssistantsPersistPending || assistantsChanged
+	saveCmd := a.persistSettingsUIIfDirty(a.config.SaveUISettings)
+	assistantsSaveCmd := a.persistSettingsAssistantsIfDirty(a.config.SaveAssistants)
 	return common.SafeBatch(saveCmd, assistantsSaveCmd)
 }

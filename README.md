@@ -406,7 +406,7 @@ JSON is still replaced by the authoritative write.
 
 Assistants: the AI agents amux can launch are configured per-user in `~/.amux/config.json`. You can add your own or override a built-in — see [docs/CONFIG.md](docs/CONFIG.md). A launch uses the assistant settings captured when it was requested, so saving new settings affects later launches, not panes already launched or attached. Saves preserve your effective interrupt settings — an explicit zero `interrupt_delay_ms` (no spacing between Ctrl-C signals) stays zero rather than falling back to a built-in default.
 
-Saving never clobbers a config file amux cannot read: if `config.json` exists but is unreadable, malformed, or a non-object document, the save is refused and the file is left untouched so hand-edited sections survive. A missing or empty file is written normally — that's absence, not rejection.
+Saving never clobbers a config file amux cannot read: if `config.json` exists but is unreadable, malformed, or a non-object document, the save is refused and the file is left untouched so hand-edited sections survive. A missing or empty file is written normally — that's absence, not rejection. If a save fails the values you confirmed stay active in memory for the session, and amux remembers which section still owes a write: reopening Settings and confirming — even with no new edits — retries only the sections that failed (theme/interface/tmux together, assistants independently). Esc discards the open dialog's unconfirmed edits but never forgets a save obligation you already confirmed.
 
 ## Platform Support
 
