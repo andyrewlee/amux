@@ -7,7 +7,6 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
-	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -24,6 +23,13 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 		return nil
 	}
 	ts := tab.State
+	ts.mu.Lock()
+	// Conservative reservation published before the unlocked append: the
+	// writer must never observe an empty stream while bytes are in flight,
+	// so pendingBufferedBytes covers the buffer plus the incoming chunk for
+	// the whole AppendOutput window. The exact length is republished after.
+	ts.pendingBufferedBytes = len(ts.PendingOutput) + len(msg.Data)
+	ts.mu.Unlock()
 	ts.State.AppendOutput(&ts.mu, msg.Data, ptyMaxBufferedBytes, ptyio.OutputHooks{
 		SeedForTrim: func() vterm.ParserCarryState {
 			seed := vterm.ParserCarryState{}
@@ -53,6 +59,8 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	now := time.Now()
 	ts.mu.Lock()
 	ts.LastOutputAt = now
+	// Exact count after append/trim — the reservation above was conservative.
+	ts.pendingBufferedBytes = len(ts.PendingOutput)
 	if !ts.FlushScheduled {
 		ts.FlushScheduled = true
 		ts.FlushPendingSince = now
@@ -84,10 +92,14 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	delay, deferred := ts.State.FlushGate(now, quiet, maxInterval)
 	if !deferred && len(ts.PendingOutput) > 0 && ts.VTerm != nil {
 		chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
-		if !m.enqueueSidebarWriteLocked(ts, sidebarWriteReq{chunk: chunk, workspaceID: wsID, tabID: string(tabID)}) {
-			pendingClip = drainSidebarWriteQueueLocked(ts, chunk)
+		req := sidebarWriteReq{chunk: chunk, workspaceID: wsID, tabID: string(tabID)}
+		if !m.enqueueSidebarWriteLocked(ts, req) {
+			pendingClip = drainSidebarWriteQueueLocked(ts, req)
 		}
 		rearm = ts.State.RearmFlush(now, nil)
+		// The take above (and RearmFlush's drain truncation) shrank the
+		// buffer — republish the worker-visible count under the same hold.
+		ts.pendingBufferedBytes = len(ts.PendingOutput)
 	}
 	ts.mu.Unlock()
 	if deferred {
@@ -95,11 +107,7 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 		})
 	}
-	if clip, ok := common.OSC52ClipboardText(pendingClip); ok {
-		safego.Go("sidebar.osc52_clipboard", func() {
-			common.CopyToClipboardWithLog(clip, "agent OSC52 (sidebar)")
-		})
-	}
+	m.drainSidebarClipboard(pendingClip)
 	if !rearm {
 		return nil
 	}
@@ -122,11 +130,22 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	ts := tab.State
 	termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
 	ts.mu.Lock()
+	// Stream-end ordering: every still-queued writer request precedes the
+	// buffered chunks, and the held noise tail follows all of them — the
+	// tail must not parse ahead of stream bytes. Synchronous on purpose:
+	// this drain belongs to the dead stream and must be ordered before a
+	// restart's VTerm swap, so it does not go through the writer queue.
+	drainSidebarWriterQueueLocked(ts)
+	for len(ts.PendingOutput) > 0 {
+		chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
+		if len(chunk) == 0 {
+			break
+		}
+		applySidebarWriteLocked(ts, sidebarWriteReq{chunk: chunk, workspaceID: wsID, tabID: string(tabID)}, true)
+	}
+	ts.pendingBufferedBytes = len(ts.PendingOutput)
 	if ts.VTerm != nil && len(ts.NoiseTrailing) > 0 {
-		// Synchronous on purpose: this drain belongs to the dead stream and
-		// must be ordered before a restart's VTerm swap, so it doesn't go
-		// through the writer queue.
-		applySidebarWriteLocked(ts, sidebarWriteReq{drainTrailing: true})
+		applySidebarWriteLocked(ts, sidebarWriteReq{drainTrailing: true}, false)
 	}
 	ts.mu.Unlock()
 	m.stopPTYReader(ts)

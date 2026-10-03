@@ -58,11 +58,23 @@ type TerminalState struct {
 	// bookkeeping (locking owned by mu, as documented on the type).
 	ptyio.State
 
-	// writeQ feeds the per-tab writer goroutine that owns VTerm.Write — PTY
-	// parse work must not run on the Update goroutine (a streaming sidebar log
-	// would consume the event loop; the center pane solved this with the tab
-	// actor). Lazily created under mu; closed by teardown paths under mu.
-	writeQ chan sidebarWriteReq
+	// writer is the tab's current writer stream: the request queue plus the
+	// goroutine signals that own VTerm.Write — PTY parse work must not run
+	// on the Update goroutine (a streaming sidebar log would consume the
+	// event loop; the center pane solved this with the tab actor). Lazily
+	// installed under mu; stopped and unlinked by lifecycle paths under mu,
+	// and joined only after the mutex is released.
+	writer *sidebarWriterStream
+	// writeEpoch identifies the current writer stream. It bumps on every
+	// install and every stopSidebarWriterLocked invalidation, so a queued
+	// request or posted SidebarTabWritten stamped under an older epoch is
+	// fenced out of whatever stream follows. Guarded by mu.
+	writeEpoch uint64
+	// pendingBufferedBytes is the UI-published view of len(PendingOutput)
+	// for the writer: AppendOutput mutates PendingOutput with mu released,
+	// so the worker must consult this count (published under mu before and
+	// after each mutation site) instead of the buffer itself. Guarded by mu.
+	pendingBufferedBytes int
 
 	// frameVerProbe is the last VTerm version published under mu for the
 	// lock-free frame-version probe — see VisibleTerminalVersion.

@@ -199,10 +199,14 @@ func (m *TerminalModel) teardownTabState(ts *TerminalState, reason string) (sess
 	// An attach in flight for this tab must not apply after teardown: bump
 	// the epoch so its late result is rejected and its client closed.
 	ts.invalidateReattachLocked()
-	ts.stopSidebarWriterLocked()
+	// The tab is going away: the writer stream's queued requests are
+	// obsolete — stop discards them and fences the epoch.
+	retiredWriter := ts.stopSidebarWriterLocked()
 	ts.Running = false
 	ts.RestartBackoff = 0
+	ts.pendingBufferedBytes = 0
 	ts.mu.Unlock()
+	joinSidebarWriter(retiredWriter)
 	return sessionName
 }
 
@@ -224,17 +228,26 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	// Invalidate any in-flight attach so its late outcome cannot resurrect a
 	// detached tab; a user detach is a decision the attach must not reverse.
 	ts.invalidateReattachLocked()
-	ts.stopSidebarWriterLocked()
+	// The detached VTerm keeps its history, so requests already accepted by
+	// the stream finish in order here — the same bounded drain the fallback
+	// performs — before the stream buffers reset.
+	clip := drainSidebarWriterQueueLocked(ts)
+	retiredWriter := ts.stopSidebarWriterLocked()
 	term := ts.Terminal
 	ts.Terminal = nil
 	ts.Running = false
 	ts.Detached = true
 	ts.UserDetached = userInitiated
 	ts.PendingOutput = nil
+	ts.pendingBufferedBytes = 0
 	ts.NoiseTrailing = nil
 	ts.mu.Unlock()
+	joinSidebarWriter(retiredWriter)
 	if term != nil {
 		closeTerminalForSidebar(term, "detach")
+	}
+	if clip != nil {
+		m.drainSidebarClipboard(clip)
 	}
 }
 
