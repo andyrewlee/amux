@@ -24,6 +24,8 @@ import (
 type ProjectScriptStore struct {
 	path string
 	mu   sync.Mutex
+	// readFile is a per-instance test seam; nil means os.ReadFile.
+	readFile func(string) ([]byte, error)
 }
 
 // NewProjectScriptStore returns a store whose backing file is
@@ -64,15 +66,19 @@ func (s *ProjectScriptStore) Set(repoPath string, scripts ScriptsConfig) error {
 	defer s.mu.Unlock()
 	all, err := s.load()
 	if err != nil {
-		if errors.Is(err, ErrUnsupportedSchemaVersion) {
-			// A newer-schema file is valid data from a newer binary —
-			// refuse the write rather than clobbering it at our version.
+		var synErr *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &synErr) || errors.As(err, &typeErr) {
+			// A corrupt file is replaced wholesale — Set is the
+			// authoritative write and holding onto unparseable bytes
+			// would wedge every future edit.
+			all = map[string]ScriptsConfig{}
+		} else {
+			// A newer schema or any non-decode read failure is existing
+			// state this binary cannot inspect — refuse rather than
+			// clobbering bytes that may hold other projects' scripts.
 			return err
 		}
-		// A corrupt file is replaced wholesale — Set is the authoritative
-		// write and holding onto unparseable bytes would wedge every future
-		// edit.
-		all = map[string]ScriptsConfig{}
 	}
 	if scripts == (ScriptsConfig{}) {
 		delete(all, key)
@@ -99,7 +105,11 @@ type projectScriptsFile struct {
 }
 
 func (s *ProjectScriptStore) load() (map[string]ScriptsConfig, error) {
-	raw, err := os.ReadFile(s.path)
+	read := os.ReadFile
+	if s.readFile != nil {
+		read = s.readFile
+	}
+	raw, err := read(s.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return map[string]ScriptsConfig{}, nil

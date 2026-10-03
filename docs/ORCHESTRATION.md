@@ -66,6 +66,11 @@ do the same — read-modify-write of only the field it owns.
 back to defaults on malformed content, but amux's own saves refuse an
 unreadable or non-object document rather than rewriting a partial view (a
 missing or empty file is treated as an empty config and written normally).
+The project-level registries (`project-env.json`, `project-scripts.json`,
+`trusted-scripts.json`) share the preserve-on-unreadable half: an existing
+file that cannot be read refuses the save/approval and keeps its bytes, a
+missing file initializes, and corrupt JSON is still replaced by the
+authoritative write — the recovery config.json deliberately rejects.
 External tooling editing the file should keep it a JSON object — a file amux
 cannot parse at save time is preserved untouched, never repaired or
 truncated.

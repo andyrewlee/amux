@@ -138,6 +138,13 @@ drop sections it does not own, so the error is surfaced and the file is left
 untouched instead. A missing or empty file is still treated as an empty
 config and written normally — missing is not the same as rejected.
 
+The project-level registries — `project-env.json`, `project-scripts.json`,
+and the `trusted-scripts.json` approval store — share the same boundary with
+one deliberate difference: an existing file that cannot be read refuses the
+save or approval and is preserved byte-for-byte, a missing file
+initializes, but corrupt JSON is still replaced by the authoritative write
+(the recovery path config.json intentionally rejects).
+
 ## The `assistants` schema
 
 The config schema has an `assistants` object. Each **key** is the assistant
