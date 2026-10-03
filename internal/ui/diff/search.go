@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -162,21 +161,11 @@ func (m *Model) recomputeMatches() {
 		m.searchWrapped = false
 		return
 	}
-	lq := strings.ToLower(m.query)
+	search := common.NewLiteralSearch(m.query)
 	for li, line := range m.diff.Lines {
 		text := ansi.Strip(line.Content)
-		ll := strings.ToLower(text)
-		for off := 0; off+len(lq) <= len(ll); {
-			i := strings.Index(ll[off:], lq)
-			if i < 0 {
-				break
-			}
-			byteStart := off + i
-			byteEnd := byteStart + len(lq)
-			startRune := utf8.RuneCountInString(text[:byteStart])
-			endRune := startRune + utf8.RuneCountInString(text[byteStart:byteEnd])
-			m.matches = append(m.matches, diffMatch{lineIdx: li, startRune: startRune, endRune: endRune})
-			off = byteEnd // non-overlapping matches only
+		for _, span := range search.RuneSpans(text) {
+			m.matches = append(m.matches, diffMatch{lineIdx: li, startRune: span.Start, endRune: span.End})
 		}
 	}
 	// Keep the selection on the same line when possible — live-recompute
