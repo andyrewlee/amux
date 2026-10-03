@@ -131,5 +131,10 @@ func (s *ProjectEnvStore) load() (map[string]map[string]string, error) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
+	if out == nil {
+		// A valid top-level `null` decodes to nil — treat it as empty state
+		// like the v1 envelope's nil-Env branch so a later Set can assign.
+		return map[string]map[string]string{}, nil
+	}
 	return out, nil
 }

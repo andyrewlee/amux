@@ -146,6 +146,11 @@ func (t *ScriptTrust) load() map[string]string {
 		logging.Warn("Ignoring corrupt script trust registry %s: %v", t.path, err)
 		return map[string]string{}
 	}
+	if entries == nil {
+		// A valid top-level `null` decodes to nil — empty state, same as the
+		// v1 envelope's nil-Trusted branch. Never an approval on its own.
+		return map[string]string{}
+	}
 	return entries
 }
 
