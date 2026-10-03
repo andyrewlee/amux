@@ -353,8 +353,10 @@ freshness window (~30s) expires on a quiet session, the tag advances to
 owner-handoff between instances, each session's first observation publishes
 its current value (correcting any stale tag) but never replays an on-done
 hook — the hook only fires on a working→done edge the current owner watched
-happen. Only the scan owner writes these tags; follower instances consume the
-shared workspace snapshot instead.
+happen. Within one scan every eligible session is attempted once even if an
+earlier dispatch fails: each failure reports independently and completed
+edges are never retried. Only the scan owner writes these tags; follower
+instances consume the shared workspace snapshot instead.
 
 ## Trust boundary
 

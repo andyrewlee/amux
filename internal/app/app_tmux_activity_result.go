@@ -298,10 +298,20 @@ func (a *App) onDoneHookCmd(changes []agentStateTagChange) tea.Cmd {
 	}
 	svc := a.workspaceService
 	return func() tea.Msg {
+		// Attempt every captured fire in order. One hook's dispatch error
+		// must not starve later eligible hooks — the baseline already
+		// advanced, so a skipped fire would never retry. Each failure still
+		// reports its own WorkspaceOnDoneResult; hooks themselves stay
+		// sequential and no edge is replayed.
+		var reports []tea.Cmd
 		for _, f := range fires {
 			if err := runOnDoneHook(f.ws, f.sessionName, svc); err != nil {
-				return messages.WorkspaceOnDoneResult{Workspace: f.ws, SessionName: f.sessionName, Err: err}
+				res := messages.WorkspaceOnDoneResult{Workspace: f.ws, SessionName: f.sessionName, Err: err}
+				reports = append(reports, func() tea.Msg { return res })
 			}
+		}
+		if cmd := common.SafeBatch(reports...); cmd != nil {
+			return cmd()
 		}
 		return nil
 	}
