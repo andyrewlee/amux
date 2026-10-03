@@ -226,7 +226,8 @@ Diff viewer (opened from Changes with `enter`/`space`/`o`):
 - `/` opens a literal, case-insensitive search over the diff lines (`+`/`-`
   markers and `@@` headers included). `enter` accepts, `esc` leaves the
   field with the query kept; `n`/`N` then cycle matches (wrapping, with the
-  selected match shown in reverse video and its hunk header kept in view) —
+  selected match shown in reverse video and scrolled to the wrapped segment
+  carrying it, with the enclosing hunk header kept in view when it fits) —
   `n` falls back to hunk navigation while no match is selected. A browse-mode
   `esc` clears the query before closing; `q` still closes outright.
 - Resizing or toggling `w` keeps the same source line at the top of the view

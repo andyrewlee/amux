@@ -487,7 +487,11 @@ display row: `w` toggles wrap; with wrap on, `j`/`k`/wheel/page keys and the
 footer position counter all operate in display rows (wrapped segments), so a
 long line's tail is always scrollable to. `n`/`p` still navigate hunks in
 source-line order. Resizing or toggling `w` re-anchors the top of the
-viewport to the same source line where possible.
+viewport to the same source line where possible. `/` search selection
+scrolls to the display segment intersecting the selected hit rather than the
+source line's first segment — a match deep in a wrapped tail is brought
+into view, with the enclosing hunk header retained only when it fits with
+that segment.
 
 ## Self-update replacement contract
 

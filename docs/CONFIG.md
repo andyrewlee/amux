@@ -262,7 +262,10 @@ observe: the diff viewer's `w` key toggles line wrapping, and with wrap on,
 occupies several), not source lines. Every wrapped segment is reachable — the
 footer's position counter and the wheel affordance count display rows.
 `n`/`p` continue to jump between hunk headers, and resizing or toggling wrap
-re-anchors the view to the same source line when possible.
+re-anchors the view to the same source line when possible. `/` search
+selection scrolls to the wrapped display segment that actually contains the
+hit (a tail-of-line match is never left below the viewport), keeping the
+enclosing `@@` header in view when it fits with that segment.
 
 ## Output viewer search
 
