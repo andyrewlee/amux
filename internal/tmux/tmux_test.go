@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -114,13 +115,18 @@ func TestNewClientCommand(t *testing.T) {
 		DefaultTerminal: "xterm-256color",
 	}
 
-	cmd := NewClientCommand("test-session", ClientCommandParams{
+	prepared, err := NewClientCommand("test-session", ClientCommandParams{
 		WorkDir:        "/tmp/work",
 		Command:        "echo hello",
 		Environment:    []string{"WORKSPACE_ROOT=/tmp/work", "WORKSPACE_NAME=demo"},
 		Options:        opts,
 		DetachExisting: true,
 	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	defer prepared.AbortBeforeStart()
+	cmd := prepared.Command
 
 	// Should create detached before the final attach so server options can be
 	// set before tmux computes client features.
@@ -155,11 +161,21 @@ func TestNewClientCommand(t *testing.T) {
 	if !strings.Contains(cmd, "-L 'test-server'") {
 		t.Error("Command should include server name")
 	}
-	// Should force the pane process into the requested cwd before starting the
-	// shell. tmux's own -c can fail after the server startup directory is
-	// deleted, so the explicit cd is the process-level fallback.
-	if !strings.Contains(cmd, `sh -c 'cd "$1" && shift && exec env "$@"' amux-chdir '/tmp/work' 'WORKSPACE_ROOT=/tmp/work' 'WORKSPACE_NAME=demo' sh -lc 'unset TMUX TMUX_PANE; echo hello'`) {
-		t.Error("Command should chdir via the shell trampoline before running the sanitized pane command")
+	// The pane invocation carries no environment: the private launch payload
+	// delivers workdir/command/env by file and the native consumer performs
+	// the process-level chdir (tmux's -c can be poisoned by a deleted server
+	// cwd), so argv must stay free of assignments entirely.
+	if !strings.Contains(cmd, "new-session -ds 'test-session' -c '/tmp/work'") {
+		t.Error("Command should create the session in the workspace directory")
+	}
+	if !strings.Contains(cmd, "'--internal-pane-launch' 'run' '") {
+		t.Error("Command should invoke the private pane-launch consumer")
+	}
+	if strings.Contains(cmd, "WORKSPACE_ROOT=/tmp/work") || strings.Contains(cmd, "WORKSPACE_NAME=demo") || strings.Contains(cmd, " exec env ") {
+		t.Error("Command must not carry environment assignments in argv")
+	}
+	if !strings.Contains(cmd, filepath.Base(prepared.PayloadPath())) {
+		t.Error("Command should name this attempt's payload path")
 	}
 
 	// Should advertise DEC 2026 sync support before attaching so tmux wraps
@@ -183,7 +199,7 @@ func TestNewClientCommand(t *testing.T) {
 }
 
 func TestNewClientCommandResolvesRelativeConfigFromWorkspace(t *testing.T) {
-	cmd := NewClientCommand("test-session", ClientCommandParams{
+	prepared, err := NewClientCommand("test-session", ClientCommandParams{
 		WorkDir: "/tmp/work",
 		Command: "echo hello",
 		Options: Options{
@@ -191,6 +207,11 @@ func TestNewClientCommandResolvesRelativeConfigFromWorkspace(t *testing.T) {
 			ConfigPath: "config/tmux.conf",
 		},
 	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	defer prepared.AbortBeforeStart()
+	cmd := prepared.Command
 
 	if !strings.Contains(cmd, "-f '/tmp/work/config/tmux.conf'") {
 		t.Fatalf("relative tmux config should resolve from the workspace: %s", cmd)
@@ -217,13 +238,18 @@ func TestNewClientCommandWithTags(t *testing.T) {
 		InstanceID:  "inst-9",
 	}
 
-	cmd := NewClientCommand("test-session", ClientCommandParams{
+	prepared, err := NewClientCommand("test-session", ClientCommandParams{
 		WorkDir:        "/tmp/work",
 		Command:        "echo hello",
 		Options:        opts,
 		Tags:           tags,
 		DetachExisting: true,
 	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	defer prepared.AbortBeforeStart()
+	cmd := prepared.Command
 
 	if !strings.Contains(cmd, "@amux 1") {
 		t.Error("Command should set @amux tag")
@@ -257,13 +283,18 @@ func TestNewClientCommandWithInstanceIDOnly(t *testing.T) {
 		DefaultTerminal: "xterm-256color",
 	}
 
-	cmd := NewClientCommand("test-session", ClientCommandParams{
+	prepared, err := NewClientCommand("test-session", ClientCommandParams{
 		WorkDir:        "/tmp/work",
 		Command:        "echo hello",
 		Options:        opts,
 		Tags:           SessionTags{InstanceID: "inst-only"},
 		DetachExisting: true,
 	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	defer prepared.AbortBeforeStart()
+	cmd := prepared.Command
 
 	if !strings.Contains(cmd, "@amux 1") {
 		t.Error("Command should set @amux tag when only InstanceID is provided")
@@ -281,12 +312,17 @@ func TestNewClientCommandSharedAttach(t *testing.T) {
 		DisableMouse:    true,
 		DefaultTerminal: "xterm-256color",
 	}
-	cmd := NewClientCommand("test-session", ClientCommandParams{
+	prepared, err := NewClientCommand("test-session", ClientCommandParams{
 		WorkDir:        "/tmp/work",
 		Command:        "echo hello",
 		Options:        opts,
 		DetachExisting: false,
 	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	defer prepared.AbortBeforeStart()
+	cmd := prepared.Command
 	if strings.Contains(cmd, "attach -dt") {
 		t.Error("Command should not detach other clients when detachExisting=false")
 	}

@@ -43,7 +43,7 @@ func TestClientCommandAppliesOptionsAndTagsOnRealTmux(t *testing.T) {
 	opts := realTmuxServerWithKeepalive(t)
 	const session = "create-pipeline"
 
-	cmdStr := NewClientCommand(session, ClientCommandParams{
+	prepared, err := NewClientCommand(session, ClientCommandParams{
 		WorkDir: t.TempDir(),
 		Command: "sleep 300",
 		Options: Options{
@@ -65,11 +65,15 @@ func TestClientCommandAppliesOptionsAndTagsOnRealTmux(t *testing.T) {
 		},
 		DetachExisting: true,
 	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	t.Cleanup(prepared.AbortBeforeStart)
 
 	// The create + set-option chain runs before the final `attach`, which fails
 	// without a controlling terminal. Ignore that failure: the settings already
 	// applied, which is what we verify.
-	_ = exec.Command("sh", "-c", cmdStr).Run()
+	_ = exec.Command("sh", "-c", prepared.Command).Run()
 
 	waitForSessionExists(t, opts, session)
 
@@ -138,15 +142,19 @@ func TestClientCommandEscapesDeletedServerWorkingDirectory(t *testing.T) {
 	}
 
 	const session = "deleted-cwd-recovery"
-	cmdStr := NewClientCommand(session, ClientCommandParams{
+	prepared, err := NewClientCommand(session, ClientCommandParams{
 		WorkDir:     workspaceDir,
 		Command:     `test "$WORKSPACE_SENTINEL" = recovered && sleep 300`,
 		Environment: []string{"WORKSPACE_SENTINEL=recovered"},
 		Options:     opts,
 	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	t.Cleanup(prepared.AbortBeforeStart)
 	// The final attach requires a controlling terminal. Session creation runs
 	// before it, so the attach error is intentionally ignored here.
-	_ = exec.Command("sh", "-c", cmdStr).Run()
+	_ = exec.Command("sh", "-c", prepared.Command).Run()
 	waitForSessionExists(t, opts, session)
 
 	out, err := exec.Command("tmux", tmuxArgs(opts, "list-panes", "-t", session, "-F", "#{pane_current_path}")...).CombinedOutput()

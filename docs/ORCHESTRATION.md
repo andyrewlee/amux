@@ -197,6 +197,27 @@ tag is the authoritative workspace ID for a session — for tab sessions it
 matches the name-derived value, and for `amux-ws-*-run` sessions it is the
 *only* reliable source (name parsing yields `ws`, not the ID).
 
+## Pane launch transport
+
+Managed panes are started through a private hand-off so that environment
+values never appear in process argv, `pane_start_command`, or tmux command
+logs. `pane_start_command` on an amux pane records
+
+```
+<amux-binary> --internal-pane-launch run <payload-path>
+```
+
+rather than the configured command. The payload is a JSON file inside a
+single-use `amux-pane-launch-*` directory under the OS temp dir (0700 dir,
+0600 file), carrying the working directory, the final `sh -lc` command, and
+the environment assignments. The amux binary inside the pane validates,
+consumes, and unlinks it before `exec`, so it is gone within milliseconds of
+pane start. Payloads that outlive their five-minute budget are no longer
+consumable and are swept by a later amux startup — leftover
+`amux-pane-launch-*` directories are safe to delete. The flag is private:
+it is not a general command runner and carries no public compatibility
+promise.
+
 ## Sending input
 
 amux does **not** use `tmux send-keys` internally — it attaches a PTY to each

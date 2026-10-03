@@ -182,7 +182,7 @@ func (m *AgentManager) CreateAgentWithConfig(ws *data.Workspace, agentType Agent
 	// Use -l flag to start login shell so .zshrc/.bashrc are loaded
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; %s", assistantCfg.Command, loginShellCommand)
 
-	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+	prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 		WorkDir:        ws.Root,
 		Command:        fullCommand,
 		Environment:    env,
@@ -190,8 +190,13 @@ func (m *AgentManager) CreateAgentWithConfig(ws *data.Workspace, agentType Agent
 		Tags:           tags,
 		DetachExisting: true,
 	})
-	term, err := NewTmuxClientWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
+		return nil, err
+	}
+	term, err := NewTmuxClientWithSize(prepared.Command, ws.Root, env, rows, cols)
+	if err != nil {
+		// The PTY never started, so no pane can be consuming the payload.
+		prepared.AbortBeforeStart()
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
 
@@ -228,7 +233,7 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 		return nil, err
 	}
 
-	termCommand := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+	prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 		WorkDir:        ws.Root,
 		Command:        command,
 		Environment:    env,
@@ -236,8 +241,13 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 		Tags:           tags,
 		DetachExisting: true,
 	})
-	term, err := NewTmuxClientWithSize(termCommand, ws.Root, env, rows, cols)
 	if err != nil {
+		return nil, err
+	}
+	term, err := NewTmuxClientWithSize(prepared.Command, ws.Root, env, rows, cols)
+	if err != nil {
+		// The PTY never started, so no pane can be consuming the payload.
+		prepared.AbortBeforeStart()
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
 	}
 

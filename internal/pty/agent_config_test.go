@@ -56,12 +56,12 @@ func TestAgentManager_CreateAgentWithConfig_UsesSuppliedSnapshot(t *testing.T) {
 	if agent.Config != snapshot {
 		t.Errorf("agent.Config = %+v, want snapshot %+v", agent.Config, snapshot)
 	}
-	cmdStr := strings.Join(agent.Terminal.cmd.Args, " ")
-	if !strings.Contains(cmdStr, snapshot.Command) {
-		t.Errorf("spawned command missing snapshot command %q", snapshot.Command)
-	}
-	if strings.Contains(cmdStr, "echo claude") {
-		t.Error("spawned command used the manager's map entry, not the snapshot")
+	// The snapshot command travels inside the private launch payload, not
+	// argv — assert it actually ran in the pane. `echo snapshot-cfg` prints
+	// the marker; the map entry "echo claude" would print "claude" instead.
+	output := readTerminalThroughMarker(t, agent.Terminal, "snapshot-cfg", 5*time.Second)
+	if strings.Contains(output, "claude\n") {
+		t.Error("pane ran the manager's map entry, not the snapshot")
 	}
 }
 

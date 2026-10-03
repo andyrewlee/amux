@@ -108,6 +108,7 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/vterm` | Terminal emulator: ANSI/VT parsing → cell grid + scrollback → ANSI | `vterm.go` |
 | `internal/tmux` | tmux CLI wrapper: sessions, capture, resize, activity tags | `tmux.go` |
 | `internal/pty` | Pseudo-terminals backing hosted agents (Agent, Terminal) | `agent.go` |
+| `internal/panelaunch` | Private pane-launch transport: short-lived payload carrying workdir/command/env to the pane-side helper | `spec.go`, `prepare.go`, `invoke_unix.go` |
 | `internal/git` | git worktree-per-workspace model: worktrees, branches, diff, watcher | `operations.go`, `workspace.go` |
 | `internal/data` | Persistence + shared records: workspace records via WorkspaceStore, project registry (lockfile, recovery), AgentState enum, canonical path helpers | `workspace_store.go`, `registry.go` |
 | `internal/fsatomic` | Crash-safe single-file writes: temp-write, fsync, atomic rename-over (with .bak restore on Windows) | `fsatomic.go` |

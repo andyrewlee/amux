@@ -33,7 +33,10 @@ func EnsureDetachedSession(sessionName, workDir, command string, environment []s
 	dir := shellutil.ShellQuote(workDir)
 	optionTgt := shellutil.ShellQuote(exactSessionOptionTarget(sessionName))
 
-	paneCommand := paneLaunchCommand(command, dir, environment)
+	launch, err := prepareLaunch(workDir, command, environment)
+	if err != nil {
+		return err
+	}
 	settings := append(sessionSettingArgs(optionTgt, opts, tags),
 		[]string{"-t", optionTgt, "remain-on-exit", "on"})
 
@@ -41,13 +44,21 @@ func EnsureDetachedSession(sessionName, workDir, command string, environment []s
 	// ensureSession on its own failure (settingsScript already self-heals
 	// per-option), matching clientCommand's bracing discipline. The script
 	// text already ends with "; " and always exits true.
-	script := fmt.Sprintf("%s && { %s}", ensureSessionScript(base, sessionName, dir, paneCommand, true), settingsScript(base, settings))
+	script := fmt.Sprintf("%s && { %s}", ensureSessionScript(base, sessionName, dir, launch, true), settingsScript(base, settings))
 
 	ctx, cancel := context.WithTimeout(context.Background(), tmuxCommandTimeout)
 	defer cancel()
 	// #nosec G204 -- the script is built from shell-quoted parts only.
 	cmd := exec.CommandContext(ctx, "sh", "-c", script)
 	if out, err := runTmuxCmdCombined(cmd); err != nil {
+		if ctx.Err() == nil {
+			// A non-timeout failure means every ensure branch failed, so no
+			// session exists and no pane can be pending on this payload —
+			// the attempt is provably unused. A killed/timed-out script is
+			// ambiguous: the create may already have dispatched, so the
+			// expiring payload must be left for the consumer or the sweep.
+			_ = launch.payload.Discard()
+		}
 		return fmt.Errorf("ensure detached session %s: %w (%s)", sessionName, err, strings.TrimSpace(string(out)))
 	}
 	return nil
