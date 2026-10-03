@@ -78,8 +78,19 @@ func (t *tabPersistence) markCommitted(id data.WorkspaceID, seq uint64) {
 // field is read fresh inside the workspace lock. seq is the capture's
 // monotonic sequence; a call carrying a sequence at or below the last
 // committed one returns committed=false — the record already reflects a
-// newer capture. The mutation-in-flight check runs inside the Update
-// callback so it is atomic with the write.
+// newer capture.
+//
+// The mutation-in-flight guard wraps the ENTIRE ordered save once, at this
+// boundary: when an atomic guard is installed, the phase check and the write
+// are atomic with the lifecycle mutation transition — and nothing inside
+// may re-enter the predicate, because a writer queued between two read
+// acquisitions would deadlock the lifecycle RWMutex (the first hold waits
+// on the second, the writer waits on the first). With no atomic guard the
+// predicate-only compatibility remains: checked inside the Update callback
+// and again before the missing-record create.
+//
+// Lock order: workspace lifecycle guard → per-ID tab write lock → store
+// transaction. No caller may wrap this method in the lifecycle guard.
 //
 // ws is the caller's workspace snapshot, used only to resolve the record ID
 // and — when no record exists yet — as the body of an intentional create:
@@ -92,6 +103,29 @@ func (s *Service) SaveWorkspaceTabs(ws *data.Workspace, seq uint64, tabs []data.
 	if id == "" {
 		return false, nil
 	}
+	if s.mutationInFlightGuard != nil {
+		wrote := false
+		var saveErr error
+		ran := s.mutationInFlightGuard(ws, func() {
+			wrote, saveErr = s.saveWorkspaceTabs(id, ws, seq, tabs, activeIdx, false)
+		})
+		if !ran {
+			// Mutation began between call and admission — nothing was
+			// written and nothing failed; the mutation's own resolution
+			// path requeues.
+			return false, nil
+		}
+		return wrote, saveErr
+	}
+	return s.saveWorkspaceTabs(id, ws, seq, tabs, activeIdx, true)
+}
+
+// saveWorkspaceTabs is the ordered write proper: per-ID write lock,
+// sequence check, narrow Update, missing-record whole-create fallback,
+// sequence commit. checkMutation selects the predicate probes inside the
+// transaction and before the fallback — required in predicate-only mode,
+// forbidden while an atomic guard is already held.
+func (s *Service) saveWorkspaceTabs(id data.WorkspaceID, ws *data.Workspace, seq uint64, tabs []data.TabInfo, activeIdx int, checkMutation bool) (bool, error) {
 	lock := s.tabPersist.writeLock(id)
 	lock.Lock()
 	defer lock.Unlock()
@@ -102,7 +136,7 @@ func (s *Service) SaveWorkspaceTabs(ws *data.Workspace, seq uint64, tabs []data.
 		return false, nil
 	}
 	err := s.store.Update(id, func(fresh *data.Workspace) (bool, error) {
-		if s.isMutationInFlight(fresh) {
+		if checkMutation && s.isMutationInFlight(fresh) {
 			return false, errTabSaveSkipped
 		}
 		cloned := slices.Clone(tabs)
@@ -117,7 +151,7 @@ func (s *Service) SaveWorkspaceTabs(ws *data.Workspace, seq uint64, tabs []data.
 		return false, nil
 	}
 	if errors.Is(err, fs.ErrNotExist) {
-		if s.isMutationInFlight(ws) {
+		if checkMutation && s.isMutationInFlight(ws) {
 			return false, nil
 		}
 		// No record to apply the field write to — the workspace exists only

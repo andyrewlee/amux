@@ -151,6 +151,127 @@ func TestSaveWorkspaceTabs_MutationInFlightSkips(t *testing.T) {
 	}
 }
 
+// TestSaveWorkspaceTabs_AtomicGuardWrapsWholeSave is the guard-ownership
+// contract: with an atomic guard installed it is entered exactly once and
+// the predicate must NEVER run — a predicate call inside the guarded write
+// re-acquires the lifecycle read lock and deadlocks behind a queued writer.
+func TestSaveWorkspaceTabs_AtomicGuardWrapsWholeSave(t *testing.T) {
+	svc, ws, store := newTabPersistHarness(t)
+	entries := 0
+	svc.mutationInFlightGuard = func(_ *data.Workspace, fn func()) bool {
+		entries++
+		fn()
+		return true
+	}
+	svc.mutationInFlight = func(*data.Workspace) bool {
+		t.Error("predicate called while the atomic guard held the lifecycle lock")
+		return false
+	}
+	committed, err := svc.SaveWorkspaceTabs(ws, 1, tabsNamed("a"), 0)
+	if err != nil || !committed {
+		t.Fatalf("SaveWorkspaceTabs committed=%v err=%v, want committed", committed, err)
+	}
+	if entries != 1 {
+		t.Fatalf("atomic guard entered %d times, want exactly 1", entries)
+	}
+	loaded, err := store.Load(ws.MetadataID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.OpenTabs) != 1 || loaded.OpenTabs[0].Name != "a" {
+		t.Fatalf("guarded write did not persist tabs: %v", loaded.OpenTabs)
+	}
+}
+
+// TestSaveWorkspaceTabs_AtomicGuardCoversMissingRecordCreate pins the
+// fallback inside the same single guard hold: the missing-record create is
+// part of the atomic save, and the predicate stays untouched there too.
+func TestSaveWorkspaceTabs_AtomicGuardCoversMissingRecordCreate(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := New(nil, store, nil, t.TempDir())
+	ws := data.NewWorkspace("ghost", "feat", "main", t.TempDir(), t.TempDir()+"/feat")
+	entries := 0
+	svc.mutationInFlightGuard = func(_ *data.Workspace, fn func()) bool {
+		entries++
+		fn()
+		return true
+	}
+	svc.mutationInFlight = func(*data.Workspace) bool {
+		t.Error("predicate called for the missing-record create under the atomic guard")
+		return false
+	}
+	committed, err := svc.SaveWorkspaceTabs(ws, 1, tabsNamed("a"), 0)
+	if err != nil || !committed {
+		t.Fatalf("SaveWorkspaceTabs committed=%v err=%v, want committed create", committed, err)
+	}
+	if entries != 1 {
+		t.Fatalf("atomic guard entered %d times, want exactly 1", entries)
+	}
+	loaded, err := store.Load(ws.MetadataID())
+	if err != nil || loaded == nil {
+		t.Fatalf("record was not created under the guard: %v", err)
+	}
+	if loaded.Name != "ghost" || len(loaded.OpenTabs) != 1 {
+		t.Fatalf("created record missing fields: Name=%q tabs=%v", loaded.Name, loaded.OpenTabs)
+	}
+}
+
+// TestSaveWorkspaceTabs_AtomicGuardRejectionSkipsSave covers a declined
+// guard: the store must not be touched and the sequence must NOT be marked
+// committed, so the lifecycle requeue path can retry the same capture.
+func TestSaveWorkspaceTabs_AtomicGuardRejectionSkipsSave(t *testing.T) {
+	svc, ws, store := newTabPersistHarness(t)
+	svc.mutationInFlightGuard = func(*data.Workspace, func()) bool { return false }
+	svc.mutationInFlight = func(*data.Workspace) bool {
+		t.Error("predicate called when the atomic guard already rejected")
+		return false
+	}
+	committed, err := svc.SaveWorkspaceTabs(ws, 7, tabsNamed("x"), 0)
+	if err != nil {
+		t.Fatalf("guard rejection must be benign, got %v", err)
+	}
+	if committed {
+		t.Fatal("rejected save reported a write")
+	}
+	loaded, err := store.Load(ws.MetadataID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.OpenTabs) != 0 {
+		t.Fatalf("rejected save still persisted tabs %v", loaded.OpenTabs)
+	}
+	// Sequence 7 was never committed: once the guard admits, the same
+	// capture retries and wins rather than losing to a phantom commit.
+	svc.mutationInFlightGuard = func(_ *data.Workspace, fn func()) bool {
+		fn()
+		return true
+	}
+	committed, err = svc.SaveWorkspaceTabs(ws, 7, tabsNamed("x"), 0)
+	if err != nil || !committed {
+		t.Fatalf("post-mutation retry committed=%v err=%v, want committed", committed, err)
+	}
+}
+
+// TestSaveWorkspaceTabs_PredicateSkipsMissingRecordCreate keeps the
+// predicate-only compatibility: without an atomic guard the mutation probe
+// still suppresses the missing-record whole-create fallback.
+func TestSaveWorkspaceTabs_PredicateSkipsMissingRecordCreate(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := New(nil, store, nil, t.TempDir())
+	ws := data.NewWorkspace("ghost", "feat", "main", t.TempDir(), t.TempDir()+"/feat")
+	svc.mutationInFlight = func(*data.Workspace) bool { return true }
+	committed, err := svc.SaveWorkspaceTabs(ws, 1, tabsNamed("a"), 0)
+	if err != nil {
+		t.Fatalf("predicate skip must be benign, got %v", err)
+	}
+	if committed {
+		t.Fatal("predicate-only mode created a record for a mutating workspace")
+	}
+	if loaded, _ := store.Load(ws.MetadataID()); loaded != nil {
+		t.Fatal("skipped fallback still created the record")
+	}
+}
+
 // TestSaveWorkspaceTabs_CreatesMissingRecord verifies the not-exist fallback:
 // a workspace that exists only in memory gets a whole-record create, not an
 // error — Update deliberately never creates.
