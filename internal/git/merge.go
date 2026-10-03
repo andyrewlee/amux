@@ -101,14 +101,20 @@ func localBranchExists(repoPath, branch string) bool {
 }
 
 // MergeWorkspaceBranch merges branch into whatever is checked out in repoPath
-// with `git merge --no-ff -- <branch>`.
+// with `git merge --no-ff`.
+//
+// branch names a local branch. The exact refs/heads/<branch> ref is resolved
+// first and the merge runs on the verified object ID, because Git's revision
+// resolution lets refs/tags/<branch> shadow the short name — an unqualified
+// operand could merge (or report "Already up to date" on) a tag that was never
+// the workspace branch.
 //
 // It deliberately does not check out the base branch, fetch, rebase, squash,
 // autostash, or push: the merge lands on the caller's current HEAD, and the
 // caller is responsible for having verified that HEAD is the intended base
 // (see CheckedOutBranch/LocalBaseBranch). --no-ff always records an explicit merge
 // commit so the branch topology stays auditable, and `--` terminates options
-// before the branch name so a ref cannot be reparsed as a flag.
+// before the operand so it cannot be reparsed as a flag.
 //
 // A conflicting merge returns a *MergeConflictError listing the conflicted
 // paths, leaving the merge in progress for the user to resolve or AbortMerge.
@@ -123,7 +129,21 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 	mergeCtx, cancel := context.WithTimeout(ctx, mergeTimeout)
 	defer cancel()
 
-	if _, err := RunGitCtx(mergeCtx, repoPath, "merge", "--no-ff", "--", branch); err != nil {
+	// Resolve the exact local branch under the merge timeout budget. Merging
+	// the verified object ID removes every ambiguity a short or full-looking
+	// name could carry; a name with no local branch fails here, before git
+	// can start a merge.
+	localRef := "refs/heads/" + branch
+	out, err := RunGitCtx(mergeCtx, repoPath, "show-ref", "--verify", "--hash", "--", localRef)
+	if err != nil {
+		return fmt.Errorf("merging %s: resolving local branch: %w", branch, err)
+	}
+	oid := strings.TrimSpace(out)
+	if oid == "" || strings.ContainsAny(oid, "\r\n") {
+		return fmt.Errorf("merging %s: resolving local branch: unexpected output %q", branch, out)
+	}
+
+	if _, err := RunGitCtx(mergeCtx, repoPath, "merge", "--no-ff", "--", oid); err != nil {
 		// Distinguish "stopped part-way, with state to clean up" from "could not
 		// start at all". The signal is MERGE_HEAD rather than the presence of
 		// unmerged files, because those are not the same set: a merge killed by
