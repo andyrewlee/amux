@@ -20,11 +20,12 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		pendingClip    []byte
 		pendingBell    bool
 		initialTask    string
+		taskGen        uint64
 	)
 	tab.mu.Lock()
 	staleWrite := ev.writeEpoch != tab.actorWriteEpoch
 	if !staleWrite && tab.Terminal != nil {
-		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip, pendingBell, initialTask = m.applyActorWriteLocked(tab, ev, processedBytes)
+		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip, pendingBell, initialTask, taskGen = m.applyActorWriteLocked(tab, ev, processedBytes)
 	}
 	tab.mu.Unlock()
 	if staleWrite {
@@ -32,9 +33,21 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 	}
 	if initialTask != "" {
 		// First write after the agent emitted a private-mode set: the input
-		// loop is live, so the queued launch task goes through the same
-		// SendString path a user keystroke takes.
-		m.sendToTerminal(tab, initialTask+"\r", ev.tabID, ev.workspaceID, "InitialTask")
+		// loop is live, so the queued launch task goes through the same input
+		// FIFO a user keystroke takes. The admission pins the generation
+		// captured beside the task so a reattach since then cannot deliver
+		// the old stream's task to the new agent. A full queue is the only
+		// retryable rejection — re-arm so a later write pass admits it, and
+		// only while the same binding still owns it; a failed, replaced, or
+		// missing binding drops it like a detached tab would.
+		res, _ := m.admitTabInputBound(tab, ev.workspaceID, taskGen, initialTask+"\r", "InitialTask", true)
+		if res == tabInputRejectedFull {
+			tab.mu.Lock()
+			if tab.tabInput.gen == taskGen && !tab.isClosed() && !tab.Detached && tab.Terminal != nil {
+				tab.pendingInitialTask = initialTask
+			}
+			tab.mu.Unlock()
+		}
 	}
 	if pendingBell && m.msgSink != nil {
 		m.msgSink(TabBell{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
@@ -73,7 +86,7 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 // whether a follow-up flush is needed, the activity tag to publish, and any
 // clipboard payload captured from an OSC 52 write (to be drained off the lock)
 // plus the pending-bell flag for the same off-lock drain.
-func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64, pendingClip []byte, pendingBell bool, initialTask string) {
+func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64, pendingClip []byte, pendingBell bool, initialTask string, taskGen uint64) {
 	// The enqueue preview already ran the noise filter against the queued
 	// carry chain, and every non-actor mutation of NoiseTrailing coincides with
 	// an actorWriteEpoch bump (stale-drop above) or happens while no write is
@@ -94,6 +107,10 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 	pendingBell = tab.Terminal.TakePendingBell()
 	if tab.pendingInitialTask != "" && tab.Terminal.PrivateModesSeen() {
 		initialTask = tab.pendingInitialTask
+		// The binding's input generation is captured beside the task so the
+		// admission off this lock can pin it: a reattach between here and the
+		// admit call must not deliver this stream's task to the new agent.
+		taskGen = tab.tabInput.gen
 		tab.pendingInitialTask = ""
 	}
 	// Activity state intentionally tracks visible terminal mutations only.
@@ -112,7 +129,7 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 	if tab.actorWritesPending == 0 {
 		requestFlush = finalizeActorWriteLocked(tab)
 	}
-	return filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp, pendingClip, pendingBell, initialTask
+	return filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, tagTimestamp, pendingClip, pendingBell, initialTask, taskGen
 }
 
 // enqueueActorWrite optimistically advances the actor-write accounting for a

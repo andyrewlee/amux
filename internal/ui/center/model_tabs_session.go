@@ -32,6 +32,15 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 			}
 		}
 	}
+	return m.detachTabCore(tab, index)
+}
+
+// detachTabCore performs the detach shared by the user-initiated path above
+// and the input-failure path (DetachTabForInputFailure). Failure cleanup must
+// not apply the user guards — a dead binding detaches regardless of assistant
+// kind, otherwise the tab would sit "running" on a dead PTY with its input
+// latch stuck rejecting every keystroke.
+func (m *Model) detachTabCore(tab *Tab, index int) tea.Cmd {
 	tab.mu.Lock()
 	alreadyDetached := tab.Detached
 	hasAgent := tab.Agent != nil
@@ -50,8 +59,11 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 	tab.Agent = nil
 	tab.mu.Unlock()
 	if agent != nil {
+		// Closing the terminal unblocks any in-flight input write, so the
+		// retired writer's join returns promptly.
 		_ = m.agentManager.CloseAgent(agent)
 	}
+	tab.joinRetiredInputWriters()
 	workspaceID := ""
 	if tab.Workspace != nil {
 		workspaceID = string(tab.Workspace.ID())
@@ -82,6 +94,40 @@ func (m *Model) DetachTabByID(wsID string, tabID TabID) tea.Cmd {
 		return m.detachTab(tab, idx)
 	}
 	return nil
+}
+
+// DetachTabForInputFailure detaches the tab an input delivery failure belongs
+// to, guarding the request with the stamped input-binding generation: a
+// failure emitted by a writer whose binding has since been replaced reports
+// false so the caller does not toast over or detach the healthy replacement.
+// The tab is resolved like other async results so a workspace rebind cannot
+// lose a valid failure.
+//
+// A zero Gen is an untagged failure from a control path that predates the
+// generation contract; those keep their legacy "apply unconditionally"
+// behavior (every real binding occupies generation >= 1, so the sentinel is
+// unambiguous). A nonzero-gen failure whose tab vanished resolves false —
+// the binding is gone, so there is nothing left to report or detach.
+func (m *Model) DetachTabForInputFailure(wsID string, tabID TabID, gen uint64) (tea.Cmd, bool) {
+	if wsID == "" {
+		return nil, true
+	}
+	tab, resolvedWS := m.resolveTabForResult(wsID, tabID, "input failure")
+	if tab == nil {
+		return nil, gen == 0
+	}
+	tab.mu.Lock()
+	current := gen == 0 || tab.tabInput.gen == gen
+	tab.mu.Unlock()
+	if !current {
+		return nil, false
+	}
+	for idx, candidate := range m.tabs.ByWorkspace[resolvedWS] {
+		if candidate == tab {
+			return m.detachTabCore(tab, idx), true
+		}
+	}
+	return nil, true
 }
 
 // DetachActiveTab closes the PTY client but keeps the tmux session alive.

@@ -158,13 +158,19 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	tab.resetActorWriteStateLocked()
 	tab.bootstrapActivity = true
 	tab.bootstrapLastOutputAt = time.Now()
+	inputGen := tab.inputGenLocked()
 	tab.mu.Unlock()
 	tab.resetActivityANSIState()
+	// The previous binding's writer was retired under the attach; join it now
+	// that the lock is free (its terminal is already dead or detached, so a
+	// blocked write has returned).
+	tab.joinRetiredInputWriters()
 
 	if tab.Terminal != nil && msg.Agent.Terminal != nil {
 		agentTerm := msg.Agent.Terminal
 		workspaceID := wsID
 		tabID := tab.ID
+		gen := inputGen
 		tab.Terminal.SetResponseWriter(func(data []byte) {
 			if len(data) == 0 || agentTerm == nil {
 				return
@@ -172,7 +178,7 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 			if err := agentTerm.SendString(string(data)); err != nil {
 				logging.Error("Response write failed for tab %s: %v", tabID, err)
 				if m.msgSink != nil {
-					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err, Gen: gen})
 				}
 			}
 		})
@@ -201,6 +207,7 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 	// A stopped reattach also clears Detached so the tab shows as stopped.
 	tab.markReattachFailedLocked(msg.Stopped)
 	tab.mu.Unlock()
+	tab.joinRetiredInputWriters()
 	logging.Error("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
 	action := msg.Action
 	if action == "" {
@@ -274,6 +281,7 @@ func (m *Model) SweepStalledReattaches() tea.Cmd {
 			if !stuck {
 				continue
 			}
+			tab.joinRetiredInputWriters()
 			stalled++
 			logging.Warn("Reattach for tab %s produced no outcome within %s; releasing reattach lock", tabID, ptyio.ReattachStallTimeout)
 			cmds = append(cmds, func() tea.Msg {
@@ -309,11 +317,14 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 	tab.Agent = nil
 	tab.mu.Unlock()
 	if agent != nil {
+		// Closing the terminal unblocks any in-flight input write so the
+		// retired writer's join below returns.
 		_ = m.agentManager.CloseAgent(agent)
 	}
 	tab.mu.Lock()
 	tab.markStoppedLocked()
 	tab.mu.Unlock()
+	tab.joinRetiredInputWriters()
 	tab.resetActivityANSIState()
 	return m, common.SafeBatch(func() tea.Msg {
 		return messages.TabStateChanged{WorkspaceID: msg.WorkspaceID, TabID: string(tab.ID)}

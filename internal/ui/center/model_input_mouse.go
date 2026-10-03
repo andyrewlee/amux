@@ -156,7 +156,9 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 
 // forwardMouseWheelToTerminal forwards a wheel event to the hosted terminal
 // when the agent has mouse reporting enabled and the pointer is inside the
-// content area. Returns true when the event was consumed.
+// content area. Returns true when the event was consumed. Mouse reporting is
+// an explicit separate control path (tab_actor.go): it stays on the actor's
+// direct sendMouseToTerminal write rather than the user-byte input FIFO.
 func (m *Model) forwardMouseWheelToTerminal(msg tea.MouseWheelMsg, tab *Tab) bool {
 	if tab == nil {
 		return false

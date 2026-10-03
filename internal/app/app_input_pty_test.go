@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -240,6 +242,52 @@ func TestHandleTabInputFailed_NilActiveWorkspaceSkipsPersist(t *testing.T) {
 	}
 	if !app.toast.Visible() {
 		t.Fatal("expected a warning toast to be visible")
+	}
+}
+
+func TestTabInputRejected_ToastsWarningWithoutSideEffects(t *testing.T) {
+	ws := ptyTestWorkspace()
+	wsID := string(ws.ID())
+	centerModel := newPTYTestCenter(t, ws)
+	// A live tab proves the rejection handler detaches nothing.
+	tab := &center.Tab{
+		ID:        center.TabID("tab-live"),
+		Name:      "claude",
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   true,
+	}
+	centerModel.AddTab(tab)
+
+	app := &App{
+		center:          centerModel,
+		toast:           common.NewToastModel(),
+		activeWorkspace: ws,
+		lifecycle:       newWorkspaceLifecycleState(),
+	}
+
+	var cmds []tea.Cmd
+	if !app.updateTabMsg(center.TabInputRejected{
+		WorkspaceID: wsID,
+		TabID:       tab.ID,
+		Gen:         1,
+		Reason:      "input queue full",
+	}, &cmds) {
+		t.Fatal("updateTabMsg did not route TabInputRejected")
+	}
+	// Warning toast only — no detach, no persist, no other side effect.
+	if len(cmds) != 1 {
+		t.Fatalf("expected exactly the warning toast command, got %d", len(cmds))
+	}
+	if !app.toast.Visible() {
+		t.Fatal("expected a warning toast to be visible")
+	}
+	if got := app.toast.View(); !strings.Contains(got, "input queue full") {
+		t.Fatalf("expected the rejection reason in the toast, got %q", got)
+	}
+	infos, _ := centerModel.GetTabsInfoForWorkspace(wsID)
+	if len(infos) != 1 || infos[0].Status != "running" {
+		t.Fatalf("rejection disturbed the tab: %+v", infos)
 	}
 }
 

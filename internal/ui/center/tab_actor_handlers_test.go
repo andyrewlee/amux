@@ -272,90 +272,13 @@ func TestHandleDiffInput_NilMsgSinkDoesNotPanic(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// handleSendInput / handleSendMouse / handlePaste / sendMouseToTerminal
-//
-// These funnel into sendToTerminal / sendMouseToTerminal. The pure no-op
-// guards (nil tab, empty payload, nil agent, closed tab) need no live process
-// and are tested directly. The failure-detach path uses a closed PTY whose
-// SendString fails deterministically (same technique as tab_actor_test.go).
+// handleSendMouse / sendMouseToTerminal — the mouse-reporting control path.
+// Ordinary user bytes (keys, paste, prefix NUL, launch task) moved to the
+// per-binding input FIFO in tab_input.go; their coverage lives in
+// tab_input_test.go. The no-op guards and the failure-detach path below pin
+// the control path's unchanged contract. The failure path uses a closed PTY
+// whose SendString fails deterministically.
 // ---------------------------------------------------------------------------
-
-func TestHandlePaste_WrapsBracketedPasteAndForwards(t *testing.T) {
-	dir := t.TempDir()
-	term, err := appPty.NewWithSize("cat >/dev/null", dir, nil, 24, 80)
-	if err != nil {
-		t.Fatalf("expected test PTY terminal: %v", err)
-	}
-	// Closing first makes SendString fail deterministically, which lets us
-	// observe that a non-empty paste actually reached sendToTerminal (it only
-	// reports failure when it tried to write).
-	if err := term.Close(); err != nil {
-		t.Fatalf("close terminal: %v", err)
-	}
-
-	tabID := TabID("tab-paste")
-	workspaceID := "ws-paste"
-	tab := &Tab{
-		ID:        tabID,
-		Assistant: "bash",
-		Agent:     &appPty.Agent{Terminal: term},
-		Running:   true,
-	}
-
-	var got []tea.Msg
-	m := &Model{}
-	m.msgSink = func(msg tea.Msg) { got = append(got, msg) }
-
-	m.handlePaste(tabEvent{tab: tab, tabID: tabID, workspaceID: workspaceID, pasteText: "hello"})
-
-	// Non-empty paste reached the terminal: the closed PTY failure detaches the
-	// tab and emits TabInputFailed.
-	tab.mu.Lock()
-	detached := tab.Detached
-	tab.mu.Unlock()
-	if !detached {
-		t.Fatal("expected non-empty paste to reach the terminal and detach on failure")
-	}
-	if len(got) != 1 {
-		t.Fatalf("expected one TabInputFailed, got %d: %#v", len(got), got)
-	}
-	if _, ok := got[0].(TabInputFailed); !ok {
-		t.Fatalf("expected TabInputFailed, got %T", got[0])
-	}
-}
-
-func TestHandlePaste_EmptyTextIsNoOp(t *testing.T) {
-	emitted := 0
-	m := &Model{msgSink: func(tea.Msg) { emitted++ }}
-	// Empty paste must short-circuit before touching the terminal; a nil-agent
-	// tab would otherwise be a safe no-op anyway, so assert no emission at all.
-	tab := &Tab{ID: TabID("tab-empty-paste"), Running: true}
-	m.handlePaste(tabEvent{tab: tab, pasteText: ""})
-	if emitted != 0 {
-		t.Fatalf("expected empty paste to emit nothing, got %d", emitted)
-	}
-}
-
-func TestHandleSendInput_NilAgentIsNoOp(t *testing.T) {
-	emitted := 0
-	m := &Model{msgSink: func(tea.Msg) { emitted++ }}
-	// A running tab with no Agent must be a safe no-op (no panic, no emission).
-	tab := &Tab{ID: TabID("tab-no-agent"), Assistant: "bash", Running: true}
-	m.handleSendInput(tabEvent{tab: tab, input: []byte("abc")})
-	if emitted != 0 {
-		t.Fatalf("expected nil-agent send to emit nothing, got %d", emitted)
-	}
-}
-
-func TestHandleSendInput_EmptyInputIsNoOp(t *testing.T) {
-	emitted := 0
-	m := &Model{msgSink: func(tea.Msg) { emitted++ }}
-	tab := &Tab{ID: TabID("tab-empty-input"), Running: true}
-	m.handleSendInput(tabEvent{tab: tab, input: nil})
-	if emitted != 0 {
-		t.Fatalf("expected empty input to emit nothing, got %d", emitted)
-	}
-}
 
 func TestHandleSendMouse_NilAndEmptyAreNoOps(t *testing.T) {
 	emitted := 0
@@ -447,8 +370,9 @@ func TestSendMouseToTerminal_FailureDetachesAndNotifies(t *testing.T) {
 }
 
 // TestHandleSendMouse_SuccessfulSendDoesNotEmitCursorRefresh confirms the mouse
-// path never emits the chat-only PTYCursorRefresh that sendToTerminal does: a
-// live PTY accepts the bytes and the funnel returns without notifying the sink.
+// path never emits the chat-only PTYCursorRefresh the input FIFO does on
+// delivery: a live PTY accepts the bytes and the funnel returns without
+// notifying the sink.
 func TestHandleSendMouse_SuccessfulSendDoesNotEmitCursorRefresh(t *testing.T) {
 	dir := t.TempDir()
 	term, err := appPty.NewWithSize("cat >/dev/null", dir, nil, 24, 80)

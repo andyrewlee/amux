@@ -2,9 +2,13 @@ package center
 
 import (
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/testutil"
 )
 
 // ----- SendToTerminal -----
@@ -62,32 +66,42 @@ func TestSendToTerminal_WritesToLiveTerminal(t *testing.T) {
 	}
 }
 
-func TestSendToTerminal_FailureMarksDetached(t *testing.T) {
+// TestSendToTerminal_FailureLatchesBinding covers the async failure contract:
+// a dead terminal's write fails on the input writer, which latches the
+// binding's failure flag and reports TabInputFailed — the app handler owns the
+// visible detach, so the tab itself is untouched until it runs.
+func TestSendToTerminal_FailureLatchesBinding(t *testing.T) {
 	dir := t.TempDir()
 	term, err := appPty.NewWithSize("cat >/dev/null", dir, nil, 24, 80)
 	if err != nil {
 		t.Fatalf("expected test PTY terminal: %v", err)
 	}
-	// Close the terminal so SendString fails with io.ErrClosedPipe, exercising
-	// the detach-on-error branch.
+	// Close the terminal so SendString fails with io.ErrClosedPipe.
 	_ = term.Close()
 
 	ws := newTestWorkspace("ws", dir)
 	tab := chatTab(ws, "tab-0")
 	tab.Agent = &appPty.Agent{Terminal: term}
 	m, _, _ := newActionsModel(t, tab)
+	m.msgSink = func(tea.Msg) {}
 
 	m.SendToTerminal("hello")
+
+	testutil.Eventually(t, 3*time.Second, time.Millisecond, func() bool {
+		tab.mu.Lock()
+		defer tab.mu.Unlock()
+		return tab.tabInput.failed
+	}, "send failure did not latch the binding")
 
 	tab.mu.Lock()
 	detached := tab.Detached
 	running := tab.Running
 	tab.mu.Unlock()
-	if !detached {
-		t.Fatalf("send failure should mark the tab detached")
+	if detached {
+		t.Fatalf("worker must not detach — the failure handler owns that")
 	}
-	if running {
-		t.Fatalf("send failure should clear the running flag")
+	if !running {
+		t.Fatalf("worker must not clear the running flag")
 	}
 }
 

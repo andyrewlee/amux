@@ -208,8 +208,10 @@ func (m *Model) syncActiveDiffViewerFocus(focused bool) {
 
 // Close cleans up all resources.
 func (m *Model) Close() {
+	var closing []*Tab
 	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
+			closing = append(closing, tab)
 			tab.markClosing()
 			m.stopPTYReader(tab)
 			tab.mu.Lock()
@@ -224,12 +226,18 @@ func (m *Model) Close() {
 			tab.ResetSnapshotCache()
 			tab.Workspace = nil
 			tab.Running = false
+			tab.retireTabInputWriterLocked()
 			tab.mu.Unlock()
 			tab.markClosed()
 		}
 	}
 	if m.agentManager != nil {
+		// Closing every terminal unblocks any in-flight input writes, so the
+		// joins below return instead of hanging on a stuck PTY.
 		m.agentManager.CloseAll()
+	}
+	for _, tab := range closing {
+		tab.joinRetiredInputWriters()
 	}
 }
 

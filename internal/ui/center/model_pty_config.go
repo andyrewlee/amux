@@ -82,11 +82,48 @@ type PTYFlush struct {
 	CatchUp     bool
 }
 
-// PTYCursorRefresh re-renders chat cursor policy when time-based windows expire.
-type PTYCursorRefresh struct {
+// TabInputFailed reports a terminal input write failure. Gen is the input
+// binding generation the failing writer was bound to — a failure arriving
+// after the binding was replaced carries a stale gen and must be dropped
+// rather than detach the replacement.
+type TabInputFailed struct {
+	TabID       TabID
+	WorkspaceID string
+	Err         error
+	Gen         uint64
+}
+
+// MarkCriticalExternalMsg marks TabInputFailed as critical: dropping it would
+// skip the detach/agent cleanup the UI failure path performs.
+func (TabInputFailed) MarkCriticalExternalMsg() {}
+
+// TabInputRejected reports a user-input admission rejection (queue
+// saturation or a latched binding failure). It carries no payload — Reason is
+// a fixed classification, Gen the input binding the verdict applied to — and
+// is handled by the app as a warning only: the attachment stays healthy and
+// no detach/persist side effect may hang off it.
+type TabInputRejected struct {
 	WorkspaceID string
 	TabID       TabID
 	Gen         uint64
+	Reason      string
+}
+
+// MarkCriticalExternalMsg marks TabInputRejected as critical so a flood of
+// output cannot silently swallow the "your input was dropped" signal.
+func (TabInputRejected) MarkCriticalExternalMsg() {}
+
+// PTYCursorRefresh re-renders chat cursor policy when time-based windows expire.
+// Gen is the timed-refresh generation (scheduleChatCursorRefreshLocked);
+// InputGeneration is the input-binding generation for refreshes emitted by the
+// input writer after a delivery — a distinct lifecycle. An InputGeneration
+// that no longer matches the tab's current binding is a stale result and the
+// refresh is dropped rather than re-arming state on the replacement.
+type PTYCursorRefresh struct {
+	WorkspaceID     string
+	TabID           TabID
+	Gen             uint64
+	InputGeneration uint64
 }
 
 // PTYStopped signals that the PTY read loop has stopped (terminal closed or error)

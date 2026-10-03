@@ -12,26 +12,6 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// directSendToTerminal sends data directly to the terminal, handling errors.
-// Returns whether data was actually sent and an optional command for failures.
-func (m *Model) directSendToTerminal(tab *Tab, data, label string) (*Model, bool, tea.Cmd) {
-	if tab.Agent == nil || tab.Agent.Terminal == nil {
-		return m, false, nil
-	}
-	m.tracePTYInput(tab, []byte(data))
-	if err := tab.Agent.Terminal.SendString(data); err != nil {
-		logging.Error("%s failed for tab %s: %v", label, tab.ID, err)
-		tab.mu.Lock()
-		tab.markDetachedLocked()
-		tab.mu.Unlock()
-		wsID := m.workspaceID()
-		return m, false, func() tea.Msg {
-			return TabInputFailed{TabID: tab.ID, WorkspaceID: wsID, Err: err}
-		}
-	}
-	return m, true, nil
-}
-
 // noteLocalInput records local typing/editing activity for activity suppression
 // and chat cursor tracking, and schedules a redraw for timer-driven cursor
 // state changes.
@@ -81,41 +61,16 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			if m.isTabActorReady() {
-				queued := m.sendTabEvent(tabEvent{
-					tab:         tab,
-					workspaceID: m.workspaceID(),
-					tabID:       tab.ID,
-					kind:        tabEventPaste,
-					pasteText:   msg.Content,
-				})
-				// When the actor accepts the event, it will stamp local-input
-				// timing after the PTY write actually happens. Doing it here at
-				// enqueue time would make queue latency look like local echo.
-				if !queued {
-					if _, sent, cmd := m.directSendToTerminal(tab, ansi.BracketedPasteStart+msg.Content+ansi.BracketedPasteEnd, "Direct paste"); cmd != nil {
-						return m, cmd
-					} else if !sent {
-						return m, nil
-					}
-					now := time.Now()
-					payload := ansi.BracketedPasteStart + msg.Content + ansi.BracketedPasteEnd
-					cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), payload, now))
-				}
-				logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
-				cmds = append(cmds, m.userInputActivityTagCmd(tab))
-				return m, common.SafeBatch(cmds...)
-			}
-			if _, sent, cmd := m.directSendToTerminal(tab, ansi.BracketedPasteStart+msg.Content+ansi.BracketedPasteEnd, "Direct paste"); cmd != nil {
-				return m, cmd
-			} else if !sent {
+			// Admission is synchronous and ordered; the writer stamps
+			// local-input timing after the PTY write actually happens so queue
+			// latency does not look like local echo.
+			payload := ansi.BracketedPasteStart + msg.Content + ansi.BracketedPasteEnd
+			res, gen := m.admitTabInput(tab, payload, "Paste", true)
+			if res == tabInputNoTerminal {
 				return m, nil
 			}
 			logging.Debug("Pasted %d bytes via bracketed paste", len(msg.Content))
-			now := time.Now()
-			payload := ansi.BracketedPasteStart + msg.Content + ansi.BracketedPasteEnd
-			cmds = append(cmds, m.noteLocalInput(tab, m.workspaceID(), payload, now))
-			cmds = append(cmds, m.userInputActivityTagCmd(tab))
+			cmds = append(cmds, m.rejectedTabInputCmd(tab, res, gen), m.userInputActivityTagCmd(tab))
 			return m, common.SafeBatch(cmds...)
 		}
 		return m, nil

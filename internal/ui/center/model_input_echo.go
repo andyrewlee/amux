@@ -230,6 +230,15 @@ func recordLocalInputEchoWindow(tab *Tab, data string, now time.Time) {
 		return
 	}
 	tab.mu.Lock()
+	recordLocalInputEchoWindowLocked(tab, data, now)
+	tab.mu.Unlock()
+}
+
+// recordLocalInputEchoWindowLocked is the tab.mu-held form: the input writer's
+// completion path calls it inside the same acquisition that fences the
+// delivery against the binding, so a retired writer cannot stamp echo state
+// onto a replacement terminal.
+func recordLocalInputEchoWindowLocked(tab *Tab, data string, now time.Time) {
 	tab.bootstrapActivity = false
 	tab.bootstrapLastOutputAt = time.Time{}
 	tab.pendingSubmitPasteEcho = submittedBracketedPasteEchoContent(data)
@@ -248,5 +257,4 @@ func recordLocalInputEchoWindow(tab *Tab, data string, now time.Time) {
 	} else {
 		tab.lastPromptSubmitAt = time.Time{}
 	}
-	tab.mu.Unlock()
 }
