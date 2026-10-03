@@ -24,6 +24,12 @@ type overlayState struct {
 	settingsPersistedTheme common.ThemeID
 	settingsThemeDirty     bool
 	settingsThemeOriginal  common.ThemeID
+	// App-lifetime save obligations for already confirmed settings values:
+	// a failed save keeps its section pending so the next confirmation
+	// retries it even when that dialog changed nothing. Update owns them —
+	// they are never reset on show, dialog replacement, or Esc.
+	settingsUIPersistPending         bool
+	settingsAssistantsPersistPending bool
 	// env edits one workspace's env map; envWorkspace is read back in
 	// handleEnvDialogResult. Its results carry EnvScopeWorkspace.
 	env          *common.EnvDialog

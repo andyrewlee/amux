@@ -66,6 +66,11 @@ do the same — read-modify-write of only the field it owns.
 back to defaults on malformed content, but amux's own saves refuse an
 unreadable or non-object document rather than rewriting a partial view (a
 missing or empty file is treated as an empty config and written normally).
+When a Settings save fails, the confirmed values remain live for the session
+and the failed section stays pending — the next Settings confirmation retries
+it without needing new edits (UI sections together, assistants separately,
+and Esc preserves a pending obligation while dropping fresh unconfirmed
+edits). There is no background retry; the next confirmation is the retry.
 The project-level registries (`project-env.json`, `project-scripts.json`,
 `trusted-scripts.json`) share the preserve-on-unreadable half: an existing
 file that cannot be read refuses the save/approval and keeps its bytes, a
