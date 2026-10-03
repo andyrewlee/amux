@@ -80,7 +80,9 @@ newer-schema registry fails closed (spawns and the `i` status view surface the
 error rather than guessing). The `i` status dialog's `cleanup` section also
 reports how many committed reservations are owned by workspace IDs that no
 longer exist — an orphan count whose `R` key opens a typed-confirm release
-that re-verifies the set before deleting it. Deleting the
+that re-verifies the set before deleting it. Live, shelved, and in-flight
+workspace records all count as owners, so a shelf retains its range until it
+is restored or fully deleted. Deleting the
 registry while sessions exist orphans their ranges — treat it as live state.
 
 The rest:

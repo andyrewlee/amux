@@ -406,7 +406,9 @@ state home. The contract an orchestrator can rely on:
   session's range to another workspace. There is no TTL and no
   liveness-based reuse. The `i` workspace-status dialog enumerates — from
   the same registry — how many committed reservations are owned by
-  workspace IDs absent from both the live model and every tagged session.
+  workspace IDs absent from the live model, retained shelves, in-flight
+  creates/mutations, and every tagged session. A shelved record is still an
+  owner: its range survives until the shelf is restored or fully deleted.
   From that dialog, `R` opens a typed-confirm release: on confirm the
   orphan probe is re-run fresh (the displayed set is never trusted —
   re-derivation is fail-closed, so staleness can only under-release), and

@@ -75,10 +75,10 @@ func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cm
 	a.overlays.runOutputToken++
 	token, svc := a.overlays.runOutputToken, a.workspaceService
 	snap := ws.Clone() // async closure convention — the live model may mutate
-	// Live-workspace snapshot for the reclaimable-reservation probe —
-	// captured on the loop because it walks a.projects (same convention as
-	// the orphan GC's known-IDs set).
-	knownIDs := a.collectKnownWorkspaceIDs()
+	// Live + shelved workspace snapshot for the reclaimable-reservation
+	// probe — captured on the loop because it walks a.projects (same
+	// convention as the orphan GC's known-IDs set).
+	knownIDs := a.collectPortReservationOwnerIDs()
 	opts := a.tmuxOptions
 	return func() tea.Msg {
 		alive, lastExit := svc.RunScriptStatus(&snap)
@@ -439,7 +439,7 @@ func dialogResultReleasePortReservations(a *App, result common.DialogResult, _ d
 		return nil
 	}
 	svc := a.workspaceService
-	knownIDs := a.collectKnownWorkspaceIDs()
+	knownIDs := a.collectPortReservationOwnerIDs()
 	opts := a.tmuxOptions
 	return func() tea.Msg {
 		ids := a.reclaimablePortReservationIDs(svc, knownIDs, opts)
