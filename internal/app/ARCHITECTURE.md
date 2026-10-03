@@ -57,6 +57,12 @@ This makes PTY delivery observable, debounced, and safe for UI state.
 
 - Workspace metadata (tabs, active index) is persisted per workspace ID.
 - Persistence is debounced and single-writer (Bubble Tea update loop only).
+- `Service.SaveWorkspaceTabs` owns the tab-persistence lifecycle guard: the
+  atomic mutation check wraps the whole ordered save (write lock + store
+  transaction + missing-record create) exactly once. Lock order is workspace
+  lifecycle guard → per-ID tab write lock → store transaction. No caller may
+  wrap `SaveWorkspaceTabs` in the lifecycle guard — re-acquiring the phase
+  read lock inside the guarded write deadlocks behind a queued writer.
 - Discovery merges on-disk worktrees into the metadata store; metadata is
   authoritative for UI state even when a workspace directory is missing.
 

@@ -426,6 +426,13 @@ func TestPersistDebounce_MidFlightSkip_RequeuedOnShelveFailure(t *testing.T) {
 			localSavesAt: make(map[string]localWorkspaceSaveMarker),
 		},
 	}
+	// The service owns the cmd-time guard: the mark below lands between
+	// snapshot collection and execution, and only the service's atomic
+	// guard can skip the write then.
+	svc.Configure(workspacesvc.Deps{
+		MutationInFlight:      app.isWorkspaceMutationInFlightWS,
+		MutationInFlightGuard: app.runUnlessWorkspaceMutationInFlightWS,
+	})
 
 	// Collect while clean: marker cleared, save cmd returned.
 	cmd := app.handlePersistDebounce(persistDebounceMsg{token: 1})

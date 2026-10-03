@@ -104,7 +104,9 @@ func (w *workspaceLifecycleState) isMutatingWorkspaceIDs(ws *data.Workspace) boo
 // runUnlessMutatingWorkspaceIDs is the set-wide counterpart of
 // runUnlessMutating: the check and fn run under the same phaseMu hold, so a
 // mutation marked mid-flight between the probe and the store write can't
-// slip past. Used by the service's rescan/import guards.
+// slip past. Used by the service's rescan/import/tab-persist guards — whose
+// callbacks must never re-acquire phaseMu (a queued writer between the two
+// read acquisitions would deadlock).
 func (w *workspaceLifecycleState) runUnlessMutatingWorkspaceIDs(ws *data.Workspace, fn func()) bool {
 	if ws == nil {
 		return false

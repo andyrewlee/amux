@@ -38,6 +38,12 @@ func newSequencedPersistApp(t *testing.T, tabName string) (*App, *data.Workspace
 			localSavesAt: make(map[string]localWorkspaceSaveMarker),
 		},
 	}
+	// The service owns the tab-persist lifecycle guard — wire the real app
+	// seam exactly as app_init does.
+	svc.Configure(workspacesvc.Deps{
+		MutationInFlight:      app.isWorkspaceMutationInFlightWS,
+		MutationInFlightGuard: app.runUnlessWorkspaceMutationInFlightWS,
+	})
 	return app, ws, store
 }
 
@@ -182,6 +188,10 @@ func TestPersistAllWorkspacesNow_WaitsBehindBlockedOlderWrite(t *testing.T) {
 			localSavesAt: make(map[string]localWorkspaceSaveMarker),
 		},
 	}
+	svc.Configure(workspacesvc.Deps{
+		MutationInFlight:      app.isWorkspaceMutationInFlightWS,
+		MutationInFlightGuard: app.runUnlessWorkspaceMutationInFlightWS,
+	})
 
 	// The older capture's command goes first and blocks inside Update,
 	// holding this workspace's write lock.

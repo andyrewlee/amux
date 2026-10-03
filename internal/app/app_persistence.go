@@ -55,20 +55,15 @@ func (a *App) captureTabSnapshot(ws *data.Workspace, wsID string) tabPersistSnap
 // persistOneTabSnapshot writes one captured snapshot through the service's
 // ordered narrow write and returns whether it committed. Runs wherever the
 // caller is — Update goroutine (shutdown flush) or a Cmd goroutine
-// (debounce) — the service owns the ordering/locking.
+// (debounce) — the service owns the ordering/locking AND the lifecycle
+// guard: wrapping the call here again would re-enter the phase RWMutex the
+// service already holds, which deadlocks behind a queued lifecycle writer.
+// A save the guard declines returns committed=false — nothing was written
+// and nothing failed; the mutation's own resolution path requeues.
 func (a *App) persistOneTabSnapshot(snap tabPersistSnapshot) (committed bool, err error) {
-	wrote := false
-	var saveErr error
-	ran := a.runUnlessWorkspaceMutationInFlight(snap.wsID, func() {
-		wrote, saveErr = a.workspaceService.SaveWorkspaceTabs(
-			snap.fallback, snap.seq, snap.tabs, snap.activeIdx,
-		)
-	})
-	if !ran {
-		// Mutation began between capture and execution — nothing was written
-		// and nothing failed; the mutation's own resolution path requeues.
-		return false, nil
-	}
+	wrote, saveErr := a.workspaceService.SaveWorkspaceTabs(
+		snap.fallback, snap.seq, snap.tabs, snap.activeIdx,
+	)
 	if saveErr != nil {
 		return false, saveErr
 	}
