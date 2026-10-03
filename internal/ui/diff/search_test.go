@@ -230,3 +230,50 @@ func TestSearchShortDiffNoPanic(t *testing.T) {
 		t.Fatalf("single-match n should wrap to 0, got %d", m.matchIdx)
 	}
 }
+
+// Matches are rune spans into the stripped line Content — a lowercase
+// mapping whose BYTE length differs from its source rune's must never index
+// the original at a folded offset. U+023A Ⱥ is two UTF-8 bytes and
+// lowercases to three-byte U+2C65 ⱥ (a folded match end can exceed the
+// line's byte length); U+212A K is three bytes and lowercases to one-byte k.
+func TestSearchUnicodeByteLengthChanges(t *testing.T) {
+	cases := []struct {
+		name      string
+		content   string
+		query     string
+		wantStart int
+		wantEnd   int
+	}{
+		{"expanding at line start", "+Ⱥa line", "ⱥ", 1, 2},
+		{"expanding after prefix", "+qȺa", "ⱥ", 2, 3},
+		{"expanding match at line end", "+xȺ", "xⱥ", 1, 3},
+		{"shrinking at line start", "+Ka", "k", 1, 2},
+		{"shrinking after prefix", "+aKb", "k", 2, 3},
+		{"expand then shrink in one match", "+aȺK", "ⱥk", 2, 4},
+		{"ansi-decorated expanding", "+\x1b[1mqȺa\x1b[0m", "ⱥ", 2, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newSizedModel()
+			m.focused = true
+			m.diff = &git.DiffResult{Lines: []git.DiffLine{
+				{Kind: git.DiffLineAdd, Content: tc.content},
+			}}
+			pressKey(m, '/')
+			for _, r := range tc.query {
+				pressKey(m, r)
+			}
+			pressEnter(m)
+			if len(m.matches) != 1 {
+				t.Fatalf("matches = %v, want exactly one", m.matches)
+			}
+			got := m.matches[0]
+			if got.lineIdx != 0 || got.startRune != tc.wantStart || got.endRune != tc.wantEnd {
+				t.Fatalf("match = %+v, want lineIdx=0 start=%d end=%d", got, tc.wantStart, tc.wantEnd)
+			}
+			if v := m.View(); v == "" {
+				t.Fatal("View() rendered nothing for an accepted match")
+			}
+		})
+	}
+}

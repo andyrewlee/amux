@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -291,8 +290,8 @@ func (d *OutputDialog) centerOnMatch() {
 // recomputeMatches scans the current sanitized snapshot for the query —
 // literal, case-insensitive substring over d.lines only (dropped history is
 // never searchable). Case folding is strings.ToLower per rune on both
-// sides; byte offsets are converted to rune spans on the original line so
-// the highlight slices render runes directly.
+// sides; NewLiteralSearch maps folded match offsets back to rune spans on
+// the original line so the highlight slices render runes directly.
 func (d *OutputDialog) recomputeMatches() {
 	prevLine := -1
 	if d.matchIdx >= 0 && d.matchIdx < len(d.matches) {
@@ -304,20 +303,10 @@ func (d *OutputDialog) recomputeMatches() {
 		d.wrapped = false
 		return
 	}
-	lq := strings.ToLower(d.query)
+	search := NewLiteralSearch(d.query)
 	for li, line := range d.lines {
-		ll := strings.ToLower(line)
-		for off := 0; off+len(lq) <= len(ll); {
-			i := strings.Index(ll[off:], lq)
-			if i < 0 {
-				break
-			}
-			byteStart := off + i
-			byteEnd := byteStart + len(lq)
-			startRune := utf8.RuneCountInString(line[:byteStart])
-			endRune := startRune + utf8.RuneCountInString(line[byteStart:byteEnd])
-			d.matches = append(d.matches, outputDialogMatch{line: li, startRune: startRune, endRune: endRune})
-			off = byteEnd // non-overlapping matches only
+		for _, span := range search.RuneSpans(line) {
+			d.matches = append(d.matches, outputDialogMatch{line: li, startRune: span.Start, endRune: span.End})
 		}
 	}
 	d.repairMatchSelection(prevLine)
@@ -447,11 +436,32 @@ func (d *OutputDialog) renderFooter(w, capLines int, muted lipgloss.Style) strin
 	case d.editing:
 		hint := "  esc done · enter accept"
 		echo := "/" + d.query + "█"
-		// Truncate the echo (leading …, tail kept — the newest chars matter)
-		// to the footer width when the layout is narrow.
-		if maxEcho := w - lipgloss.Width(hint) - 2; lipgloss.Width(echo) > maxEcho && maxEcho > 2 {
-			rs := []rune(echo)
-			echo = "…" + string(rs[len(rs)-(maxEcho-1):])
+		// The echo is truncated by display CELLS (leading …, tail kept —
+		// the newest chars matter): a rune-count slice against a cell
+		// budget can start at a negative index on wide queries.
+		if hintW := lipgloss.Width(hint); hintW > w {
+			// The full hint cannot fit either: reserve one cell for the
+			// cursor when there is any room, and shorten the hint into
+			// what remains.
+			switch {
+			case w >= 2:
+				echo = "█"
+				hint = TruncateRightCells(hint, w-1, "…", 0)
+			case w == 1:
+				echo = "█"
+				hint = ""
+			default:
+				echo, hint = "", ""
+			}
+		} else {
+			switch budget := w - hintW - 2; {
+			case budget >= 2:
+				echo = TruncateLeftCells(echo, budget, "…", 0)
+			case budget == 1:
+				echo = "█"
+			default:
+				echo = ""
+			}
 		}
 		return accent.Render(echo) + muted.Render(hint)
 	case d.query != "":
