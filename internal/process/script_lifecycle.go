@@ -308,16 +308,23 @@ func (r *ScriptRunner) RunOnDone(ws *data.Workspace, sessionName string) error {
 		return ErrWorkspaceTeardown
 	}
 	safego.Go("process.on_done_wait", func() {
-		defer close(proc.done)
-		err := cmd.Wait()
-		r.recordScriptOutput(ws, ScriptOnDone, tail.String(), err)
-		if err != nil {
-			logging.Debug("on-done hook exited non-zero: %s: %v", cmdStr, err)
-			r.notifyScriptExit(ws, ScriptOnDone, err)
-		}
-		r.lifecycle.finishOnDone(key, proc)
+		r.waitOnDone(ws, key, proc, cmdStr, tail)
 	})
 	return nil
+}
+
+// waitOnDone is the sole waiter for an admitted on-done hook: it reaps the
+// process, records the bounded transcript, and notifies the exit listener on
+// a non-zero exit. Completion — unregistering the process and closing its
+// drain channel — is the lifecycle coordinator's alone via finishOnDone.
+func (r *ScriptRunner) waitOnDone(ws *data.Workspace, key string, proc *lifecycleProc, cmdStr string, tail *tailWriter) {
+	defer r.lifecycle.finishOnDone(key, proc)
+	err := proc.cmd.Wait()
+	r.recordScriptOutput(ws, ScriptOnDone, tail.String(), err)
+	if err != nil {
+		logging.Debug("on-done hook exited non-zero: %s: %v", cmdStr, err)
+		r.notifyScriptExit(ws, ScriptOnDone, err)
+	}
 }
 
 // reapAfterTimeout kills the timed-out script's process group and waits a
