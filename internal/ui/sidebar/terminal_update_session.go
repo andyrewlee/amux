@@ -140,6 +140,11 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	if obsolete == msg.Terminal {
 		obsolete = nil
 	}
+	// The old writer stream ends here: its queued requests belong to the
+	// dead stream and must never apply to the restored VTerm — even when the
+	// VTerm pointer is reused. Stopping under this hold also bumps the
+	// stream epoch so the old writer's late completions fence out.
+	retiredWriter := ts.stopSidebarWriterLocked()
 	if ts.VTerm == nil {
 		ts.VTerm = vterm.New(termWidth, termHeight)
 	}
@@ -169,11 +174,13 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	ts.finishReattachLocked()
 	ts.SessionName = msg.SessionName
 	ts.PendingOutput = nil
+	ts.pendingBufferedBytes = 0
 	ts.NoiseTrailing = nil
 	ts.OverflowTrimCarry = vterm.ParserCarryState{}
 	ts.lastWidth = termWidth
 	ts.lastHeight = termHeight
 	ts.mu.Unlock()
+	joinSidebarWriter(retiredWriter)
 	if obsolete != nil {
 		// Stop the reader before closing the superseded client: the reader
 		// resolves ts.Terminal live, so the new reader started below must be

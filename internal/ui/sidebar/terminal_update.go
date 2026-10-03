@@ -44,6 +44,23 @@ func (m *TerminalModel) Init() tea.Cmd {
 	return nil
 }
 
+// sidebarClipboardCopy is the off-loop OS-clipboard seam — the actual exec
+// stays outside every lock. Tests stub it so a completion never touches the
+// real user clipboard.
+var sidebarClipboardCopy = common.CopyToClipboardWithLog
+
+// drainSidebarClipboard copies a captured OSC52 payload to the OS clipboard
+// off the update path — the same drain the flush fallback and the
+// stream-lifecycle completions use. The OSC52 opt-in check happens inside
+// OSC52ClipboardText.
+func (m *TerminalModel) drainSidebarClipboard(clip []byte) {
+	if text, ok := common.OSC52ClipboardText(clip); ok {
+		safego.Go("sidebar.osc52_clipboard", func() {
+			sidebarClipboardCopy(text, "agent OSC52 (sidebar)")
+		})
+	}
+}
+
 func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -87,12 +104,21 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 
 	case SidebarTabWritten:
 		// The writer goroutine captured an OSC52 clipboard payload — drain it
-		// off-loop exactly once per write, same as the pre-actor path.
-		if clip, ok := common.OSC52ClipboardText(msg.clip); ok {
-			safego.Go("sidebar.osc52_clipboard", func() {
-				common.CopyToClipboardWithLog(clip, "agent OSC52 (sidebar)")
-			})
+		// off-loop exactly once per write, same as the pre-actor path, but
+		// only while the completion's stream is still current: a completion
+		// stamped under a replaced epoch must have no clipboard side effects.
+		tab, _ := m.resolveTabForResult(msg.WorkspaceID, TerminalTabID(msg.TabID), "sidebar write result")
+		if tab == nil || tab.State == nil {
+			break
 		}
+		ts := tab.State
+		ts.mu.Lock()
+		current := msg.epoch != 0 && ts.writeEpoch == msg.epoch
+		ts.mu.Unlock()
+		if !current {
+			break
+		}
+		m.drainSidebarClipboard(msg.clip)
 
 	case SidebarTerminalCreated:
 		if cmd := m.handleTerminalCreated(msg); cmd != nil {

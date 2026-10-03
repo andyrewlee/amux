@@ -66,26 +66,73 @@ func TestSidebarWriteActorOrdersChunks(t *testing.T) {
 	}
 }
 
-// TestSidebarWriteActorStopsOnDetach proves teardown closes the queue and a
-// post-detach enqueue creates a fresh queue rather than panicking on the
-// closed one (a pending flush tick can legitimately arrive after detach).
+// TestSidebarWriteActorStopsOnDetach proves teardown retires the stream and
+// joins its worker: the old stream's done closes, its epoch is fenced, and a
+// post-detach enqueue installs a fresh stream rather than reviving the old
+// one (a pending flush tick can legitimately arrive after detach — that is
+// current-stream work, not a stale old-worker request).
 func TestSidebarWriteActorStopsOnDetach(t *testing.T) {
 	m := NewTerminalModel()
-	m.SetMsgSink(func(tea.Msg) {})
+	results := make(chan SidebarTabWritten, 8)
+	m.SetMsgSink(collectWritten(results))
 	ts := &TerminalState{VTerm: vterm.New(40, 10), Running: true}
 	ts.PendingOutput = append(ts.PendingOutput, 'x')
 	ts.LastOutputAt = time.Now().Add(-time.Second)
 	m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 
-	if !m.enqueueSidebarWrite(ts, sidebarWriteReq{chunk: []byte("z")}) {
+	if !m.enqueueSidebarWrite(ts, sidebarWriteReq{chunk: []byte("z"), workspaceID: "ws", tabID: "t"}) {
 		t.Fatal("enqueue fell back")
 	}
-	m.detachState(ts, false)
 	ts.mu.Lock()
-	q := ts.writeQ
+	retired := ts.writer
+	epochBefore := ts.writeEpoch
 	ts.mu.Unlock()
-	if q != nil {
-		t.Fatal("writeQ still set after detach")
+
+	m.detachState(ts, false)
+
+	// The retired stream's worker was joined by detach: done is closed and
+	// the tab no longer points at it.
+	select {
+	case <-retired.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("detach did not join the retired writer")
 	}
-	m.enqueueSidebarWrite(ts, sidebarWriteReq{chunk: []byte("late")})
+	ts.mu.Lock()
+	if ts.writer != nil {
+		t.Fatal("writer stream still installed after detach")
+	}
+	if ts.writeEpoch <= epochBefore {
+		t.Fatal("detach did not fence the old stream's epoch")
+	}
+	ts.mu.Unlock()
+
+	// A late flush for preserved detached history installs a NEW stream —
+	// its completion carries the new epoch, not the retired one.
+	if !m.enqueueSidebarWrite(ts, sidebarWriteReq{chunk: []byte("late"), workspaceID: "ws", tabID: "t"}) {
+		t.Fatal("post-detach enqueue fell back")
+	}
+	ts.mu.Lock()
+	fresh := ts.writer
+	ts.mu.Unlock()
+	if fresh == retired {
+		t.Fatal("post-detach enqueue revived the retired stream")
+	}
+	// The seed's completion may still be in flight from the retired stream
+	// (stamped with the old epoch) — skip stale results until the fresh
+	// stream's own completion arrives.
+	sawFresh := false
+	for deadline := time.Now().Add(3 * time.Second); !sawFresh && time.Now().Before(deadline); {
+		select {
+		case res := <-results:
+			sawFresh = res.epoch == fresh.epoch
+		case <-time.After(3 * time.Second):
+		}
+	}
+	if !sawFresh {
+		t.Fatal("timed out waiting for the fresh stream's completion")
+	}
+	ts.mu.Lock()
+	ts.stopSidebarWriterLocked()
+	ts.mu.Unlock()
+	joinSidebarWriter(fresh)
 }
