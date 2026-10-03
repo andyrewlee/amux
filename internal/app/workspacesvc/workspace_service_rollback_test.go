@@ -47,7 +47,7 @@ func TestRollbackWorkspaceCreationCleansRecoverableUnregisteredWorkspace(t *test
 	project := &data.Project{Name: "repo-link", Path: projectPath}
 	svc := New(nil, nil, nil, workspacesRoot)
 	svc.gitOps = mock
-	svc.rollbackWorkspaceCreation(project, projectPath, workspacePath, "feature")
+	svc.rollbackWorkspaceCreation(project, projectPath, workspacePath, "feature", true)
 
 	if _, err := os.Stat(workspacePath); !os.IsNotExist(err) {
 		t.Fatalf("expected stale workspace path to be removed, err=%v", err)
@@ -92,12 +92,12 @@ func TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation(t *testin
 	}
 
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, _, _, _ string) error {
+		CreateWorkspaceFunc: func(_, _, _, _ string) (bool, error) {
 			enter("create")
 			defer leave()
 			close(createEntered)
 			<-createBlocking // hold the repo lock until released
-			return nil
+			return true, nil
 		},
 		RemoveWorkspaceFunc: func(_, _ string) error {
 			close(removeEntered) // signal entry so the test synchronizes on the fake, not a sleep
@@ -120,7 +120,7 @@ func TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation(t *testin
 	go func() {
 		defer close(createDone)
 		// Holds lockRepoGit(repoPath) for the whole call (blocks until released).
-		_ = svc.createWorkspaceLocked(repoPath, workspacePath, "feature", "main")
+		_, _ = svc.createWorkspaceLocked(repoPath, workspacePath, "feature", "main")
 	}()
 
 	// Wait until the create is confirmed holding the lock.
@@ -129,7 +129,7 @@ func TestRollbackWorkspaceCreationSerializesAgainstSameRepoGitMutation(t *testin
 	rollbackDone := make(chan struct{})
 	go func() {
 		defer close(rollbackDone)
-		svc.rollbackWorkspaceCreation(project, repoPath, workspacePath, "feature")
+		svc.rollbackWorkspaceCreation(project, repoPath, workspacePath, "feature", true)
 	}()
 
 	// The rollback must block on lockRepoGit(repoPath), which the create provably

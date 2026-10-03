@@ -26,9 +26,11 @@ func TestCreateWorkspace_SaveFailureRollsBackAndFails(t *testing.T) {
 
 	var removedPath, deletedBranch string
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
 			// Simulate a successful worktree add so the create path reaches Save.
-			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+			// branchCreated=true: the simulated -b add owns the branch, so
+			// rollback must delete it.
+			return true, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 		RemoveWorkspaceFunc: func(repoPath, workspacePath string) error {
 			removedPath = workspacePath

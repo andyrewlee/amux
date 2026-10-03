@@ -12,7 +12,9 @@ import (
 
 // GitOperations abstracts git workspace operations for testability.
 type GitOperations interface {
-	CreateWorkspace(repoPath, workspacePath, branch, base string) error
+	// CreateWorkspace reports branchCreated so a rollback deletes only a
+	// branch this call made — attaching a pre-existing branch yields false.
+	CreateWorkspace(repoPath, workspacePath, branch, base string) (branchCreated bool, err error)
 	RemoveWorkspace(repoPath, workspacePath string) error
 	DeleteBranch(repoPath, branch string) error
 	DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error)
@@ -20,8 +22,8 @@ type GitOperations interface {
 
 type defaultGitOps struct{}
 
-func (defaultGitOps) CreateWorkspace(repoPath, workspacePath, branch, base string) error {
-	return git.CreateWorkspace(repoPath, workspacePath, branch, base)
+func (defaultGitOps) CreateWorkspace(repoPath, workspacePath, branch, base string) (bool, error) {
+	return git.CreateWorkspaceWithResult(repoPath, workspacePath, branch, base)
 }
 
 func (defaultGitOps) RemoveWorkspace(repoPath, workspacePath string) error {

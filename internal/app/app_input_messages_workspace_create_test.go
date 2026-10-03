@@ -48,8 +48,8 @@ func TestHandleCreateWorkspaceTracksAndClearsPendingIDOnFailure(t *testing.T) {
 	svc.Configure(workspacesvc.Deps{
 		GitPathWaitTimeout: 50 * time.Millisecond,
 		GitOps: &testutil.FakeGitOps{
-			CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
-				return gitErr
+			CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
+				return false, gitErr
 			},
 		},
 	})

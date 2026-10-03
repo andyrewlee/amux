@@ -26,21 +26,33 @@ var (
 
 const prunedWorkspaceCleanupMarkerSuffix = ".amux-pruned-worktree"
 
-// CreateWorkspace creates a new workspace backed by a git worktree
+// CreateWorkspace creates a new workspace backed by a git worktree.
+// Callers that need branch-ownership provenance (rollback paths) should use
+// CreateWorkspaceWithResult instead.
 func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
+	_, err := CreateWorkspaceWithResult(repoPath, workspacePath, branch, base)
+	return err
+}
+
+// CreateWorkspaceWithResult is CreateWorkspace plus branch-creation
+// provenance: branchCreated is true only when THIS call created the branch
+// (the `worktree add -b` path). Attaching to a pre-existing branch reports
+// false — the caller owns the worktree cleanup but not that ref, so a
+// rollback must not delete it. Errors always report false.
+func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (branchCreated bool, err error) {
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
-		return err
+		return false, err
 	}
 
 	// Create branch from base and checkout into workspace path
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
-	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, "--", workspacePath, base)
+	_, err = runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, "--", workspacePath, base)
 	cancel()
 	if err == nil {
-		return nil
+		return true, nil
 	}
 	if !isBranchAlreadyExistsError(err, branch) {
-		return err
+		return false, err
 	}
 
 	// If the branch already exists, reuse it instead of failing hard.
@@ -51,13 +63,13 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 	retryCancel()
 	if retryErr != nil {
 		firstErrMsg := err.Error()
-		return fmt.Errorf(
+		return false, fmt.Errorf(
 			"worktree add with new branch failed: %s; fallback add existing branch failed: %w",
 			firstErrMsg,
 			retryErr,
 		)
 	}
-	return nil
+	return false, nil
 }
 
 func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {

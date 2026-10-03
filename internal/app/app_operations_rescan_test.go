@@ -150,8 +150,9 @@ func TestCreateWorkspaceMissingGitDoesNotPersist(t *testing.T) {
 	var deleteCalled bool
 	workspaceService.Configure(workspacesvc.Deps{
 		GitOps: &testutil.FakeGitOps{
-			CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
-				return os.MkdirAll(workspacePath, 0o755)
+			CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
+				// Simulated -b create owns the branch; rollback deletes it.
+				return true, os.MkdirAll(workspacePath, 0o755)
 			},
 			RemoveWorkspaceFunc: func(repoPath, workspacePath string) error {
 				removeCalled = true

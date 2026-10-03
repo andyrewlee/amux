@@ -53,8 +53,8 @@ func TestCreateWorkspaceGitFailureIncludesPendingWorkspace(t *testing.T) {
 	project := data.NewProject("/tmp/repo")
 	svc := New(nil, nil, nil, "/tmp/workspaces")
 	svc.gitOps = &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
-			return gitErr
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
+			return false, gitErr
 		},
 	}
 	cmd := svc.CreateWorkspace(project, "feature", "main")
@@ -84,12 +84,12 @@ func TestCreateWorkspacePanicReleasesRepoGitLock(t *testing.T) {
 	createCalls := 0
 	secondErr := errors.New("second create reached")
 	svc.gitOps = &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
 			createCalls++
 			if createCalls == 1 {
 				panic("git worktree add panicked")
 			}
-			return secondErr
+			return false, secondErr
 		},
 	}
 
@@ -122,8 +122,8 @@ func TestCreateWorkspacePanicReleasesRepoGitLock(t *testing.T) {
 func TestCreateWorkspaceEmptyBaseDefaultsToDefaultBranch(t *testing.T) {
 	svc := New(nil, nil, nil, "/tmp/workspaces")
 	svc.gitOps = &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
-			return errors.New("stop")
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
+			return false, errors.New("stop")
 		},
 	}
 
@@ -197,9 +197,9 @@ func TestCreateWorkspaceEmptyBaseResolvesToMainBranch(t *testing.T) {
 	var capturedBase string
 	svc := New(nil, nil, nil, "/tmp/workspaces")
 	svc.gitOps = &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
 			capturedBase = base
-			return errors.New("stop")
+			return false, errors.New("stop")
 		},
 	}
 
@@ -220,8 +220,8 @@ func TestCreateWorkspacePendingMatchesAppSidePath(t *testing.T) {
 	svc := New(nil, nil, nil, workspacesRoot)
 	svc.gitPathWaitTimeout = 50 * time.Millisecond
 	svc.gitOps = &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
-			return gitErr
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
+			return false, gitErr
 		},
 	}
 

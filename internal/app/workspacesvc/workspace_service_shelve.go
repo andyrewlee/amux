@@ -234,7 +234,10 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 
 		created := false
 		if !adopted {
-			if err := s.createWorkspaceLocked(projectPath, ws.Root, branch, base); err != nil {
+			// The branchCreated flag is deliberately unused here: restore's
+			// rollback removes only the worktree it created and never deletes
+			// branches, so ownership provenance does not apply.
+			if _, err := s.createWorkspaceLocked(projectPath, ws.Root, branch, base); err != nil {
 				return fail("worktree_add", err)
 			}
 			created = true

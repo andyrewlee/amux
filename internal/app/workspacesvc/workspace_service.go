@@ -152,7 +152,8 @@ func (s *Service) CreateWorkspace(project *data.Project, name, base string, assi
 			}
 		}
 
-		if err := s.createWorkspaceLocked(project.Path, workspacePath, branch, base); err != nil {
+		branchCreated, err := s.createWorkspaceLocked(project.Path, workspacePath, branch, base)
+		if err != nil {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -162,7 +163,7 @@ func (s *Service) CreateWorkspace(project *data.Project, name, base string, assi
 		// Wait for .git file to exist (race condition from workspace creation)
 		gitPath := filepath.Join(workspacePath, ".git")
 		if err := waitForGitPath(gitPath, s.gitPathWaitTimeout); err != nil {
-			s.rollbackWorkspaceCreation(project, project.Path, workspacePath, branch)
+			s.rollbackWorkspaceCreation(project, project.Path, workspacePath, branch, branchCreated)
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       err,
@@ -172,7 +173,7 @@ func (s *Service) CreateWorkspace(project *data.Project, name, base string, assi
 		// Save unified workspace
 		if s.store != nil {
 			if err := s.store.Save(ws); err != nil {
-				s.rollbackWorkspaceCreation(project, project.Path, workspacePath, branch)
+				s.rollbackWorkspaceCreation(project, project.Path, workspacePath, branch, branchCreated)
 				return messages.WorkspaceCreateFailed{
 					Workspace: ws,
 					Err:       err,
@@ -185,7 +186,10 @@ func (s *Service) CreateWorkspace(project *data.Project, name, base string, assi
 	}
 }
 
-func (s *Service) createWorkspaceLocked(repoPath, workspacePath, branch, base string) error {
+// createWorkspaceLocked runs the git create under the per-repo lock and
+// reports whether that call created the branch (vs attaching to a
+// pre-existing one) — the ownership provenance rollback needs.
+func (s *Service) createWorkspaceLocked(repoPath, workspacePath, branch, base string) (bool, error) {
 	unlock := s.lockRepoGit(repoPath)
 	defer unlock()
 

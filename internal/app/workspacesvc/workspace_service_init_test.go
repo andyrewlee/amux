@@ -31,8 +31,12 @@ func TestDefaultGitOpsCreateWorkspace(t *testing.T) {
 		repo := initTestRepo(t, "main")
 		ws := filepath.Join(t.TempDir(), "feature")
 
-		if err := (defaultGitOps{}).CreateWorkspace(repo, ws, "feature", "main"); err != nil {
+		created, err := (defaultGitOps{}).CreateWorkspace(repo, ws, "feature", "main")
+		if err != nil {
 			t.Fatalf("CreateWorkspace: %v", err)
+		}
+		if !created {
+			t.Fatal("a worktree add -b success must report branchCreated=true")
 		}
 
 		// The worktree directory must exist and carry the committed file.
@@ -56,8 +60,12 @@ func TestDefaultGitOpsCreateWorkspace(t *testing.T) {
 		runGit(t, repo, "branch", "existing", "main")
 		ws := filepath.Join(t.TempDir(), "reuse")
 
-		if err := (defaultGitOps{}).CreateWorkspace(repo, ws, "existing", "main"); err != nil {
+		created, err := (defaultGitOps{}).CreateWorkspace(repo, ws, "existing", "main")
+		if err != nil {
 			t.Fatalf("CreateWorkspace with existing branch should reuse it, got %v", err)
+		}
+		if created {
+			t.Fatal("attaching a pre-existing branch must report branchCreated=false")
 		}
 		if _, err := os.Stat(filepath.Join(ws, "README.md")); err != nil {
 			t.Fatalf("expected reused-branch worktree to be checked out: %v", err)
@@ -68,7 +76,7 @@ func TestDefaultGitOpsCreateWorkspace(t *testing.T) {
 		repo := initTestRepo(t, "main")
 		ws := filepath.Join(t.TempDir(), "bad-base")
 
-		if err := (defaultGitOps{}).CreateWorkspace(repo, ws, "topic", "no-such-base"); err == nil {
+		if _, err := (defaultGitOps{}).CreateWorkspace(repo, ws, "topic", "no-such-base"); err == nil {
 			t.Fatal("CreateWorkspace from a nonexistent base should error")
 		}
 		if _, err := os.Stat(ws); !os.IsNotExist(err) {
@@ -80,7 +88,7 @@ func TestDefaultGitOpsCreateWorkspace(t *testing.T) {
 		notRepo := t.TempDir()
 		ws := filepath.Join(t.TempDir(), "orphan")
 
-		if err := (defaultGitOps{}).CreateWorkspace(notRepo, ws, "topic", "main"); err == nil {
+		if _, err := (defaultGitOps{}).CreateWorkspace(notRepo, ws, "topic", "main"); err == nil {
 			t.Fatal("CreateWorkspace against a non-git directory should error")
 		}
 	})

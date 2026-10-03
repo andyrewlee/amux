@@ -21,17 +21,20 @@ import (
 
 // FakeGitOps satisfies workspacesvc.GitOperations.
 type FakeGitOps struct {
-	CreateWorkspaceFunc    func(repoPath, workspacePath, branch, base string) error
+	// CreateWorkspaceFunc must return whether the simulated command created
+	// the branch (the `worktree add -b` path) — rollback deletes only owned
+	// branches, so hooks that expect deletion must return true.
+	CreateWorkspaceFunc    func(repoPath, workspacePath, branch, base string) (branchCreated bool, err error)
 	RemoveWorkspaceFunc    func(repoPath, workspacePath string) error
 	DeleteBranchFunc       func(repoPath, branch string) error
 	DiscoverWorkspacesFunc func(project *data.Project) ([]data.Workspace, error)
 }
 
-func (f *FakeGitOps) CreateWorkspace(repoPath, workspacePath, branch, base string) error {
+func (f *FakeGitOps) CreateWorkspace(repoPath, workspacePath, branch, base string) (bool, error) {
 	if f.CreateWorkspaceFunc != nil {
 		return f.CreateWorkspaceFunc(repoPath, workspacePath, branch, base)
 	}
-	return nil
+	return false, nil
 }
 
 func (f *FakeGitOps) RemoveWorkspace(repoPath, workspacePath string) error {

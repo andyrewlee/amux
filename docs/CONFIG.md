@@ -49,7 +49,10 @@ the typed path rather than the highlighted row.
 Git invocations enforce their deadlines against the whole process group on
 Unix (leader-only on Windows) plus a short bounded output drain: a canceled
 git child cannot keep a worktree lock or an inherited output pipe open
-indefinitely.
+indefinitely. When the requested workspace branch already exists, creation
+attaches to it rather than failing; a rolled-back create removes the
+worktree but deletes the branch only when that create made it — a
+pre-existing branch is never destroyed by rollback.
 
 ## Environment variables
 
