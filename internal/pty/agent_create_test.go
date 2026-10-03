@@ -79,16 +79,15 @@ func TestAgentManager_CreateAgentWithTags_RegistersAgent(t *testing.T) {
 		}
 	}
 
-	// Reset sequence: the post-exit escape sequence that exits alt-screen,
-	// shows the cursor, resets attrs, and issues RIS (stty sane; printf
-	// '\033[?1049l\033[?25h\033[0m\033c') must be embedded in the spawned
-	// command. This is the regression guard: if a future change drops the
-	// `?1049l` or otherwise mangles this sequence, the pane is left stuck in
-	// alt-screen / hidden-cursor after every agent session.
-	cmdStr := strings.Join(agent.Terminal.cmd.Args, " ")
-	const resetSeq = "\\033[?1049l\\033[?25h\\033[0m\\033c"
-	if !strings.Contains(cmdStr, resetSeq) {
-		t.Errorf("spawned command missing terminal-reset sequence %q", resetSeq)
+	// The full compound command — agent command, then the terminal-reset
+	// printf and the drop-to-shell echo — travels inside the private launch
+	// payload rather than argv. The reset escape bytes themselves are
+	// consumed by tmux's pane parser (alt-screen/RIS are state changes, not
+	// forwarded output), so the observable regression marker is the
+	// drop-to-shell text proving the payload command ran end to end.
+	output := readTerminalThroughMarker(t, agent.Terminal, "Agent exited. Dropping to shell", 5*time.Second)
+	if !strings.Contains(output, "claude") {
+		t.Error("pane output missing the agent command's printed name")
 	}
 
 	// Registration under ws.ID().

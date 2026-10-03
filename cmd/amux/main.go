@@ -18,6 +18,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/panelaunch"
 	"github.com/andyrewlee/amux/internal/pprofhttp"
 	"github.com/andyrewlee/amux/internal/safego"
 )
@@ -31,6 +32,14 @@ var (
 
 func main() {
 	args := os.Args[1:]
+
+	// Private pane-launch bootstrap: the same executable consumes or discards
+	// launch payloads inside managed panes. It must run before every public
+	// gate — a pane has no TTY on stdin, and a helper invocation must never
+	// initialize the TUI, logging, or config.
+	if handled, code := panelaunch.HandleInvocation(args); handled {
+		os.Exit(code)
+	}
 
 	if isVersionInvocation(args) {
 		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
@@ -91,6 +100,16 @@ func runTUI() {
 	// panic-safe background goroutine instead of before app.New/p.Run. Cleanup
 	// still happens, just not before first paint.
 	safego.Go("tmux_socket_janitor", cleanupStaleTestTmuxSockets)
+
+	// Reclaim expired pane-launch payloads left behind by killed/interrupted
+	// parents. The five-minute budget bounds consumability, not deletion:
+	// attempts orphaned after this amux's last shutdown linger until some
+	// later startup sweeps them.
+	safego.Go("pane_launch_sweep", func() {
+		panelaunch.SweepExpired(os.TempDir(), time.Now(), func(format string, args ...any) {
+			logging.Warn(format, args...)
+		})
+	})
 
 	logging.Info("Starting amux")
 

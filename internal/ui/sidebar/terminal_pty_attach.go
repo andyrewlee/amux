@@ -96,7 +96,7 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			bootstrap = ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
 		}
 		tags := ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, true)
-		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+		prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
 			Command:        loginShellCommand,
 			Environment:    env,
@@ -104,9 +104,15 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			Tags:           tags,
 			DetachExisting: true,
 		})
-		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
-		term, err := newPTYWithSizeFn(command, root, env, ptyRows, ptyCols)
 		if err != nil {
+			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
+		}
+		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
+		term, err := newPTYWithSizeFn(prepared.Command, root, env, ptyRows, ptyCols)
+		if err != nil {
+			// Start failed before any pane process could exist: the payload
+			// is provably unconsumed, then restore the pre-attach capture.
+			prepared.AbortBeforeStart()
 			if reuseExistingSession {
 				ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
 			}
@@ -317,7 +323,7 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		if path := pty.AugmentedPath(); path != "" {
 			env = append(env, "PATH="+path)
 		}
-		command := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
+		prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
 			WorkDir:        root,
 			Command:        loginShellCommand,
 			Environment:    env,
@@ -325,9 +331,15 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			Tags:           tags,
 			DetachExisting: detachExisting,
 		})
-		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
-		term, err := newPTYWithSizeFn(command, root, env, ptyRows, ptyCols)
 		if err != nil {
+			return attachFailure(wsID, tabID, epoch, action, err, false)
+		}
+		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
+		term, err := newPTYWithSizeFn(prepared.Command, root, env, ptyRows, ptyCols)
+		if err != nil {
+			// Start failed before any pane process could exist: the payload
+			// is provably unconsumed, then restore the pre-attach capture.
+			prepared.AbortBeforeStart()
 			if action == "reattach" {
 				ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
 			}

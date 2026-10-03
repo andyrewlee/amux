@@ -19,33 +19,37 @@ type ClientCommandParams struct {
 	DetachExisting bool // Detach other clients attached to this session.
 }
 
-// NewClientCommand builds the shell command string that creates (or reattaches to)
-// a tmux session with the given name and parameters.
-func NewClientCommand(sessionName string, p ClientCommandParams) string {
+// NewClientCommand builds the shell command that creates (or reattaches to) a
+// tmux session with the given name and parameters, returning it as an owned
+// PreparedCommand. The pane's environment travels through a private launch
+// payload rather than command arguments; the caller must consult
+// PreparedCommand's ownership rules before discarding anything.
+func NewClientCommand(sessionName string, p ClientCommandParams) (*PreparedCommand, error) {
 	if p.Options == (Options{}) {
 		p.Options = DefaultOptions()
 	}
-	return clientCommand(sessionName, p.WorkDir, p.Command, p.Environment, p.Options, p.Tags, p.DetachExisting)
-}
-
-func clientCommand(sessionName, workDir, command string, environment []string, opts Options, tags SessionTags, detachExisting bool) string {
+	opts := p.Options
 	// The tmux client process runs outside workDir so the shared server cannot
 	// inherit a deletable workspace cwd. Preserve the old behavior for relative
 	// config paths by resolving them against the workspace before constructing
 	// the command.
 	if opts.ConfigPath != "" && !filepath.IsAbs(opts.ConfigPath) {
-		opts.ConfigPath = filepath.Join(workDir, opts.ConfigPath)
+		opts.ConfigPath = filepath.Join(p.WorkDir, opts.ConfigPath)
 	}
 	base := tmuxBase(opts)
 	optionTgt := shellutil.ShellQuote(exactSessionOptionTarget(sessionName))
 	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
-	dir := shellutil.ShellQuote(workDir)
-	paneCommand := paneLaunchCommand(command, dir, environment)
+	dir := shellutil.ShellQuote(p.WorkDir)
+
+	launch, err := prepareLaunch(p.WorkDir, p.Command, p.Environment)
+	if err != nil {
+		return nil, err
+	}
 
 	// Ensure the session/server exists without attaching yet. tmux computes
 	// client features at attach time, so the server option below must be set
 	// while the server is alive but before the final attach command.
-	ensureSession := ensureSessionScript(base, sessionName, dir, paneCommand, false)
+	ensureSession := ensureSessionScript(base, sessionName, dir, launch, false)
 
 	// Advertise DEC 2026 synchronized-output support before attaching. The
 	// indexed slot keeps repeated session creates idempotent on amux's
@@ -53,11 +57,11 @@ func clientCommand(sessionName, workDir, command string, environment []string, o
 	// Swallowed on tmux < 3.2 (no terminal-features).
 	syncFeatureSet := "(" + base + " set-option -s 'terminal-features[16]' 'xterm*:sync' 2>/dev/null || true)"
 
-	settings := sessionSettingArgs(optionTgt, opts, tags)
+	settings := sessionSettingArgs(optionTgt, opts, p.Tags)
 
 	// Attach to the session, optionally detaching other clients.
 	attachFlag := "-t"
-	if detachExisting {
+	if p.DetachExisting {
 		attachFlag = "-dt"
 	}
 	attach := fmt.Sprintf("%s attach %s %s", base, attachFlag, sessionTgt)
@@ -67,7 +71,10 @@ func clientCommand(sessionName, workDir, command string, environment []string, o
 	// parsing makes a failed ensureSession fall through into the per-option
 	// fallback, spending a tmux round-trip per option against a session that does
 	// not exist.
-	return fmt.Sprintf("%s && %s && { %s}; %s", ensureSession, syncFeatureSet, settingsScript(base, settings), attach)
+	return &PreparedCommand{
+		Command: fmt.Sprintf("%s && %s && { %s}; %s", ensureSession, syncFeatureSet, settingsScript(base, settings), attach),
+		payload: launch.payload,
+	}, nil
 }
 
 // AttachOnlyClientCommand builds the shell command that attaches a tmux
@@ -86,63 +93,13 @@ func AttachOnlyClientCommand(sessionName string, opts Options) string {
 	return fmt.Sprintf("%s; %s attach -dt %s", syncFeatureSet, base, sessionTgt)
 }
 
-// paneLaunchCommand renders the argv that runs command inside a managed pane:
-// the tmux-var strip, the quoted env assignments, and the chdir trampoline.
-//
-// tmux keeps the server's original cwd open for its lifetime. If amux was
-// launched from a managed workspace and that workspace is later deleted,
-// tmux can leave a new pane in that deleted directory even when new-session
-// receives an absolute -c path (observed on tmux 3.7b). Run the pane command
-// through a POSIX-shell trampoline that performs a second, process-level
-// chdir, so both fresh and already poisoned servers start the final shell in
-// workDir. This intentionally avoids env -C, which is absent on macOS 14 and
-// BusyBox-based Linux systems.
-//
-// dir must already be shell-quoted. The trampoline's $0 is a fixed label, $1
-// is workDir, and the remaining arguments are the environment assignments
-// plus the final shell argv — keeping values in positional parameters avoids
-// evaluating any workspace path or environment value as shell source.
-func paneLaunchCommand(command, dir string, environment []string) string {
-	command = "unset TMUX TMUX_PANE; " + command
-	cmd := shellutil.ShellQuote(command)
-	paneEnvironment := make([]string, 0, len(environment))
-	for _, assignment := range environment {
-		if assignment != "" {
-			paneEnvironment = append(paneEnvironment, shellutil.ShellQuote(assignment))
-		}
-	}
-	paneEnvironmentArgs := ""
-	if len(paneEnvironment) > 0 {
-		paneEnvironmentArgs = " " + strings.Join(paneEnvironment, " ")
-	}
-	chdirScript := shellutil.ShellQuote(`cd "$1" && shift && exec env "$@"`)
-	return fmt.Sprintf("sh -c %s amux-chdir %s%s sh -lc %s", chdirScript, dir, paneEnvironmentArgs, cmd)
-}
-
-// ensureSessionScript renders the "create unless present" shell fragment:
-// has-session, else new-session -ds running paneCommand in dir, else a final
-// has-session that closes the create race between two concurrent creators.
-//
-// When keepDeadPane is true (detached run sessions), remain-on-exit is
-// chained into the new-session invocation itself (';' commands run atomically
-// on the tmux server): a fast-exiting pane can die and be reaped between the
-// separate create and set-option round-trips, which would lose the session —
-// and let a later Ensure respawn it — before the option ever lands. The
-// option is idempotent, so the settings pass that follows still re-applies it
-// for already-present sessions. Attach sessions pass keepDeadPane=false:
-// their panes must not linger after the agent exits.
-func ensureSessionScript(base, sessionName, dir, paneCommand string, keepDeadPane bool) string {
-	session := shellutil.ShellQuote(sessionName)
-	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
-	create := fmt.Sprintf("%s new-session -ds %s -c %s %s", base, session, dir, paneCommand)
-	if keepDeadPane {
-		// set-option's -t does not accept the '=' exact-match form (unlike
-		// has-session's): use the bare session name, as sessionSettingArgs does.
-		create += fmt.Sprintf(" ';' set-option -t %s remain-on-exit on", session)
-	}
-	return fmt.Sprintf("(%s has-session -t %s 2>/dev/null || ( %s ) || %s has-session -t %s 2>/dev/null)",
-		base, sessionTgt, create, base, sessionTgt)
-}
+// The pane's working directory and environment ride in the private launch
+// payload prepared in pane_launch.go, never in argv. The payload consumer
+// performs the process-level chdir itself: tmux keeps the server's original
+// cwd open for its lifetime, so a deleted workspace cwd can poison a pane
+// spawned with an absolute -c (observed on tmux 3.7b), and the native chdir
+// is what guarantees both fresh and already poisoned servers start the final
+// shell in workDir.
 
 // sessionSettingArgs returns the argument list of every `set-option` amux applies
 // to a managed session, in apply order. Each entry is the argv that follows

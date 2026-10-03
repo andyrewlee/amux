@@ -7,9 +7,19 @@ import (
 	"time"
 
 	"github.com/clipperhouse/displaywidth"
+
+	"github.com/andyrewlee/amux/internal/panelaunch"
 )
 
 func TestMain(m *testing.M) {
+	// Prepared pane commands invoke os.Executable — under `go test` that is
+	// this binary. Dispatch the private launcher argv before width setup and
+	// binary janitors so a pane spawn never recurses into the e2e suite or
+	// sweeps parent fixtures.
+	if handled, code := panelaunch.HandleInvocation(os.Args[1:]); handled {
+		os.Exit(code)
+	}
+
 	// Force deterministic glyph widths for snapshots across locales. This
 	// diverges e2e width math from production defaults (ambiguous-width chars
 	// measure 1 cell here regardless of locale) — deliberate determinism
