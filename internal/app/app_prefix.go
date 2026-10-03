@@ -488,12 +488,3 @@ func (a *App) prefixSelectTab(index int) tea.Cmd {
 	cmd := a.center.SelectTab(index)
 	return common.SafeBatch(cmd, a.persistActiveWorkspaceTabs())
 }
-
-// sendPrefixToTerminal sends a literal Ctrl-Space (NUL) to the focused terminal
-func (a *App) sendPrefixToTerminal() {
-	if a.focusedPane == messages.PaneCenter {
-		a.center.SendToTerminal("\x00")
-	} else if a.focusedPane == messages.PaneSidebarTerminal {
-		a.sidebarTerminal.SendToTerminal("\x00")
-	}
-}

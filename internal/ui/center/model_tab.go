@@ -95,6 +95,12 @@ type Tab struct {
 	tabCursorState
 	tabFrameProbeState
 
+	// tabInput is the per-terminal-binding input pipeline (bounded FIFO +
+	// writer goroutine); named rather than embedded because its field names
+	// (gen, seq, writer) would promote ambiguously. Guarded by mu except the
+	// retired list's drain, which joinRetiredInputWriters owns.
+	tabInput tabInputState
+
 	ptyRows int
 	ptyCols int
 	// Mouse selection state

@@ -18,8 +18,10 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace, stampedIDs []string) {
 	}
 
 	// Close resources for each tab before removing
+	var closing []*Tab
 	for _, wsID := range wsIDs {
 		for _, tab := range m.tabs.ByWorkspace[wsID] {
+			closing = append(closing, tab)
 			tab.markClosing()
 			m.stopPTYReader(tab)
 			tab.mu.Lock()
@@ -34,6 +36,7 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace, stampedIDs []string) {
 			tab.ResetSnapshotCache()
 			tab.Workspace = nil
 			tab.Running = false
+			tab.retireTabInputWriterLocked()
 			tab.mu.Unlock()
 			tab.markClosed()
 		}
@@ -45,8 +48,12 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace, stampedIDs []string) {
 	}
 	m.noteTabsChanged()
 
-	// Also cleanup agents for this workspace
+	// Also cleanup agents for this workspace — this is what unblocks any
+	// in-flight input write, so the retired writers joined below can exit.
 	if m.agentManager != nil {
 		m.agentManager.CloseWorkspaceAgents(ws, wsIDs)
+	}
+	for _, tab := range closing {
+		tab.joinRetiredInputWriters()
 	}
 }

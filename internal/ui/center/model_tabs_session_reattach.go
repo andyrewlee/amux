@@ -260,10 +260,13 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	tab.mu.Lock()
 	existingAgent = tab.Agent
 	tab.Agent = nil
+	tab.retireTabInputWriterLocked()
 	tab.mu.Unlock()
 	if existingAgent != nil {
+		// Closing the terminal unblocks the retired writer's in-flight send.
 		_ = m.agentManager.CloseAgent(existingAgent)
 	}
+	tab.joinRetiredInputWriters()
 	tmuxOpts := m.tmuxOpts
 
 	tm := m.terminalMetrics()

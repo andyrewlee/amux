@@ -148,11 +148,8 @@ func (m *Model) handleTerminalCtrlKey(msg tea.KeyPressMsg, tab *Tab) (*Model, te
 		return m, m.tabSelectionChangedCmd(m.getActiveTabIdx() != before), true
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+["))):
 		// This is Escape - let it go to terminal.
-		stamp, halt := m.directSendStamped(tab, "\x1b", "Escape key")
-		if halt {
-			return m, stamp, true
-		}
-		return m, common.SafeBatch(stamp, m.userInputActivityTagCmd(tab)), true
+		res, gen := m.admitTabInput(tab, "\x1b", "Escape key", true)
+		return m, common.SafeBatch(m.rejectedTabInputCmd(tab, res, gen), m.userInputActivityTagCmd(tab)), true
 	}
 	return m, nil, false
 }
@@ -220,28 +217,14 @@ func (m *Model) sendKeyToTerminal(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cm
 	}
 	logging.Debug("Sending to terminal: len=%d (%s)", len(input), terminalInputHint(input))
 
-	var cmds []tea.Cmd
-	queued := false
-	if m.isTabActorReady() {
-		queued = m.sendTabEvent(tabEvent{
-			tab:         tab,
-			workspaceID: m.workspaceID(),
-			tabID:       tab.ID,
-			kind:        tabEventSendInput,
-			input:       input,
-		})
-	}
-	// The actor-queued path stamps local-input timing after the PTY write; only
-	// the direct-send fallback stamps here.
-	if !queued {
-		stamp, halt := m.directSendStamped(tab, string(input), "Direct input")
-		if halt {
-			return m, stamp
-		}
-		cmds = append(cmds, stamp)
-	}
-	cmds = append(cmds, m.userInputActivityTagCmd(tab))
-	return m, common.SafeBatch(cmds...)
+	// Admission is synchronous and ordered on the update loop; delivery runs
+	// on the binding's writer (tab_input.go). Local-echo stamping happens on
+	// delivery completion, not here — queue latency must not look like echo.
+	res, gen := m.admitTabInput(tab, string(input), "Input", true)
+	return m, common.SafeBatch(
+		m.rejectedTabInputCmd(tab, res, gen),
+		m.userInputActivityTagCmd(tab),
+	)
 }
 
 // terminalInputHint summarizes terminal input for debug logs without recording
@@ -261,21 +244,4 @@ func terminalInputHint(input []byte) string {
 		return "text"
 	}
 	return strings.Join(hints, "+")
-}
-
-// directSendStamped sends data straight to the terminal. It returns halt=true
-// when the caller should return (m, cmd) immediately — cmd is the error command,
-// or nil when the send was a no-op. On a successful send it returns
-// (noteLocalInputCmd, false): the local-input echo window is recorded here
-// because the direct path bypasses the actor. The actor-queued path must NOT
-// call this (it stamps after its own PTY write).
-func (m *Model) directSendStamped(tab *Tab, data, label string) (cmd tea.Cmd, halt bool) {
-	_, sent, cmd := m.directSendToTerminal(tab, data, label)
-	if cmd != nil {
-		return cmd, true
-	}
-	if !sent {
-		return nil, true
-	}
-	return m.noteLocalInput(tab, m.workspaceID(), data, time.Now()), false
 }

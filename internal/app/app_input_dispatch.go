@@ -26,7 +26,7 @@ import (
 //	updateTabMsg           OpenDiff, CloseTab, LaunchAgent, TabCreated/Closed/
 //	                       Detached/Reattached/StateChanged/SelectionChanged,
 //	                       persistDebounceMsg, persistSaveFailedMsg,
-//	                       center.TabInputFailed
+//	                       center.TabInputFailed/TabInputRejected
 //	                       → app_input_messages_center.go, app_persistence.go
 //	updateTmuxMsg          CleanupTmuxSessions, SpinnerTick, GitStatusTick,
 //	                       OrphanGCTick, PTYWatchdogTick, tmuxActivityTick/
@@ -160,6 +160,11 @@ func (a *App) updateTabMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		*cmds = append(*cmds, a.handlePersistSaveFailed(msg))
 	case center.TabInputFailed:
 		*cmds = append(*cmds, a.handleTabInputFailed(msg)...)
+	case center.TabInputRejected:
+		// Admission rejection: warn only — the attachment stays healthy, so
+		// no detach/persist side effect may hang off this message.
+		logging.Warn("terminal input rejected for tab %s (gen %d): %s", msg.TabID, msg.Gen, msg.Reason)
+		*cmds = append(*cmds, a.toast.ShowWarning("Dropped terminal input: "+msg.Reason))
 	case center.TabBell:
 		a.handleTabBell(msg)
 	default:

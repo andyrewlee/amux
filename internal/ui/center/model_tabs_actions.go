@@ -35,7 +35,8 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 
 	m.stopPTYReader(tab)
 
-	// Close agent
+	// Close agent — this also unblocks any in-flight input write so the
+	// retired writer's join below returns.
 	if tab.Agent != nil {
 		_ = m.agentManager.CloseAgent(tab.Agent)
 	}
@@ -56,8 +57,10 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	tab.Workspace = nil
 	tab.Running = false
 	tab.resetPTYStateLocked()
+	tab.retireTabInputWriterLocked()
 	tab.mu.Unlock()
 	tab.markClosed()
+	tab.joinRetiredInputWriters()
 
 	// Remove from tabs
 	m.removeTab(index)
@@ -184,28 +187,22 @@ func (m *Model) SelectTab(index int) tea.Cmd {
 	return nil
 }
 
-// SendToTerminal sends a string directly to the active terminal
-func (m *Model) SendToTerminal(s string) {
+// SendToTerminal admits a string to the active tab's input queue (the prefix
+// double-tap NUL is the only current producer). It returns an optional command
+// surfacing an admission rejection; delivery failures arrive asynchronously
+// as TabInputFailed.
+func (m *Model) SendToTerminal(s string) tea.Cmd {
 	tabs := m.getTabs()
 	activeIdx := m.getActiveTabIdx()
 	if len(tabs) == 0 || activeIdx >= len(tabs) {
-		return
+		return nil
 	}
 	tab := tabs[activeIdx]
 	if tab.isClosed() {
-		return
+		return nil
 	}
-	tab.mu.Lock()
-	agent := tab.Agent
-	tab.mu.Unlock()
-	if agent != nil && agent.Terminal != nil {
-		if err := agent.Terminal.SendString(s); err != nil {
-			logging.Error("SendToTerminal failed for tab %s: %v", tab.ID, err)
-			tab.mu.Lock()
-			tab.markDetachedLocked()
-			tab.mu.Unlock()
-		}
-	}
+	res, gen := m.admitTabInput(tab, s, "Input", false)
+	return m.rejectedTabInputCmd(tab, res, gen)
 }
 
 // ScrollActiveTerminalPage scrolls the active terminal by one page-sized step.

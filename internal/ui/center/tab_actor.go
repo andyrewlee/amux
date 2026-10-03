@@ -3,13 +3,20 @@
 // update loop, and selection/scroll handlers never touch the same terminal
 // concurrently. When editing this package, preserve these rules:
 //
-//  1. Single write path. Every tab terminal write goes through RunTabActor via a
-//     tabEvent (sendTabEvent -> handleTabEvent), or — only when the actor channel
-//     cannot accept the event — through the synchronous fallback in
-//     recoverFailedActorSend. Never call tab.WriteToTerminal or other terminal
-//     mutators directly from Update; that bypasses the actor and races the reader.
+//  1. Single output write path. Every tab terminal *output* write goes through
+//     RunTabActor via a tabEvent (sendTabEvent -> handleTabEvent), or — only
+//     when the actor channel cannot accept the event — through the synchronous
+//     fallback in recoverFailedActorSend. Never call tab.WriteToTerminal or
+//     other terminal mutators directly from Update; that bypasses the actor and
+//     races the reader.
 //
-//  2. Backpressure contract. shouldDropTabEvent sheds load only for the
+//  2. Input is not an actor concern. User bytes for the hosted PTY flow
+//     through the per-binding input queue (tab_input.go), admitted
+//     synchronously on the update loop and delivered by a dedicated writer
+//     goroutine — never through this actor and never via a direct-write
+//     fallback, both of which could reorder input around queued work.
+//
+//  3. Backpressure contract. shouldDropTabEvent sheds load only for the
 //     selection/scroll class of events (selection-update, selection-scroll-tick,
 //     scroll-by, scroll-page) once tabEvents is >=75% full; those are coalescible
 //     UI gestures. tabEventWriteOutput is NEVER dropped — losing output corrupts
@@ -25,7 +32,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
@@ -47,28 +53,29 @@ const (
 	tabEventScrollPage
 	tabEventScrollToTop
 	tabEventDiffInput
-	tabEventSendInput
+	// tabEventSendMouse is the mouse-reporting control path: it writes to the
+	// hosted PTY on the actor goroutine outside the user-byte input FIFO by
+	// design (see tab_input.go). Its delivery failures stay untagged.
 	tabEventSendMouse
-	tabEventPaste
 	tabEventWriteOutput
 )
 
 type tabEvent struct {
-	tab             *Tab
-	workspaceID     string
-	tabID           TabID
-	kind            tabEventKind
-	termX           int
-	termY           int
-	inBounds        bool
-	delta           int
-	gen             uint64
-	seq             uint64
-	notifyCopy      bool
-	scrollPage      int
-	diffMsg         tea.Msg
+	tab         *Tab
+	workspaceID string
+	tabID       TabID
+	kind        tabEventKind
+	termX       int
+	termY       int
+	inBounds    bool
+	delta       int
+	gen         uint64
+	seq         uint64
+	notifyCopy  bool
+	scrollPage  int
+	diffMsg     tea.Msg
+	// input carries mouse-report protocol bytes for tabEventSendMouse.
 	input           []byte
-	pasteText       string
 	output          []byte
 	filteredOutput  []byte
 	noiseAfter      []byte
@@ -96,12 +103,6 @@ type tabActorRedraw struct{}
 func (tabActorRedraw) MarkCriticalExternalMsg() {}
 
 type tabDiffCmd struct{ cmd tea.Cmd }
-
-type TabInputFailed struct {
-	TabID       TabID
-	WorkspaceID string
-	Err         error
-}
 
 // TabBell is emitted when agent output contains BEL — the agent's escalation
 // signal (Claude Code rings BEL on notification events). The app maps it onto
@@ -246,12 +247,8 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		m.handleScrollToTop(ev)
 	case tabEventDiffInput:
 		m.handleDiffInput(ev)
-	case tabEventSendInput:
-		m.handleSendInput(ev)
 	case tabEventSendMouse:
 		m.handleSendMouse(ev)
-	case tabEventPaste:
-		m.handlePaste(ev)
 	case tabEventWriteOutput:
 		m.handleWriteOutput(ev)
 	default:
@@ -316,20 +313,15 @@ func (m *Model) updateDiffViewer(tab *Tab, msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-func (m *Model) handleSendInput(ev tabEvent) {
-	m.sendToTerminal(ev.tab, string(ev.input), ev.tabID, ev.workspaceID, "Input")
-}
-
 func (m *Model) handleSendMouse(ev tabEvent) {
 	m.sendMouseToTerminal(ev.tab, string(ev.input), ev.tabID, ev.workspaceID)
 }
 
-func (m *Model) handlePaste(ev tabEvent) {
-	if ev.pasteText != "" {
-		m.sendToTerminal(ev.tab, ansi.BracketedPasteStart+ev.pasteText+ansi.BracketedPasteEnd, ev.tabID, ev.workspaceID, "Paste")
-	}
-}
-
+// sendMouseToTerminal is the mouse-reporting control path: it writes protocol
+// bytes directly on the actor goroutine, outside the user-byte input FIFO
+// (mouse reporting is an explicit separate control path — see tab_input.go).
+// A delivery failure marks the tab detached and emits an untagged
+// TabInputFailed, the same contract it had before the FIFO existed.
 func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspaceID string) {
 	if tab == nil || data == "" {
 		return
@@ -350,33 +342,5 @@ func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspac
 		if m.msgSink != nil {
 			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 		}
-	}
-}
-
-func (m *Model) sendToTerminal(tab *Tab, data string, tabID TabID, workspaceID, label string) {
-	if tab == nil || data == "" {
-		return
-	}
-	tab.mu.Lock()
-	agent := tab.Agent
-	closed := tab.isClosed()
-	tab.mu.Unlock()
-	if closed || agent == nil || agent.Terminal == nil {
-		return
-	}
-	m.tracePTYInput(tab, []byte(data))
-	if err := agent.Terminal.SendString(data); err != nil {
-		logging.Error("%s failed for tab %s: %v", label, tab.ID, err)
-		tab.mu.Lock()
-		tab.markDetachedLocked()
-		tab.mu.Unlock()
-		if m.msgSink != nil {
-			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
-		}
-		return
-	}
-	recordLocalInputEchoWindow(tab, data, time.Now())
-	if m.msgSink != nil && m.isChatTab(tab) {
-		m.msgSink(PTYCursorRefresh{WorkspaceID: workspaceID, TabID: tabID})
 	}
 }

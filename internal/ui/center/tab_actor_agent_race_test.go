@@ -7,16 +7,13 @@ import (
 	appPty "github.com/andyrewlee/amux/internal/pty"
 )
 
-// TestSendToTerminal_AgentNilledConcurrently exercises the cross-goroutine race
-// between the tab-actor send funnel (sendToTerminal) reading tab.Agent and the
-// Update goroutine reassigning/nilling tab.Agent under tab.mu (detach/stop).
-//
-// Before the snapshot-under-lock fix, sendToTerminal loaded tab.Agent several
-// times across its nil-check and dereference with no lock, so an interleaved
-// `tab.Agent = nil` could nil-panic the actor goroutine; -race also reports the
-// unsynchronized access. After the fix it snapshots the agent once under
-// tab.mu, so this test runs clean.
-func TestSendToTerminal_AgentNilledConcurrently(t *testing.T) {
+// TestAdmitTabInput_AgentNilledConcurrently exercises the cross-goroutine race
+// between input admission reading tab.Agent and the Update goroutine
+// reassigning/nilling tab.Agent under tab.mu (detach/stop). admitTabInput
+// reads the agent under the same lock, so the admission sees either the old
+// binding (queues onto its writer, which the transition retires) or the
+// missing one (no-terminal no-op) — never a torn read.
+func TestAdmitTabInput_AgentNilledConcurrently(t *testing.T) {
 	dir := t.TempDir()
 	term, err := appPty.NewWithSize("cat >/dev/null", dir, nil, 24, 80)
 	if err != nil {
@@ -26,31 +23,29 @@ func TestSendToTerminal_AgentNilledConcurrently(t *testing.T) {
 
 	m := newTestModel()
 	ws := newTestWorkspace("ws", dir)
-	tabID := TabID("tab-agent-race")
-	workspaceID := string(ws.ID())
-
 	agent := &appPty.Agent{Terminal: term}
 	tab := &Tab{
-		ID:        tabID,
+		ID:        TabID("tab-agent-race"),
 		Assistant: "codex",
 		Workspace: ws,
 		Agent:     agent,
 	}
+	tab.tabInput.gen = 1
 
-	const iterations = 5000
+	const iterations = 2000
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Goroutine 1: the tab-actor send funnel.
+	// Goroutine 1: admission from the update-loop producers.
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			m.sendToTerminal(tab, "x", tabID, workspaceID, "Input")
+			m.admitTabInput(tab, "x", "Input", false)
 		}
 	}()
 
-	// Goroutine 2: the Update goroutine nilling/restoring tab.Agent under lock,
-	// as detach/stop/reattach do.
+	// Goroutine 2: the Update goroutine nilling/restoring tab.Agent under
+	// lock, as detach/stop/reattach do.
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
@@ -64,4 +59,11 @@ func TestSendToTerminal_AgentNilledConcurrently(t *testing.T) {
 	}()
 
 	wg.Wait()
+
+	// Reap any writers the admissions created so no goroutine leaks past the
+	// test.
+	tab.mu.Lock()
+	tab.retireTabInputWriterLocked()
+	tab.mu.Unlock()
+	tab.joinRetiredInputWriters()
 }

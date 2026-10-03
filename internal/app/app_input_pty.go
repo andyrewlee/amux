@@ -102,11 +102,21 @@ func (a *App) handleTabBell(msg center.TabBell) {
 // handleTabInputFailed handles the TabInputFailed message.
 func (a *App) handleTabInputFailed(msg center.TabInputFailed) []tea.Cmd {
 	var cmds []tea.Cmd
-	cmds = append(cmds, a.toast.ShowWarning("Session disconnected - scroll history preserved"))
+	var detach tea.Cmd
+	handled := true
 	if msg.WorkspaceID != "" {
-		if cmd := a.center.DetachTabByID(msg.WorkspaceID, msg.TabID); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		// The center resolves the tab and fences the stamped input
+		// generation: a failure from a binding that has since been replaced
+		// is stale and must produce no side effects here — not even the
+		// toast or the persist.
+		detach, handled = a.center.DetachTabForInputFailure(msg.WorkspaceID, msg.TabID, msg.Gen)
+	}
+	if !handled {
+		return nil
+	}
+	cmds = append(cmds, a.toast.ShowWarning("Session disconnected - scroll history preserved"))
+	if detach != nil {
+		cmds = append(cmds, detach)
 	}
 	if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
 		cmds = append(cmds, cmd)

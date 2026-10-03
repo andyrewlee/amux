@@ -15,8 +15,8 @@ import (
 
 // TestInitialTaskSentAfterModeSet proves the readiness gate: the queued launch
 // task is not sent while the agent has emitted no private-mode set (pre-TUI),
-// and is sent exactly once — task + "\r" through sendToTerminal — on the first
-// write pass after a DECSET lands.
+// and is sent exactly once — task + "\r" through the binding's input FIFO — on
+// the first write pass after a DECSET lands.
 func TestInitialTaskSentAfterModeSet(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "sent.txt")

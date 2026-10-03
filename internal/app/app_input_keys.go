@@ -45,10 +45,13 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 	if a.isPrefixKey(msg) {
 		if a.prefixActive {
 			if len(a.prefixSequence) == 0 {
-				// Prefix + Prefix = send literal Ctrl+Space to terminal.
-				a.sendPrefixToTerminal()
+				// Prefix + Prefix = send literal Ctrl+Space to terminal. The
+				// center path admits into the input FIFO and may surface a
+				// rejection command — admission itself already happened
+				// synchronously here.
+				cmd := a.sendPrefixToTerminal()
 				a.exitPrefix()
-				return nil
+				return cmd
 			}
 			// Restart narrowing from the root command list.
 			a.prefixSequence = nil
@@ -238,4 +241,17 @@ func (a *App) activateCenterButton() tea.Cmd {
 	}
 	msg := buttons[a.centerBtnIndex].msg
 	return func() tea.Msg { return msg }
+}
+
+// sendPrefixToTerminal sends a literal Ctrl-Space (NUL) to the focused
+// terminal. The center path admits through the input FIFO and may return a
+// rejection command; the sidebar keeps its own void API (nil command).
+func (a *App) sendPrefixToTerminal() tea.Cmd {
+	if a.focusedPane == messages.PaneCenter {
+		return a.center.SendToTerminal("\x00")
+	}
+	if a.focusedPane == messages.PaneSidebarTerminal {
+		a.sidebarTerminal.SendToTerminal("\x00")
+	}
+	return nil
 }

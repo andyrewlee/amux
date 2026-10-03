@@ -20,11 +20,20 @@ package center
 
 // markAttachedLocked transitions to running: the tab has a live PTY (fresh
 // launch or successful reattach). Clears any reattach lock.
+//
+// This is the terminal-binding install point for the input pipeline: the
+// input generation bumps so every result stamped under the previous binding
+// (queued input, response-writer failures) is fenced out, the failure latch
+// clears for the new binding, and any writer that outlived the previous
+// binding is retired.
 func (t *Tab) markAttachedLocked() {
 	t.Detached = false
 	t.Reattach.InFlight = false
 	t.Running = true
 	t.discardDetachedPTYOutput = false
+	t.tabInput.gen++
+	t.tabInput.failed = false
+	t.retireTabInputWriterLocked()
 }
 
 // markDetachedLocked transitions to detached: the PTY is gone but the tmux
@@ -37,6 +46,7 @@ func (t *Tab) markDetachedLocked() {
 	// A queued initial task belongs to the dead stream — never send it to
 	// whatever reattaches next.
 	t.pendingInitialTask = ""
+	t.retireTabInputWriterLocked()
 }
 
 // markDetachedEndingReattachLocked transitions to detached and releases the
@@ -46,6 +56,7 @@ func (t *Tab) markDetachedEndingReattachLocked() {
 	t.Running = false
 	t.Detached = true
 	t.Reattach.InFlight = false
+	t.retireTabInputWriterLocked()
 }
 
 // markStoppedLocked transitions to stopped: no PTY and no session worth
@@ -59,6 +70,7 @@ func (t *Tab) markStoppedLocked() {
 	t.Detached = false
 	t.Reattach.InFlight = false
 	t.discardDetachedPTYOutput = false
+	t.retireTabInputWriterLocked()
 }
 
 // markReattachFailedLocked records a failed reattach: the tab is no longer
@@ -70,6 +82,7 @@ func (t *Tab) markReattachFailedLocked(stopped bool) {
 	if stopped {
 		t.Detached = false
 	}
+	t.retireTabInputWriterLocked()
 }
 
 // beginReattachLocked acquires the reattach transition lock, reporting false

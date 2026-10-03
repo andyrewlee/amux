@@ -302,16 +302,21 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			tab.lastFocusedAt = now
 		}
 		resetChatCursorActivityStateLocked(tab)
+		inputGen := tab.inputGenLocked()
 		tab.mu.Unlock()
 		tab.resetActivityANSIState()
 		if oldAgent != nil && oldAgent != msg.Agent {
+			// Closing the terminal unblocks the retired writer's in-flight
+			// send before its join below.
 			_ = m.agentManager.CloseAgent(oldAgent)
 		}
+		tab.joinRetiredInputWriters()
 
 		// Set up response writer for terminal queries (DSR, DA, etc.)
 		if msg.Agent.Terminal != nil && tab.Terminal != nil {
 			agentTerm := msg.Agent.Terminal
 			workspaceID := wsID
+			gen := inputGen
 			tab.Terminal.SetResponseWriter(func(data []byte) {
 				if len(data) == 0 || agentTerm == nil {
 					return
@@ -319,7 +324,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				if err := agentTerm.SendString(string(data)); err != nil {
 					logging.Error("Response write failed for tab %s: %v", tabID, err)
 					if m.msgSink != nil {
-						m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+						m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err, Gen: gen})
 					}
 				}
 			})
@@ -368,6 +373,11 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		createdAt:     now.Unix(),
 		lastFocusedAt: now,
 	}
+	// A binding installed by construction (rather than markAttachedLocked)
+	// still occupies an input generation so gen 0 always means "never bound" —
+	// generation-stamped failures/refreshes from a replaced binding can then
+	// never alias the unfenced sentinel.
+	tab.tabInput.gen = 1
 	isChat := m.isChatTab(tab)
 	term.IgnoreCursorVisibilityControls = false
 	term.TreatLFAsCRLF = isChat
@@ -382,6 +392,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	if msg.Agent.Terminal != nil {
 		agentTerm := msg.Agent.Terminal
 		workspaceID := string(msg.Workspace.ID())
+		gen := tab.inputGenLocked()
 		term.SetResponseWriter(func(data []byte) {
 			if len(data) == 0 || agentTerm == nil {
 				return
@@ -389,7 +400,7 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 			if err := agentTerm.SendString(string(data)); err != nil {
 				logging.Error("Response write failed for tab %s: %v", tabID, err)
 				if m.msgSink != nil {
-					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
+					m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err, Gen: gen})
 				}
 			}
 		})

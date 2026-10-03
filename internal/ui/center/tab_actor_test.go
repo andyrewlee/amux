@@ -4,10 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	tea "charm.land/bubbletea/v2"
-
-	appPty "github.com/andyrewlee/amux/internal/pty"
 )
 
 func TestSendTabEvent_ClosedWriteOutputReturnsFalse(t *testing.T) {
@@ -62,7 +58,7 @@ func TestShouldDropTabEvent(t *testing.T) {
 			t.Fatal("nil channel should always drop")
 		}
 		// Even a non-droppable kind drops on a nil channel.
-		if !shouldDropTabEvent(nil, tabEventSendInput) {
+		if !shouldDropTabEvent(nil, tabEventSendMouse) {
 			t.Fatal("nil channel should drop regardless of kind")
 		}
 	})
@@ -97,7 +93,7 @@ func TestShouldDropTabEvent(t *testing.T) {
 	t.Run("non-droppable kind at full keeps", func(t *testing.T) {
 		ch := make(chan tabEvent, 8)
 		fillTabEvents(ch, 8) // completely full
-		if shouldDropTabEvent(ch, tabEventSendInput) {
+		if shouldDropTabEvent(ch, tabEventSendMouse) {
 			t.Fatal("non-droppable kind must never be dropped, even when full")
 		}
 	})
@@ -105,7 +101,7 @@ func TestShouldDropTabEvent(t *testing.T) {
 
 // TestShouldPostTabActorRedraw_AllKinds is the exhaustive complement to the
 // partial table in tab_actor_input_test.go: it asserts the redraw partition
-// across every one of the 16 tabEventKind values.
+// across every one of the 14 tabEventKind values.
 func TestShouldPostTabActorRedraw_AllKinds(t *testing.T) {
 	cases := []struct {
 		kind tabEventKind
@@ -122,12 +118,10 @@ func TestShouldPostTabActorRedraw_AllKinds(t *testing.T) {
 		{tabEventScrollPage, true},
 		{tabEventScrollToTop, true},
 		{tabEventDiffInput, true},
-		// The 6 non-redraw kinds.
+		// The 4 non-redraw kinds.
 		{tabEventSelectionClear, false},
 		{tabEventSelectionCopy, false},
-		{tabEventSendInput, false},
 		{tabEventSendMouse, false},
-		{tabEventPaste, false},
 		{tabEventWriteOutput, false},
 	}
 	for _, tc := range cases {
@@ -143,19 +137,19 @@ func TestShouldPostTabActorRedraw_AllKinds(t *testing.T) {
 
 func TestSendTabEvent_NilModelOrChannel(t *testing.T) {
 	var nilModel *Model
-	if nilModel.sendTabEvent(tabEvent{kind: tabEventSendInput}) {
+	if nilModel.sendTabEvent(tabEvent{kind: tabEventSendMouse}) {
 		t.Fatal("nil model should report enqueue failure")
 	}
 
 	m := &Model{} // tabEvents is nil
-	if m.sendTabEvent(tabEvent{kind: tabEventSendInput}) {
+	if m.sendTabEvent(tabEvent{kind: tabEventSendMouse}) {
 		t.Fatal("nil tabEvents channel should report enqueue failure")
 	}
 }
 
 func TestSendTabEvent_NilTabDrops(t *testing.T) {
 	m := &Model{tabEvents: make(chan tabEvent, 1)}
-	if m.sendTabEvent(tabEvent{kind: tabEventSendInput}) {
+	if m.sendTabEvent(tabEvent{kind: tabEventSendMouse}) {
 		t.Fatal("nil tab should report enqueue failure")
 	}
 	if got := len(m.tabEvents); got != 0 {
@@ -166,7 +160,7 @@ func TestSendTabEvent_NilTabDrops(t *testing.T) {
 func TestSendTabEvent_OpenTabRoomEnqueues(t *testing.T) {
 	m := &Model{tabEvents: make(chan tabEvent, 1)}
 	tab := &Tab{}
-	if !m.sendTabEvent(tabEvent{tab: tab, kind: tabEventSendInput}) {
+	if !m.sendTabEvent(tabEvent{tab: tab, kind: tabEventSendMouse}) {
 		t.Fatal("open tab with channel room should enqueue and report success")
 	}
 	if got := len(m.tabEvents); got != 1 {
@@ -180,7 +174,7 @@ func TestSendTabEvent_FullChannelNonDroppableOverflows(t *testing.T) {
 	// Pre-fill the only slot so the next send overflows.
 	m.tabEvents <- tabEvent{kind: tabEventWriteOutput}
 
-	if m.sendTabEvent(tabEvent{tab: tab, kind: tabEventSendInput}) {
+	if m.sendTabEvent(tabEvent{tab: tab, kind: tabEventSendMouse}) {
 		t.Fatal("send into a full channel must report failure (overflow drop)")
 	}
 	if got := len(m.tabEvents); got != 1 {
@@ -271,71 +265,5 @@ func TestRunTabActor_ConsumesEnqueuedEvent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Step 4: sendToTerminal failure-detach contract (msgSink)
-// ---------------------------------------------------------------------------
-
-// TestSendToTerminal_FailureDetachesAndNotifies characterizes the keystroke
-// failure path: when Terminal.SendString errors, sendToTerminal marks the tab
-// detached (Running=false, Detached=true under tab.mu) and emits a
-// TabInputFailed carrying the originating TabID/WorkspaceID through msgSink.
-//
-// A real *pty.Terminal cannot be struct-literal-constructed from this package
-// (unexported fields), so we spawn one and Close it: a closed terminal's
-// SendString returns io.ErrClosedPipe without keeping any agent process alive.
-func TestSendToTerminal_FailureDetachesAndNotifies(t *testing.T) {
-	dir := t.TempDir()
-	term, err := appPty.NewWithSize("cat >/dev/null", dir, nil, 24, 80)
-	if err != nil {
-		t.Fatalf("expected test PTY terminal: %v", err)
-	}
-	// Closing first makes the subsequent SendString fail deterministically.
-	if err := term.Close(); err != nil {
-		t.Fatalf("close terminal: %v", err)
-	}
-
-	tabID := TabID("tab-send-fail")
-	workspaceID := "ws-send-fail"
-	tab := &Tab{
-		ID: tabID,
-		// A non-chat assistant keeps the path simple; the failure return is
-		// reached before any chat-only PTYCursorRefresh anyway.
-		Assistant: "not-a-chat-assistant",
-		Agent:     &appPty.Agent{Terminal: term},
-		Running:   true,
-	}
-
-	var got []tea.Msg
-	m := &Model{}
-	m.msgSink = func(msg tea.Msg) { got = append(got, msg) }
-
-	m.sendToTerminal(tab, "x", tabID, workspaceID, "Input")
-
-	tab.mu.Lock()
-	detached := tab.Detached
-	running := tab.Running
-	tab.mu.Unlock()
-	if !detached {
-		t.Fatal("expected tab.Detached=true after SendString failure")
-	}
-	if running {
-		t.Fatal("expected tab.Running=false after SendString failure")
-	}
-
-	if len(got) != 1 {
-		t.Fatalf("expected exactly one msgSink message, got %d: %#v", len(got), got)
-	}
-	failed, ok := got[0].(TabInputFailed)
-	if !ok {
-		t.Fatalf("expected TabInputFailed, got %T", got[0])
-	}
-	if failed.TabID != tabID {
-		t.Errorf("TabInputFailed.TabID = %q, want %q", failed.TabID, tabID)
-	}
-	if failed.WorkspaceID != workspaceID {
-		t.Errorf("TabInputFailed.WorkspaceID = %q, want %q", failed.WorkspaceID, workspaceID)
-	}
-	if failed.Err == nil {
-		t.Error("expected TabInputFailed.Err to be set")
-	}
-}
+// The keystroke failure-detach contract moved to the per-binding input
+// writer: its coverage lives in tab_input_test.go (TestTerminalInputLifecycle).
