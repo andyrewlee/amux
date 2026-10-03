@@ -171,8 +171,12 @@ func GetCurrentBranch(path string) (string, error) {
 	return RunGitCtx(context.Background(), path, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
-// RunGitAllowFailureCtx executes git and returns stdout even if exit code is non-zero.
-// Use for commands like `git diff --no-index` which return 1 when differences exist.
+// RunGitAllowFailureCtx executes git and returns stdout even if the exit
+// code is non-zero — process exit statuses are the tolerated part. Use for
+// commands like `git diff --no-index` which return 1 when differences
+// exist. A failure to launch or reap git is never tolerated: it returns a
+// structured error so a missing executable or bad directory cannot masquerade
+// as a successful empty result.
 func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
@@ -183,10 +187,17 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	killedByContext, err := runGitCommand(ctx, cmd) // Ignore exit code - some commands return 1 on success
+	killedByContext, err := runGitCommand(ctx, cmd) // Tolerate exit status — some commands return 1 on success
 	if err != nil {
 		if ctxErr := gitAllowFailureCommandContextErrorWithKill(ctx, err, args, stdout.Len(), killedByContext); ctxErr != nil {
 			return "", ctxErr
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			// Not a process exit — git never ran or the drain/wait
+			// infrastructure failed. Returning it prevents a launch
+			// failure from looking like a successful empty result.
+			return "", newGitError(args, stderr.String(), err)
 		}
 	}
 
