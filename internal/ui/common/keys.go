@@ -37,6 +37,8 @@ func KeyToBytes(msg tea.KeyPressMsg) []byte {
 			return []byte{0x0f}
 		case 'p':
 			return []byte{0x10}
+		case 'q':
+			return []byte{0x11}
 		case 'r':
 			return []byte{0x12}
 		case 's':
@@ -55,6 +57,8 @@ func KeyToBytes(msg tea.KeyPressMsg) []byte {
 			return []byte{0x19}
 		case 'z':
 			return []byte{0x1a}
+		case ']':
+			return []byte{0x1d}
 		}
 	}
 

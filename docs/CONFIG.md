@@ -175,6 +175,11 @@ Ctrl-C signals — and it stays zero: saves write the effective value, so a
 zero-delay override survives a Settings edit and reload instead of silently
 inheriting the built-in delay again.
 
+(For completeness on key delivery: a focused terminal receives unreserved
+control chords as bytes — `Ctrl+Q` arrives as `0x11`, and a focused sidebar
+terminal also receives `Ctrl+]` as `0x1D` while the center pane reserves it
+for tab cycling.)
+
 Assistant names must start with a letter or number and may contain only letters,
 numbers, dots, dashes, or underscores (max 100 characters). Names are matched
 case-insensitively (they are lowercased). An entry whose name fails validation
