@@ -118,20 +118,47 @@ func (m *Model) jumpMatch(dir int) {
 	m.scrollToMatch()
 }
 
-// scrollToMatch positions the viewport on the selected match's first visual
-// row, pulling the enclosing @@ hunk header into view when it fits — a bare
-// +foo match without its hunk header is useless context.
+// matchVisualRow resolves the selected match to the first visual row of its
+// source line whose rendered segment intersects the match's rune span — a
+// hit in a wrapped tail needs its own segment in view, not the line's first
+// row. Only the selected line's contiguous rows are inspected, reusing the
+// highlight predicate so match coordinates never become cell widths or ANSI
+// bytes. Falls back to the line's first row when no displayed segment
+// intersects (a nowrap-truncated tail or a width-safe placeholder row), so
+// navigation stays anchored to the source line.
+func matchVisualRow(rows *visualRows, sel diffMatch) int {
+	first := rows.topFor(sel.lineIdx)
+	if sel.lineIdx < 0 || sel.lineIdx >= len(rows.firstRow) {
+		return first
+	}
+	end := len(rows.rows)
+	if sel.lineIdx+1 < len(rows.firstRow) {
+		end = rows.firstRow[sel.lineIdx+1]
+	}
+	for i := first; i < end; i++ {
+		if lo, _ := rowHighlight(rows.rows[i], sel); lo >= 0 {
+			return i
+		}
+	}
+	return first
+}
+
+// scrollToMatch positions the viewport on the visual row containing the
+// selected match, pulling the enclosing @@ hunk header into view when it
+// fits with that row — a bare +foo match without its hunk header is useless
+// context, but the header must never crowd out the hit itself.
 func (m *Model) scrollToMatch() {
 	if m.matchIdx < 0 || m.matchIdx >= len(m.matches) || m.diff == nil {
 		return
 	}
+	sel := m.matches[m.matchIdx]
 	rows := m.rows()
-	matchRow := rows.topFor(m.matches[m.matchIdx].lineIdx)
+	matchRow := matchVisualRow(rows, sel)
 
 	// Nearest preceding hunk header — Hunks are ordered by StartLine.
 	headerRow := -1
 	for _, h := range m.diff.Hunks {
-		if h.StartLine <= m.matches[m.matchIdx].lineIdx {
+		if h.StartLine <= sel.lineIdx {
 			headerRow = rows.topFor(h.StartLine)
 		} else {
 			break

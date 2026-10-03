@@ -150,8 +150,10 @@ func TestSearchNoMatches(t *testing.T) {
 	}
 }
 
-// A wrapped match's visual row is the scroll target — scroll lands on the
-// row for the matched source line even when it occupies several rows.
+// A wrapped match's intersecting segment is the scroll target — a hit in a
+// wrapped tail must actually enter the viewport, highlighted. Asserting the
+// source line's FIRST row is not enough: that row only covers the leading
+// segment, so the old test passed while `needle` stayed offscreen.
 func TestSearchScrollsToWrappedMatch(t *testing.T) {
 	m := newSizedModel()
 	m.width = 40
@@ -169,12 +171,45 @@ func TestSearchScrollsToWrappedMatch(t *testing.T) {
 		pressKey(m, r)
 	}
 	pressEnter(m)
-	matchRow := m.rows().topFor(len(lines) - 1)
-	if m.scroll > matchRow {
-		t.Fatalf("scroll %d must be at-or-above match row %d", m.scroll, matchRow)
+
+	// The fixture must produce one selected interval covering the real
+	// `needle` runes on a continuation segment — the preconditions this
+	// regression depends on.
+	if len(m.matches) != 1 || m.matchIdx != 0 {
+		t.Fatalf("expected one selected match, got %v idx=%d", m.matches, m.matchIdx)
 	}
-	if matchRow >= m.scroll+m.contentHeight() {
-		t.Fatalf("match row %d must be inside the viewport [%d..%d)", matchRow, m.scroll, m.scroll+m.contentHeight())
+	sel := m.matches[0]
+	src := []rune(ansi.Strip(lines[len(lines)-1].Content))
+	if got := string(src[sel.startRune:sel.endRune]); got != "needle" {
+		t.Fatalf("selected span covers %q, want needle", got)
+	}
+	rows := m.rows()
+	hitRow := -1
+	for i := rows.topFor(sel.lineIdx); i < len(rows.rows) && rows.rows[i].lineIdx == sel.lineIdx; i++ {
+		if lo, _ := rowHighlight(rows.rows[i], sel); lo >= 0 {
+			hitRow = i
+			break
+		}
+	}
+	if hitRow < 0 {
+		t.Fatal("fixture must display the hit on some segment")
+	}
+	if hitRow == rows.topFor(sel.lineIdx) {
+		t.Fatal("fixture must place the hit on a continuation segment")
+	}
+
+	// The segment carrying the selection must be inside the viewport —
+	// checking the rendered content rows only, so the footer's "/needle"
+	// echo can never satisfy this.
+	if hitRow < m.scroll || hitRow >= m.scroll+m.contentHeight() {
+		t.Fatalf("hit row %d outside viewport [%d..%d)", hitRow, m.scroll, m.scroll+m.contentHeight())
+	}
+	rendered := m.renderRowMatch(rows.rows[hitRow], sel)
+	if !strings.Contains(ansi.Strip(rendered), "needle") {
+		t.Fatalf("visible hit row must show the needle text: %q", ansi.Strip(rendered))
+	}
+	if !strings.Contains(rendered, "\x1b[7;") {
+		t.Fatalf("selected span must render in reverse video: %q", rendered)
 	}
 }
 
