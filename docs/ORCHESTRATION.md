@@ -247,7 +247,10 @@ Codex, and friends run in raw mode). amux earned these the hard way and pins
 them with the close-the-loop e2e tests — `internal/e2e/closeloop_test.go` drives
 a real keystroke through amux's input path into the raw-mode agent in
 `internal/e2e/fakeagent`, asserting the bytes (including a literal carriage
-return, `0x0D`) arrive intact:
+return, `0x0D`, and control bytes like `Ctrl+Q`/`0x11`) arrive intact. A
+sibling test (`sidebar_control_keys_test.go`) proves the same delivery for a
+focused sidebar terminal — `Ctrl+Q` and `Ctrl+]` reach it as `0x11`/`0x1D`,
+while the center pane keeps `Ctrl+]` for its own tab cycling:
 
 1. **Submit with a literal carriage return, not the named `Enter` key.** A raw-mode
    TUI never sees the named key translated to `0x0D`. Send the CR explicitly:

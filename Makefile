@@ -206,11 +206,13 @@ tmux-skip-check:
 
 # verify-loop drives a real keystroke through amux's actual input path into a
 # real raw-mode agent and asserts the bytes (including a literal carriage
-# return) arrive intact. This is the gate to run for any change to the
-# send/Enter/tmux/agent input path: unlike `make devcheck` (which passes even
-# when the real-tmux tests skip) and the render-only harness, a green run here
-# means a real agent actually received the input end-to-end. Requires git and
-# tmux, and fails before running tests if either is unavailable.
+# return and control bytes like Ctrl+Q/Ctrl+]) arrive intact — in both the
+# center agent pane and a focused sidebar terminal. This is the gate to run
+# for any change to the send/Enter/tmux/agent input path: unlike
+# `make devcheck` (which passes even when the real-tmux tests skip) and the
+# render-only harness, a green run here means a real agent actually received
+# the input end-to-end. Requires git and tmux, and fails before running
+# tests if either is unavailable.
 verify-loop:
 	@command -v git >/dev/null 2>&1 || { echo "make verify-loop: git is required" >&2; exit 1; }
 	@command -v tmux >/dev/null 2>&1 || { echo "make verify-loop: tmux is required" >&2; exit 1; }
@@ -221,12 +223,12 @@ verify-loop:
 	fi; \
 	tmux -L "$$server" kill-server >/dev/null 2>&1 || true
 	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
-	if ! go test ./internal/e2e -run 'TestCloseLoopKeystrokeDeliveryToRawAgent|TestFakeAgentRecordsRawCarriageReturn' -count=1 -v >"$$output" 2>&1; then \
+	if ! go test ./internal/e2e -run 'TestCloseLoopKeystrokeDeliveryToRawAgent|TestFakeAgentRecordsRawCarriageReturn|TestCloseLoopSidebarControlKeysReachRawProcess' -count=1 -v >"$$output" 2>&1; then \
 		cat "$$output"; \
 		exit 1; \
 	fi; \
 	cat "$$output"; \
-	for t in TestCloseLoopKeystrokeDeliveryToRawAgent TestFakeAgentRecordsRawCarriageReturn; do \
+	for t in TestCloseLoopKeystrokeDeliveryToRawAgent TestFakeAgentRecordsRawCarriageReturn TestCloseLoopSidebarControlKeysReachRawProcess; do \
 		if ! grep -qE -- "--- PASS: $$t[ (]" "$$output"; then \
 			echo "make verify-loop: $$t did not PASS (missing, renamed, or skipped) — the input gate is vacuous" >&2; \
 			exit 1; \

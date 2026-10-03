@@ -149,7 +149,10 @@ chords, to the hosted shell):
   need more than one `^C`, like Claude, get the configured count) — it is not a
   quit key; quit is `C-Space q`.
 - `Ctrl+N` / `Ctrl+P` (or `Ctrl+]`) cycle center terminal tabs; `Ctrl+W` closes
-  the current one.
+  the current one. Unreserved control chords reach the focused terminal as
+  their bytes — `Ctrl+Q` arrives as `0x11` in either pane, and `Ctrl+]`
+  arrives as `0x1D` in a focused sidebar terminal (center keeps it for tab
+  cycling).
 - `PgUp` / `PgDn` scroll the focused terminal's scrollback (a quarter page in
   the center pane, a half page in a sidebar terminal); the mouse wheel
   scrolls whichever pane the pointer is over (`Shift`+wheel forces amux

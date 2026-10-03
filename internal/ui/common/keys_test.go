@@ -22,8 +22,8 @@ func TestKeyToBytes(t *testing.T) {
 		// This is the documented historical regression the e2e test cites.
 		{"enter is CR not LF", tea.KeyPressMsg{Code: tea.KeyEnter}, []byte{'\r'}},
 
-		// Ctrl+letter control bytes (ctrl+i/tab, ctrl+m/enter, and ctrl+q are
-		// absent from the switch in keys.go; i and m arrive as KeyTab/KeyEnter).
+		// Ctrl+letter control bytes (ctrl+i/tab and ctrl+m/enter arrive as
+		// KeyTab/KeyEnter — they are handled by the non-ctrl switch below).
 		{"ctrl+a", tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl}, []byte{0x01}},
 		{"ctrl+b", tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}, []byte{0x02}},
 		{"ctrl+c", tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, []byte{0x03}},
@@ -38,6 +38,7 @@ func TestKeyToBytes(t *testing.T) {
 		{"ctrl+n", tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}, []byte{0x0e}},
 		{"ctrl+o", tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}, []byte{0x0f}},
 		{"ctrl+p", tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}, []byte{0x10}},
+		{"ctrl+q", tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl}, []byte{0x11}},
 		{"ctrl+r", tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}, []byte{0x12}},
 		{"ctrl+s", tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}, []byte{0x13}},
 		{"ctrl+t", tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl}, []byte{0x14}},
@@ -52,6 +53,10 @@ func TestKeyToBytes(t *testing.T) {
 		// them through the non-ctrl switch (the "handled below" comment).
 		{"ctrl+i as tab", tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModCtrl}, []byte{'\t'}},
 		{"ctrl+m as enter", tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}, []byte{'\r'}},
+
+		// Ctrl+] reaches a focused terminal as its C0 byte; the center pane
+		// reserves it for tab cycling before the encoder ever sees it.
+		{"ctrl+]", tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl}, []byte{0x1d}},
 
 		// Editing and whitespace keys.
 		{"backspace", tea.KeyPressMsg{Code: tea.KeyBackspace}, []byte{0x7f}},

@@ -105,13 +105,14 @@ func TestCloseLoopKeystrokeDeliveryToRawAgent(t *testing.T) {
 	// input, so waiting for it gates the test against premature sends (bug #4).
 	waitForUIContains(t, session, "FAKEAGENT READY", closeLoopTimeout)
 
-	// Type into the focused agent. amux must forward a literal CR (0x0D), Ctrl+U
-	// (0x15), and Ctrl+D (0x04) through the real TUI/tmux/raw-agent path.
-	if err := session.SendBytes([]byte{'h', 'e', 'l', 'l', 'o', 0x0d, 0x15, 0x04}); err != nil {
+	// Type into the focused agent. amux must forward a literal CR (0x0D),
+	// Ctrl+Q (0x11), Ctrl+U (0x15), and Ctrl+D (0x04) through the real
+	// TUI/tmux/raw-agent path.
+	if err := session.SendBytes([]byte{'h', 'e', 'l', 'l', 'o', 0x0d, 0x11, 0x15, 0x04}); err != nil {
 		t.Fatalf("send keystrokes: %v", err)
 	}
 
-	want := []byte{'h', 'e', 'l', 'l', 'o', 0x0d, 0x15, 0x04}
+	want := []byte{'h', 'e', 'l', 'l', 'o', 0x0d, 0x11, 0x15, 0x04}
 	got, ok := waitForFileBytes(logPath, want, closeLoopTimeout)
 	if !ok {
 		t.Fatalf("agent did not receive intact keystrokes via amux\n got: % x\nwant: % x\n\nscreen:\n%s",
@@ -127,10 +128,10 @@ func TestCloseLoopKeystrokeDeliveryToRawAgent(t *testing.T) {
 	// Some terminals send Ctrl+U/Ctrl+D using the CSI-u keyboard protocol once
 	// the app requests keyboard enhancements. Verify those enhanced key reports
 	// still become the control bytes a raw agent expects.
-	if err := session.SendString("\x1b[117;5u\x1b[100;5u"); err != nil {
+	if err := session.SendString("\x1b[117;5u\x1b[100;5u\x1b[113;5u"); err != nil {
 		t.Fatalf("send enhanced ctrl keys: %v", err)
 	}
-	wantEnhanced := append(want, 0x15, 0x04)
+	wantEnhanced := append(want, 0x15, 0x04, 0x11)
 	got, ok = waitForFileBytes(logPath, wantEnhanced, closeLoopTimeout)
 	if !ok {
 		t.Fatalf("agent did not receive enhanced Ctrl+U/Ctrl+D via amux\n got: % x\nwant: % x\n\nscreen:\n%s",
