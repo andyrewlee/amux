@@ -126,7 +126,9 @@ merged on top of them. (This is per-user global config, distinct from the
 per-project `.amux/workspaces.json` described in the README — whose lifecycle
 scripts run under amux's teardown ordering: delete/shelve cancels and drains
 in-flight setup and on-done hooks, stops the run script, then runs `archive`
-before the worktree is removed.)
+before the worktree is removed. On-done dispatch is independent per eligible
+session — one hook's dispatch failure reports its own warning without
+blocking the rest of the same scan, and completed edges never replay.)
 
 Loading is tolerant, but **saving is strict**: when amux persists a section
 (UI settings or assistants) it first reads the existing document and refuses

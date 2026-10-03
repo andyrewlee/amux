@@ -293,7 +293,10 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
   `notify_on_done` bell and posts the "Agent finished" toast). It runs
   detached in the workspace root with `AMUX_SESSION` set to the session name.
   Only a strict working→done transition fires it — an agent that was already
-  finished when amux started does not trigger the hook.
+  finished when amux started does not trigger the hook. When several sessions
+  finish in the same scan every eligible hook is attempted once: a dispatch
+  failure reports its own warning and never blocks the rest, and completed
+  edges are not replayed.
 - `archive` — the command run when a workspace is archived, i.e. just before its
   worktree is deleted. It runs to completion (up to two minutes) in the worktree
   while that directory still exists, after every lifecycle subprocess has been
@@ -312,8 +315,8 @@ amux processes, so a restarted amux recording one hook can't erase the
 others. Persistence is best effort — a corrupt or newer-schema envelope is
 left untouched rather than overwritten, and transcripts are never written for
 a workspace whose record is gone. A failing `on-done` hook also
-posts a warning toast (it used to be invisible); `R` stays the live surface
-for `run`.
+posts a warning toast per failed dispatch (it used to be invisible); `R`
+stays the live surface for `run`.
 
 For the full operational picture press `i` in the Changes sidebar: a
 read-only snapshot of the workspace's reserved port range (read live from the
