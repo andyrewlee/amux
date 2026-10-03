@@ -35,6 +35,13 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			logging.Info("Dialog Enter pressed: id=%s type=%d", d.id, d.dtype)
 			switch d.dtype {
 			case DialogInput:
+				// Re-validate the current value on Enter: the cached
+				// error only reflects keystrokes, so an empty field or a
+				// programmatically prefilled value could otherwise accept
+				// input its validator rejects.
+				if d.inputValidate != nil {
+					d.validationErr = d.inputValidate(d.input.Value())
+				}
 				// Block Enter if validation fails
 				if d.validationErr != "" {
 					return d, nil

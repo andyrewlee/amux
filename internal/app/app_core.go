@@ -260,6 +260,10 @@ type dialogContext struct {
 	// runSessions carries the picker's enumerated sessions so the result
 	// handler maps the dialog's Index back to a session entry.
 	runSessions []process.RunSessionEntry
+	// portReleaseCount is the displayed orphan count the typed-confirm
+	// release dialog asked for — enforced intent, not just ceremony: the
+	// result handler rejects any typed value that does not match it.
+	portReleaseCount int
 }
 
 // pendingWorkspaceCreateState is the create-workspace→agent-picker handoff:

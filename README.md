@@ -357,8 +357,9 @@ instead of silently reusing one. The `i` workspace-status dialog reports how
 many reservations are held by workspace IDs that no longer exist (no live,
 shelved, or in-flight record, no tagged session — a shelved workspace keeps
 its range until it is restored or fully deleted); `R` there opens a
-typed-confirm release that re-verifies the orphans fresh before deleting
-them — never automatic. Treat the
+typed-confirm release — type the displayed count to proceed, then a fresh
+probe re-derives the orphans before deleting, so a changed set may release
+fewer or none — never automatic. Treat the
 registry as live state: do not delete `port-reservations.json` while any amux
 session exists.
 

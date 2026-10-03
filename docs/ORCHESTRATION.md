@@ -409,12 +409,14 @@ state home. The contract an orchestrator can rely on:
   workspace IDs absent from the live model, retained shelves, in-flight
   creates/mutations, and every tagged session. A shelved record is still an
   owner: its range survives until the shelf is restored or fully deleted.
-  From that dialog, `R` opens a typed-confirm release: on confirm the
-  orphan probe is re-run fresh (the displayed set is never trusted —
-  re-derivation is fail-closed, so staleness can only under-release), and
-  exactly the still-orphaned entries are deleted under the registry flock.
-  Release is never automatic; the only path to deletion is this
-  user-confirmed action.
+  From that dialog, `R` opens a typed-confirm release: the user types the
+  displayed positive count — the bound count is enforced at the consumer,
+  so an empty or mismatched entry never reaches the registry — and on
+  confirm the orphan probe is re-run fresh (the displayed set is never
+  trusted — re-derivation is fail-closed, so staleness can only
+  under-release), and exactly the still-orphaned entries are deleted under
+  the registry flock. Release is never automatic; the only path to
+  deletion is this user-confirmed action.
 - **Exhaustion/corruption fail closed**: a saturated space reports a typed
   exhaustion error; malformed, overlapping, or newer-schema bytes are left
   untouched and surfaced as errors — never silently accepted or rewritten.

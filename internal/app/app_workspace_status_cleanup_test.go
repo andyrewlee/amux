@@ -324,7 +324,7 @@ func TestReleasePortReservations_ReDerivesAndReleases(t *testing.T) {
 
 	cmd := dialogResultReleasePortReservations(app, common.DialogResult{
 		ID: DialogReleasePortReservations, Confirmed: true, Value: "2",
-	}, dialogContext{})
+	}, dialogContext{portReleaseCount: 2})
 	if cmd == nil {
 		t.Fatal("confirm produced no release cmd")
 	}
@@ -361,7 +361,7 @@ func TestReleasePortReservations_CancelAndEmpty(t *testing.T) {
 	// Nothing reserved — the fresh probe finds zero orphans.
 	cmd := dialogResultReleasePortReservations(app, common.DialogResult{
 		ID: DialogReleasePortReservations, Confirmed: true, Value: "1",
-	}, dialogContext{})
+	}, dialogContext{portReleaseCount: 1})
 	res, ok := cmd().(reservationReleaseResultMsg)
 	if !ok || res.count != 0 || res.err != nil {
 		t.Fatalf("empty release = %+v, want zero-count result", res)
