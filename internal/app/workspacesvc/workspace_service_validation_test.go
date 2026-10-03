@@ -12,9 +12,9 @@ import (
 func TestCreateWorkspaceRejectsInvalidName(t *testing.T) {
 	var createCalled bool
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
 			createCalled = true
-			return nil
+			return false, nil
 		},
 	}
 
@@ -43,9 +43,9 @@ func TestCreateWorkspaceRejectsInvalidBaseRef(t *testing.T) {
 		t.Run(base, func(t *testing.T) {
 			var createCalled bool
 			mock := &testutil.FakeGitOps{
-				CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+				CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
 					createCalled = true
-					return nil
+					return false, nil
 				},
 			}
 
@@ -74,9 +74,9 @@ func TestCreateWorkspaceRejectsInvalidBaseRef(t *testing.T) {
 func TestCreateWorkspaceRejectsPathOutsideManagedRoot(t *testing.T) {
 	var createCalled bool
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) error {
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
 			createCalled = true
-			return nil
+			return false, nil
 		},
 	}
 

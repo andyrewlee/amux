@@ -86,8 +86,8 @@ func TestShelveWorkspace_KillsSessionsBeforeReturn(t *testing.T) {
 
 func TestRestoreWorkspace_DoesNotResurrectSessions(t *testing.T) {
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, workspacePath, _, _ string) error {
-			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+		CreateWorkspaceFunc: func(_, workspacePath, _, _ string) (bool, error) {
+			return false, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 	}
 	svc, project, ws, store := newShelveHarness(t, mock)
@@ -150,9 +150,9 @@ func TestRestoreWorkspace_RecreatesFromKeptBranch(t *testing.T) {
 		path, branch string
 	}
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, workspacePath, branch, _ string) error {
+		CreateWorkspaceFunc: func(_, workspacePath, branch, _ string) (bool, error) {
 			created.path, created.branch = workspacePath, branch
-			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+			return false, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 	}
 	svc, project, ws, store := newShelveHarness(t, mock)
@@ -186,9 +186,9 @@ func TestRestoreWorkspace_SkipsWhenRecordAlreadyLive(t *testing.T) {
 	// rather than re-running worktree add against the restored dir.
 	var createCalls int
 	svc, project, ws, _ := newShelveHarness(t, &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, _, _, _ string) error {
+		CreateWorkspaceFunc: func(_, _, _, _ string) (bool, error) {
 			createCalls++
-			return nil
+			return false, nil
 		},
 	})
 	// Snapshot claims shelved; the store record stayed live.
@@ -278,9 +278,9 @@ func TestRestoreWorkspace_AdoptsLeftoverWorktree(t *testing.T) {
 	// restore must adopt it rather than wedging on "already exists".
 	var createCalls int
 	svc, project, ws, store := newShelveHarness(t, &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, _, _, _ string) error {
+		CreateWorkspaceFunc: func(_, _, _, _ string) (bool, error) {
 			createCalls++
-			return errors.New("must not be called")
+			return false, errors.New("must not be called")
 		},
 	})
 	ws.Archived = true
@@ -310,8 +310,8 @@ func TestRestoreWorkspace_AdoptsLeftoverWorktree(t *testing.T) {
 func TestRestoreWorkspace_RollsBackCreatedWorktreeOnUnarchiveFailure(t *testing.T) {
 	var removed bool
 	svc, project, ws, store := newShelveHarness(t, &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, workspacePath, _, _ string) error {
-			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+		CreateWorkspaceFunc: func(_, workspacePath, _, _ string) (bool, error) {
+			return false, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 		RemoveWorkspaceFunc: func(_, _ string) error { removed = true; return nil },
 	})

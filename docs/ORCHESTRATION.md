@@ -98,6 +98,14 @@ into the tree never outlives the tree's removal, and while the gate is held
 the runner rejects new lifecycle starts (`ErrWorkspaceTeardown`). External
 tooling must not remove a workspace's directory without the same ordering.
 
+**Creation rollback is ownership-scoped**: the git create path reports
+whether the call created the branch (`worktree add -b`) or attached to a
+pre-existing one, and a failed create removes its worktree under the
+per-repo git lock while deleting the branch **only** when that call created
+it. Attaching an existing branch gives the create ownership of the worktree
+cleanup, never of the ref — a pre-existing branch survives a rolled-back
+create untouched.
+
 A delete interrupted mid-flight (crash, kill) leaves a durable `.deleting`
 tombstone in the workspace's metadata dir. Startup recovery retries the
 finish automatically on the next load; the `i` workspace-status dialog

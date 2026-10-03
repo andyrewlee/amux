@@ -60,7 +60,7 @@ Then run `amux` to open the dashboard.
 
 ## How it works
 
-Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done.
+Each workspace tracks a repo checkout and its metadata. For local workflows, workspaces are typically backed by git worktrees on their own branches so agents work in isolation and you can merge changes back when done. If the requested branch already exists, amux attaches the worktree to it instead of failing — and if creation then fails partway, rollback removes the worktree it made but never deletes a branch it did not create.
 
 Both write actions are available from the UI, each behind an explicit confirmation:
 
