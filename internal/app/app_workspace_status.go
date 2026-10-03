@@ -407,9 +407,14 @@ type reservationReleaseResultMsg struct {
 
 // openReservationReleaseDialog swaps the workspace-status viewer for the
 // typed-confirm gate. The viewer closes first — overlay arbitration forbids
-// stacking a dialog over it — and the count captured here only seeds the
-// confirm text; the released set is re-derived at confirm time.
+// stacking a dialog over it — and the displayed count is bound into the
+// dialog context as the expected confirmation, enforced at the consumer
+// alongside the fresh orphan probe (the released set is still re-derived at
+// confirm time, never trusted from display).
 func (a *App) openReservationReleaseDialog(count int) {
+	if count <= 0 {
+		return
+	}
 	a.closeRunOutputDialog()
 	want := strconv.Itoa(count)
 	a.dialog = common.NewInputDialog(
@@ -418,24 +423,28 @@ func (a *App) openReservationReleaseDialog(count int) {
 		"Type "+want+" to confirm",
 	)
 	a.dialog.SetInputValidate(func(s string) string {
-		if s == "" {
-			return "" // no nag on empty — the hint is already visible
-		}
 		if strings.TrimSpace(s) != want {
 			return "Type " + want + " to confirm the release"
 		}
 		return ""
 	})
+	a.dlg = dialogContext{portReleaseCount: count}
 	a.presentDialog(a.dialog)
 }
 
-// dialogResultReleasePortReservations runs the release on confirm. The typed
-// count is ceremony — the load-bearing invariant is that the orphan set is
-// RE-DERIVED inside the cmd, never trusted from display time (a workspace
-// could have been deleted or its sessions recreated since the viewer opened).
-// Re-derivation is fail-closed: a stale probe under-releases, never over-.
-func dialogResultReleasePortReservations(a *App, result common.DialogResult, _ dialogContext) tea.Cmd {
+// dialogResultReleasePortReservations runs the release on confirm. Two
+// gates: the typed value must equal the displayed count captured in the
+// dialog's context (intent enforcement — an empty or wrong submission never
+// reaches the registry), and the orphan set is RE-DERIVED inside the cmd,
+// never trusted from display time (a workspace could have been deleted or
+// its sessions recreated since the viewer opened). Re-derivation is
+// fail-closed: a stale probe under-releases, never over-.
+func dialogResultReleasePortReservations(a *App, result common.DialogResult, dlg dialogContext) tea.Cmd {
 	if !result.Confirmed || a.workspaceService == nil {
+		return nil
+	}
+	if dlg.portReleaseCount <= 0 ||
+		strings.TrimSpace(result.Value) != strconv.Itoa(dlg.portReleaseCount) {
 		return nil
 	}
 	svc := a.workspaceService

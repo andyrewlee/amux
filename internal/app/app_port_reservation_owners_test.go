@@ -63,7 +63,7 @@ func TestPortReservationOwners_ShelfRetainedOnRelease(t *testing.T) {
 	// Release through the real confirm path: only the true orphan goes.
 	cmd := dialogResultReleasePortReservations(app, common.DialogResult{
 		ID: DialogReleasePortReservations, Confirmed: true, Value: "1",
-	}, dialogContext{})
+	}, dialogContext{portReleaseCount: 1})
 	res, ok := cmd().(reservationReleaseResultMsg)
 	if !ok {
 		t.Fatalf("release cmd emitted %T", cmd())
@@ -141,7 +141,7 @@ func TestPortReservationOwners_IdentityAliases(t *testing.T) {
 	}
 	cmd := dialogResultReleasePortReservations(app, common.DialogResult{
 		ID: DialogReleasePortReservations, Confirmed: true, Value: "1",
-	}, dialogContext{})
+	}, dialogContext{portReleaseCount: 1})
 	res, _ := cmd().(reservationReleaseResultMsg)
 	if res.err != nil || res.count != 1 {
 		t.Fatalf("release = %+v, want 1,nil", res)
