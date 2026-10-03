@@ -26,6 +26,8 @@ import (
 type ProjectEnvStore struct {
 	path string
 	mu   sync.Mutex
+	// readFile is a per-instance test seam; nil means os.ReadFile.
+	readFile func(string) ([]byte, error)
 }
 
 // NewProjectEnvStore returns a store whose backing file is dir/project-env.json.
@@ -66,15 +68,19 @@ func (s *ProjectEnvStore) Set(repoPath string, env map[string]string) error {
 	defer s.mu.Unlock()
 	all, err := s.load()
 	if err != nil {
-		if errors.Is(err, ErrUnsupportedSchemaVersion) {
-			// A newer-schema file is valid data from a newer binary —
-			// refuse the write rather than clobbering it at our version.
+		var synErr *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &synErr) || errors.As(err, &typeErr) {
+			// A corrupt file is replaced wholesale — Set is the
+			// authoritative write and holding onto unparseable bytes
+			// would wedge every future edit.
+			all = map[string]map[string]string{}
+		} else {
+			// A newer schema or any non-decode read failure is existing
+			// state this binary cannot inspect — refuse rather than
+			// clobbering bytes that may hold other projects' env.
 			return err
 		}
-		// A corrupt file is replaced wholesale — Set is the authoritative
-		// write and holding onto unparseable bytes would wedge every future
-		// edit.
-		all = map[string]map[string]string{}
 	}
 	if len(env) == 0 {
 		delete(all, key)
@@ -102,7 +108,11 @@ type projectEnvFile struct {
 }
 
 func (s *ProjectEnvStore) load() (map[string]map[string]string, error) {
-	raw, err := os.ReadFile(s.path)
+	read := os.ReadFile
+	if s.readFile != nil {
+		read = s.readFile
+	}
+	raw, err := read(s.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return map[string]map[string]string{}, nil

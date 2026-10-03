@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -65,6 +66,8 @@ func (e *ScriptsNotTrustedError) Unwrap() error {
 // same IsTrusted check.
 type ScriptTrust struct {
 	path string
+	// readFile is a per-instance test seam; nil means os.ReadFile.
+	readFile func(string) ([]byte, error)
 }
 
 // NewScriptTrust returns a registry whose backing file lives in dir.
@@ -107,51 +110,85 @@ type scriptTrustFile struct {
 // an unreadable, unparseable, or unknown-version file yields an empty map and
 // a logged warning, so callers fail closed.
 func (t *ScriptTrust) load() map[string]string {
-	if t == nil || t.path == "" {
-		return map[string]string{}
+	entries, err := t.loadStrict()
+	if err == nil {
+		return entries
 	}
-	raw, err := os.ReadFile(t.path)
-	if os.IsNotExist(err) {
-		return map[string]string{}
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, data.ErrUnsupportedSchemaVersion):
+		logging.Warn("Ignoring script trust registry %s: %v", t.path, err)
+	case isScriptTrustDecodeErr(err):
+		logging.Warn("Ignoring corrupt script trust registry %s: %v", t.path, err)
+	default:
 		logging.Warn("Could not read script trust registry %s: %v", t.path, err)
-		return map[string]string{}
+	}
+	return map[string]string{}
+}
+
+// loadStrict reads the registry like load but returns classified errors so
+// the write path can tell a missing file (empty state), corrupt JSON (the
+// deliberate replacement-recovery path), a newer schema, or an unreadable
+// file (refuse the write — never clobber bytes we could not inspect).
+func (t *ScriptTrust) loadStrict() (map[string]string, error) {
+	if t == nil || t.path == "" {
+		return map[string]string{}, nil
+	}
+	read := os.ReadFile
+	if t.readFile != nil {
+		read = t.readFile
+	}
+	raw, err := read(t.path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return map[string]string{}, nil
+		}
+		return nil, err
 	}
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		logging.Warn("Ignoring corrupt script trust registry %s: %v", t.path, err)
-		return map[string]string{}
+		return nil, err
 	}
 	if _, isEnvelope := probe["version"]; isEnvelope {
+		// Decode the version first and refuse a supportedly-encoded future
+		// integer before decoding `trusted` — a newer-format file is never
+		// parsed leniently, that could manufacture trust from fields we
+		// don't understand.
+		var version int
+		if err := json.Unmarshal(probe["version"], &version); err != nil {
+			return nil, err
+		}
+		if version > scriptTrustFileVersion {
+			return nil, fmt.Errorf("%w: trusted-scripts.json schema %d (newest known: %d)", data.ErrUnsupportedSchemaVersion, version, scriptTrustFileVersion)
+		}
 		var file scriptTrustFile
 		if err := json.Unmarshal(raw, &file); err != nil {
-			logging.Warn("Ignoring corrupt script trust registry %s: %v", t.path, err)
-			return map[string]string{}
-		}
-		if file.Version > scriptTrustFileVersion {
-			// Fail closed: a newer-format file is never parsed leniently —
-			// that could manufacture trust from fields we don't understand.
-			logging.Warn("Ignoring script trust registry %s with unsupported schema version %d", t.path, file.Version)
-			return map[string]string{}
+			return nil, err
 		}
 		if file.Trusted == nil {
-			return map[string]string{}
+			return map[string]string{}, nil
 		}
-		return file.Trusted
+		return file.Trusted, nil
 	}
 	// v0: bare map shape.
 	entries := map[string]string{}
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		logging.Warn("Ignoring corrupt script trust registry %s: %v", t.path, err)
-		return map[string]string{}
+		return nil, err
 	}
 	if entries == nil {
 		// A valid top-level `null` decodes to nil — empty state, same as the
 		// v1 envelope's nil-Trusted branch. Never an approval on its own.
-		return map[string]string{}
+		return map[string]string{}, nil
 	}
-	return entries
+	return entries, nil
+}
+
+// isScriptTrustDecodeErr reports whether err came from JSON decoding — the
+// only failure mode where replacing existing registry bytes is the designed
+// recovery.
+func isScriptTrustDecodeErr(err error) bool {
+	var synErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &synErr) || errors.As(err, &typeErr)
 }
 
 // IsTrusted reports whether the user has approved the current content of
@@ -172,33 +209,6 @@ func (t *ScriptTrust) IsTrusted(repoPath string, configContent []byte) bool {
 	return approved == hashConfig(configContent)
 }
 
-// checkVersion reports whether the on-disk registry has a schema version
-// newer than this binary writes. load() intentionally fails closed to an
-// empty map for every failure mode, so Trust must probe the file itself —
-// otherwise a downgrade would overwrite a newer binary's approvals at v1.
-func (t *ScriptTrust) checkVersion() error {
-	raw, err := os.ReadFile(t.path)
-	if err != nil {
-		return nil // missing/unreadable: load() already fails closed
-	}
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &probe); err != nil {
-		return nil // corrupt: replacing it is the designed recovery path
-	}
-	rawVersion, ok := probe["version"]
-	if !ok {
-		return nil // v0 bare map: upgrades on write
-	}
-	var version int
-	if err := json.Unmarshal(rawVersion, &version); err != nil {
-		return nil
-	}
-	if version > scriptTrustFileVersion {
-		return fmt.Errorf("%w: trusted-scripts.json schema %d (newest known: %d)", data.ErrUnsupportedSchemaVersion, version, scriptTrustFileVersion)
-	}
-	return nil
-}
-
 // Trust records configContent as the approved content for repoPath, writing the
 // registry atomically (temp + fsync + rename) the same way the workspace store
 // persists its JSON state.
@@ -215,10 +225,19 @@ func (t *ScriptTrust) Trust(repoPath string, configContent []byte) error {
 		// recording one would "succeed" while granting no real trust.
 		return nil
 	}
-	if err := t.checkVersion(); err != nil {
-		return err
+	entries, err := t.loadStrict()
+	if err != nil {
+		if isScriptTrustDecodeErr(err) {
+			// Corrupt JSON is the designed recovery path: an explicit
+			// approval is authoritative and replaces the file wholesale.
+			entries = map[string]string{}
+		} else {
+			// A newer schema or an unreadable registry is existing state
+			// we cannot inspect — refuse before creating directories or
+			// writing so the existing bytes survive.
+			return err
+		}
 	}
-	entries := t.load()
 	entries[key] = hashConfig(configContent)
 
 	if err := os.MkdirAll(filepath.Dir(t.path), 0o700); err != nil {
