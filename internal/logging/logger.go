@@ -53,7 +53,11 @@ type Logger struct {
 	writeErrReported atomic.Bool
 }
 
-var defaultLogger *Logger
+// defaultLogger swaps atomically: Initialize runs once at startup in the real
+// binary, but tests re-initialize per fixture while stray goroutines (retired
+// input writers, async drains) can still be mid-log. A plain pointer would
+// race that swap; Load/Store keep every log call race-free.
+var defaultLogger atomic.Pointer[Logger]
 
 const (
 	logDateLayout          = "2006-01-02"
@@ -94,7 +98,7 @@ func Initialize(logDir string, level Level) error {
 	}
 	l.level.Store(int32(level))
 	l.enabled.Store(true)
-	defaultLogger = l
+	defaultLogger.Store(l)
 
 	return nil
 }
@@ -176,8 +180,8 @@ func pruneOldLogs(logDir string, retentionDays int) error {
 
 // SetEnabled enables or disables logging
 func SetEnabled(enabled bool) {
-	if defaultLogger != nil {
-		defaultLogger.enabled.Store(enabled)
+	if l := defaultLogger.Load(); l != nil {
+		l.enabled.Store(enabled)
 	}
 }
 
@@ -201,7 +205,7 @@ func ParseLevel(name string) (Level, bool) {
 
 // log writes a log entry
 func log(level Level, format string, args ...any) {
-	l := defaultLogger
+	l := defaultLogger.Load()
 	if l == nil {
 		return
 	}
@@ -252,8 +256,8 @@ func Error(format string, args ...any) {
 
 // Close closes the log file
 func Close() error {
-	if defaultLogger != nil && defaultLogger.writer != nil {
-		if closer, ok := defaultLogger.writer.(io.Closer); ok {
+	if l := defaultLogger.Load(); l != nil && l.writer != nil {
+		if closer, ok := l.writer.(io.Closer); ok {
 			return closer.Close()
 		}
 	}
@@ -262,8 +266,8 @@ func Close() error {
 
 // GetLogPath returns the current log file path
 func GetLogPath() string {
-	if defaultLogger != nil {
-		return defaultLogger.filePath
+	if l := defaultLogger.Load(); l != nil {
+		return l.filePath
 	}
 	return ""
 }

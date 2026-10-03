@@ -25,7 +25,7 @@ func setupLogger(t *testing.T, level Level) (string, func()) {
 	cleanup := func() {
 		once.Do(func() {
 			_ = Close()
-			defaultLogger = nil
+			defaultLogger.Store(nil)
 		})
 	}
 	t.Cleanup(cleanup)
@@ -99,7 +99,7 @@ func TestInitializeCreatesPrivateLogDir(t *testing.T) {
 	}
 	defer func() {
 		_ = Close()
-		defaultLogger = nil
+		defaultLogger.Store(nil)
 	}()
 
 	info, err := os.Stat(logDir)
