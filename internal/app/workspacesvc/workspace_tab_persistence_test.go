@@ -377,3 +377,92 @@ func TestRestoreUnarchive_PreservesConcurrentFieldWrites(t *testing.T) {
 		t.Fatalf("restore reverted concurrent rename: Name=%q", loaded.Name)
 	}
 }
+
+// TestSyncWorkspaceTabs_FieldwisePreservesUnownedFields proves the tmux-sync
+// write applies only OpenTabs to the fresh record: concurrent Env/Name edits
+// and the stored ActiveTabIndex (not tmux state) survive the commit.
+func TestSyncWorkspaceTabs_FieldwisePreservesUnownedFields(t *testing.T) {
+	svc, ws, store := newTabPersistHarness(t)
+
+	if err := store.SetEnv(ws.MetadataID(), map[string]string{"LIVE": "yes"}); err != nil {
+		t.Fatalf("SetEnv() error = %v", err)
+	}
+	if err := store.Rename(ws.MetadataID(), "live-name"); err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if err := store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+		fresh.ActiveTabIndex = 3
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed ActiveTabIndex error = %v", err)
+	}
+	// The caller's snapshot is stale on every field the sync does not own.
+	ws.ActiveTabIndex = 0
+
+	committed, err := svc.SyncWorkspaceTabs(ws, tabsNamed("a", "b"))
+	if err != nil {
+		t.Fatalf("SyncWorkspaceTabs() error = %v", err)
+	}
+	if !committed {
+		t.Fatal("changed tabs should commit")
+	}
+	loaded, err := store.Load(ws.MetadataID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.OpenTabs) != 2 {
+		t.Fatalf("tabs not persisted: OpenTabs=%v", loaded.OpenTabs)
+	}
+	if loaded.ActiveTabIndex != 3 {
+		t.Fatalf("sync must not own ActiveTabIndex: got %d, want 3", loaded.ActiveTabIndex)
+	}
+	if loaded.Env["LIVE"] != "yes" || loaded.Name != "live-name" {
+		t.Fatalf("stale snapshot clobbered concurrent fields: Name=%q Env=%v", loaded.Name, loaded.Env)
+	}
+}
+
+// TestSyncWorkspaceTabs_NoOpReportsFalse proves the committed contract
+// suppression relies on: tabs the record already holds are a no-op, so
+// wrote=false — no self-write marker may be recorded.
+func TestSyncWorkspaceTabs_NoOpReportsFalse(t *testing.T) {
+	svc, ws, store := newTabPersistHarness(t)
+	tabs := tabsNamed("a", "b")
+	if err := store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
+		fresh.OpenTabs = tabs
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed tabs error = %v", err)
+	}
+
+	committed, err := svc.SyncWorkspaceTabs(ws, tabs)
+	if err != nil {
+		t.Fatalf("SyncWorkspaceTabs() error = %v", err)
+	}
+	if committed {
+		t.Fatal("identical tabs must report committed=false")
+	}
+}
+
+// TestSyncWorkspaceTabs_MissingRecordCreates proves the fallback: a workspace
+// with no stored record gets the caller's snapshot written whole with the
+// observed tabs applied.
+func TestSyncWorkspaceTabs_MissingRecordCreates(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := New(nil, store, nil, t.TempDir())
+	ws := data.NewWorkspace("feat", "feat", "main", t.TempDir(), t.TempDir()+"/feat")
+
+	committed, err := svc.SyncWorkspaceTabs(ws, tabsNamed("a"))
+	if err != nil {
+		t.Fatalf("SyncWorkspaceTabs() error = %v", err)
+	}
+	if !committed {
+		t.Fatal("missing-record create should report committed=true")
+	}
+	loaded, err := store.Load(ws.MetadataID())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.OpenTabs) != 1 || loaded.OpenTabs[0].Name != "a" {
+		t.Fatalf("created record missing sync tabs: %#v", loaded.OpenTabs)
+	}
+}

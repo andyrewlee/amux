@@ -79,20 +79,26 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 	}
 	if changed {
 		wsSnapshot := snapshotWorkspaceForSave(ws)
+		tabs := wsSnapshot.OpenTabs
 		wsID := string(wsSnapshot.ID())
 		cmds = append(cmds, func() tea.Msg {
 			var saveErr error
+			var wrote bool
 			saved := a.runUnlessWorkspaceMutationInFlight(wsID, func() {
-				saveErr = a.workspaceService.Save(wsSnapshot)
+				// Field-wise commit: only OpenTabs is written, onto the fresh
+				// record inside the store lock — concurrent field edits
+				// committed since the snapshot are never clobbered.
+				wrote, saveErr = a.workspaceService.SyncWorkspaceTabs(wsSnapshot, tabs)
 			})
 			if !saved {
 				return nil
 			}
 			if saveErr != nil {
 				logging.Warn("Failed to sync workspace tabs: %v", saveErr)
-			} else {
+			} else if wrote {
 				// Marker bookkeeping is intentionally outside delete-state guard.
-				// Delete safety is enforced by the guarded Save above.
+				// Delete safety is enforced by the guarded Update above, and
+				// the marker only covers bytes we actually committed.
 				a.markLocalWorkspaceSaveForID(wsID)
 			}
 			return nil

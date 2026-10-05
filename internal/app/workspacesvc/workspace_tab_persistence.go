@@ -180,3 +180,56 @@ func (s *Service) saveWorkspaceTabs(id data.WorkspaceID, ws *data.Workspace, seq
 	s.tabPersist.markCommitted(id, seq)
 	return committed, nil
 }
+
+// SyncWorkspaceTabs applies a tmux-observed OpenTabs state to the stored
+// record field-wise: the fresh record inside the flock receives only the new
+// OpenTabs — every other field (Env, Scripts, a concurrent rename) is read
+// from disk at commit time, so an edit landing between the caller's snapshot
+// and this transaction is never clobbered. ActiveTabIndex is not tmux state
+// and stays untouched. The bool reports whether bytes were committed (the
+// "we wrote" contract self-write suppression depends on): no-op and
+// guard-declined saves return false.
+//
+// Unlike SaveWorkspaceTabs this write carries no capture sequence — tmux
+// sync results are observations, not ordered captures; staleness between
+// them is resolved by each transaction reading fresh.
+func (s *Service) SyncWorkspaceTabs(ws *data.Workspace, tabs []data.TabInfo) (bool, error) {
+	if s == nil || s.store == nil || ws == nil {
+		return false, nil
+	}
+	id := ws.MetadataID()
+	if id == "" {
+		return false, nil
+	}
+	committed := false
+	err := s.store.Update(id, func(fresh *data.Workspace) (bool, error) {
+		if s.isMutationInFlight(fresh) {
+			return false, errTabSaveSkipped
+		}
+		cloned := slices.Clone(tabs)
+		if slices.Equal(fresh.OpenTabs, cloned) {
+			return false, nil
+		}
+		fresh.OpenTabs = cloned
+		committed = true
+		return true, nil
+	})
+	if errors.Is(err, errTabSaveSkipped) {
+		return false, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		if s.isMutationInFlight(ws) {
+			return false, nil
+		}
+		// No record to field-write — persist the caller's record whole, same
+		// as saveWorkspaceTabs' missing-record create.
+		full := *ws
+		full.OpenTabs = slices.Clone(tabs)
+		err = s.store.Save(&full)
+		committed = err == nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return committed, nil
+}
