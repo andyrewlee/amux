@@ -23,6 +23,18 @@ var ErrSetupBusy = errors.New("setup already running for workspace")
 // rejected so nothing new starts mid-removal.
 var ErrWorkspaceTeardown = errors.New("workspace teardown in progress")
 
+// ErrOnDoneLimit reports that a workspace already has maxOnDoneHooks detached
+// on-done hooks in flight. It is a fan-out bound, not a failure of the hook
+// itself — the rejected spawn is killed and reaped by its caller, and later
+// edges admit again once earlier hooks finish.
+var ErrOnDoneLimit = errors.New("on-done hook limit reached for workspace")
+
+// maxOnDoneHooks bounds the detached on-done hooks one workspace may have in
+// flight at once. The map exists so teardown can drain every hook; without a
+// bound a hooked workspace could fan out detached processes and tracker
+// entries indefinitely.
+const maxOnDoneHooks = 8
+
 // lifecycleTicket is one admitted setup sequence. The context spans the whole
 // sequence — each command checks it before Start, and teardown cancels it once
 // to abort the in-flight command plus every queued command alike. done closes
@@ -152,21 +164,25 @@ func (c *lifecycleCoordinator) ticketCurrent(key string, t *lifecycleTicket) boo
 }
 
 // admitOnDone registers a just-started on-done process for teardown tracking.
-// Returns nil,false when the teardown gate is held — the caller must kill and
-// reap the process itself.
-func (c *lifecycleCoordinator) admitOnDone(key string, cmd *exec.Cmd) (*lifecycleProc, bool) {
+// Returns the rejection — ErrWorkspaceTeardown when the gate is held,
+// ErrOnDoneLimit at the fan-out cap — and the caller must kill and reap the
+// process itself.
+func (c *lifecycleCoordinator) admitOnDone(key string, cmd *exec.Cmd) (*lifecycleProc, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	st := c.stateFor(key)
 	if st.teardown {
-		return nil, false
+		return nil, ErrWorkspaceTeardown
+	}
+	if len(st.onDone) >= maxOnDoneHooks {
+		return nil, ErrOnDoneLimit
 	}
 	if st.onDone == nil {
 		st.onDone = make(map[*lifecycleProc]struct{})
 	}
 	p := &lifecycleProc{cmd: cmd, done: make(chan struct{})}
 	st.onDone[p] = struct{}{}
-	return p, true
+	return p, nil
 }
 
 // finishOnDone unregisters a reaped on-done process and closes its drain

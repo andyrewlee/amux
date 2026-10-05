@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 )
 
 // RunSessionHost hosts a workspace's `run` script in a persistent, inspectable
@@ -171,13 +172,27 @@ func (r *ScriptRunner) runScriptHosted(ws *data.Workspace, cmdStr string) error 
 		WorkspaceName: ws.Name,
 		ProjectName:   data.ProjectNameForRepo(ws.Repo),
 	})
-	if err == nil {
-		// A session created under this instance counts as observed even if a
-		// later status sweep is the first to run — keeps the gate from
-		// hiding it when the config is removed in between.
-		r.markRunSessionSeen(ws)
+	if err != nil {
+		return err
 	}
-	return err
+	if r.postStartHook != nil {
+		r.postStartHook(scriptWorkspaceKey(ws))
+	}
+	// Post-start admission, the hosted form of RunScript's re-check: a
+	// teardown that began while Ensure ran could not have included this
+	// session in its stop sweep — kill it ourselves rather than leaving a
+	// live run session in a worktree whose removal is already decided.
+	if admErr := r.lifecycle.checkAdmission(scriptWorkspaceKey(ws)); admErr != nil {
+		if killErr := r.runHost.Kill(name); killErr != nil {
+			logging.Warn("post-admission kill of run session %s failed: %v", name, killErr)
+		}
+		return admErr
+	}
+	// A session created under this instance counts as observed even if a
+	// later status sweep is the first to run — keeps the gate from
+	// hiding it when the config is removed in between.
+	r.markRunSessionSeen(ws)
+	return nil
 }
 
 // runSessionsHosted returns the workspace's live run-session statuses: any

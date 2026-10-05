@@ -155,6 +155,11 @@ type ScriptRunner struct {
 	// the memory fold in LastScriptOutputs — the window where a concurrent
 	// record used to be clobbered by stale hydration.
 	transcriptLoadHook func()
+	// postStartHook is a test seam that runs in RunScript/runScriptHosted
+	// between the spawn (cmd.Start / Ensure) and the post-start admission
+	// re-check — the window where a teardown can slip past the early gate
+	// check. Tests flip the gate inside it to prove the loser kills+reaps.
+	postStartHook func(key string)
 }
 
 type runningScript struct {
