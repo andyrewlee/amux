@@ -194,8 +194,12 @@ func (s *WorkspaceStore) pruneWorkspaceIfStale(
 	}
 	if reason == "missing_root" && options.BeforeMissingRootRemove != nil {
 		cleanup := WorkspacePruneCleanup{WorkspaceIDs: []WorkspaceID{id}}
-		if canonicalID := ws.ID(); canonicalID != "" && canonicalID != id {
-			cleanup.WorkspaceIDs = append(cleanup.WorkspaceIDs, canonicalID)
+		// ws.ID() returns the store key for a loaded record — the missing
+		// identity form is ComputedID(), the path-derived alias sessions
+		// created under a drifted root may still be tagged with. Dedupe:
+		// the store key can itself be the computed form for legacy records.
+		if computedID := ws.ComputedID(); computedID != "" && computedID != id {
+			cleanup.WorkspaceIDs = append(cleanup.WorkspaceIDs, computedID)
 		}
 		for _, tab := range ws.OpenTabs {
 			if name := strings.TrimSpace(tab.SessionName); name != "" {

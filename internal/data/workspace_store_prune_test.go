@@ -142,6 +142,69 @@ func TestWorkspaceStorePruneStaleRetainsMissingRootWhenCleanupFails(t *testing.T
 	}
 }
 
+func TestWorkspaceStorePruneStaleCleanupIncludesComputedAlias(t *testing.T) {
+	// A record stored under a legacy key still represents the same worktree:
+	// its ComputedID is the path-derived alias sessions minted before the
+	// stable-ID era may carry. The missing-root cleanup must receive both
+	// forms so tmux teardown can reach tags from either era.
+	root := t.TempDir()
+	store := NewWorkspaceStore(filepath.Join(root, "metadata"))
+	managedRoot := filepath.Join(root, "workspaces")
+	repo := filepath.Join(root, "repo")
+	for _, path := range []string{managedRoot, repo} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ws := NewWorkspace("missing", "missing", "main", repo, filepath.Join(managedRoot, "repo", "missing"))
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	computedID := ws.ComputedID()
+	legacyID := WorkspaceID("legacy-record-id")
+	if computedID == legacyID {
+		t.Fatal("fixture must produce distinct computed and store keys")
+	}
+	if err := os.Rename(
+		filepath.Join(store.root, string(ws.ID())),
+		filepath.Join(store.root, string(legacyID)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(store.workspacePath(legacyID), old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	var cleanup WorkspacePruneCleanup
+	called := false
+	result, err := store.PruneStale(WorkspacePruneOptions{
+		RegisteredRepos:   []string{repo},
+		ManagedRoot:       managedRoot,
+		Now:               time.Now(),
+		OrphanGracePeriod: time.Hour,
+		BeforeMissingRootRemove: func(c WorkspacePruneCleanup) error {
+			called = true
+			cleanup = c
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PruneStale: %v", err)
+	}
+	if !called || result.MissingRootRemoved != 1 {
+		t.Fatalf("expected the missing-root cleanup, called=%v result=%+v", called, result)
+	}
+	got := map[WorkspaceID]bool{}
+	for _, id := range cleanup.WorkspaceIDs {
+		got[id] = true
+	}
+	if !got[legacyID] || !got[computedID] {
+		t.Fatalf("cleanup IDs = %v, want both %s and %s", cleanup.WorkspaceIDs, legacyID, computedID)
+	}
+}
+
 func TestWorkspaceStoreDeleteByRepoLeavesWorkspaceRoots(t *testing.T) {
 	root := t.TempDir()
 	store := NewWorkspaceStore(filepath.Join(root, "metadata"))

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
@@ -36,7 +38,7 @@ func TestRemoveWorkspaceFromLoadedProjects_DoesNotShiftOutstandingPointers(t *te
 	outstandingB := &app.projects[0].Workspaces[1]
 	outstandingC := &app.projects[0].Workspaces[2]
 
-	app.removeWorkspaceFromLoadedProjects(&app.projects[0].Workspaces[0])
+	app.removeWorkspaceFromLoadedProjects(&app.projects[0].Workspaces[0], nil)
 
 	if outstandingB.Root != "/tmp/workspaces/repo/b" || outstandingB.Branch != "b" {
 		t.Fatalf("pointer to workspace b drifted to %s (%s): in-place compaction re-pointed it at another workspace", outstandingB.Root, outstandingB.Branch)
@@ -73,7 +75,69 @@ func TestFilterDeletedWorkspacesFromProjectLoad_DoesNotMutateBackingArray(t *tes
 	}
 }
 
-// TestHandleDeleteWorkspace_FreezeIdentityAgainstAliasedMutation proves the
+// TestRemoveWorkspaceFromLoadedProjects_StampedSetCatchesLegacyAlias proves a
+// loaded project row keyed under a legacy identity is removed when the
+// delete message's stamped ID set contains that key — even though neither the
+// candidate's live ID nor its root matches the deleted workspace's.
+func TestRemoveWorkspaceFromLoadedProjects_StampedSetCatchesLegacyAlias(t *testing.T) {
+	// The stale loaded row carries the legacy record key as its ID(); the
+	// delete message stamps that key in WorkspaceIDs (the pre-removal
+	// identity set) — matching against the set removes the row even though
+	// the deleted workspace's own ID and root no longer coincide with it.
+	storeRoot := filepath.Join(t.TempDir(), "meta")
+	store := data.NewWorkspaceStore(storeRoot)
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	// The loaded row carries the unresolved /var spelling recorded when its
+	// era ran; the deleted workspace's stamped set was minted over the
+	// resolved /private/var spelling — same path, same ComputedID, distinct
+	// Root strings and store keys.
+	unresolvedRoot := filepath.Join(t.TempDir(), "drifted", "legacy")
+	if err := os.MkdirAll(unresolvedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolvedRoot := data.NormalizePath(unresolvedRoot)
+	if resolvedRoot == unresolvedRoot {
+		t.Skip("host has no symlinked tempdir prefix — cannot stage the drift")
+	}
+	legacyID := data.WorkspaceID("legacy-key")
+
+	candidate := data.NewWorkspace("ghost", "b", "main", repoDir, unresolvedRoot)
+	if err := store.Save(candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(
+		filepath.Join(storeRoot, string(candidate.ID())),
+		filepath.Join(storeRoot, string(legacyID)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(legacyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ID() != legacyID {
+		t.Fatalf("fixture: loaded ID = %s, want legacy key %s", loaded.ID(), legacyID)
+	}
+
+	deleted := data.NewWorkspace("gone", "b", "main", repoDir, resolvedRoot)
+	if deleted.ID() == legacyID || deleted.Root == loaded.Root {
+		t.Fatal("fixture: deleted workspace must differ from the stale row in both ID and root")
+	}
+	if deleted.ComputedID() != loaded.ComputedID() {
+		t.Fatal("fixture: resolved and unresolved spellings must share the computed identity")
+	}
+
+	project := data.NewProject(repoDir)
+	project.Workspaces = []data.Workspace{*loaded}
+	app := &App{projects: []data.Project{*project}}
+
+	app.removeWorkspaceFromLoadedProjects(deleted, workspacesvc.WorkspaceIDStrings(deleted))
+
+	if len(app.projects[0].Workspaces) != 0 {
+		t.Fatalf("stamped-alias row survived removal: %+v", app.projects[0].Workspaces)
+	}
+}
+
 // delete pipeline reads a frozen snapshot: even if the element the caller
 // handed over is overwritten mid-delete (the aliasing drift observed in the
 // logs, where a delete of "cleanup" ended up running git branch -D pickup), the

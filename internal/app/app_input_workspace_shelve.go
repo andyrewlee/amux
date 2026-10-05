@@ -107,7 +107,7 @@ func (a *App) finishWorkspaceShelved(ws *data.Workspace, stampedIDs []string) []
 	if a.workspaceService != nil {
 		a.workspaceService.ReleaseWorkspacePort(ws)
 	}
-	a.removeWorkspaceFromLoadedProjects(ws)
+	a.removeWorkspaceFromLoadedProjects(ws, stampedIDs)
 	if a.dashboard != nil {
 		a.dashboard.SetProjects(a.projects)
 	}
