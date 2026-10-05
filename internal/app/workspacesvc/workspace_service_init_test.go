@@ -209,6 +209,10 @@ func (f *fakeAssistantStore) UpsertFromDiscovery(*data.Workspace) error {
 
 func (f *fakeAssistantStore) Save(*data.Workspace) error { panic("unexpected Save") }
 
+func (f *fakeAssistantStore) SaveIfAbsent(*data.Workspace) (*data.Workspace, bool, error) {
+	panic("unexpected SaveIfAbsent")
+}
+
 func (f *fakeAssistantStore) Update(data.WorkspaceID, func(*data.Workspace) (bool, error)) error {
 	panic("unexpected Update")
 }

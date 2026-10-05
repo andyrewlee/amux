@@ -189,15 +189,17 @@ func (s *Service) prependPrimaryCheckout(path string, workspaces []data.Workspac
 		path,                // root (same as repo for primary)
 	)
 	primaryWs.Assistant = s.resolvedDefaultAssistant()
-	// Load any persisted UI state (OpenTabs, etc.) for the primary checkout
+	// Load any persisted UI state (OpenTabs, etc.) for the primary checkout.
+	// SaveIfAbsent runs the load-or-create as one locked transaction: a record
+	// committed between an unlocked lookup and the save is merged, never
+	// overwritten by the sparse discovered snapshot.
 	if s.store != nil {
-		found, loadErr := s.store.LoadMetadataFor(primaryWs)
-		if loadErr != nil {
-			logging.Error("Failed to load metadata for primary checkout %s: %v", path, loadErr)
-		} else if !found {
-			// No stored metadata - save so UI state persists across restarts
-			if err := s.store.Save(primaryWs); err != nil {
-				logging.Error("Failed to save primary checkout %s: %v", path, err)
+		stored, created, saveErr := s.store.SaveIfAbsent(primaryWs)
+		if saveErr != nil {
+			logging.Error("Failed to persist primary checkout %s: %v", path, saveErr)
+		} else if !created && stored != nil {
+			if _, loadErr := s.store.LoadMetadataFor(primaryWs); loadErr != nil {
+				logging.Error("Failed to load metadata for primary checkout %s: %v", path, loadErr)
 			}
 		}
 	}
