@@ -31,6 +31,11 @@ type WorkspaceStore interface {
 	LoadMetadataFor(workspace *data.Workspace) (bool, error)
 	UpsertFromDiscovery(workspace *data.Workspace) error
 	Save(workspace *data.Workspace) error
+	// SaveIfAbsent writes workspace only when no record matches its identity:
+	// the identity recheck runs under the record flock so a concurrent commit
+	// can never be clobbered. It returns the winning stored record and whether
+	// it was just created.
+	SaveIfAbsent(workspace *data.Workspace) (stored *data.Workspace, created bool, err error)
 	// Update runs a locked read-modify-write transaction on the record: the
 	// callback mutates only its fields, never identity or schema. Field
 	// setters and tab persistence go through it so concurrent writers merge

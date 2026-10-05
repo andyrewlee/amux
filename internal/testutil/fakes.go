@@ -120,6 +120,7 @@ type FakeWorkspaceStore struct {
 	// fn to the last saved record under id (or LoadFunc's result) and Saves on
 	// change — mirroring the real store's load-mutate-write shape.
 	UpdateFunc                   func(id data.WorkspaceID, fn func(ws *data.Workspace) (bool, error)) error
+	SaveIfAbsentFunc             func(workspace *data.Workspace) (*data.Workspace, bool, error)
 	DeleteFunc                   func(id data.WorkspaceID) error
 	RenameFunc                   func(id data.WorkspaceID, newName string) error
 	SetEnvFunc                   func(id data.WorkspaceID, env map[string]string) error
@@ -215,6 +216,28 @@ func (f *FakeWorkspaceStore) Update(id data.WorkspaceID, fn func(ws *data.Worksp
 		return nil
 	}
 	return f.Save(&cp)
+}
+
+// SaveIfAbsent mirrors the real store's recheck contract: a previously saved
+// record with matching identity is returned as the winner (created=false);
+// otherwise ws is recorded and reported created.
+func (f *FakeWorkspaceStore) SaveIfAbsent(ws *data.Workspace) (*data.Workspace, bool, error) {
+	if f.SaveIfAbsentFunc != nil {
+		return f.SaveIfAbsentFunc(ws)
+	}
+	f.mu.Lock()
+	for i := len(f.saved) - 1; i >= 0; i-- {
+		if f.saved[i].ID() == ws.ID() {
+			existing := *f.saved[i]
+			f.mu.Unlock()
+			return &existing, false, nil
+		}
+	}
+	f.mu.Unlock()
+	if err := f.Save(ws); err != nil {
+		return nil, false, err
+	}
+	return ws, true, nil
 }
 
 func (f *FakeWorkspaceStore) Delete(id data.WorkspaceID) error {

@@ -3,6 +3,7 @@ package data
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 )
 
 // Update runs fn as a read-modify-write transaction under the workspace's
@@ -62,4 +63,54 @@ func (s *WorkspaceStore) Update(id WorkspaceID, fn func(ws *Workspace) (changed 
 		return err
 	}
 	return s.saveWorkspaceLocked(id, ws)
+}
+
+// SaveIfAbsent writes ws only when no stored record matches its identity —
+// the create half of discovery's check-then-act, closed so the recheck runs
+// inside the candidate-ID flock instead of trusting the caller's unlocked
+// lookup. A record committed between that lookup and this call is observed
+// here rather than overwritten by ws's sparse fields: the winner's record
+// comes back (stored, created=false) for the caller to merge or adopt.
+// Corrupt, unreadable, or newer-schema existing bytes are existing state —
+// refused, never clobbered.
+func (s *WorkspaceStore) SaveIfAbsent(ws *Workspace) (stored *Workspace, created bool, err error) {
+	if err := validateWorkspaceForSave(ws); err != nil {
+		return nil, false, err
+	}
+	id := ws.ID()
+	if err := validateWorkspaceID(id); err != nil {
+		return nil, false, err
+	}
+	lockFiles, err := s.lockWorkspaceIDs(id)
+	if err != nil {
+		return nil, false, err
+	}
+	defer unlockRegistryFiles(lockFiles)
+
+	// Recheck under the flock: first the canonical key, then the
+	// normalization-drift fallback in case the concurrent create landed
+	// under a sibling key for the same repo+root.
+	if existing, loadErr := s.load(id, false); loadErr == nil {
+		return existing, false, nil
+	} else if !errors.Is(loadErr, fs.ErrNotExist) {
+		return nil, false, loadErr
+	}
+	existing, foundID, err := s.findStoredWorkspace(ws.Repo, ws.Root)
+	if err != nil {
+		return nil, false, err
+	}
+	if existing != nil {
+		existing.storeID = foundID
+		return existing, false, nil
+	}
+
+	if ws.Created.IsZero() {
+		ws.Created = s.clock()
+	}
+	s.applyWorkspaceDefaults(ws)
+	if err := s.saveWorkspaceLocked(id, ws); err != nil {
+		return nil, false, err
+	}
+	ws.storeID = id
+	return ws, true, nil
 }

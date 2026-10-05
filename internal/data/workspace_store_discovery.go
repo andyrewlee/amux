@@ -29,15 +29,30 @@ func (s *WorkspaceStore) UpsertFromDiscovery(discovered *Workspace) error {
 	}
 
 	if stored == nil {
-		if discovered.Created.IsZero() {
-			discovered.Created = s.clock()
+		// The lookup ran unlocked: a concurrent create can commit between
+		// here and the save. SaveIfAbsent rechecks inside the record flock —
+		// a winner gets merged like any existing record, never clobbered by
+		// the sparse discovered snapshot.
+		if upsertAbsentProbe != nil {
+			upsertAbsentProbe()
 		}
-		s.applyWorkspaceDefaults(discovered)
-		return s.Save(discovered)
+		stored, created, err := s.SaveIfAbsent(discovered)
+		if err != nil {
+			return err
+		}
+		if created {
+			return nil
+		}
+		return s.mergeDiscoveryLocked(discovered, stored.storeID)
 	}
 
 	return s.mergeDiscoveryLocked(discovered, storedID)
 }
+
+// upsertAbsentProbe fires inside UpsertFromDiscovery's missing-record branch
+// between the unlocked lookup and the create-if-absent save — the test seam
+// that lands a concurrent write exactly in the lost-update window.
+var upsertAbsentProbe func()
 
 // mergeDiscoveryLocked re-loads the stored workspace under its flock, merges the
 // discovered deltas, and saves the result — all within a single locked critical
