@@ -39,6 +39,18 @@ func (a *App) workspaceMetadataPath(wsID string) string {
 	return filepath.Clean(filepath.Join(root, id, "workspace.json"))
 }
 
+// markLocalWorkspaceSavePath fingerprints the file immediately after one of
+// our commits so the watcher event it provokes is recognized as self-originated
+// and suppressed. The contract is "we committed these bytes": callers must only
+// record a marker when the store reports a real write — a no-op acceptance
+// would fingerprint whatever bytes happen to be on disk (possibly an external
+// write's) and suppress an event that isn't ours.
+//
+// Residual window: the fingerprint is taken after the store's flock is
+// released (plumbing the written bytes out of store.Update would ripple every
+// caller), so an external write landing between our rename and this stat is
+// fingerprinted as local and suppressed. The window is microseconds and the
+// next event still reconciles state — accepted over plumbing the bytes.
 func (a *App) markLocalWorkspaceSavePath(path string) {
 	if a == nil {
 		return
