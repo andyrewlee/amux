@@ -14,11 +14,13 @@ type fakeTimer struct{}
 func (fakeTimer) Reset(time.Duration) bool { return true }
 func (fakeTimer) Stop() bool               { return true }
 
-func TestStateWatcher_ReasonChangeResetsPendingPaths(t *testing.T) {
+func TestStateWatcher_MixedReasonsPreserveAllPaths(t *testing.T) {
 	var mu sync.Mutex
-	var gotReason string
-	var gotPaths []string
-	fireCount := 0
+	type notification struct {
+		reason string
+		paths  []string
+	}
+	var got []notification
 
 	// fire captures sw.fire, armed by the injected timer; invoking it once drives
 	// the coalesced debounce without sleeping past a real timer.
@@ -28,9 +30,7 @@ func TestStateWatcher_ReasonChangeResetsPendingPaths(t *testing.T) {
 		debounce: 50 * time.Millisecond,
 		onChanged: func(reason string, paths []string) {
 			mu.Lock()
-			gotReason = reason
-			gotPaths = paths
-			fireCount++
+			got = append(got, notification{reason, append([]string(nil), paths...)})
 			mu.Unlock()
 		},
 	}
@@ -39,15 +39,15 @@ func TestStateWatcher_ReasonChangeResetsPendingPaths(t *testing.T) {
 		return fakeTimer{}
 	}
 
-	// Schedule a "registry" event with a path.
+	// Schedule a "workspaces" event, then a different-reason "registry" event,
+	// then a second "workspaces" event — all inside one debounce window.
+	sw.scheduleNotify("workspaces", "/path/to/workspace-a.json")
 	sw.scheduleNotify("registry", "/path/to/registry.json")
+	sw.scheduleNotify("workspaces", "/path/to/workspace-b.json")
 
-	// Before the timer fires, schedule a "workspaces" event with a different path.
-	sw.scheduleNotify("workspaces", "/path/to/workspace.json")
-
-	// Drive the debounce deterministically. The two scheduleNotify calls must
-	// coalesce into a single fire (the second Resets the armed timer, it does not
-	// arm a second one), so invoking the captured callback once suffices.
+	// Drive the debounce deterministically. The scheduleNotify calls coalesce
+	// into a single fire (each later call Resets the armed timer), so invoking
+	// the captured callback once suffices.
 	if fire == nil {
 		t.Fatal("expected the debounce timer to be armed after scheduleNotify")
 	}
@@ -56,19 +56,21 @@ func TestStateWatcher_ReasonChangeResetsPendingPaths(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if fireCount != 1 {
-		t.Fatalf("debounce fired %d times, want 1 (coalesced events)", fireCount)
+	// Debounce coalesces within a reason, never across reasons: one emission
+	// per reason, in sorted order for determinism, and the registry paths must
+	// not be discarded by the interleaved workspaces events.
+	if len(got) != 2 {
+		t.Fatalf("emissions = %d, want 2 (one per reason): %+v", len(got), got)
 	}
-	if gotReason != "workspaces" {
-		t.Fatalf("reason = %q, want %q", gotReason, "workspaces")
+	if got[0].reason != "registry" ||
+		len(got[0].paths) != 1 ||
+		got[0].paths[0] != "/path/to/registry.json" {
+		t.Fatalf("registry emission = %+v, want one path /path/to/registry.json", got[0])
 	}
-	// The registry path should have been discarded when the reason changed.
-	for _, p := range gotPaths {
-		if p == "/path/to/registry.json" {
-			t.Fatal("expected registry path to be discarded when reason changed to workspaces")
-		}
-	}
-	if len(gotPaths) != 1 || gotPaths[0] != "/path/to/workspace.json" {
-		t.Fatalf("paths = %v, want [/path/to/workspace.json]", gotPaths)
+	if got[1].reason != "workspaces" ||
+		len(got[1].paths) != 2 ||
+		got[1].paths[0] != "/path/to/workspace-a.json" ||
+		got[1].paths[1] != "/path/to/workspace-b.json" {
+		t.Fatalf("workspaces emission = %+v, want both workspace paths coalesced", got[1])
 	}
 }
