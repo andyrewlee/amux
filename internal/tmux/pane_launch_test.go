@@ -96,6 +96,36 @@ func TestPaneLaunchPreparedCommandOwnership(t *testing.T) {
 	prepared.AbortBeforeStart() // double discard must be a no-op
 }
 
+// TestPaneLaunchRaceDiscardRequiresQuerySuccess proves the lost-race branch
+// only discards the payload when the list-panes query produced output — a
+// failed or empty query is ambiguous and must preserve the expiring payload
+// for the pane that may have launched.
+func TestPaneLaunchRaceDiscardRequiresQuerySuccess(t *testing.T) {
+	prepared, err := NewClientCommand("race-session", ClientCommandParams{
+		WorkDir: t.TempDir(),
+		Command: "echo hi",
+		Options: Options{ServerName: "s", ConfigPath: "/dev/null"},
+	})
+	if err != nil {
+		t.Fatalf("NewClientCommand() error = %v", err)
+	}
+	defer prepared.AbortBeforeStart()
+
+	probeIdx := strings.Index(prepared.Command, "list-panes")
+	if probeIdx < 0 {
+		t.Fatal("ensure fragment lacks the lost-race start-command proof")
+	}
+	raceBranch := prepared.Command[probeIdx:]
+	guardIdx := strings.Index(raceBranch, `[ -n "$s" ]`)
+	discardIdx := strings.Index(raceBranch, "'discard'")
+	if guardIdx < 0 {
+		t.Fatal("race branch lacks the non-empty query guard before the discard")
+	}
+	if discardIdx < 0 || guardIdx > discardIdx {
+		t.Fatalf("race discard is not gated on query success: guard=%d discard=%d", guardIdx, discardIdx)
+	}
+}
+
 // TestPaneLaunchDeliversEnvOnFreshServer runs the full create pipeline
 // against a real tmux server and proves the layered environment reaches the
 // pane process while staying out of every transport surface.

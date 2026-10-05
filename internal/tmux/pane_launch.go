@@ -115,7 +115,7 @@ func ensureSessionScript(base, sessionName, dir string, launch *preparedLaunch, 
 		base, sessionTgt, launch.discardArgv)
 	race := fmt.Sprintf("(%s has-session -t %s 2>/dev/null && { "+
 		"s=\"$(%s list-panes -t %s -F '#{pane_start_command}' 2>/dev/null)\"; "+
-		"case \"$s\" in *%s*) : ;; *) %s || true ;; esac; })",
+		"if [ -n \"$s\" ]; then case \"$s\" in *%s*) : ;; *) %s || true ;; esac; fi; })",
 		base, sessionTgt, base, sessionTgt,
 		shellutil.ShellQuote(launch.payload.Path()), launch.discardArgv)
 	return fmt.Sprintf("%s || ( %s ) || %s", present, create, race)
