@@ -46,6 +46,20 @@ func (r *ScriptRunner) Stop(ws *data.Workspace) error {
 
 	if running.cmd != nil && running.cmd.Process != nil {
 		pid := running.cmd.Process.Pid
+		// If the cmd.Wait monitor already observed exit, the PID is dead —
+		// and may already be recycled to an unrelated process group, where
+		// kill(-pid) returns EPERM (not the benign ESRCH). Signal only when
+		// exit is unconfirmed.
+		if running.done != nil {
+			select {
+			case <-running.done:
+				// Identity-guarded clear: the map may already hold a newer
+				// run for this key — drop only the stale entry we looked up.
+				r.finishRunningEntry(key, running)
+				return nil
+			default:
+			}
+		}
 		err := r.killProcessGroup(pid, KillOptions{})
 		if err != nil {
 			if isBenignStopError(err) {

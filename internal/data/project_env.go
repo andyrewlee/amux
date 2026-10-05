@@ -66,6 +66,15 @@ func (s *ProjectEnvStore) Set(repoPath string, env map[string]string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// The sibling flock serializes the whole load→mutate→write against other
+	// amux processes: without it, two processes' interleaved transactions
+	// silently drop one side's disjoint edits (fsatomic only prevents torn
+	// writes, not lost updates).
+	lockFile, err := lockRegistryFile(s.path+".lock", false)
+	if err != nil {
+		return err
+	}
+	defer unlockRegistryFile(lockFile)
 	all, err := s.load()
 	if err != nil {
 		var synErr *json.SyntaxError

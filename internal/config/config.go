@@ -299,7 +299,14 @@ func saveAssistants(path string, assistants map[string]AssistantConfig) error {
 
 	// Same contract as saveUISettings: an unreadable or non-object existing
 	// file is refused outright so a save cannot drop sections it does not own
-	// (e.g. "ui").
+	// (e.g. "ui"). The sibling flock keeps the read→mutate→write atomic
+	// against another process's save so disjoint section edits cannot be
+	// lost.
+	lockFile, err := fsatomic.LockFile(path+".lock", false)
+	if err != nil {
+		return err
+	}
+	defer fsatomic.UnlockFile(lockFile)
 	payload, err := readConfigForUpdate(path, readConfigPath)
 	if err != nil {
 		return err

@@ -64,6 +64,13 @@ func (s *ProjectScriptStore) Set(repoPath string, scripts ScriptsConfig) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// The sibling flock serializes the whole load→mutate→write against other
+	// amux processes — fsatomic prevents torn writes, not lost updates.
+	lockFile, err := lockRegistryFile(s.path+".lock", false)
+	if err != nil {
+		return err
+	}
+	defer unlockRegistryFile(lockFile)
 	all, err := s.load()
 	if err != nil {
 		var synErr *json.SyntaxError

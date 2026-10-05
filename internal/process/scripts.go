@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -54,6 +55,14 @@ func isBenignStopError(err error) bool {
 		return true
 	}
 	if isTypedProcessGoneError(err) {
+		return true
+	}
+	// EPERM on kill(-pgid) means the group exists but is not ours to signal —
+	// the tracked PID was recycled into a foreign group between the running
+	// entry's snapshot and the kill. The entry is stale either way; mirror
+	// the EPERM tolerance KillProcessGroup already applies to its own
+	// SIGKILL leg.
+	if errors.Is(err, syscall.EPERM) {
 		return true
 	}
 	msg := err.Error()

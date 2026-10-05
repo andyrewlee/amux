@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -66,6 +67,7 @@ func (e *ScriptsNotTrustedError) Unwrap() error {
 // same IsTrusted check.
 type ScriptTrust struct {
 	path string
+	mu   sync.Mutex
 	// readFile is a per-instance test seam; nil means os.ReadFile.
 	readFile func(string) ([]byte, error)
 }
@@ -225,6 +227,16 @@ func (t *ScriptTrust) Trust(repoPath string, configContent []byte) error {
 		// recording one would "succeed" while granting no real trust.
 		return nil
 	}
+	// The in-process mutex plus the sibling flock serialize the whole
+	// load→mutate→write: two Trust calls racing within or across processes
+	// would otherwise read the same base map and silently lose one approval.
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	lockFile, err := fsatomic.LockFile(t.path+".lock", false)
+	if err != nil {
+		return err
+	}
+	defer fsatomic.UnlockFile(lockFile)
 	entries, err := t.loadStrict()
 	if err != nil {
 		if isScriptTrustDecodeErr(err) {
