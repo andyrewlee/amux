@@ -47,6 +47,25 @@ func (a *App) findWorkspaceAndProjectByID(id string) (*data.Workspace, *data.Pro
 	return foundWs, foundProject
 }
 
+// findShelvedWorkspaceAndProjectByID is the shelved-set counterpart of
+// findWorkspaceAndProjectByID: shelved workspaces live in
+// project.ShelvedWorkspaces, which eachWorkspaceUntil does not visit.
+func (a *App) findShelvedWorkspaceAndProjectByID(id string) (*data.Workspace, *data.Project) {
+	if id == "" {
+		return nil, nil
+	}
+	for i := range a.projects {
+		project := &a.projects[i]
+		for j := range project.ShelvedWorkspaces {
+			ws := &project.ShelvedWorkspaces[j]
+			if string(ws.ID()) == id {
+				return ws, project
+			}
+		}
+	}
+	return nil, nil
+}
+
 func (a *App) findWorkspaceAndProjectByCanonicalPaths(repoPath, rootPath string) (*data.Workspace, *data.Project) {
 	targetRepo := canonicalPathForMatch(repoPath)
 	targetRoot := canonicalPathForMatch(rootPath)

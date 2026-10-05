@@ -1,6 +1,9 @@
 package app
 
-import "github.com/andyrewlee/amux/internal/logging"
+import (
+	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
+)
 
 // pendingOverlayOpenCap bounds the deferred-open queue. Opens beyond the cap
 // are logged and dropped — an unbounded queue is a leak vector if an overlay
@@ -33,7 +36,11 @@ func (a *App) anyModalOverlayVisible() bool {
 // user can't see — keystrokes swallowed by an invisible dialog.
 //
 // The closure must capture its inputs (workspace, project, content) at call
-// time — it may run messages later than the request.
+// time — it may run messages later than the request. Anything captured that
+// can drift while queued (a workspace the user may delete, a dialog token, a
+// marked set) must be re-validated INSIDE the closure at drain time — the
+// queue establishes open-order only, never subject validity. A future async
+// bespoke-editor producer rides this same contract.
 func (a *App) requestOverlayOpen(open func()) {
 	if !a.anyModalOverlayVisible() {
 		open()
@@ -68,4 +75,41 @@ func (a *App) drainPendingOverlayOpens() {
 		a.pendingOverlayOpens = a.pendingOverlayOpens[1:]
 		open()
 	}
+}
+
+// workspaceLoaded reports whether ws is currently resolvable against the
+// loaded projects — the request-time membership check for reResolveOpenTarget's
+// required flag.
+func (a *App) workspaceLoaded(ws *data.Workspace) bool {
+	if ws == nil {
+		return false
+	}
+	live, _ := a.findWorkspaceAndProjectByID(string(ws.ID()))
+	return live != nil
+}
+
+// reResolveOpenTarget re-resolves a queued open's captured workspace against
+// the loaded projects at drain time (requestOverlayOpen's contract). It
+// returns the live workspace and owning project — not the captured pointers —
+// so the dialog presents and binds current state.
+//
+// required must carry whether the subject was loaded at REQUEST time
+// (workspaceLoaded evaluated by the handler before queueing). A subject that
+// was loaded then and is gone now is a stale open — ok=false and the caller
+// skips: a confirmation whose subject no longer exists must never present.
+// Subjects that were never loaded (ok still true, live is the captured
+// pointer) present as before — the fence is drift, not existence.
+func (a *App) reResolveOpenTarget(ws *data.Workspace, required bool) (live *data.Workspace, proj *data.Project, ok bool) {
+	if ws == nil {
+		return nil, nil, !required
+	}
+	live, proj = a.findWorkspaceAndProjectByID(string(ws.ID()))
+	if live != nil {
+		return live, proj, true
+	}
+	if required {
+		logging.Debug("Dropping stale overlay open: workspace %s no longer loaded", ws.Name)
+		return nil, nil, false
+	}
+	return ws, nil, true
 }

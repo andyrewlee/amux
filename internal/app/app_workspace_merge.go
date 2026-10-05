@@ -149,15 +149,20 @@ func (a *App) handleShowMergeWorkspaceDialog(msg messages.ShowMergeWorkspaceDial
 	if a.dialogOpen() {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
+		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
-		a.dlg.workspace = msg.Workspace
+		a.dlg.workspace = ws
 		a.dlg.mergeBase = msg.Base
 		a.dialog = common.NewConfirmDialog(
 			DialogMergeWorkspace,
 			"Merge Workspace",
 			fmt.Sprintf("Merge branch '%s' into '%s' in %s?\nRuns: git merge --no-ff -- %s",
-				msg.Workspace.Branch, msg.Base, msg.Workspace.Repo, msg.Workspace.Branch),
+				ws.Branch, msg.Base, ws.Repo, ws.Branch),
 		)
 		// Repo hooks are neutralized on every amux git call, so a pre-merge hook the
 		// user relies on will not fire. Say so rather than letting them find out.
@@ -250,6 +255,12 @@ func (a *App) handleWorkspaceMerged(msg messages.WorkspaceMerged) tea.Cmd {
 	// dangling dialog.
 	if ws, proj := a.findWorkspaceAndProjectByID(string(msg.Workspace.ID())); ws != nil && proj != nil {
 		a.requestOverlayOpen(func() {
+			// ws was resolved seconds ago at message time — a drain-time
+			// miss means the row left while queued.
+			ws, proj, ok := a.reResolveOpenTarget(ws, true)
+			if !ok || proj == nil {
+				return
+			}
 			a.clearPendingWorkspaceCreate()
 			a.dlg.project = proj
 			a.dlg.workspace = ws
@@ -308,7 +319,12 @@ func (a *App) refreshPrimaryCheckoutStatus(repo string) []tea.Cmd {
 // resolves nothing itself: the workspace already has a real shell, which is
 // where conflict resolution belongs.
 func (a *App) showMergeConflictDialog(ws *data.Workspace, conflict *git.MergeConflictError) {
+	required := a.workspaceLoaded(ws)
 	a.requestOverlayOpen(func() {
+		ws, _, ok := a.reResolveOpenTarget(ws, required)
+		if !ok {
+			return
+		}
 		a.dlg.workspace = ws
 		a.dialog = common.NewConfirmDialog(
 			DialogMergeConflict,

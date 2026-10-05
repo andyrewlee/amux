@@ -61,6 +61,12 @@ func (a *App) handleRunSessionsEnumerated(msg runSessionsEnumeratedMsg) tea.Cmd 
 			rows[i] = common.SessionPickerRow{Label: runSessionRowLabel(e), Live: e.Alive}
 		}
 		a.requestOverlayOpen(func() {
+			// A second R press bumps the token while this open sits queued;
+			// a stale pick would walk straight through the confirm-time fence
+			// with the *current* token, so it must never present.
+			if msg.token != a.overlays.runOutputToken {
+				return
+			}
 			a.dlg.workspace = msg.ws
 			a.dlg.runSessions = msg.entries
 			a.dialog = common.NewRunSessionPicker("Run sessions — "+msg.ws.Name, "Pick a run to view (a attaches once open):", rows)
