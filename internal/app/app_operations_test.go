@@ -12,6 +12,7 @@ import (
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/testutil"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 func TestGoHomeReleasesActiveWorkspaceFileWatch(t *testing.T) {
@@ -47,33 +48,11 @@ func TestGoHomeReleasesActiveWorkspaceFileWatch(t *testing.T) {
 	}
 }
 
-func TestRemoveProject_ClearsActiveWhenViewingRemovedProject(t *testing.T) {
+func TestRemoveProject_KeepsContextAtDispatch(t *testing.T) {
 	repo := t.TempDir()
 	project := data.NewProject(repo)
 
-	app := &App{
-		activeWorkspace: data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "feature")),
-	}
-
-	cmd := app.removeProject(project)
-
-	if cmd != nil {
-		t.Fatalf("expected nil cmd with nil workspaceService, got %T", cmd)
-	}
-	if app.activeWorkspace != nil {
-		t.Fatalf("expected active workspace to be cleared, got %+v", app.activeWorkspace)
-	}
-	if !app.showWelcome {
-		t.Fatal("expected goHome to set showWelcome")
-	}
-}
-
-func TestRemoveProject_KeepsActiveWhenViewingDifferentProject(t *testing.T) {
-	repo := t.TempDir()
-	otherRepo := t.TempDir()
-	project := data.NewProject(repo)
-
-	active := data.NewWorkspace("feature", "feature", "main", otherRepo, filepath.Join(otherRepo, "feature"))
+	active := data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "feature"))
 	app := &App{
 		activeWorkspace: active,
 	}
@@ -83,8 +62,48 @@ func TestRemoveProject_KeepsActiveWhenViewingDifferentProject(t *testing.T) {
 	if cmd != nil {
 		t.Fatalf("expected nil cmd with nil workspaceService, got %T", cmd)
 	}
+	// Dispatch must not navigate: a failed removal emits messages.Error and the
+	// user's context would be destroyed for nothing.
 	if app.activeWorkspace != active {
-		t.Fatalf("expected active workspace to be untouched, got %+v", app.activeWorkspace)
+		t.Fatalf("expected active workspace untouched at dispatch, got %+v", app.activeWorkspace)
+	}
+	if app.showWelcome {
+		t.Fatal("expected showWelcome to stay false at dispatch")
+	}
+}
+
+func TestHandleProjectRemoved_NavigatesHomeWhenActiveRepoRemoved(t *testing.T) {
+	repo := t.TempDir()
+
+	app := &App{
+		activeWorkspace: data.NewWorkspace("feature", "feature", "main", repo, filepath.Join(repo, "feature")),
+		toast:           common.NewToastModel(),
+	}
+
+	app.handleProjectRemoved(messages.ProjectRemoved{Path: repo})
+
+	if app.activeWorkspace != nil {
+		t.Fatalf("expected confirmed removal to clear active workspace, got %+v", app.activeWorkspace)
+	}
+	if !app.showWelcome {
+		t.Fatal("expected confirmed removal to set showWelcome")
+	}
+}
+
+func TestHandleProjectRemoved_KeepsActiveForDifferentRepo(t *testing.T) {
+	repo := t.TempDir()
+	otherRepo := t.TempDir()
+
+	active := data.NewWorkspace("feature", "feature", "main", otherRepo, filepath.Join(otherRepo, "feature"))
+	app := &App{
+		activeWorkspace: active,
+		toast:           common.NewToastModel(),
+	}
+
+	app.handleProjectRemoved(messages.ProjectRemoved{Path: repo})
+
+	if app.activeWorkspace != active {
+		t.Fatalf("expected active workspace untouched, got %+v", app.activeWorkspace)
 	}
 	if app.showWelcome {
 		t.Fatal("expected showWelcome to stay false when active workspace is kept")
