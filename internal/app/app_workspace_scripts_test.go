@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -126,6 +127,84 @@ func TestHandleWorkspaceScriptStateChanged_IgnoresInactiveWorkspace(t *testing.T
 	})
 	if !runIndicatorVisible(sb) {
 		t.Fatal("an outcome for another workspace cleared the active workspace's indicator")
+	}
+}
+
+// TestHandleWorkspaceScriptStateChanged_DeadRecordAtSameRootDropped asserts a
+// toggle outcome stamped by a DELETED record does not label the record that
+// replaced it at the same root. Path-derived IDs are identical across
+// recreate, so Created is the record-instance discriminator.
+func TestHandleWorkspaceScriptStateChanged_DeadRecordAtSameRootDropped(t *testing.T) {
+	root := t.TempDir()
+	live := &data.Workspace{Name: "feature", Root: root, Branch: "feature", Created: time.Now()}
+	dead := &data.Workspace{Name: "feature", Root: root, Branch: "feature", Created: live.Created.Add(-time.Minute)}
+	app, sb := newScriptStateApp(live)
+
+	app.handleWorkspaceScriptStateChanged(messages.WorkspaceScriptStateChanged{
+		Workspace: dead,
+		Running:   true,
+	})
+	if runIndicatorVisible(sb) {
+		t.Fatal("a dead record's outcome labeled the recreated workspace")
+	}
+
+	// The live record's own outcome still applies.
+	app.handleWorkspaceScriptStateChanged(messages.WorkspaceScriptStateChanged{
+		Workspace: live,
+		Running:   true,
+	})
+	if !runIndicatorVisible(sb) {
+		t.Fatal("the live record's own outcome was dropped")
+	}
+}
+
+// TestHandleRunAttachTarget_StaleViewerGenerationDropped asserts an attach
+// result stamped by a viewer generation that has since moved on can neither
+// close the viewer now on screen nor dispatch the attach. The token is the
+// runOutputToken at dispatch — close, reopen, and new enumerations all bump
+// it.
+func TestHandleRunAttachTarget_StaleViewerGenerationDropped(t *testing.T) {
+	ws := &data.Workspace{Name: "feature", Repo: "/repo", Root: "/repo/ws", Scripts: data.ScriptsConfig{Run: "make dev"}}
+	h := newRunOutputHarness(t, ws, "tick-1", true)
+	openRunOutput(t, h, ws)
+	staleToken := h.app.overlays.runOutputToken
+
+	// The dispatch stamps the CURRENT viewer generation.
+	cmd := h.app.attachRunViewerCmd(ws, "")
+	if cmd == nil {
+		t.Fatal("attach cmd missing for a live viewer")
+	}
+	stamped, ok := cmd().(runAttachTargetMsg)
+	if !ok {
+		t.Fatal("attach cmd did not emit runAttachTargetMsg")
+	}
+	if stamped.token != staleToken {
+		t.Fatalf("attach msg stamped token %d, want viewer generation %d", stamped.token, staleToken)
+	}
+
+	// The viewer closed and a newer enumeration opened its own generation
+	// while the lookup was in flight.
+	h.app.closeRunOutputDialog()
+	openRunOutput(t, h, ws)
+	live := h.app.overlays.runOutput
+	if live == nil || h.app.overlays.runOutputToken == staleToken {
+		t.Fatal("setup: expected a newer viewer generation")
+	}
+
+	if cmd := h.app.handleRunAttachTarget(runAttachTargetMsg{
+		token: staleToken, ws: ws, name: "amux-sess-run", ok: true,
+	}); cmd != nil {
+		t.Fatal("stale attach produced a cmd")
+	}
+	if h.app.overlays.runOutput != live {
+		t.Fatal("stale attach result closed the live viewer")
+	}
+
+	// A current-generation result is still handled.
+	if cmd := h.app.handleRunAttachTarget(runAttachTargetMsg{
+		token: h.app.overlays.runOutputToken, ws: ws, ok: false,
+	}); cmd == nil {
+		t.Fatal("current-generation attach result was dropped")
 	}
 }
 

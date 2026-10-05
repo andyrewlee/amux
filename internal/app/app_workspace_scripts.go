@@ -10,6 +10,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -57,6 +58,23 @@ func (a *App) isActiveWorkspace(ws *data.Workspace) bool {
 		return false
 	}
 	return rootsReferToSameWorkspace(ws.Root, a.activeWorkspace.Root)
+}
+
+// sameWorkspaceRecord reports whether a and b are the same workspace RECORD —
+// not merely the same location. Path-derived identity (ID/MetadataID/
+// ComputedID) is deliberately identical across delete-and-recreate at the same
+// root, so it cannot distinguish a result stamped by a dead record from one
+// stamped by its replacement; Created is the persisted record-instance
+// discriminator. Records with no Created data (unsaved fixtures) fall back to
+// the caller's location check.
+func sameWorkspaceRecord(a, b *data.Workspace) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Created.IsZero() || b.Created.IsZero() {
+		return true
+	}
+	return a.Created.Equal(b.Created)
 }
 
 // requestRunScriptStatus emits the run-script status check as a Cmd rather
@@ -311,7 +329,7 @@ func (a *App) handleWorkspaceScriptStateChanged(msg messages.WorkspaceScriptStat
 	// the sidebar always name the active workspace; this guards the case where a
 	// state change lands after the user has already switched away, which would
 	// otherwise blank a still-correct indicator until the next reconcile.
-	if a.sidebar != nil && a.isActiveWorkspace(msg.Workspace) {
+	if a.sidebar != nil && a.isActiveWorkspace(msg.Workspace) && sameWorkspaceRecord(msg.Workspace, a.activeWorkspace) {
 		a.sidebar.SetScriptRunning(msg.Workspace.Root, msg.Running)
 	}
 
@@ -409,6 +427,10 @@ func (a *App) attachRunViewerCmd(ws *data.Workspace, session string) tea.Cmd {
 	if ws == nil || svc == nil {
 		return nil
 	}
+	// Stamp the viewer's generation: runOutputToken bumps on close, reopen,
+	// and every new enumeration, so a result stamped by a viewer that has
+	// since moved on can never close (or attach beside) the newer one.
+	token := a.overlays.runOutputToken
 	return func() tea.Msg {
 		var name string
 		var ok bool
@@ -417,20 +439,29 @@ func (a *App) attachRunViewerCmd(ws *data.Workspace, session string) tea.Cmd {
 		} else {
 			name, ok = svc.RunScriptAttachTarget(ws)
 		}
-		return runAttachTargetMsg{ws: ws, name: name, ok: ok}
+		return runAttachTargetMsg{token: token, ws: ws, name: name, ok: ok}
 	}
 }
 
 // runAttachTargetMsg carries the attach-target lookup result back to the UI.
+// token is the run-viewer generation at dispatch — the result is only valid
+// while that same viewer generation is current.
 type runAttachTargetMsg struct {
-	ws   *data.Workspace
-	name string
-	ok   bool
+	token int
+	ws    *data.Workspace
+	name  string
+	ok    bool
 }
 
 // handleRunAttachTarget closes the overlay and opens the interactive
-// run-viewer tab — the tab replaces the read-only viewer's job.
+// run-viewer tab — the tab replaces the read-only viewer's job. A stale
+// result (viewer closed or superseded while the tmux lookup was in flight)
+// is dropped: it must never close the viewer now on screen.
 func (a *App) handleRunAttachTarget(msg runAttachTargetMsg) tea.Cmd {
+	if msg.token != a.overlays.runOutputToken {
+		logging.Debug("Dropping stale run-attach result: viewer generation moved on")
+		return nil
+	}
 	if msg.ws == nil {
 		return nil
 	}
