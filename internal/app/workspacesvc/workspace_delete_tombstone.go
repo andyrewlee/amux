@@ -9,13 +9,48 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
+// statPath is the os.Stat seam; tests replace it to simulate non-NotExist
+// errors that permission-bit fixtures cannot reproduce portably.
+var statPath = os.Stat
+
 // DirExists reports whether path is an existing directory.
 func DirExists(path string) bool {
 	if path == "" {
 		return false
 	}
-	info, err := os.Stat(path)
+	info, err := statPath(path)
 	return err == nil && info.IsDir()
+}
+
+// DirState classifies a worktree root for destructive-recovery authorization.
+// Only DirAbsent authorizes cleanup; a permission or I/O error must never be
+// treated as proof the worktree is gone.
+type DirState int
+
+const (
+	DirPresent DirState = iota // stat succeeded and the path exists
+	DirAbsent                  // os.IsNotExist — the only proven-absent case
+	DirUnknown                 // any other stat error — treat as present
+)
+
+// ProbeDirState stats path and classifies it for destructive decisions. Empty
+// paths and unknown errors resolve to DirUnknown so callers fail safe.
+func ProbeDirState(path string) DirState {
+	if path == "" {
+		return DirUnknown
+	}
+	info, err := statPath(path)
+	switch {
+	case err == nil:
+		if info.IsDir() {
+			return DirPresent
+		}
+		return DirUnknown
+	case os.IsNotExist(err):
+		return DirAbsent
+	default:
+		return DirUnknown
+	}
 }
 
 // markDeleteTombstone records a durable tombstone before a destructive delete.
@@ -95,9 +130,15 @@ func (s *Service) finishInterruptedDelete(ws *data.Workspace) bool {
 		return false
 	}
 	metadataID := ws.MetadataID()
-	if DirExists(ws.Root) {
+	switch ProbeDirState(ws.Root) {
+	case DirPresent:
 		// A surviving worktree means an earlier delete failed before removing it;
 		// do not finish the delete — the workspace must stay usable.
+		return false
+	case DirUnknown:
+		// Absence is unproven (permission/transient stat error): keep the
+		// tombstone and defer rather than destroy a root that may exist.
+		logging.Warn("startup recovery: cannot verify worktree absence, deferring delete recovery workspace_id=%s root=%s", metadataID, ws.Root)
 		return false
 	}
 	// The prior process may have exited after removing the worktree but before

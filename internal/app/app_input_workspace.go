@@ -413,8 +413,15 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 		// worktree is already gone — e.g. metadata removal failed after the worktree
 		// was deleted — leave the tombstone so startup recovery finishes the delete
 		// rather than resurfacing a dir-less ghost.
-		if a.workspaceService != nil && workspacesvc.DirExists(msg.Workspace.Root) {
-			a.workspaceService.ClearWorkspaceDeleteTombstones(msg.Workspace)
+		if a.workspaceService != nil {
+			switch workspacesvc.ProbeDirState(msg.Workspace.Root) {
+			case workspacesvc.DirPresent:
+				a.workspaceService.ClearWorkspaceDeleteTombstones(msg.Workspace)
+			case workspacesvc.DirUnknown:
+				// Absence is unproven: keep the tombstone so startup recovery
+				// cannot destroy a worktree whose stat merely failed.
+				logging.Warn("workspace delete failed: cannot verify worktree state, keeping tombstone workspace_id=%s root=%s", msg.Workspace.ID(), msg.Workspace.Root)
+			}
 		}
 		if cmd := a.dashboard.SetWorkspaceBusy(msg.Workspace.Root, dashboard.WorkspaceOpDelete, false); cmd != nil {
 			cmds = append(cmds, cmd)

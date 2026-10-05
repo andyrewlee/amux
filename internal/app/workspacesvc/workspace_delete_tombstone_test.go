@@ -251,6 +251,66 @@ func TestDeleteWorkspace_AbortsWhenTombstoneWriteFails(t *testing.T) {
 	}
 }
 
+// TestProbeDirState_TriState covers the three classifications: present dir,
+// proven-absent path, and unknown (non-NotExist stat error via the seam).
+func TestProbeDirState_TriState(t *testing.T) {
+	if got := ProbeDirState(t.TempDir()); got != DirPresent {
+		t.Fatalf("existing dir: got %v, want DirPresent", got)
+	}
+	if got := ProbeDirState(filepath.Join(t.TempDir(), "missing")); got != DirAbsent {
+		t.Fatalf("missing path: got %v, want DirAbsent", got)
+	}
+	if got := ProbeDirState(""); got != DirUnknown {
+		t.Fatalf("empty path: got %v, want DirUnknown", got)
+	}
+	orig := statPath
+	statPath = func(string) (os.FileInfo, error) { return nil, errors.New("EIO") }
+	t.Cleanup(func() { statPath = orig })
+	if got := ProbeDirState(t.TempDir()); got != DirUnknown {
+		t.Fatalf("stat error: got %v, want DirUnknown", got)
+	}
+}
+
+// TestFinishInterruptedDelete_DefersOnUnknownStat proves a tombstoned workspace
+// whose root cannot be stat-classified is deferred with zero destructive
+// calls — no session kill, no branch delete, no metadata removal.
+func TestFinishInterruptedDelete_DefersOnUnknownStat(t *testing.T) {
+	store := data.NewWorkspaceStore(t.TempDir())
+	var deleteBranchCalls, removeWsCalls int
+	svc := New(nil, store, nil, "")
+	svc.gitOps = &testutil.FakeGitOps{
+		DeleteBranchFunc:    func(string, string) error { deleteBranchCalls++; return nil },
+		RemoveWorkspaceFunc: func(string, string) error { removeWsCalls++; return nil },
+	}
+	// Embedded NUL forces a non-NotExist stat error (EINVAL) on any platform —
+	// absence is unproven, so recovery must defer rather than destroy.
+	ws := data.NewWorkspace("maybe", "feature", "main", "/repo", "\x00unstatable")
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.MarkDeleting(ws.ID()); err != nil {
+		t.Fatalf("MarkDeleting: %v", err)
+	}
+	var killed []string
+	svc.killWorkspaceSessions = func(id string) error {
+		killed = append(killed, id)
+		return nil
+	}
+
+	if svc.finishInterruptedDelete(ws) {
+		t.Fatal("recovery must defer (return false) when absence is unproven")
+	}
+	if len(killed) != 0 || deleteBranchCalls != 0 || removeWsCalls != 0 {
+		t.Fatalf("destructive calls on unproven absence: killed=%v deleteBranch=%d removeWs=%d", killed, deleteBranchCalls, removeWsCalls)
+	}
+	if _, err := store.Load(ws.ID()); err != nil {
+		t.Fatalf("metadata must survive deferred recovery: %v", err)
+	}
+	if !store.IsDeleting(ws.ID()) {
+		t.Fatal("tombstone must remain for a later retry")
+	}
+}
+
 // TestFinishInterruptedDelete_KeepsTombstonedWithLiveWorktree proves a tombstone
 // whose worktree still exists (a delete that failed before removing it) is NOT
 // finished — the workspace stays usable.
