@@ -323,7 +323,7 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if a.workspaceService != nil {
 			a.workspaceService.ReleaseWorkspacePort(msg.Workspace)
 		}
-		a.removeWorkspaceFromLoadedProjects(msg.Workspace)
+		a.removeWorkspaceFromLoadedProjects(msg.Workspace, msg.WorkspaceIDs)
 		if a.dashboard != nil {
 			a.dashboard.SetProjects(a.projects)
 		}
@@ -339,7 +339,7 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		}
 	}
 	if msg.Err != nil {
-		a.removeWorkspaceFromLoadedProjects(msg.Workspace)
+		a.removeWorkspaceFromLoadedProjects(msg.Workspace, msg.WorkspaceIDs)
 		if a.dashboard != nil {
 			a.dashboard.SetProjects(a.projects)
 		}
@@ -366,17 +366,29 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	return cmds
 }
 
-func (a *App) removeWorkspaceFromLoadedProjects(ws *data.Workspace) {
+// removeWorkspaceFromLoadedProjects drops the deleted/shelved workspace from
+// the optimistically loaded project rows. stampedIDs is the pre-removal
+// identity set the lifecycle stamped onto the message — ws.ID() drifts
+// across worktree removal, so matching against the stamped set (with the
+// candidate's computed alias as a second form) catches a loaded record still
+// keyed under a legacy alias; WorkspaceIDsOrComputed falls back to the
+// recomputed dual-form set for callers with no stamp.
+func (a *App) removeWorkspaceFromLoadedProjects(ws *data.Workspace, stampedIDs []string) {
 	if ws == nil {
 		return
 	}
-	wsID := string(ws.ID())
+	idSet := make(map[string]struct{}, len(stampedIDs)+2)
+	for _, id := range workspacesvc.WorkspaceIDsOrComputed(ws, stampedIDs) {
+		idSet[id] = struct{}{}
+	}
 	for i := range a.projects {
 		workspaces := a.projects[i].Workspaces
 		filtered := make([]data.Workspace, 0, len(workspaces))
 		for j := range workspaces {
 			candidate := &workspaces[j]
-			if string(candidate.ID()) == wsID || candidate.Root == ws.Root {
+			_, idMatch := idSet[string(candidate.ID())]
+			_, computedMatch := idSet[string(candidate.ComputedID())]
+			if idMatch || computedMatch || candidate.Root == ws.Root {
 				continue
 			}
 			filtered = append(filtered, workspaces[j])
