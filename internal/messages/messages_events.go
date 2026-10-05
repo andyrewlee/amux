@@ -16,10 +16,14 @@ type StateWatcherEvent struct {
 	Paths  []string
 }
 
-// SidebarPTYOutput contains PTY output for sidebar terminal
+// SidebarPTYOutput contains PTY output for sidebar terminal. Gen is the reader
+// generation that produced it — output arriving after a restart/reattach
+// carries a stale gen and must be dropped rather than appended to the
+// replacement stream.
 type SidebarPTYOutput struct {
 	WorkspaceID string
 	TabID       string
+	Gen         uint64
 	Data        []byte
 }
 
@@ -29,10 +33,13 @@ type SidebarPTYFlush struct {
 	TabID       string
 }
 
-// SidebarPTYStopped signals that the sidebar PTY read loop has stopped
+// SidebarPTYStopped signals that the sidebar PTY read loop has stopped. Gen is
+// the reader generation that exited — a stale gen must be dropped rather than
+// killing the replacement reader's cancel channel or burning a restart slot.
 type SidebarPTYStopped struct {
 	WorkspaceID string
 	TabID       string
+	Gen         uint64
 	Err         error
 }
 

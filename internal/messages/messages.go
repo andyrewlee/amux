@@ -201,10 +201,14 @@ type TmuxSyncTick struct {
 	Token int
 }
 
-// SidebarPTYRestart requests restarting a sidebar PTY reader.
+// SidebarPTYRestart requests restarting a sidebar PTY reader. Gen is the
+// reader generation whose stop is being retried — it must still match the
+// current ReaderGen at consume time, or a newer reader already exists and the
+// request is moot.
 type SidebarPTYRestart struct {
 	WorkspaceID string
 	TabID       string
+	Gen         uint64
 }
 
 // ToggleKeymapHints toggles display of keymap helper text

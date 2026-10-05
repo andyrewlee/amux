@@ -31,10 +31,13 @@ type PTYReaderConfig struct {
 }
 
 // PTYMsgFactory creates tea.Msg values from PTY events.
-// Closures capture the WorkspaceID/TabID from the call site.
+// Closures capture the WorkspaceID/TabID from the call site; gen is the reader
+// generation StartReader assigned to this loop — every delivered message must
+// carry it so a dead reader's queued output/stopped can be fenced against the
+// replacement generation at consume time.
 type PTYMsgFactory struct {
-	Output  func(data []byte) tea.Msg
-	Stopped func(err error) tea.Msg
+	Output  func(gen uint64, data []byte) tea.Msg
+	Stopped func(gen uint64, err error) tea.Msg
 }
 
 // RunPTYReader reads from r, buffers bytes, sends Output messages via msgCh
@@ -44,7 +47,7 @@ type PTYMsgFactory struct {
 // blocks on a channel that will not close.
 func RunPTYReader(
 	r io.Reader, msgCh chan tea.Msg, cancel <-chan struct{},
-	heartbeat *int64, cfg PTYReaderConfig, factory PTYMsgFactory,
+	heartbeat *int64, cfg PTYReaderConfig, factory PTYMsgFactory, gen uint64,
 ) {
 	// This goroutine is the sole owner of msgCh, so close it once on return.
 	// A deferred close runs during panic unwinding too, which unblocks
@@ -161,7 +164,7 @@ func RunPTYReader(
 		if len(pending) == 0 {
 			return true
 		}
-		if !SendPTYMsg(msgCh, cancel, factory.Output(pending)) {
+		if !SendPTYMsg(msgCh, cancel, factory.Output(gen, pending)) {
 			return false
 		}
 		pending = nil
@@ -181,7 +184,7 @@ func RunPTYReader(
 				if !flushPending() {
 					return
 				}
-				SendPTYMsg(msgCh, cancel, factory.Stopped(io.EOF))
+				SendPTYMsg(msgCh, cancel, factory.Stopped(gen, io.EOF))
 				return
 			}
 			// Append the event's bytes before handling its error: a terminal
@@ -204,7 +207,7 @@ func RunPTYReader(
 				if !flushPending() {
 					return
 				}
-				SendPTYMsg(msgCh, cancel, factory.Stopped(ev.err))
+				SendPTYMsg(msgCh, cancel, factory.Stopped(gen, ev.err))
 				return
 			}
 			if len(pending) >= cfg.MaxPendingBytes {

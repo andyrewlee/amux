@@ -27,12 +27,12 @@ type startReaderHarness struct {
 func newStartReaderHarness(term io.Reader) *startReaderHarness {
 	h := &startReaderHarness{forwardDone: make(chan struct{})}
 	factory := PTYMsgFactory{
-		Output: func(data []byte) tea.Msg {
+		Output: func(_ uint64, data []byte) tea.Msg {
 			cp := make([]byte, len(data))
 			copy(cp, data)
 			return testOutputMsg{data: cp}
 		},
-		Stopped: func(err error) tea.Msg { return testStoppedMsg{err: err} },
+		Stopped: func(_ uint64, err error) tea.Msg { return testStoppedMsg{err: err} },
 	}
 	merger := OutputMerger{
 		ExtractData: func(msg tea.Msg) ([]byte, bool) {

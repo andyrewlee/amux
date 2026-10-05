@@ -21,6 +21,13 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYOutput")
 	if tab != nil && !tab.isClosed() {
 		msg.WorkspaceID = wsID
+		tab.mu.Lock()
+		stale := tab.State.ReaderGen != msg.Gen
+		tab.mu.Unlock()
+		if stale {
+			logging.Debug("Dropping stale PTYOutput for tab %s: a newer reader already runs", msg.TabID)
+			return nil
+		}
 		m.tracePTYOutput(tab, msg.Data)
 		if detachCmd, consumed := m.handleBackgroundPTYPressure(msg, tab); consumed {
 			return detachCmd

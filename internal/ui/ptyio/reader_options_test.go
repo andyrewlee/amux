@@ -14,8 +14,8 @@ func TestStartReaderOptionsForWiresLabelsAndConfig(t *testing.T) {
 		ReaderNamespace{LabelPrefix: "center", ReadQueueSize: 64, MaxPendingBytes: 512 * 1024},
 		func() io.Reader { acquired = true; return nil },
 		PTYMsgFactory{
-			Output:  func([]byte) tea.Msg { return nil },
-			Stopped: func(error) tea.Msg { return nil },
+			Output:  func(uint64, []byte) tea.Msg { return nil },
+			Stopped: func(uint64, error) tea.Msg { return nil },
 		},
 		func(<-chan tea.Msg) { forwarded = true },
 	)
