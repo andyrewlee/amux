@@ -1,4 +1,4 @@
-package data
+package fsatomic
 
 import (
 	"errors"
@@ -12,25 +12,25 @@ import (
 // lockOpenTransientRetries bounds the retry on a spurious ENOENT from the
 // lock-file open. On macOS, openat-under-os.Root can intermittently report
 // ENOENT on a live directory while sibling tempdir churn is in flight — a
-// measured kernel/vnode-cache race, not a missing file. lockRegistryFile's
+// measured kernel/vnode-cache race, not a missing file. LockFile's
 // mkdirAllPrivate already guarantees the directory exists, so an ENOENT here
 // is transient by construction; a genuinely deleted state home still fails
 // closed once the retries run out.
 const lockOpenTransientRetries = 20
 
-// openRegistryLockRootFn is the test seam over the real open — tests force
+// openLockRootFn is the test seam over the real open — tests force
 // transient ENOENT bursts to prove the retry converges.
-var openRegistryLockRootFn = openRegistryLockRoot
+var openLockRootFn = openLockRoot
 
-// openRegistryLockRootRetry opens the lock root with a bounded retry on the
+// openLockRootRetry opens the lock root with a bounded retry on the
 // spurious-ENOENT race documented above. All other errors return immediately.
-func openRegistryLockRootRetry(lockPath string) (*os.Root, *os.File, string, error) {
+func openLockRootRetry(lockPath string) (*os.Root, *os.File, string, error) {
 	var root *os.Root
 	var file *os.File
 	var lockName string
 	var err error
 	for try := 0; try < lockOpenTransientRetries; try++ {
-		root, file, lockName, err = openRegistryLockRootFn(lockPath)
+		root, file, lockName, err = openLockRootFn(lockPath)
 		if !errors.Is(err, fs.ErrNotExist) {
 			break
 		}
@@ -39,7 +39,7 @@ func openRegistryLockRootRetry(lockPath string) (*os.Root, *os.File, string, err
 	return root, file, lockName, err
 }
 
-func openRegistryLockRoot(lockPath string) (*os.Root, *os.File, string, error) {
+func openLockRoot(lockPath string) (*os.Root, *os.File, string, error) {
 	dir := filepath.Dir(lockPath)
 	root, err := os.OpenRoot(dir)
 	if err != nil {

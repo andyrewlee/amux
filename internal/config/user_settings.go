@@ -81,7 +81,14 @@ func saveUISettings(path string, settings UISettings) error {
 	// Refuse to clobber an existing-but-unreadable config: the loader
 	// tolerates malformed JSON (falls back to defaults), so saving over an
 	// unreadable or non-object file would silently drop unrelated sections
-	// the user hand-edited (e.g. "assistants").
+	// the user hand-edited (e.g. "assistants"). The sibling flock keeps the
+	// read→mutate→write atomic against another process's save so disjoint
+	// section edits cannot be lost.
+	lockFile, err := fsatomic.LockFile(path+".lock", false)
+	if err != nil {
+		return err
+	}
+	defer fsatomic.UnlockFile(lockFile)
 	payload, err := readConfigForUpdate(path, readConfigPath)
 	if err != nil {
 		return err
