@@ -293,3 +293,86 @@ func TestLifecycleMutationWhilePersisting(t *testing.T) {
 		t.Fatal("expected dirty marker to survive delete-phase churn")
 	}
 }
+
+// TestMarkCreatingWorkspaceRejectsSameIdentityReentry pins the single-owner
+// rule: a second create admitted under the same identity would run a
+// concurrent worktree add at the same path, and either result could tear
+// down the other's guard.
+func TestMarkCreatingWorkspaceRejectsSameIdentityReentry(t *testing.T) {
+	st := newWorkspaceLifecycleState()
+	root := "/repo/.amux/workspaces/feature"
+
+	if !st.markCreatingWorkspace("pre-create-id", root) {
+		t.Fatal("expected first create admission")
+	}
+	if st.markCreatingWorkspace("pre-create-id", root) {
+		t.Fatal("expected same-identity re-entry refused")
+	}
+	if st.phase("pre-create-id") != lifecycleCreating {
+		t.Fatal("refused re-entry disturbed the owning create")
+	}
+	if got := st.creatingRootID[root]; got != "pre-create-id" {
+		t.Fatalf("bridge rebound on refused re-entry: %q", got)
+	}
+}
+
+// TestMarkCreatingWorkspaceRejectsSecondOwnerAtRoot covers the different-ID
+// edge: a create marked under a different identity at a claimed root would
+// overwrite the bridge and orphan the owning operation's identity.
+func TestMarkCreatingWorkspaceRejectsSecondOwnerAtRoot(t *testing.T) {
+	st := newWorkspaceLifecycleState()
+	root := "/repo/.amux/workspaces/feature"
+
+	if !st.markCreatingWorkspace("owner-a", root) {
+		t.Fatal("expected owner admission")
+	}
+	if st.markCreatingWorkspace("owner-b", root) {
+		t.Fatal("expected second root owner refused")
+	}
+	if got := st.creatingRootID[root]; got != "owner-a" {
+		t.Fatalf("bridge stolen by refused create: %q", got)
+	}
+	if st.phase("owner-b") == lifecycleCreating {
+		t.Fatal("refused second owner entered the phase")
+	}
+	if !st.creatingInFlight("owner-b", root) {
+		t.Fatal("probe must report the in-flight collision")
+	}
+}
+
+// TestMarkCreatingWorkspaceRetryAfterOwnerSettles asserts the refusal is a
+// phase guard, not a permanent lock: once the owner settles, a blocked retry
+// is admitted.
+func TestMarkCreatingWorkspaceRetryAfterOwnerSettles(t *testing.T) {
+	st := newWorkspaceLifecycleState()
+	root := "/repo/.amux/workspaces/feature"
+
+	if !st.markCreatingWorkspace("owner-a", root) {
+		t.Fatal("expected owner admission")
+	}
+	// The post-create record may carry a different identity — the drift the
+	// root bridge exists to settle.
+	ws := &data.Workspace{Name: "feature", Root: root, Repo: "/repo"}
+	st.clearCreatingWorkspace(ws)
+	if st.phase("owner-a") == lifecycleCreating || st.creatingRootID[root] != "" {
+		t.Fatal("owner settle did not release phase and bridge")
+	}
+	if !st.markCreatingWorkspace("owner-b", root) {
+		t.Fatal("expected retry admitted once the owner settled")
+	}
+}
+
+// TestMarkCreatingRejectsRootlessReentry keeps the same-owner rule on the
+// rootless path — re-entry is refused there too, mirroring markMutating.
+func TestMarkCreatingRejectsRootlessReentry(t *testing.T) {
+	st := newWorkspaceLifecycleState()
+	if !st.markCreating("ws-1") {
+		t.Fatal("expected first admission")
+	}
+	if st.markCreating("ws-1") {
+		t.Fatal("expected rootless same-identity re-entry refused")
+	}
+	if st.phase("ws-1") != lifecycleCreating {
+		t.Fatal("refused re-entry disturbed the owning create")
+	}
+}

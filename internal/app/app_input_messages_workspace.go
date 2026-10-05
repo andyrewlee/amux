@@ -370,10 +370,14 @@ func (a *App) handleCreateWorkspace(msg messages.CreateWorkspace) []tea.Cmd {
 		if pending != nil {
 			pending.Assistant = assistant
 			if !a.lifecycle.markCreatingWorkspace(string(pending.ID()), pending.Root) {
+				err := fmt.Errorf("workspace %s is already being deleted", pending.Name)
+				if a.lifecycle.creatingInFlight(string(pending.ID()), pending.Root) {
+					err = fmt.Errorf("workspace %s creation is already in progress", pending.Name)
+				}
 				cmds = append(cmds, func() tea.Msg {
 					return messages.WorkspaceCreateFailed{
 						Workspace: pending,
-						Err:       fmt.Errorf("workspace %s is already being deleted", pending.Name),
+						Err:       err,
 					}
 				})
 				return cmds
