@@ -75,10 +75,12 @@ func (t *tabPersistence) markCommitted(id data.WorkspaceID, seq uint64) {
 
 // SaveWorkspaceTabs persists one tab-state capture as a narrow field
 // transaction: only OpenTabs and ActiveTabIndex change on disk; every other
-// field is read fresh inside the workspace lock. seq is the capture's
-// monotonic sequence; a call carrying a sequence at or below the last
-// committed one returns committed=false — the record already reflects a
-// newer capture.
+// field is read fresh inside the workspace lock. The bool reports whether
+// bytes were committed: a call carrying a sequence at or below the last
+// committed one returns false (the record already reflects a newer capture),
+// and so does a transaction the store accepts as a no-op — the fresh record
+// already held these tabs. Callers that fingerprint the file for self-write
+// suppression rely on this: false means "we wrote nothing."
 //
 // The mutation-in-flight guard wraps the ENTIRE ordered save once, at this
 // boundary: when an atomic guard is installed, the phase check and the write
@@ -135,6 +137,11 @@ func (s *Service) saveWorkspaceTabs(id data.WorkspaceID, ws *data.Workspace, seq
 		// a write, and deliberately no local-save marker — nothing happened.
 		return false, nil
 	}
+	// committed tracks the callback's changed flag: a no-op Update (the
+	// fresh record already held these tabs) writes nothing, and the caller
+	// must not fingerprint the current file as ours — an external write
+	// committed before our no-op would otherwise be suppressed as local.
+	committed := false
 	err := s.store.Update(id, func(fresh *data.Workspace) (bool, error) {
 		if checkMutation && s.isMutationInFlight(fresh) {
 			return false, errTabSaveSkipped
@@ -145,6 +152,7 @@ func (s *Service) saveWorkspaceTabs(id data.WorkspaceID, ws *data.Workspace, seq
 		}
 		fresh.OpenTabs = cloned
 		fresh.ActiveTabIndex = activeIdx
+		committed = true
 		return true, nil
 	})
 	if errors.Is(err, errTabSaveSkipped) {
@@ -161,10 +169,14 @@ func (s *Service) saveWorkspaceTabs(id data.WorkspaceID, ws *data.Workspace, seq
 		full.OpenTabs = slices.Clone(tabs)
 		full.ActiveTabIndex = activeIdx
 		err = s.store.Save(&full)
+		committed = err == nil
 	}
 	if err != nil {
 		return false, err
 	}
+	// The seq ledger is about ordering, not bytes: a no-op still consumed
+	// this capture, so it commits the sequence either way. Only a real
+	// write reports wrote=true — the marker contract is "we committed".
 	s.tabPersist.markCommitted(id, seq)
-	return true, nil
+	return committed, nil
 }
