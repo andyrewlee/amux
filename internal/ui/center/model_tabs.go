@@ -373,6 +373,12 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		createdAt:     now.Unix(),
 		lastFocusedAt: now,
 	}
+	// Queue the launch task for the post-readiness send, same as the reuse
+	// branch — a fresh tab's actor-write state starts empty, so assigning here
+	// (before the tab is registered) is safe.
+	if msg.Task != "" {
+		tab.pendingInitialTask = msg.Task
+	}
 	// A binding installed by construction (rather than markAttachedLocked)
 	// still occupies an input generation so gen 0 always means "never bound" —
 	// generation-stamped failures/refreshes from a replaced binding can then

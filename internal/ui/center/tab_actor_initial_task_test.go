@@ -70,6 +70,32 @@ func TestInitialTaskSentAfterModeSet(t *testing.T) {
 	}
 }
 
+// TestInitialTaskAssignedOnFreshLaunch proves the launch task survives the
+// fresh-tab path, not only the reuse/reattach path — otherwise a first launch
+// would silently drop the queued instruction before the actor can send it.
+func TestInitialTaskAssignedOnFreshLaunch(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+	wsID := string(ws.ID())
+
+	_ = m.handlePtyTabCreated(ptyTabCreateResult{
+		Workspace: ws,
+		Assistant: "claude",
+		Agent:     &appPty.Agent{Session: "sess-fresh-task"},
+		TabID:     TabID("tab-fresh-task"),
+		Task:      "fix the bug",
+		Activate:  true,
+	})
+
+	tabs := m.tabs.ByWorkspace[wsID]
+	if len(tabs) != 1 {
+		t.Fatalf("expected one tab after fresh create, got %d", len(tabs))
+	}
+	if got := tabs[0].pendingInitialTask; got != "fix the bug" {
+		t.Fatalf("fresh launch dropped the initial task: pendingInitialTask=%q", got)
+	}
+}
+
 // TestInitialTaskClearedOnDetach proves a queued task cannot leak into a
 // reattach: markDetachedLocked drops it before a new agent could see it.
 func TestInitialTaskClearedOnDetach(t *testing.T) {

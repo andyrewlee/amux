@@ -353,6 +353,20 @@ func TestTabSelectionCommand_EmitsSelectionChanged(t *testing.T) {
 	assertSelectionChanged(t, m.tabSelectionCommand(), wsID, 1)
 }
 
+func TestTabSelectionChangedCmd_SnapshotsActiveIndex(t *testing.T) {
+	ws := newTestWorkspace("ws", "/repo/ws")
+	m, _, wsID := newActionsModel(t, chatTab(ws, "a"), chatTab(ws, "b"))
+	m.tabs.ActiveByWorkspace[wsID] = 1
+
+	cmd := m.tabSelectionChangedCmd(true)
+	// A later selection change must not retroactively rewrite the payload —
+	// the index is captured on the Update goroutine, not read when the Cmd
+	// eventually executes.
+	m.tabs.ActiveByWorkspace[wsID] = 0
+
+	assertSelectionChanged(t, cmd, wsID, 1)
+}
+
 func assertSelectionChanged(t *testing.T, cmd tea.Cmd, wsID string, wantIdx int) {
 	t.Helper()
 	if cmd == nil {
