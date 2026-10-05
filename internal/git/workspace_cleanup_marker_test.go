@@ -1,7 +1,6 @@
 package git
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,68 +28,29 @@ func TestReadWorkspaceCleanupStateFallsBackToBackupMarker(t *testing.T) {
 	}
 }
 
-func TestWriteRetryMarkerFileAtomicallyForWindowsReplacesExistingMarker(t *testing.T) {
-	markerPath := filepath.Join(t.TempDir(), ".pending-cleanup.amux-pruned-worktree")
-	if err := os.WriteFile(markerPath, []byte("repo_path=/tmp/old\ncleanup_path=/tmp/old-staged\nneeds_unregister=true\nworkspace_git_ref=\nworkspace_git_ref_mtime_unix_nano=0\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile(markerPath) error = %v", err)
-	}
-
-	payload := []byte("repo_path=/tmp/new\ncleanup_path=/tmp/new-staged\nneeds_unregister=false\nworkspace_git_ref=\nworkspace_git_ref_mtime_unix_nano=0\n")
-	if err := writeRetryMarkerFileAtomicallyForGOOS("windows", markerPath, payload, 0o600); err != nil {
-		t.Fatalf("writeRetryMarkerFileAtomicallyForGOOS() error = %v", err)
-	}
-
-	got, err := os.ReadFile(markerPath)
+// The marker write now routes through fsatomic.WriteFile — file Sync before
+// rename and parent-dir Sync after (Windows backup-shuffle included) are
+// covered by fsatomic's own suite; what remains here is the contract the git
+// package itself owns: the marker round-trips through the durable path.
+func TestWriteWorkspaceCleanupRetryMetadataRoundTripsThroughAtomicPath(t *testing.T) {
+	workspacePath := t.TempDir()
+	got, err := ensureWorkspaceCleanupRetryMetadataWithContext(t.Context(), workspacePath, "/tmp/repo", true)
 	if err != nil {
-		t.Fatalf("ReadFile(markerPath) error = %v", err)
+		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
-	if string(got) != string(payload) {
-		t.Fatalf("marker contents = %q, want %q", string(got), string(payload))
+	content, err := os.ReadFile(workspaceCleanupRetryMetadataPath(workspacePath))
+	if err != nil {
+		t.Fatalf("ReadFile(retry metadata) error = %v", err)
 	}
-	if _, err := os.Stat(retryMarkerBackupPath(markerPath)); !os.IsNotExist(err) {
-		t.Fatalf("expected backup marker to be removed, err=%v", err)
+	if !strings.Contains(string(content), "repo_path=/tmp/repo") || !strings.Contains(string(content), "needs_unregister=true") {
+		t.Fatalf("retry metadata = %q, want repo_path + needs_unregister", string(content))
 	}
-}
-
-func TestWriteRetryMarkerFileAtomicallyForWindowsKeepsBackupOnlyMarkerOnFailure(t *testing.T) {
-	origRename := writeRetryMarkerRenamePath
-	origRemove := writeRetryMarkerRemovePath
-	defer func() {
-		writeRetryMarkerRenamePath = origRename
-		writeRetryMarkerRemovePath = origRemove
-	}()
-
-	markerPath := filepath.Join(t.TempDir(), ".pending-cleanup.amux-pruned-worktree")
-	backupPath := retryMarkerBackupPath(markerPath)
-	backupPayload := []byte("repo_path=/tmp/old\ncleanup_path=/tmp/old-staged\nneeds_unregister=true\nworkspace_git_ref=\nworkspace_git_ref_mtime_unix_nano=0\n")
-	if err := os.WriteFile(backupPath, backupPayload, 0o600); err != nil {
-		t.Fatalf("WriteFile(backupPath) error = %v", err)
+	loaded, marked, err := readWorkspaceCleanupRetryMetadata(workspacePath)
+	if err != nil {
+		t.Fatalf("readWorkspaceCleanupRetryMetadata() error = %v", err)
 	}
-
-	writeRetryMarkerRenamePath = func(oldPath, newPath string) error {
-		if newPath == markerPath {
-			return errors.New("rename failed")
-		}
-		return origRename(oldPath, newPath)
-	}
-	writeRetryMarkerRemovePath = origRemove
-
-	err := writeRetryMarkerFileAtomicallyForGOOS(
-		"windows",
-		markerPath,
-		[]byte("repo_path=/tmp/new\ncleanup_path=/tmp/new-staged\nneeds_unregister=false\nworkspace_git_ref=\nworkspace_git_ref_mtime_unix_nano=0\n"),
-		0o600,
-	)
-	if err == nil {
-		t.Fatal("expected writeRetryMarkerFileAtomicallyForGOOS() to fail")
-	}
-
-	got, readErr := os.ReadFile(backupPath)
-	if readErr != nil {
-		t.Fatalf("ReadFile(backupPath) error = %v", readErr)
-	}
-	if string(got) != string(backupPayload) {
-		t.Fatalf("backup marker contents = %q, want %q", string(got), string(backupPayload))
+	if !marked || loaded.RepoPath != "/tmp/repo" || !loaded.NeedsUnregister || loaded.WorkspaceFingerprint != got.WorkspaceFingerprint {
+		t.Fatalf("round-trip = marked=%v %+v, want repo + unregister + fingerprint %q", marked, loaded, got.WorkspaceFingerprint)
 	}
 }
 
