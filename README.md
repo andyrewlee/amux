@@ -300,7 +300,9 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
   finished when amux started does not trigger the hook. When several sessions
   finish in the same scan every eligible hook is attempted once: a dispatch
   failure reports its own warning and never blocks the rest, and completed
-  edges are not replayed.
+  edges are not replayed. Hooks are bounded work: at most 8 may run at once
+  per workspace (later edges dispatch again once slots free) and each is
+  killed after two minutes, so a runaway hook can't pin workspace teardown.
 - `archive` — the command run when a workspace is archived, i.e. just before its
   worktree is deleted. It runs to completion (up to two minutes) in the worktree
   while that directory still exists, after every lifecycle subprocess has been

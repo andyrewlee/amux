@@ -132,13 +132,28 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	key := scriptWorkspaceKey(ws)
+	if r.postStartHook != nil {
+		r.postStartHook(key)
+	}
 
 	running := &runningScript{
 		cmd:  cmd,
 		done: make(chan struct{}),
 	}
-	key := scriptWorkspaceKey(ws)
+	// Register before the admission re-check: a teardown that won the race
+	// between the early gate check and Start has already snapshotted Stop's
+	// targets, so the entry must be visible to its sweep — and when the gate
+	// is held anyway, the just-started child is killed and reaped inline.
+	// Same contract as admitOnDone: admit after start; the loser kills+reaps.
 	r.setRunningEntry(key, running)
+	if err := r.lifecycle.checkAdmission(key); err != nil {
+		r.clearRunningEntry(key)
+		r.killScriptProcessGroup(cmd)
+		_ = cmd.Wait()
+		close(running.done)
+		return nil, err
+	}
 
 	// Monitor in background
 	safego.Go("process.script_wait", func() {
@@ -299,13 +314,17 @@ func (r *ScriptRunner) RunOnDone(ws *data.Workspace, sessionName string) error {
 	}
 	// Admission after Start, atomically: a teardown landing between resolve
 	// and spawn rejects the registration, and the just-started child is
-	// killed and reaped inline so it cannot outlive the removal.
+	// killed and reaped inline so it cannot outlive the removal. The fan-out
+	// cap rejects the same way — the spawn is undone, never tracked.
 	key := scriptWorkspaceKey(ws)
-	proc, ok := r.lifecycle.admitOnDone(key, cmd)
-	if !ok {
-		_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
+	proc, admErr := r.lifecycle.admitOnDone(key, cmd)
+	if admErr != nil {
+		r.killScriptProcessGroup(cmd)
 		_ = cmd.Wait()
-		return ErrWorkspaceTeardown
+		if errors.Is(admErr, ErrOnDoneLimit) {
+			logging.Warn("on-done hook dropped at fan-out cap: workspace=%s cap=%d", key, maxOnDoneHooks)
+		}
+		return admErr
 	}
 	safego.Go("process.on_done_wait", func() {
 		r.waitOnDone(ws, key, proc, cmdStr, tail)
@@ -313,14 +332,38 @@ func (r *ScriptRunner) RunOnDone(ws *data.Workspace, sessionName string) error {
 	return nil
 }
 
+// onDoneHookTimeout bounds a detached on-done hook's execution. The hook is
+// fire-and-forget edge work (notifications, webhooks) — a runaway hook would
+// otherwise pin its coordinator slot and waiter goroutine forever, shrinking
+// the fan-out cap for every later edge. On deadline the process group is
+// killed and the bounded re-wait reaps it, mirroring the archive timeout.
+var onDoneHookTimeout = 2 * time.Minute
+
 // waitOnDone is the sole waiter for an admitted on-done hook: it reaps the
 // process, records the bounded transcript, and notifies the exit listener on
 // a non-zero exit. Completion — unregistering the process and closing its
 // drain channel — is the lifecycle coordinator's alone via finishOnDone.
 func (r *ScriptRunner) waitOnDone(ws *data.Workspace, key string, proc *lifecycleProc, cmdStr string, tail *tailWriter) {
 	defer r.lifecycle.finishOnDone(key, proc)
-	err := proc.cmd.Wait()
-	r.recordScriptOutput(ws, ScriptOnDone, tail.String(), err)
+	waitErr := make(chan error, 1)
+	safego.Go("process.on_done_reap", func() {
+		waitErr <- proc.cmd.Wait()
+	})
+	timer := time.NewTimer(onDoneHookTimeout)
+	defer timer.Stop()
+	var err error
+	reaped := true
+	select {
+	case err = <-waitErr:
+	case <-timer.C:
+		err = fmt.Errorf("on-done hook timed out after %s: %s", onDoneHookTimeout, cmdStr)
+		reaped = r.reapAfterTimeout(proc.cmd, waitErr)
+	}
+	tailText := ""
+	if reaped {
+		tailText = tail.String()
+	}
+	r.recordScriptOutput(ws, ScriptOnDone, tailText, err)
 	if err != nil {
 		logging.Debug("on-done hook exited non-zero: %s: %v", cmdStr, err)
 		r.notifyScriptExit(ws, ScriptOnDone, err)
@@ -346,7 +389,7 @@ func (r *ScriptRunner) reapAfterTimeout(cmd *exec.Cmd, waitErr <-chan error) boo
 
 	if cmd.Process != nil {
 		if err := ForceKillProcess(cmd.Process.Pid); err != nil && !isBenignStopError(err) {
-			logging.Debug("force-killing unreaped archive script: %v", err)
+			logging.Debug("force-killing unreaped timed-out script: %v", err)
 		}
 	}
 	select {
@@ -355,7 +398,7 @@ func (r *ScriptRunner) reapAfterTimeout(cmd *exec.Cmd, waitErr <-chan error) boo
 	case <-time.After(scriptStopTimeout):
 		// Error, not Warn: a user-initiated delete's kill side-effect failed —
 		// a process outlived its workspace teardown and nothing retries it.
-		logging.Error("archive script could not be reaped; abandoning it so the delete can proceed")
+		logging.Error("timed-out script could not be reaped; abandoning it so the delete can proceed")
 		return false
 	}
 }
@@ -371,6 +414,6 @@ func (r *ScriptRunner) killScriptProcessGroup(cmd *exec.Cmd) {
 		kill = KillProcessGroup
 	}
 	if err := kill(cmd.Process.Pid, KillOptions{}); err != nil && !isBenignStopError(err) {
-		logging.Debug("killing timed-out archive script: %v", err)
+		logging.Debug("killing timed-out script: %v", err)
 	}
 }

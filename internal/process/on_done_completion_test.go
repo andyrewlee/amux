@@ -23,11 +23,11 @@ func admitOnDoneCmd(t *testing.T, runner *ScriptRunner, ws *data.Workspace, scri
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start on-done fixture: %v", err)
 	}
-	proc, ok := runner.lifecycle.admitOnDone(scriptWorkspaceKey(ws), cmd)
-	if !ok {
+	proc, admErr := runner.lifecycle.admitOnDone(scriptWorkspaceKey(ws), cmd)
+	if admErr != nil {
 		_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
 		_ = cmd.Wait()
-		t.Fatal("admitOnDone rejected a workspace not under teardown")
+		t.Fatalf("admitOnDone rejected a workspace not under teardown: %v", admErr)
 	}
 	// Backstop: if a test aborts before its waiter reaps the child, kill it
 	// rather than leaking a live process out of the fixture.

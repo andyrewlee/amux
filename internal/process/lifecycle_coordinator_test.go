@@ -157,9 +157,9 @@ func TestLifecycleOnDone_TrackedSet(t *testing.T) {
 		t.Fatal("live() = true before any admission")
 	}
 	cmd := noopCmd()
-	p, ok := c.admitOnDone(key, cmd)
-	if !ok {
-		t.Fatal("admitOnDone = false, want true")
+	p, err := c.admitOnDone(key, cmd)
+	if err != nil {
+		t.Fatalf("admitOnDone = %v, want nil", err)
 	}
 	if !c.live(key) {
 		t.Fatal("live() = false with an admitted on-done proc")
