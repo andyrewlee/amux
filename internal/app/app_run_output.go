@@ -28,9 +28,10 @@ func (a *App) handleShowRunScriptOutput(msg messages.ShowRunScriptOutput) tea.Cm
 	// defect class the status-indicator fix addressed). Bump the token
 	// at request time so a second R press invalidates an in-flight open.
 	a.overlays.runOutputToken++
-	token, ws, svc := a.overlays.runOutputToken, msg.Workspace, a.workspaceService
+	token, svc := a.overlays.runOutputToken, a.workspaceService
+	snap := cloneForCmd(msg.Workspace)
 	return func() tea.Msg {
-		return runSessionsEnumeratedMsg{token: token, ws: ws, entries: svc.RunSessionList(ws)}
+		return runSessionsEnumeratedMsg{token: token, ws: snap, entries: svc.RunSessionList(snap)}
 	}
 }
 

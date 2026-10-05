@@ -68,32 +68,33 @@ func (a *App) handleMergeWorkspace(msg messages.MergeWorkspace) tea.Cmd {
 func (a *App) resolveMergePreconditionAsync(ws *data.Workspace) tea.Cmd {
 	resolveBase := a.localBaseBranch
 	resolveHead := a.checkedOutBranch
+	snap := cloneForCmd(ws)
 
 	return func() tea.Msg {
-		base := resolveBase(ws.Repo, ws.Base)
+		base := resolveBase(snap.Repo, snap.Base)
 		switch {
 		case base == "":
-			return refusal(ws, fmt.Sprintf("Workspace '%s' has no recorded base branch", ws.Name))
-		case base == ws.Branch:
-			return refusal(ws, "Workspace branch and base branch are the same")
+			return refusal(snap, fmt.Sprintf("Workspace '%s' has no recorded base branch", snap.Name))
+		case base == snap.Branch:
+			return refusal(snap, "Workspace branch and base branch are the same")
 		}
 
-		head, err := resolveHead(ws.Repo)
+		head, err := resolveHead(snap.Repo)
 		if err != nil {
 			return messages.MergeWorkspaceRefused{
-				Workspace: ws,
+				Workspace: snap,
 				Reason:    "Cannot merge: the primary checkout has no branch checked out (detached HEAD)",
 				Err:       err,
 			}
 		}
 		if head != base {
-			return refusal(ws, fmt.Sprintf(
+			return refusal(snap, fmt.Sprintf(
 				"Cannot merge: %s is on '%s', not the base '%s'. Check out '%s' there and retry.",
-				ws.Repo, head, base, base,
+				snap.Repo, head, base, base,
 			))
 		}
 
-		return messages.ShowMergeWorkspaceDialog{Workspace: ws, Base: base}
+		return messages.ShowMergeWorkspaceDialog{Workspace: snap, Base: base}
 	}
 }
 
@@ -204,7 +205,7 @@ func (a *App) mergeWorkspaceAsync(ws *data.Workspace, base string) tea.Cmd {
 		if head != base {
 			return refusal(ws, fmt.Sprintf(
 				"Cannot merge: %s moved to '%s' since the dialog opened; expected '%s'. Check out '%s' there and retry.",
-				ws.Repo, head, base, base,
+				repo, head, base, base,
 			))
 		}
 		return messages.WorkspaceMerged{

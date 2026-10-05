@@ -223,7 +223,7 @@ func (a *App) runSetupAsync(ws *data.Workspace) tea.Cmd {
 	if a.workspaceService == nil {
 		return nil
 	}
-	return a.workspaceService.RunSetupAsync(ws)
+	return a.workspaceService.RunSetupAsync(cloneForCmd(ws))
 }
 
 // trustRepoScriptsAndRunSetupAsync trusts the reviewed repo script config and retries setup.
@@ -231,7 +231,7 @@ func (a *App) trustRepoScriptsAndRunSetupAsync(ws *data.Workspace, expectedHash 
 	if a.workspaceService == nil {
 		return nil
 	}
-	return a.workspaceService.TrustRepoScriptsAndRunSetupAsync(ws, expectedHash)
+	return a.workspaceService.TrustRepoScriptsAndRunSetupAsync(cloneForCmd(ws), expectedHash)
 }
 
 // deleteWorkspace deletes a workspace. The user is NOT navigated home here: that
@@ -242,7 +242,8 @@ func (a *App) deleteWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd
 	if a.workspaceService == nil {
 		return nil
 	}
-	return wrapLifecycleCmd(a.workspaceService.DeleteWorkspace(project, ws), lifecycleOpDelete, project, ws)
+	snap := cloneForCmd(ws)
+	return wrapLifecycleCmd(a.workspaceService.DeleteWorkspace(project, snap), lifecycleOpDelete, project, snap)
 }
 
 // shelveWorkspace shelves a workspace — remove the worktree, keep branch and
@@ -251,7 +252,8 @@ func (a *App) shelveWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd
 	if a.workspaceService == nil {
 		return nil
 	}
-	return wrapLifecycleCmd(a.workspaceService.ShelveWorkspace(project, ws), lifecycleOpShelve, project, ws)
+	snap := cloneForCmd(ws)
+	return wrapLifecycleCmd(a.workspaceService.ShelveWorkspace(project, snap), lifecycleOpShelve, project, snap)
 }
 
 // restoreWorkspace recreates a shelved workspace's worktree from its branch.
@@ -259,7 +261,8 @@ func (a *App) restoreWorkspace(project *data.Project, ws *data.Workspace) tea.Cm
 	if a.workspaceService == nil {
 		return nil
 	}
-	return wrapLifecycleCmd(a.workspaceService.RestoreWorkspace(project, ws), lifecycleOpRestore, project, ws)
+	snap := cloneForCmd(ws)
+	return wrapLifecycleCmd(a.workspaceService.RestoreWorkspace(project, snap), lifecycleOpRestore, project, snap)
 }
 
 // removeProject removes a project from the registry (does not delete files).

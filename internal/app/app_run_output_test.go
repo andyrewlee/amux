@@ -165,7 +165,7 @@ func TestHandleShowRunScriptOutput_ArmsRefreshOnlyWhileAlive(t *testing.T) {
 	if cmd := openRunOutput(t, live, ws); cmd == nil {
 		t.Fatal("expected a scheduled refresh tick for a live session")
 	}
-	if live.app.overlays.runOutputWorkspace != ws {
+	if live.app.overlays.runOutputWorkspace == nil || live.app.overlays.runOutputWorkspace.Root != ws.Root {
 		t.Fatal("expected runOutputWorkspace stashed for the refresh loop")
 	}
 
