@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -78,6 +79,56 @@ func TestEnsureDetachedSessionCreatesAndTags(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "run-basic" {
 		t.Fatalf("FindRunSessions() = %v, want [run-basic]", got)
+	}
+}
+
+// TestCreateDetachedSessionCollides pins the create-only contract: the loser
+// reports ErrSessionNameTaken and the winner's tags are never re-stamped —
+// the Ensure path used to adopt the session and overwrite them.
+func TestCreateDetachedSessionCollides(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := testServer(t)
+	dir := t.TempDir()
+
+	if err := CreateDetachedSession("run-create", dir, "sleep 300", nil, opts, SessionTags{
+		WorkspaceID: "ws-1",
+		Type:        "run",
+		CreatedAt:   111,
+		InstanceID:  "test-inst",
+	}); err != nil {
+		t.Fatalf("CreateDetachedSession() error = %v", err)
+	}
+
+	err := CreateDetachedSession("run-create", dir, "echo loser", nil, opts, SessionTags{
+		WorkspaceID: "ws-1",
+		Type:        "run",
+		CreatedAt:   999,
+		InstanceID:  "test-inst",
+	})
+	if !errors.Is(err, ErrSessionNameTaken) {
+		t.Fatalf("second CreateDetachedSession() = %v, want ErrSessionNameTaken", err)
+	}
+
+	// The winner's tags survived: workspace + the original creation stamp.
+	rows, err := FindRunSessionsDetailed("ws-1", "test-inst", []string{"@amux_created_at"}, opts)
+	if err != nil {
+		t.Fatalf("FindRunSessionsDetailed() error = %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "run-create" {
+		t.Fatalf("FindRunSessionsDetailed() = %+v, want exactly [run-create]", rows)
+	}
+	if got := rows[0].Tags["@amux_created_at"]; got != "111" {
+		t.Fatalf("winner's @amux_created_at = %q, want 111 — loser must not re-stamp", got)
+	}
+	exists, alive, _, err := RunSessionStatus("run-create", opts)
+	if err != nil || !exists || !alive {
+		t.Fatalf("winning session status = (exists=%v, alive=%v, err=%v), want alive", exists, alive, err)
+	}
+	// A fresh name still creates — collision is per-name, not per-caller.
+	if err := CreateDetachedSession("run-create-2", dir, "sleep 300", nil, opts, SessionTags{
+		WorkspaceID: "ws-1", Type: "run", CreatedAt: 222, InstanceID: "test-inst",
+	}); err != nil {
+		t.Fatalf("CreateDetachedSession(new name) error = %v", err)
 	}
 }
 

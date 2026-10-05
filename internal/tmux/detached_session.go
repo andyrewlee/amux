@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,62 @@ func EnsureDetachedSession(sessionName, workDir, command string, environment []s
 			_ = launch.payload.Discard()
 		}
 		return fmt.Errorf("ensure detached session %s: %w (%s)", sessionName, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// ErrSessionNameTaken reports a create-only allocation losing the name: a
+// session already owned it when the create ran. Unlike EnsureDetachedSession
+// — create-unless-present for reattach callers — CreateDetachedSession never
+// adopts or re-tags the existing session; the caller picks a fresh name and
+// retries.
+var ErrSessionNameTaken = errors.New("tmux session name already taken")
+
+// CreateDetachedSession creates sessionName running command in workDir with
+// no attached client, or reports ErrSessionNameTaken when the name is taken.
+// It is the allocation path for fresh run sessions: two concurrent starters
+// can pick the same candidate name, and adoption would let both report
+// success on one session while the loser's tags overwrite the winner's.
+//
+// Session shape matches EnsureDetachedSession — same managed settings,
+// @amux_* tags, and remain-on-exit — but the settings run only when this
+// call owns the create, so a foreign session's tags are never touched.
+func CreateDetachedSession(sessionName, workDir, command string, environment []string, opts Options, tags SessionTags) error {
+	if opts == (Options{}) {
+		opts = DefaultOptions()
+	}
+	if opts.ConfigPath != "" && !filepath.IsAbs(opts.ConfigPath) {
+		opts.ConfigPath = filepath.Join(workDir, opts.ConfigPath)
+	}
+	base := tmuxBase(opts)
+	dir := shellutil.ShellQuote(workDir)
+	optionTgt := shellutil.ShellQuote(exactSessionOptionTarget(sessionName))
+
+	launch, err := prepareLaunch(workDir, command, environment)
+	if err != nil {
+		return err
+	}
+	settings := append(sessionSettingArgs(optionTgt, opts, tags),
+		[]string{"-t", optionTgt, "remain-on-exit", "on"})
+
+	script := createSessionScript(base, sessionName, dir, launch, true, settingsScript(base, settings))
+
+	ctx, cancel := context.WithTimeout(context.Background(), tmuxCommandTimeout)
+	defer cancel()
+	// #nosec G204 -- the script is built from shell-quoted parts only.
+	cmd := exec.CommandContext(ctx, "sh", "-c", script)
+	out, err := runTmuxCmdCombined(cmd)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == exitCodeCollision {
+			return fmt.Errorf("create detached session %s: %w", sessionName, ErrSessionNameTaken)
+		}
+		if ctx.Err() == nil {
+			// Same reasoning as EnsureDetachedSession: a non-timeout failure
+			// means the create didn't dispatch a pane on this payload.
+			_ = launch.payload.Discard()
+		}
+		return fmt.Errorf("create detached session %s: %w (%s)", sessionName, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -206,26 +263,43 @@ func RunSessionTail(sessionName string, lines int, opts Options) (string, bool) 
 // (different state root sharing the tmux server) is excluded — the same
 // scoping the GC stub tests exercise via instancesShareState.
 func FindRunSessions(workspaceID, instanceID string, opts Options) ([]string, error) {
-	rows, err := SessionsWithTags(map[string]string{
-		"@amux":           "1",
-		"@amux_workspace": workspaceID,
-		"@amux_type":      "run",
-	}, []string{"@amux_instance"}, opts)
+	rows, err := FindRunSessionsDetailed(workspaceID, instanceID, nil, opts)
 	if err != nil {
 		return nil, err
 	}
 	names := make([]string, 0, len(rows))
 	for _, row := range rows {
-		name := strings.TrimSpace(row.Name)
-		if name == "" {
+		names = append(names, row.Name)
+	}
+	return names, nil
+}
+
+// FindRunSessionsDetailed is FindRunSessions with tag values: the same
+// @amux_workspace+type=run ownership filter and instance scoping, but each
+// row carries the requested extra @amux_* keys (@amux_instance is always
+// fetched for the filter). Newest-session selection uses this to order on
+// @amux_created_at instead of name suffixes.
+func FindRunSessionsDetailed(workspaceID, instanceID string, keys []string, opts Options) ([]SessionTagValues, error) {
+	rows, err := SessionsWithTags(map[string]string{
+		"@amux":           "1",
+		"@amux_workspace": workspaceID,
+		"@amux_type":      "run",
+	}, append(append([]string{}, keys...), "@amux_instance"), opts)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SessionTagValues, 0, len(rows))
+	for _, row := range rows {
+		row.Name = strings.TrimSpace(row.Name)
+		if row.Name == "" {
 			continue
 		}
 		if instanceID != "" && !instanceNamespacesMatch(row.Tags["@amux_instance"], instanceID) {
 			continue
 		}
-		names = append(names, name)
+		out = append(out, row)
 	}
-	return names, nil
+	return out, nil
 }
 
 // instanceNamespacesMatch reports whether two instance IDs share the state

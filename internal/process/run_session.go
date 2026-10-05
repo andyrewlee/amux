@@ -3,7 +3,6 @@ package process
 import (
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +19,36 @@ import (
 // The interface lives in process but is implemented at the app layer over
 // internal/tmux: process cannot import tmux (tmux already imports process for
 // KillProcessGroup). When nil, the runner falls back to the subprocess path.
+// ErrRunSessionNameTaken reports a create-only allocation losing the name —
+// a concurrent starter already owns it. The caller retries with the next
+// free suffix rather than adopting the stranger's session.
+var ErrRunSessionNameTaken = errors.New("run session name already taken")
+
+// RunSessionCreator is the optional create-only allocation capability a
+// RunSessionHost may implement: unlike Ensure it fails on a same-named
+// existing session instead of silently adopting it (and re-stamping the
+// winner's tags). runScriptHosted prefers Create when the host offers it;
+// Ensure-only hosts keep the adopt-by-name fallback.
+type RunSessionCreator interface {
+	Create(name, workDir, cmd string, env []string, meta RunSessionMeta) error
+}
+
+// RunSessionRef is one hosted run session's identity plus its stamped
+// creation time — what "newest session" picks order on. CreatedAt is 0 when
+// the host doesn't report it; selection then falls back to name order.
+type RunSessionRef struct {
+	Name      string
+	CreatedAt int64
+}
+
+// RunSessionFinder is the optional detailed-find capability: hosts
+// implementing it return creation stamps alongside names so newest-session
+// selection orders chronologically instead of by smallest-free suffix reuse
+// (a recreated -2 is newer than a surviving -3 despite sorting earlier).
+type RunSessionFinder interface {
+	FindDetailed(workspaceID string) ([]RunSessionRef, error)
+}
+
 type RunSessionHost interface {
 	// Ensure starts a detached session named name running cmd in workDir with
 	// env; a no-op when the session already exists.
@@ -71,32 +100,58 @@ func (r *ScriptRunner) RunHosted() bool {
 	return r.runHost != nil
 }
 
-// findRunSessions returns the workspace's run-session names under both
-// identity forms. ws.ID() drifts across worktree create/remove (NormalizePath
-// resolves only existing paths), so sessions tagged under one form become
-// invisible to lookups made under the other; MetadataID() is the stable key
-// new sessions are tagged with, ID() covers sessions created before that
-// change and any keyed under the resolved form.
-func (r *ScriptRunner) findRunSessions(ws *data.Workspace) ([]string, error) {
-	var out []string
+// findRunSessionRefs returns the workspace's run sessions under both
+// identity forms, with creation stamps when the host implements
+// RunSessionFinder. ws.ID() drifts across worktree create/remove
+// (NormalizePath resolves only existing paths), so sessions tagged under one
+// form become invisible to lookups made under the other; MetadataID() is the
+// stable key new sessions are tagged with, ID() covers sessions created
+// before that change and any keyed under the resolved form.
+func (r *ScriptRunner) findRunSessionRefs(ws *data.Workspace) ([]RunSessionRef, error) {
+	var out []RunSessionRef
 	seen := make(map[string]struct{}, 4)
+	finder, detailed := r.runHost.(RunSessionFinder)
 	// Dedup the ID forms themselves, not just the names: for a persisted
 	// workspace MetadataID() == ID() and the same Find would run twice —
 	// two identical tmux list-sessions subprocesses per 3s poll.
 	for _, id := range data.WorkspaceIdentitySet(ws) {
-		names, err := r.runHost.Find(string(id))
+		var refs []RunSessionRef
+		var err error
+		if detailed {
+			refs, err = finder.FindDetailed(string(id))
+		} else {
+			var names []string
+			names, err = r.runHost.Find(string(id))
+			for _, name := range names {
+				refs = append(refs, RunSessionRef{Name: name})
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
-		for _, name := range names {
-			if _, ok := seen[name]; ok {
+		for _, ref := range refs {
+			if _, ok := seen[ref.Name]; ok {
 				continue
 			}
-			seen[name] = struct{}{}
-			out = append(out, name)
+			seen[ref.Name] = struct{}{}
+			out = append(out, ref)
 		}
 	}
 	return out, nil
+}
+
+// findRunSessions is the names-only view of findRunSessionRefs for callers
+// that don't order on creation time.
+func (r *ScriptRunner) findRunSessions(ws *data.Workspace) ([]string, error) {
+	refs, err := r.findRunSessionRefs(ws)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, ref.Name)
+	}
+	return names, nil
 }
 
 // runSessionSeen reports whether a find ever returned sessions under any of
@@ -119,6 +174,31 @@ func (r *ScriptRunner) markRunSessionSeen(ws *data.Workspace) {
 	defer r.mu.Unlock()
 	for _, id := range data.WorkspaceIdentitySet(ws) {
 		r.runSessionsSeen[string(id)] = struct{}{}
+	}
+}
+
+// runSessionSwept reports whether the one-shot post-restart probe already ran
+// for any of the workspace's current identity forms. The seen-set is
+// process-local, so a restarted amux can't tell "never had sessions" from
+// "had them before the restart" — the swept-set bounds the discovery sweep to
+// once per process rather than skipping it forever.
+func (r *ScriptRunner) runSessionSwept(ws *data.Workspace) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range data.WorkspaceIdentitySet(ws) {
+		if _, ok := r.runSessionsSwept[string(id)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// markRunSessionSwept records every current identity form as probed.
+func (r *ScriptRunner) markRunSessionSwept(ws *data.Workspace) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range data.WorkspaceIdentitySet(ws) {
+		r.runSessionsSwept[string(id)] = struct{}{}
 	}
 }
 
@@ -150,54 +230,79 @@ func nextRunSuffix(base string, names []string) int {
 
 // runScriptHosted is RunScript's session-host path. RunScript's nonconcurrent
 // branch already routed through Stop (which kills all the workspace's run
-// sessions under the host), so this only names the next session — the base
-// name, or -N when concurrent mode left earlier sessions alive — and ensures
-// it exists.
+// sessions under the host), so this only names and allocates the next session
+// — the base name, or -N when concurrent mode left earlier sessions alive.
+// maxRunSessionCreateAttempts bounds the collision-retry loop in
+// runScriptHosted: each loss means another starter owns that name, so a few
+// retries always lands a free suffix unless something is pathologically
+// contending.
+const maxRunSessionCreateAttempts = 4
+
 func (r *ScriptRunner) runScriptHosted(ws *data.Workspace, cmdStr string) error {
-	names, err := r.findRunSessions(ws)
-	if err != nil {
-		return fmt.Errorf("list run sessions: %w", err)
-	}
-	name := runSessionBaseName(ws)
-	if len(names) > 0 {
-		name = fmt.Sprintf("%s-%d", name, nextRunSuffix(name, names))
-	}
 	env, err := r.buildScriptEnv(ws)
 	if err != nil {
 		return err
 	}
-	err = r.runHost.Ensure(name, ws.Root, cmdStr, env, RunSessionMeta{
-		WorkspaceID:   string(ws.MetadataID()),
-		CreatedAt:     time.Now().Unix(),
-		WorkspaceName: ws.Name,
-		ProjectName:   data.ProjectNameForRepo(ws.Repo),
-	})
-	if err != nil {
-		return err
-	}
-	if r.postStartHook != nil {
-		r.postStartHook(scriptWorkspaceKey(ws))
-	}
-	// Post-start admission, the hosted form of RunScript's re-check: a
-	// teardown that began while Ensure ran could not have included this
-	// session in its stop sweep — kill it ourselves rather than leaving a
-	// live run session in a worktree whose removal is already decided.
-	if admErr := r.lifecycle.checkAdmission(scriptWorkspaceKey(ws)); admErr != nil {
-		if killErr := r.runHost.Kill(name); killErr != nil {
-			logging.Warn("post-admission kill of run session %s failed: %v", name, killErr)
+	creator, canCreate := r.runHost.(RunSessionCreator)
+	base := runSessionBaseName(ws)
+	for attempt := 0; ; attempt++ {
+		names, err := r.findRunSessions(ws)
+		if err != nil {
+			return fmt.Errorf("list run sessions: %w", err)
 		}
-		return admErr
+		name := base
+		if len(names) > 0 {
+			name = fmt.Sprintf("%s-%d", name, nextRunSuffix(base, names))
+		}
+		// Create is create-or-collide: two concurrent starts can pick the
+		// same free suffix, and with Ensure's adopt-by-name contract both
+		// would "succeed" while only one command ran (and the loser's meta
+		// would re-stamp the winner's). A collision retries the find for the
+		// next free suffix; Ensure-only hosts keep the old adopt behavior.
+		meta := RunSessionMeta{
+			WorkspaceID:   string(ws.MetadataID()),
+			CreatedAt:     time.Now().Unix(),
+			WorkspaceName: ws.Name,
+			ProjectName:   data.ProjectNameForRepo(ws.Repo),
+		}
+		if canCreate {
+			err = creator.Create(name, ws.Root, cmdStr, env, meta)
+		} else {
+			err = r.runHost.Ensure(name, ws.Root, cmdStr, env, meta)
+		}
+		if errors.Is(err, ErrRunSessionNameTaken) {
+			if attempt+1 >= maxRunSessionCreateAttempts {
+				return fmt.Errorf("allocate run session name: %w", err)
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if r.postStartHook != nil {
+			r.postStartHook(scriptWorkspaceKey(ws))
+		}
+		// Post-start admission, the hosted form of RunScript's re-check: a
+		// teardown that began while Ensure ran could not have included this
+		// session in its stop sweep — kill it ourselves rather than leaving a
+		// live run session in a worktree whose removal is already decided.
+		if admErr := r.lifecycle.checkAdmission(scriptWorkspaceKey(ws)); admErr != nil {
+			if killErr := r.runHost.Kill(name); killErr != nil {
+				logging.Warn("post-admission kill of run session %s failed: %v", name, killErr)
+			}
+			return admErr
+		}
+		// A session created under this instance counts as observed even if a
+		// later status sweep is the first to run — keeps the gate from
+		// hiding it when the config is removed in between.
+		r.markRunSessionSeen(ws)
+		return nil
 	}
-	// A session created under this instance counts as observed even if a
-	// later status sweep is the first to run — keeps the gate from
-	// hiding it when the config is removed in between.
-	r.markRunSessionSeen(ws)
-	return nil
 }
 
 // runSessionsHosted returns the workspace's live run-session statuses: any
 // session that still exists, and whether any pane is still alive.
-func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (names []string, anyAlive bool, lastExit int) {
+func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (sessions []RunSessionRef, anyAlive bool, lastExit int) {
 	lastExit = -1
 	if r.runHost == nil {
 		return nil, false, -1
@@ -206,31 +311,59 @@ func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (names []string, an
 	// script and no previously observed session can't have one. Config can be
 	// removed while a session still lives, so the seen-set — populated on
 	// every nonempty find — keeps the sweep running until the session is
-	// actually gone. Only ErrNoScriptConfigured skips; an unreadable or
-	// untrusted repo config still sweeps (fail open toward visibility).
+	// actually gone. The seen-set is process-local, though: a restarted amux
+	// can't distinguish "never had sessions" from "had them before the
+	// restart", so the config-gone path gets ONE bounded sweep per process
+	// (the swept-set) rather than skipping forever. Only
+	// ErrNoScriptConfigured gates; an unreadable or untrusted repo config
+	// still sweeps (fail open toward visibility).
 	if _, err := r.resolveScriptCommand(ws, ScriptRun); errors.Is(err, ErrNoScriptConfigured) && !r.runSessionSeen(ws) {
-		return nil, false, -1
+		if r.runSessionSwept(ws) {
+			return nil, false, -1
+		}
+		r.markRunSessionSwept(ws)
 	}
-	found, err := r.findRunSessions(ws)
+	found, err := r.findRunSessionRefs(ws)
 	if err != nil {
 		return nil, false, -1
 	}
 	if len(found) > 0 {
 		r.markRunSessionSeen(ws)
 	}
-	for _, name := range found {
-		exists, alive, exitCode, err := r.runHost.Status(name)
+	for _, ref := range found {
+		exists, alive, exitCode, err := r.runHost.Status(ref.Name)
 		if err != nil || !exists {
 			continue
 		}
-		names = append(names, name)
+		sessions = append(sessions, ref)
 		if alive {
 			anyAlive = true
 		} else if exitCode != -1 {
 			lastExit = exitCode
 		}
 	}
-	return names, anyAlive, lastExit
+	return sessions, anyAlive, lastExit
+}
+
+// newestRunSessionFirst orders run-session refs newest-first: creation stamp
+// descending, then numeric suffix descending as the same-second tiebreak
+// (runSessionOrdinal with an empty base parses the -run/-run-N pattern off
+// any prefix), then name. Unstamped hosts get suffix order — the "largest -N
+// is newest" approximation the old find-order scan made — which is strictly
+// better than the lexical last it replaced (-10 no longer loses to -2).
+func newestRunSessionFirst(refs []RunSessionRef) []RunSessionRef {
+	sorted := make([]RunSessionRef, len(refs))
+	copy(sorted, refs)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].CreatedAt != sorted[j].CreatedAt {
+			return sorted[i].CreatedAt > sorted[j].CreatedAt
+		}
+		if oi, oj := runSessionOrdinal(sorted[i].Name, ""), runSessionOrdinal(sorted[j].Name, ""); oi != oj {
+			return oi > oj
+		}
+		return sorted[i].Name > sorted[j].Name
+	})
+	return sorted
 }
 
 // RunScriptStatus reports the workspace's hosted run state for UI surfacing:
@@ -252,13 +385,13 @@ func (r *ScriptRunner) RunScriptOutput(ws *data.Workspace, lines int) string {
 	if !r.RunHosted() || ws == nil {
 		return ""
 	}
-	names, _, _ := r.runSessionsHosted(ws)
-	if len(names) == 0 {
+	sessions, _, _ := r.runSessionsHosted(ws)
+	if len(sessions) == 0 {
 		return ""
 	}
-	// The last-created session is the most relevant view; names arrive in
-	// find order and the base session (no suffix) is oldest.
-	return r.runHost.Tail(names[len(names)-1], lines)
+	// The newest-created session is the most relevant view — creation order,
+	// not suffix order: a gap-reused -2 can be newer than a surviving -3.
+	return r.runHost.Tail(newestRunSessionFirst(sessions)[0].Name, lines)
 }
 
 // RunScriptOutputAndStatus is the combined fetch for callers that need both
@@ -272,9 +405,9 @@ func (r *ScriptRunner) RunScriptOutputAndStatus(ws *data.Workspace, lines int) (
 	if !r.RunHosted() {
 		return "", r.RunActive(ws), -1
 	}
-	names, alive, exit := r.runSessionsHosted(ws)
-	if len(names) > 0 {
-		output = r.runHost.Tail(names[len(names)-1], lines)
+	sessions, alive, exit := r.runSessionsHosted(ws)
+	if len(sessions) > 0 {
+		output = r.runHost.Tail(newestRunSessionFirst(sessions)[0].Name, lines)
 	}
 	return output, alive, exit
 }
@@ -299,88 +432,10 @@ func (r *ScriptRunner) RunSessionAlive(name string) bool {
 	return err == nil && exists && alive
 }
 
-// RunSessionEntry is one hosted run session's row for picker enumeration —
-// its tmux session name plus the liveness/exit state remain-on-exit records.
-type RunSessionEntry struct {
-	Name     string
-	Ordinal  int // 1 = base session, N = -N suffix — the run's creation order
-	Alive    bool
-	ExitCode int // -1 when unavailable (alive, or no recorded status)
-}
-
-// RunSessionList enumerates the workspace's run sessions with liveness, in
-// creation order — the base session first, then -2, -3, … numerically (the
-// find order is lexical, which would place run-10 before run-2). Unlike
-// runSessionsHosted it applies no seen/config gate: the caller is a
-// user-triggered picker open, where a configured-then-removed script must
-// still show its leftover sessions.
-func (r *ScriptRunner) RunSessionList(ws *data.Workspace) []RunSessionEntry {
-	if r.runHost == nil || ws == nil {
-		return nil
-	}
-	found, err := r.findRunSessions(ws)
-	if err != nil {
-		return nil
-	}
-	base := runSessionBaseName(ws)
-	entries := make([]RunSessionEntry, 0, len(found))
-	for _, name := range found {
-		exists, alive, exitCode, err := r.runHost.Status(name)
-		if err != nil || !exists {
-			continue
-		}
-		entries = append(entries, RunSessionEntry{Name: name, Ordinal: runSessionOrdinal(name, base), Alive: alive, ExitCode: exitCode})
-	}
-	sortRunSessionEntries(entries, base)
-	return entries
-}
-
-// runSessionOrdinal is the session's creation-order index: the base name is
-// 1, base-N is N. Sessions tagged under a drifted workspace-ID form won't
-// prefix-match base, so those fall back to parsing the trailing -run/-run-N
-// pattern off the name itself; anything else sorts last (shouldn't occur —
-// every tagged name comes from this scheme, but a hand-made session could be
-// mis-stamped).
-func runSessionOrdinal(name, base string) int {
-	if name == base {
-		return 1
-	}
-	if rest, ok := strings.CutPrefix(name, base+"-"); ok {
-		if n, err := strconv.Atoi(rest); err == nil && n > 0 {
-			return n
-		}
-		return math.MaxInt
-	}
-	i := strings.LastIndex(name, "-run")
-	if i < 0 {
-		return math.MaxInt
-	}
-	suffix := name[i+len("-run"):]
-	if suffix == "" {
-		return 1
-	}
-	if n, err := strconv.Atoi(strings.TrimPrefix(suffix, "-")); err == nil && n > 0 && strings.HasPrefix(suffix, "-") {
-		return n
-	}
-	return math.MaxInt
-}
-
-// sortRunSessionEntries orders entries by creation order: base first, then
-// numeric suffix — the order runScriptHosted minted them in.
-func sortRunSessionEntries(entries []RunSessionEntry, base string) {
-	sort.Slice(entries, func(i, j int) bool {
-		oi, oj := runSessionOrdinal(entries[i].Name, base), runSessionOrdinal(entries[j].Name, base)
-		if oi == oj {
-			return entries[i].Name < entries[j].Name
-		}
-		return oi < oj
-	})
-}
-
 // RunScriptAttachTarget returns the newest ALIVE hosted run-session name for
 // interactive attach — the same newest-alive selection the output overlay
-// uses (find order is oldest-first). False when no hosted session is alive
-// or no session host is installed.
+// uses, ordered by creation stamp rather than suffix. False when no hosted
+// session is alive or no session host is installed.
 func (r *ScriptRunner) RunScriptAttachTarget(ws *data.Workspace) (string, bool) {
 	r.mu.Lock()
 	host := r.runHost
@@ -388,14 +443,14 @@ func (r *ScriptRunner) RunScriptAttachTarget(ws *data.Workspace) (string, bool) 
 	if host == nil || ws == nil {
 		return "", false
 	}
-	found, err := r.findRunSessions(ws)
+	found, err := r.findRunSessionRefs(ws)
 	if err != nil {
 		return "", false
 	}
-	for i := len(found) - 1; i >= 0; i-- {
-		exists, alive, _, err := host.Status(found[i])
+	for _, ref := range newestRunSessionFirst(found) {
+		exists, alive, _, err := host.Status(ref.Name)
 		if err == nil && exists && alive {
-			return found[i], true
+			return ref.Name, true
 		}
 	}
 	return "", false
