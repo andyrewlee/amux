@@ -148,11 +148,12 @@ func (m *Model) tabSelectionChangedCmd(changed bool) tea.Cmd {
 	if wsID == "" {
 		return nil
 	}
+	activeIdx := m.getActiveTabIdx()
 	return common.SafeBatch(
 		func() tea.Msg {
 			return messages.TabSelectionChanged{
 				WorkspaceID: wsID,
-				ActiveIndex: m.getActiveTabIdx(),
+				ActiveIndex: activeIdx,
 			}
 		},
 		m.flushActiveTabBacklogCmd(),
