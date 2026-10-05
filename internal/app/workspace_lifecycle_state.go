@@ -104,20 +104,9 @@ func newWorkspaceLifecycleState() workspaceLifecycleState {
 	}
 }
 
-// transition moves wsID to a new phase, rejecting (and logging) moves the
-// transition table does not allow — e.g. mutating → creating.
-func (w *workspaceLifecycleState) transition(wsID string, to lifecyclePhase) bool {
-	if wsID == "" {
-		return false
-	}
-	w.phaseMu.Lock()
-	defer w.phaseMu.Unlock()
-	if w.phases == nil {
-		w.phases = make(map[string]lifecyclePhase)
-	}
-	return w.transitionLocked(wsID, to)
-}
-
+// transitionLocked moves wsID to a new phase, rejecting (and logging) moves
+// the transition table does not allow — e.g. mutating → creating. Callers
+// hold phaseMu and provide their own wsID validation.
 func (w *workspaceLifecycleState) transitionLocked(wsID string, to lifecyclePhase) bool {
 	from := w.phases[wsID]
 	if !lifecycleTransitionAllowed(from, to) {
@@ -140,9 +129,23 @@ func (w *workspaceLifecycleState) phase(wsID string) lifecyclePhase {
 }
 
 // markCreating records a workspace as create-in-flight. It reports whether
-// the transition was accepted (rejected when the workspace is mid-mutation).
+// the transition was accepted — rejected while the workspace is mid-mutation
+// AND while it is already creating: every caller is a lifecycle dispatch
+// guard, so a repeated mark is a re-entry, not an idempotent refresh (mirrors
+// markMutating's rejection).
 func (w *workspaceLifecycleState) markCreating(wsID string) bool {
-	return w.transition(wsID, lifecycleCreating)
+	if wsID == "" {
+		return false
+	}
+	w.phaseMu.Lock()
+	defer w.phaseMu.Unlock()
+	if w.phases == nil {
+		w.phases = make(map[string]lifecyclePhase)
+	}
+	if w.phases[wsID] == lifecycleCreating {
+		return false
+	}
+	return w.transitionLocked(wsID, lifecycleCreating)
 }
 
 // clearCreating settles a creating workspace back to active. A workspace in

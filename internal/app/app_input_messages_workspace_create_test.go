@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,4 +167,57 @@ func TestHandleCreateWorkspaceClearsPendingIDOnValidationFailure(t *testing.T) {
 		return
 	}
 	t.Fatal("expected at least one cmd to produce WorkspaceCreateFailed")
+}
+
+// TestHandleCreateWorkspaceRejectsDuplicateAdmission asserts a second create
+// dispatched while the first is still in flight is refused as "already in
+// progress" — not admitted as a concurrent worktree add at the same root.
+func TestHandleCreateWorkspaceRejectsDuplicateAdmission(t *testing.T) {
+	workspacesRoot := "/tmp/workspaces"
+	store := data.NewWorkspaceStore(t.TempDir())
+	svc := workspacesvc.New(nil, store, nil, workspacesRoot)
+
+	app := &App{
+		dashboard: dashboard.New(),
+		lifecycle: workspaceLifecycleState{
+			phases: make(map[string]lifecyclePhase),
+		},
+		workspaceService: svc,
+	}
+
+	project := data.NewProject("/tmp/repo")
+	msg := messages.CreateWorkspace{
+		Project:   project,
+		Name:      "feature",
+		Base:      "main",
+		Assistant: "claude",
+	}
+
+	// First dispatch is admitted and stays in flight (its cmd is not run).
+	app.handleCreateWorkspace(msg)
+	if len(app.lifecycle.snapshotCreating()) != 1 {
+		t.Fatalf("expected 1 create in flight after first dispatch, got %d",
+			len(app.lifecycle.snapshotCreating()))
+	}
+
+	// Second dispatch for the same workspace is refused, not queued.
+	var refusal *messages.WorkspaceCreateFailed
+	for _, cmd := range app.handleCreateWorkspace(msg) {
+		if cmd == nil {
+			continue
+		}
+		if failed, ok := cmd().(messages.WorkspaceCreateFailed); ok {
+			failed := failed
+			refusal = &failed
+		}
+	}
+	if refusal == nil {
+		t.Fatal("expected WorkspaceCreateFailed for the duplicate dispatch")
+	}
+	if !strings.Contains(refusal.Err.Error(), "already in progress") {
+		t.Fatalf("expected an in-progress refusal, got %v", refusal.Err)
+	}
+	if len(app.lifecycle.snapshotCreating()) != 1 {
+		t.Fatal("refused duplicate entered the creating phase")
+	}
 }
