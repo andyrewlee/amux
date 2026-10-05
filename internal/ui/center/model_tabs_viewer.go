@@ -120,13 +120,21 @@ func (m *Model) reuseDiffTab(ws *data.Workspace, idx int, tab *Tab, change *git.
 	m.setActiveTabIdxForWorkspace(wsID, idx)
 
 	var cmds []tea.Cmd
+	// Every tab.DiffViewer method call must run under tab.mu — the actor
+	// goroutine's updateDiffViewer applies queued updates under the same lock,
+	// so reuse mutates the viewer there too. dv.Init() only captures state into
+	// a Cmd closure; the Cmd itself runs later on the Bubble Tea loop.
 	tab.mu.Lock()
 	dv := tab.DiffViewer
-	tab.mu.Unlock()
+	var initCmd tea.Cmd
 	if dv != nil {
 		wrapDiffResults(dv, wsID, tab.ID)
 		dv.ResetSource(ws, change, mode)
-		cmds = append(cmds, dv.Init())
+		initCmd = dv.Init()
+	}
+	tab.mu.Unlock()
+	if initCmd != nil {
+		cmds = append(cmds, initCmd)
 	}
 	if m.workspaceID() == wsID {
 		cmds = append(cmds, m.tabSelectionChangedCmd(activeChanged))
