@@ -143,8 +143,8 @@ func TestRunPTYReaderQueuedTailDeliveredBeforeStopped(t *testing.T) {
 	msgCh := make(chan tea.Msg)
 	var hb int64
 	factory := PTYMsgFactory{
-		Output:  func(data []byte) tea.Msg { return testOutputMsg{data: append([]byte(nil), data...)} },
-		Stopped: func(err error) tea.Msg { return testStoppedMsg{err: err} },
+		Output:  func(_ uint64, data []byte) tea.Msg { return testOutputMsg{data: append([]byte(nil), data...)} },
+		Stopped: func(_ uint64, err error) tea.Msg { return testStoppedMsg{err: err} },
 	}
 	merger := OutputMerger{
 		ExtractData: func(m tea.Msg) ([]byte, bool) {
@@ -183,7 +183,7 @@ func TestRunPTYReaderQueuedTailDeliveredBeforeStopped(t *testing.T) {
 
 	readerDone := make(chan struct{})
 	go func() {
-		RunPTYReader(r, msgCh, cancel, &hb, cfg, factory)
+		RunPTYReader(r, msgCh, cancel, &hb, cfg, factory, 1)
 		close(readerDone)
 	}()
 
@@ -232,8 +232,8 @@ func TestRunPTYReaderFlushTickUnderBackpressure(t *testing.T) {
 	msgCh := make(chan tea.Msg)
 	var hb int64
 	factory := PTYMsgFactory{
-		Output:  func(data []byte) tea.Msg { return testOutputMsg{data: append([]byte(nil), data...)} },
-		Stopped: func(err error) tea.Msg { return testStoppedMsg{err: err} },
+		Output:  func(_ uint64, data []byte) tea.Msg { return testOutputMsg{data: append([]byte(nil), data...)} },
+		Stopped: func(_ uint64, err error) tea.Msg { return testStoppedMsg{err: err} },
 	}
 
 	var mu sync.Mutex
@@ -261,7 +261,7 @@ func TestRunPTYReaderFlushTickUnderBackpressure(t *testing.T) {
 
 	readerDone := make(chan struct{})
 	go func() {
-		RunPTYReader(r, msgCh, cancel, &hb, cfg, factory)
+		RunPTYReader(r, msgCh, cancel, &hb, cfg, factory, 1)
 		close(readerDone)
 	}()
 

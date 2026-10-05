@@ -33,8 +33,12 @@ func (m *Model) startPTYReader(wtID string, tab *Tab) tea.Cmd {
 			return tab.Agent.Terminal
 		},
 		ptyio.PTYMsgFactory{
-			Output:  func(data []byte) tea.Msg { return PTYOutput{WorkspaceID: wtID, TabID: tabID, Data: data} },
-			Stopped: func(err error) tea.Msg { return PTYStopped{WorkspaceID: wtID, TabID: tabID, Err: err} },
+			Output: func(gen uint64, data []byte) tea.Msg {
+				return PTYOutput{WorkspaceID: wtID, TabID: tabID, Gen: gen, Data: data}
+			},
+			Stopped: func(gen uint64, err error) tea.Msg {
+				return PTYStopped{WorkspaceID: wtID, TabID: tabID, Gen: gen, Err: err}
+			},
 		},
 		m.forwardPTYMsgs,
 	))

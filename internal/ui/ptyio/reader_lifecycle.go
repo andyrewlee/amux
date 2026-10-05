@@ -67,7 +67,7 @@ func (st *State) StartReader(mu sync.Locker, opts StartReaderOptions) {
 
 	safego.Go(opts.ReaderLabel, func() {
 		defer st.MarkReaderStopped(mu, gen)
-		RunPTYReader(term, msgCh, cancel, &st.Heartbeat, opts.Config, opts.Factory)
+		RunPTYReader(term, msgCh, cancel, &st.Heartbeat, opts.Config, opts.Factory, gen)
 	})
 	safego.Go(opts.ForwardLabel, func() {
 		opts.Forward(msgCh)

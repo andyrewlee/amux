@@ -129,11 +129,11 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 			return ts.Terminal
 		},
 		ptyio.PTYMsgFactory{
-			Output: func(data []byte) tea.Msg {
-				return messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Data: data}
+			Output: func(gen uint64, data []byte) tea.Msg {
+				return messages.SidebarPTYOutput{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Data: data}
 			},
-			Stopped: func(err error) tea.Msg {
-				return messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID), Err: err}
+			Stopped: func(gen uint64, err error) tea.Msg {
+				return messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Err: err}
 			},
 		},
 		m.forwardPTYMsgs,

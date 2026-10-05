@@ -24,6 +24,13 @@ func (m *TerminalModel) handlePTYOutput(msg messages.SidebarPTYOutput) tea.Cmd {
 	}
 	ts := tab.State
 	ts.mu.Lock()
+	stale := ts.State.ReaderGen != msg.Gen
+	ts.mu.Unlock()
+	if stale {
+		logging.Debug("Dropping stale sidebar PTY output for workspace %s tab %s: a newer reader already runs", wsID, tabID)
+		return nil
+	}
+	ts.mu.Lock()
 	// Conservative reservation published before the unlocked append: the
 	// writer must never observe an empty stream while bytes are in flight,
 	// so pendingBufferedBytes covers the buffer plus the incoming chunk for
@@ -128,6 +135,13 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 		return nil
 	}
 	ts := tab.State
+	ts.mu.Lock()
+	stale := ts.State.ReaderGen != msg.Gen
+	ts.mu.Unlock()
+	if stale {
+		logging.Debug("Dropping stale sidebar PTY stopped for workspace %s tab %s: a newer reader already runs", wsID, tabID)
+		return nil
+	}
 	termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
 	ts.mu.Lock()
 	// Stream-end ordering: every still-queued writer request precedes the
@@ -163,7 +177,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 		restartWt := wsID
 		logging.Warn("Sidebar PTY stopped for workspace %s tab %s; restarting in %s: %v", wsID, tabID, backoff, msg.Err)
 		return common.SafeTick(backoff, func(time.Time) tea.Msg {
-			return messages.SidebarPTYRestart{WorkspaceID: restartWt, TabID: restartTab}
+			return messages.SidebarPTYRestart{WorkspaceID: restartWt, TabID: restartTab, Gen: msg.Gen}
 		})
 	}
 	if termAlive {
@@ -181,6 +195,13 @@ func (m *TerminalModel) handlePTYRestart(msg messages.SidebarPTYRestart) tea.Cmd
 		return nil
 	}
 	ts := tab.State
+	ts.mu.Lock()
+	stale := ts.State.ReaderGen != msg.Gen
+	ts.mu.Unlock()
+	if stale {
+		logging.Debug("Dropping stale sidebar PTY restart for workspace %s tab %s: a newer reader already runs", wsID, msg.TabID)
+		return nil
+	}
 	if ts.Terminal == nil || ts.Terminal.IsClosed() {
 		ts.mu.Lock()
 		ts.RestartBackoff = 0

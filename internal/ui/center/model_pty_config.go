@@ -68,10 +68,14 @@ const (
 	ptyBackpressureFlushFloor = 32 * time.Millisecond
 )
 
-// PTYOutput is a message containing PTY output data
+// PTYOutput is a message containing PTY output data. Gen is the reader
+// generation that produced it — output arriving after a restart/reattach
+// carries a stale gen and must be dropped rather than appended to the
+// replacement stream.
 type PTYOutput struct {
 	WorkspaceID string
 	TabID       TabID
+	Gen         uint64
 	Data        []byte
 }
 
@@ -126,10 +130,14 @@ type PTYCursorRefresh struct {
 	InputGeneration uint64
 }
 
-// PTYStopped signals that the PTY read loop has stopped (terminal closed or error)
+// PTYStopped signals that the PTY read loop has stopped (terminal closed or error).
+// Gen is the reader generation that exited — a stopped arriving after a
+// restart/reattach carries a stale gen and must be dropped rather than killing
+// the replacement reader's cancel channel or burning a restart slot.
 type PTYStopped struct {
 	WorkspaceID string
 	TabID       TabID
+	Gen         uint64
 	Err         error
 }
 
@@ -137,10 +145,14 @@ type PTYStopped struct {
 // a stopped PTY must never be evicted from the lossy queue.
 func (PTYStopped) MarkCriticalExternalMsg() {}
 
-// PTYRestart requests restarting a PTY reader for a tab.
+// PTYRestart requests restarting a PTY reader for a tab. Gen is the reader
+// generation whose stop is being retried — it must still match the current
+// ReaderGen at consume time, or a newer reader already exists and the request
+// is moot.
 type PTYRestart struct {
 	WorkspaceID string
 	TabID       TabID
+	Gen         uint64
 }
 
 type selectionScrollTick struct {

@@ -19,6 +19,13 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYStopped")
 	if tab != nil {
 		msg.WorkspaceID = wsID
+		tab.mu.Lock()
+		stale := tab.State.ReaderGen != msg.Gen
+		tab.mu.Unlock()
+		if stale {
+			logging.Debug("Dropping stale PTYStopped for tab %s: a newer reader already runs", msg.TabID)
+			return nil
+		}
 		termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 		m.stopPTYReader(tab)
 		tab.mu.Lock()
@@ -46,7 +53,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 			tabID := msg.TabID
 			wtID := msg.WorkspaceID
 			cmds = append(cmds, common.SafeTick(backoff, func(time.Time) tea.Msg {
-				return PTYRestart{WorkspaceID: wtID, TabID: tabID}
+				return PTYRestart{WorkspaceID: wtID, TabID: tabID, Gen: msg.Gen}
 			}))
 			logging.Warn("PTY stopped for tab %s; restarting in %s: %v", msg.TabID, backoff, msg.Err)
 		case termAlive:
@@ -69,6 +76,13 @@ func (m *Model) updatePTYRestart(msg PTYRestart) tea.Cmd {
 	var cmds []tea.Cmd
 	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYRestart")
 	if tab == nil {
+		return nil
+	}
+	tab.mu.Lock()
+	stale := tab.State.ReaderGen != msg.Gen
+	tab.mu.Unlock()
+	if stale {
+		logging.Debug("Dropping stale PTYRestart for tab %s: a newer reader already runs", msg.TabID)
 		return nil
 	}
 	tab.resetActivityANSIState()
