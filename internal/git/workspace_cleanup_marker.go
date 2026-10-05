@@ -302,7 +302,7 @@ func ensureWorkspaceCleanupRetryMetadataWithContext(
 	if err := ctx.Err(); err != nil {
 		return workspaceCleanupRetryMetadata{}, err
 	}
-	if err := os.WriteFile(
+	if err := writeRetryMetadataFile(
 		workspaceCleanupRetryMetadataPath(workspacePath),
 		[]byte(fmt.Sprintf(
 			"repo_path=%s\nneeds_unregister=%t\nworkspace_fingerprint=%s\n",

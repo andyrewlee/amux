@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
 var (
@@ -21,7 +22,8 @@ var (
 	removeWorkspacePathCtx  = removeWorkspacePathWithContext
 	removeWorkspacePathGOOS = runtime.GOOS
 	removeRetryMetadataPath = os.RemoveAll
-	writeRetryMarkerFile    = writeRetryMarkerFileAtomically
+	writeRetryMarkerFile    = fsatomic.WriteFile
+	writeRetryMetadataFile  = fsatomic.WriteFile
 )
 
 const prunedWorkspaceCleanupMarkerSuffix = ".amux-pruned-worktree"
