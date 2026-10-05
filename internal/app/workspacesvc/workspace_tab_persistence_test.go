@@ -350,8 +350,8 @@ func TestShelveIntent_PreservesConcurrentFieldWrites(t *testing.T) {
 // that committed while the restore was in flight.
 func TestRestoreUnarchive_PreservesConcurrentFieldWrites(t *testing.T) {
 	svc, project, ws, store := newShelveHarness(t, &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, workspacePath, _, _ string) (bool, error) {
-			return false, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+		AttachWorkspaceFunc: func(_, workspacePath, _ string) error {
+			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 	})
 	ws.Archived = true

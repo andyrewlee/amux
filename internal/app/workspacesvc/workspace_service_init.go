@@ -15,6 +15,14 @@ type GitOperations interface {
 	// CreateWorkspace reports branchCreated so a rollback deletes only a
 	// branch this call made — attaching a pre-existing branch yields false.
 	CreateWorkspace(repoPath, workspacePath, branch, base string) (branchCreated bool, err error)
+	// AttachWorkspace runs `worktree add -- <path> <branch>` only — the
+	// restore primitive. It never creates the branch: a missing ref is a
+	// hard error, not a silent recreation from a fabricated base.
+	AttachWorkspace(repoPath, workspacePath, branch string) error
+	// WorktreeIdentity reports the owning repo and checked-out branch of an
+	// on-disk worktree dir — the facts a restore adoption verifies before
+	// trusting a bare `.git` marker.
+	WorktreeIdentity(workspacePath string) (repo, branch string, err error)
 	RemoveWorkspace(repoPath, workspacePath string) error
 	DeleteBranch(repoPath, branch string) error
 	DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error)
@@ -24,6 +32,14 @@ type defaultGitOps struct{}
 
 func (defaultGitOps) CreateWorkspace(repoPath, workspacePath, branch, base string) (bool, error) {
 	return git.CreateWorkspaceWithResult(repoPath, workspacePath, branch, base)
+}
+
+func (defaultGitOps) AttachWorkspace(repoPath, workspacePath, branch string) error {
+	return git.AttachWorkspaceWorktree(repoPath, workspacePath, branch)
+}
+
+func (defaultGitOps) WorktreeIdentity(workspacePath string) (string, string, error) {
+	return git.WorktreeIdentity(workspacePath)
 }
 
 func (defaultGitOps) RemoveWorkspace(repoPath, workspacePath string) error {
