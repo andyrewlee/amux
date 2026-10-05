@@ -468,6 +468,22 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleRunOutputRefreshed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case renameWorkspaceResultMsg:
+		if cmd := a.handleRenameWorkspaceResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case workspaceScriptsSavedMsg:
+		if cmd := a.handleWorkspaceScriptsSaved(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case workspaceEnvSavedMsg:
+		if cmd := a.handleWorkspaceEnvSaved(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
+	case projectEnvSavedMsg:
+		if cmd := a.handleProjectEnvSaved(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	default:
 		return false
 	}

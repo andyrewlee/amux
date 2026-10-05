@@ -60,7 +60,7 @@ func TestEditorPasteOverlayEnvDialog(t *testing.T) {
 	if !ok || res.Canceled {
 		t.Fatal("expected a non-canceled EnvDialogResult")
 	}
-	h.app.handleEnvDialogResult(res)
+	deliverCmdMsgs(t, h.app, h.app.handleEnvDialogResult(res))
 	stored, err := store.Load(wsID)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)

@@ -88,8 +88,9 @@ func TestHandleEnvDialogResult_PersistsEditedEnvAndUpdatesActiveWorkspace(t *tes
 
 	cmd := h.app.handleEnvDialogResult(common.EnvDialogResult{})
 	if cmd == nil {
-		t.Fatal("expected a success-toast cmd")
+		t.Fatal("expected the async save cmd")
 	}
+	deliverCmdMsgs(t, h.app, cmd)
 
 	reloaded, err := store.Load(id)
 	if err != nil {
@@ -123,7 +124,7 @@ func TestHandleEnvDialogResult_RemovedPairIsDeletedFromEnv(t *testing.T) {
 	// Cursor starts on row 0, which is "DROP" (sorted before "KEEP").
 	h.app.overlays.env.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 
-	h.app.handleEnvDialogResult(common.EnvDialogResult{})
+	deliverCmdMsgs(t, h.app, h.app.handleEnvDialogResult(common.EnvDialogResult{}))
 
 	reloaded, err := store.Load(id)
 	if err != nil {
@@ -183,7 +184,7 @@ func TestHandleEnvDialogResult_ReservedKeyNeverPersisted(t *testing.T) {
 	h, store, id := newEnvTestHarness(t, ws)
 
 	h.app.handleShowWorkspaceEnvDialog(messages.ShowWorkspaceEnvDialog{Workspace: ws})
-	h.app.handleEnvDialogResult(common.EnvDialogResult{})
+	deliverCmdMsgs(t, h.app, h.app.handleEnvDialogResult(common.EnvDialogResult{}))
 
 	reloaded, err := store.Load(id)
 	if err != nil {
@@ -236,8 +237,9 @@ func TestHandleEnvDialogResult_PersistsAddedPair(t *testing.T) {
 
 	cmd := h.app.handleEnvDialogResult(common.EnvDialogResult{})
 	if cmd == nil {
-		t.Fatal("expected a success-toast cmd")
+		t.Fatal("expected the async save cmd")
 	}
+	deliverCmdMsgs(t, h.app, cmd)
 
 	reloaded, err := store.Load(id)
 	if err != nil {

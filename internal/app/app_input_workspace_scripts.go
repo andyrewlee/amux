@@ -48,19 +48,9 @@ func (a *App) handleScriptsDialogResult(res common.ScriptsDialogResult) tea.Cmd 
 	setup, run, archive, onDone, mode := dialog.Values()
 	scripts := data.ScriptsConfig{Setup: setup, Run: run, Archive: archive, OnDone: onDone}
 
-	if a.workspaceService == nil {
-		return nil
-	}
-	// The service owns the identity rule — it stores under MetadataID(), the
-	// persisted record key; ws.ID() drifts across worktree create/remove.
-	if err := a.workspaceService.SetWorkspaceScripts(ws, scripts, mode); err != nil {
-		return common.ReportError(errorContext(errorServiceWorkspace, "saving workspace scripts"), err, "")
-	}
-	if a.activeWorkspace != nil && a.activeWorkspace.Root == ws.Root {
-		a.activeWorkspace.Scripts = scripts
-		a.activeWorkspace.ScriptMode = mode
-	}
-	return a.toast.ShowSuccess("Updated scripts for " + ws.Name)
+	// The flock-backed save runs off-loop; handleWorkspaceScriptsSaved
+	// applies the in-memory reflect once the store confirms.
+	return a.saveWorkspaceScriptsAsync(ws, scripts, mode)
 }
 
 // handleShowProjectEnvDialog opens the per-project env editor for the
@@ -97,8 +87,7 @@ func (a *App) handleProjectEnvDialogResult(res common.EnvDialogResult) tea.Cmd {
 	if res.Canceled || repo == "" || dialog == nil || a.projectEnvStore == nil {
 		return nil
 	}
-	if err := a.projectEnvStore.Set(repo, filterReservedEnv(dialog.Env())); err != nil {
-		return common.ReportError(errorContext(errorServiceWorkspace, "saving project environment"), err, "")
-	}
-	return a.toast.ShowSuccess("Updated project environment for " + filepath.Base(repo))
+	// The flock-backed save runs off-loop; handleProjectEnvSaved surfaces the
+	// result once the store confirms.
+	return a.saveProjectEnvAsync(repo, filterReservedEnv(dialog.Env()))
 }

@@ -83,8 +83,9 @@ func TestHandleScriptsDialogResult_PersistsAndUpdatesActiveWorkspace(t *testing.
 
 	cmd := h.app.handleScriptsDialogResult(common.ScriptsDialogResult{})
 	if cmd == nil {
-		t.Fatal("expected a success-toast cmd")
+		t.Fatal("expected the async save cmd")
 	}
+	deliverCmdMsgs(t, h.app, cmd)
 
 	reloaded, err := store.Load(id)
 	if err != nil {
