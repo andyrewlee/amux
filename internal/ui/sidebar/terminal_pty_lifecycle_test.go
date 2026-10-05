@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/pty"
 )
@@ -442,7 +444,14 @@ func TestSendToTerminal(t *testing.T) {
 	t.Run("write error marks the terminal detached", func(t *testing.T) {
 		m, wsID := newBoundModel(t)
 		// A zero-value terminal has a nil ptyFile, so SendString returns
-		// io.ErrClosedPipe, exercising the failure branch.
+		// io.ErrClosedPipe on the writer goroutine — the failure reaches the
+		// Update goroutine as a SidebarInputFailed and detaches the tab.
+		failed := make(chan SidebarInputFailed, 1)
+		m.SetMsgSink(func(msg tea.Msg) {
+			if f, ok := msg.(SidebarInputFailed); ok {
+				failed <- f
+			}
+		})
 		tab := &TerminalTab{
 			ID:    generateTerminalTabID(),
 			Name:  "Terminal 1",
@@ -452,6 +461,14 @@ func TestSendToTerminal(t *testing.T) {
 		m.tabs.ActiveByWorkspace[wsID] = 0
 
 		m.SendToTerminal("boom")
+
+		var msg SidebarInputFailed
+		select {
+		case msg = <-failed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("input writer never reported the send failure")
+		}
+		m.Update(msg)
 
 		tab.State.mu.Lock()
 		defer tab.State.mu.Unlock()

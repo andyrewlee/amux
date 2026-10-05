@@ -145,6 +145,15 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	// VTerm pointer is reused. Stopping under this hold also bumps the
 	// stream epoch so the old writer's late completions fence out.
 	retiredWriter := ts.stopSidebarWriterLocked()
+	// The input binding ends only when its terminal is actually replaced:
+	// queued keypresses must never deliver to the replacement client, and
+	// the retired writer's late failure must not detach it. When obsolete
+	// is nil the client is kept (or was already gone), so the existing
+	// binding — and its queued input — stays valid.
+	var retiredInput *sidebarInputWriter
+	if obsolete != nil {
+		retiredInput = ts.retireSidebarInputWriterLocked()
+	}
 	if ts.VTerm == nil {
 		ts.VTerm = vterm.New(termWidth, termHeight)
 	}
@@ -188,14 +197,20 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 		m.stopPTYReader(ts)
 		closeTerminalForSidebar(obsolete, "replaced by newer attach")
 	}
-	t := msg.Terminal
+	// A send blocked inside the obsolete client unblocks only once it is
+	// closed above — join the retired input writer after that close, never
+	// under ts.mu.
+	joinSidebarInputWriter(retiredInput)
+	// Query replies join the input FIFO — a stalled PTY must not wedge the
+	// vterm writer (holding ts.mu) on a synchronous term.Write. Reinstalling
+	// here also covers the fresh-VTerm case above; the closure consults
+	// ts.input.writer dynamically so it binds to whatever terminal is live
+	// at parse time.
 	ts.VTerm.SetResponseWriter(func(data []byte) {
-		if t != nil {
-			_, _ = t.Write(data)
-		}
+		ts.admitQueryReplyLocked(data)
 	})
 	if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
-		_ = setTerminalSizeFn(t, ptyRows, ptyCols)
+		_ = setTerminalSizeFn(msg.Terminal, ptyRows, ptyCols)
 	}
 	return m.startPTYReader(wsID, tab.ID)
 }

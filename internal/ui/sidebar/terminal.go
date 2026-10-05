@@ -76,6 +76,12 @@ type TerminalState struct {
 	// after each mutation site) instead of the buffer itself. Guarded by mu.
 	pendingBufferedBytes int
 
+	// input is the tab's terminal-input binding: a bounded FIFO plus one
+	// writer goroutine that owns SendString so Update never blocks on a
+	// stuck ptyFile.Write. The binding is retired and gen-fenced on detach,
+	// teardown, and terminal replacement. Guarded by mu.
+	input sidebarInputState
+
 	// frameVerProbe is the last VTerm version published under mu for the
 	// lock-free frame-version probe — see VisibleTerminalVersion.
 	frameVerProbe atomic.Uint64
