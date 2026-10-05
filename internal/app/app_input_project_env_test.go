@@ -81,8 +81,9 @@ func TestHandleProjectEnvDialogResult_PersistsToProjectStore(t *testing.T) {
 
 	cmd := h.app.handleProjectEnvDialogResult(common.EnvDialogResult{})
 	if cmd == nil {
-		t.Fatal("expected a success-toast cmd")
+		t.Fatal("expected the async save cmd")
 	}
+	deliverCmdMsgs(t, h.app, cmd)
 	got := store.ForRepo(repo)
 	if got["NODE_ENV"] != "devX" {
 		t.Fatalf("persisted NODE_ENV = %q, want %q", got["NODE_ENV"], "devX")

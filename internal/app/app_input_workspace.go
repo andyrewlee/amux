@@ -59,25 +59,9 @@ func (a *App) handleRenameWorkspace(msg messages.RenameWorkspace) []tea.Cmd {
 	if a.workspaceService == nil {
 		return nil
 	}
-	// The service owns the identity rule — it stores under MetadataID(), the
-	// persisted record key; ws.ID() drifts across worktree create/remove.
-	if err := a.workspaceService.RenameWorkspace(msg.Workspace, msg.NewName); err != nil {
-		if cmd := common.ReportError(errorContext(errorServiceWorkspace, "renaming workspace"), err, ""); cmd != nil {
-			return []tea.Cmd{cmd}
-		}
-		return nil
-	}
-	// Reflect the new label immediately on the in-memory active workspace so the
-	// header updates without waiting for the async reload.
-	if a.activeWorkspace != nil && a.activeWorkspace.Root == msg.Workspace.Root {
-		a.activeWorkspace.Name = msg.NewName
-	}
-	var cmds []tea.Cmd
-	if cmd := a.toast.ShowSuccess("Renamed workspace to " + msg.NewName); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	cmds = append(cmds, a.loadProjects())
-	return cmds
+	// The flock-backed rename runs off-loop; handleRenameWorkspaceResult
+	// applies the in-memory reflect and reload once the store confirms.
+	return []tea.Cmd{a.renameWorkspaceAsync(msg.Workspace, msg.NewName)}
 }
 
 // handleWorkspaceCreatedWithWarning handles the WorkspaceCreatedWithWarning message.

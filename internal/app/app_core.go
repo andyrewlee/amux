@@ -69,6 +69,14 @@ type prefixTimeoutMsg struct {
 	token int
 }
 
+// projectEnvIO is the app-facing surface of *data.ProjectEnvStore: the
+// dialog seeds from ForRepo and the async write goes through Set. Narrowed
+// to an interface so tests can fake the blocking side.
+type projectEnvIO interface {
+	ForRepo(repoPath string) map[string]string
+	Set(repoPath string, env map[string]string) error
+}
+
 // App is the root Bubbletea model.
 type App struct {
 	// Configuration
@@ -123,7 +131,7 @@ type App struct {
 	// pendingOverlayOpens defers modal overlay opens that arrive while
 	// another overlay is visible — see app_overlay_arbiter.go.
 	pendingOverlayOpens []func()
-	projectEnvStore     *data.ProjectEnvStore
+	projectEnvStore     projectEnvIO
 	// lastRunScriptRoot/lastRunScriptAlive track the active workspace's run
 	// state across run-script status results so a running→stopped flip with
 	// a non-zero exit surfaces as a toast instead of a silent badge-off.

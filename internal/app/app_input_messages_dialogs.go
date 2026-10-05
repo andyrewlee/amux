@@ -365,19 +365,7 @@ func (a *App) handleEnvDialogResult(res common.EnvDialogResult) tea.Cmd {
 	}
 	env := filterReservedEnv(dialog.Env())
 
-	if a.workspaceService == nil {
-		return nil
-	}
-	// The service owns the identity rule — it stores under MetadataID(), the
-	// persisted record key; ws.ID() drifts across worktree create/remove.
-	if err := a.workspaceService.SetWorkspaceEnv(ws, env); err != nil {
-		return common.ReportError(errorContext(errorServiceWorkspace, "saving workspace environment"), err, "")
-	}
-	// Reflect the change immediately on the in-memory active workspace, like
-	// handleRenameWorkspace does for Name, so the app's own view of the
-	// workspace does not go stale until the next reload.
-	if a.activeWorkspace != nil && a.activeWorkspace.Root == ws.Root {
-		a.activeWorkspace.Env = env
-	}
-	return a.toast.ShowSuccess("Updated environment for " + ws.Name)
+	// The flock-backed save runs off-loop; handleWorkspaceEnvSaved applies
+	// the in-memory reflect once the store confirms.
+	return a.saveWorkspaceEnvAsync(ws, env)
 }

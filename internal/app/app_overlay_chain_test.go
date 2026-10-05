@@ -81,6 +81,9 @@ func TestEnvDialogResultRoutesByScope(t *testing.T) {
 
 	var cmds []tea.Cmd
 	h.app.updateDialogShowMsg(common.EnvDialogResult{Scope: common.EnvScopeWorkspace}, &cmds)
+	for _, cmd := range cmds {
+		deliverCmdMsgs(t, h.app, cmd)
+	}
 
 	loaded, err := store.Load(ws.MetadataID())
 	if err != nil {
@@ -125,6 +128,9 @@ func TestEnvDialogResultProjectScopeRoutesToProjectHandler(t *testing.T) {
 
 	var cmds []tea.Cmd
 	h.app.updateDialogShowMsg(common.EnvDialogResult{Scope: common.EnvScopeProject}, &cmds)
+	for _, cmd := range cmds {
+		deliverCmdMsgs(t, h.app, cmd)
+	}
 
 	if got := projStore.ForRepo(ws.Repo); got["P"] != "1X" {
 		t.Fatalf("project env P = %q, want %q — project handler must persist the edit", got["P"], "1X")
