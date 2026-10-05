@@ -317,7 +317,9 @@ func TestRunOutputAttachKey_NoneAliveToasts(t *testing.T) {
 	}
 	h.app.workspaceService = workspacesvc.New(nil, store, runner, "")
 
-	if cmd := h.app.handleRunAttachTarget(runAttachTargetMsg{ws: ws, ok: false}); cmd == nil {
+	if cmd := h.app.handleRunAttachTarget(runAttachTargetMsg{
+		token: h.app.overlays.runOutputToken, ws: ws, ok: false,
+	}); cmd == nil {
 		t.Fatal("expected a toast cmd when nothing is alive")
 	}
 	if !strings.Contains(h.app.toast.View(), "No live run session") {
