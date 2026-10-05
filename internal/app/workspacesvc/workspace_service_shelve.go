@@ -157,9 +157,10 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 }
 
 // RestoreWorkspace recreates a shelved workspace's worktree from its kept
-// branch and returns the record to the live set. git.CreateWorkspace's
-// branch-exists fallback (`worktree add -- <path> <branch>`) is exactly the
-// restore primitive — the branch was deliberately kept by shelve.
+// branch and returns the record to the live set. Restore is attach-only
+// (`worktree add -- <path> <branch>`): the branch was deliberately kept by
+// shelve, and a missing ref fails honestly rather than fabricating a new
+// branch from ws.Base.
 func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
 	if project == nil || ws == nil {
 		return func() tea.Msg {
@@ -208,36 +209,48 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
 			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
+		branch := ws.Branch
+		if branch == "" {
+			return fail("validate_branch", errors.New("shelved workspace has no branch to restore from"))
+		}
 		// An existing root is not always a rejection: a restore that crashed or
 		// failed after `worktree add` leaves the dir behind while the record
 		// stays shelved, and a hard "already exists" rejection would wedge every
-		// retry. Adopt the dir only when it is already a git worktree (the
-		// `.git` marker file/dir exists) — the managed-root check above already
-		// bound it to this project's workspace area — otherwise keep failing.
+		// retry. Adopt the dir only when it is a git worktree AND its identity
+		// matches this workspace — the `.git` marker alone does not prove it:
+		// a foreign worktree (different repo or different branch) adopted as
+		// the user's workspace would silently skip the worktree add and serve
+		// the wrong contents.
 		adopted := false
 		if _, err := os.Stat(ws.Root); err == nil {
 			if _, gerr := os.Stat(filepath.Join(ws.Root, ".git")); gerr != nil {
 				return fail("validate_root_absent", fmt.Errorf("workspace path %s already exists", ws.Root))
 			}
+			dirRepo, dirBranch, idErr := s.gitOps.WorktreeIdentity(ws.Root)
+			if idErr != nil {
+				return fail("validate_root_identity", idErr)
+			}
+			if data.NormalizePath(dirRepo) != data.NormalizePath(ws.Repo) || dirBranch != branch {
+				return fail("validate_root_identity", fmt.Errorf(
+					"workspace path %s is a worktree of %s on branch %s, expected %s on %s",
+					ws.Root, dirRepo, dirBranch, ws.Repo, branch,
+				))
+			}
 			adopted = true
 		} else if !os.IsNotExist(err) {
 			return fail("validate_root_absent", err)
 		}
-		branch := ws.Branch
-		if branch == "" {
-			return fail("validate_branch", errors.New("shelved workspace has no branch to restore from"))
-		}
-		base := ws.Base
-		if base == "" {
-			base = "HEAD"
-		}
 
 		created := false
 		if !adopted {
-			// The branchCreated flag is deliberately unused here: restore's
-			// rollback removes only the worktree it created and never deletes
-			// branches, so ownership provenance does not apply.
-			if _, err := s.createWorkspaceLocked(projectPath, ws.Root, branch, base); err != nil {
+			// Attach-only: the branch is the user's data, kept deliberately by
+			// shelve — `worktree add -b` would silently fabricate a different
+			// history from ws.Base when the kept ref is gone. A missing branch
+			// surfaces as git's own error instead.
+			unlock := s.lockRepoGit(projectPath)
+			err := s.gitOps.AttachWorkspace(projectPath, ws.Root, branch)
+			unlock()
+			if err != nil {
 				return fail("worktree_add", err)
 			}
 			created = true

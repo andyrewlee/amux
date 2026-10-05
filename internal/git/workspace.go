@@ -119,6 +119,39 @@ func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
 	return nil
 }
 
+// AttachWorkspaceWorktree attaches workspacePath to an existing branch —
+// the restore primitive. Unlike CreateWorkspaceWithResult it never runs
+// `worktree add -b`: a missing branch is a hard error surfaced to the
+// caller, never a silent recreation from a fabricated base.
+func AttachWorkspaceWorktree(repoPath, workspacePath, branch string) error {
+	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "--", workspacePath, branch)
+	cancel()
+	return err
+}
+
+// WorktreeIdentity reports the repo a directory is a worktree of and the
+// branch checked out in it — the identity facts a restore adoption must
+// verify before trusting an on-disk `.git` marker. repo is the worktree's
+// common-dir parent (the owning repository, not the shared .git dir), and
+// branch is the abbreviated HEAD ("HEAD" when detached).
+func WorktreeIdentity(workspacePath string) (repo, branch string, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	commonDir, err := runGitCtx(ctx, workspacePath, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", "", err
+	}
+	branchOut, err := runGitCtx(ctx, workspacePath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Dir(strings.TrimSpace(commonDir)), strings.TrimSpace(branchOut), nil
+}
+
 func isBranchAlreadyExistsError(err error, branch string) bool {
 	if err == nil {
 		return false

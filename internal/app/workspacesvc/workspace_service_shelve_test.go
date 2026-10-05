@@ -86,8 +86,8 @@ func TestShelveWorkspace_KillsSessionsBeforeReturn(t *testing.T) {
 
 func TestRestoreWorkspace_DoesNotResurrectSessions(t *testing.T) {
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, workspacePath, _, _ string) (bool, error) {
-			return false, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+		AttachWorkspaceFunc: func(_, workspacePath, _ string) error {
+			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 	}
 	svc, project, ws, store := newShelveHarness(t, mock)
@@ -150,9 +150,13 @@ func TestRestoreWorkspace_RecreatesFromKeptBranch(t *testing.T) {
 		path, branch string
 	}
 	mock := &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, workspacePath, branch, _ string) (bool, error) {
+		CreateWorkspaceFunc: func(_, _, _, _ string) (bool, error) {
+			t.Fatal("restore must not run worktree add -b")
+			return false, nil
+		},
+		AttachWorkspaceFunc: func(_, workspacePath, branch string) error {
 			created.path, created.branch = workspacePath, branch
-			return false, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 	}
 	svc, project, ws, store := newShelveHarness(t, mock)
@@ -186,9 +190,9 @@ func TestRestoreWorkspace_SkipsWhenRecordAlreadyLive(t *testing.T) {
 	// rather than re-running worktree add against the restored dir.
 	var createCalls int
 	svc, project, ws, _ := newShelveHarness(t, &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, _, _, _ string) (bool, error) {
+		AttachWorkspaceFunc: func(_, _, _ string) error {
 			createCalls++
-			return false, nil
+			return nil
 		},
 	})
 	// Snapshot claims shelved; the store record stayed live.
@@ -277,12 +281,18 @@ func TestRestoreWorkspace_AdoptsLeftoverWorktree(t *testing.T) {
 	// A restore that died after `worktree add` leaves the dir behind; the next
 	// restore must adopt it rather than wedging on "already exists".
 	var createCalls int
-	svc, project, ws, store := newShelveHarness(t, &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, _, _, _ string) (bool, error) {
+	mock := &testutil.FakeGitOps{
+		AttachWorkspaceFunc: func(_, _, _ string) error {
 			createCalls++
-			return false, errors.New("must not be called")
+			return errors.New("must not be called")
 		},
-	})
+	}
+	svc, project, ws, store := newShelveHarness(t, mock)
+	// Identity match is what makes the leftover dir adoptable — see the
+	// foreign-dir regression below for the mismatch path.
+	mock.WorktreeIdentityFunc = func(_ string) (string, string, error) {
+		return project.Path, "feat", nil
+	}
 	ws.Archived = true
 	ws.Shelved = true
 	if err := store.Save(ws); err != nil {
@@ -307,11 +317,95 @@ func TestRestoreWorkspace_AdoptsLeftoverWorktree(t *testing.T) {
 	}
 }
 
+func TestRestoreWorkspace_RejectsForeignWorktree(t *testing.T) {
+	// A dir under the managed root that is a worktree of a DIFFERENT repo —
+	// or our repo on the wrong branch — must never be adopted: the bare
+	// `.git` marker does not prove identity. Restore fails at
+	// validate_root_identity and issues no worktree add.
+	for _, tc := range []struct {
+		name   string
+		repo   string
+		branch string
+	}{
+		{name: "different repo", repo: "/foreign/repo", branch: "feat"},
+		{name: "wrong branch", repo: "", branch: "other"}, // repo filled from project below
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attachCalls int
+			mock := &testutil.FakeGitOps{
+				AttachWorkspaceFunc: func(_, _, _ string) error {
+					attachCalls++
+					return errors.New("must not be called")
+				},
+			}
+			svc, project, ws, store := newShelveHarness(t, mock)
+			if tc.repo == "" {
+				tc.repo = project.Path
+			}
+			mock.WorktreeIdentityFunc = func(_ string) (string, string, error) {
+				return tc.repo, tc.branch, nil
+			}
+			ws.Archived = true
+			ws.Shelved = true
+			if err := store.Save(ws); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			marker := filepath.Join(ws.Root, ".git")
+			if err := os.MkdirAll(marker, 0o755); err != nil {
+				t.Fatalf("seed foreign .git: %v", err)
+			}
+			msg := svc.RestoreWorkspace(project, ws)()
+			failed, ok := msg.(messages.WorkspaceRestoreFailed)
+			if !ok {
+				t.Fatalf("foreign worktree = %T (%v), want WorkspaceRestoreFailed", msg, msg)
+			}
+			if failed.Err == nil || !strings.Contains(failed.Err.Error(), "worktree of") {
+				t.Fatalf("expected identity-mismatch error, got %v", failed.Err)
+			}
+			if attachCalls != 0 {
+				t.Fatal("worktree add issued despite identity mismatch")
+			}
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatalf("rejected dir was touched: %v", err)
+			}
+		})
+	}
+}
+
+func TestRestoreWorkspace_MissingKeptBranchFailsHonestly(t *testing.T) {
+	// The kept branch deleted between shelve and restore must surface as a
+	// worktree_add failure — restore never recreates it from ws.Base.
+	errBranchGone := errors.New("fatal: no such branch 'feat'")
+	mock := &testutil.FakeGitOps{
+		CreateWorkspaceFunc: func(_, _, _, _ string) (bool, error) {
+			t.Fatal("restore must not run worktree add -b")
+			return false, nil
+		},
+		AttachWorkspaceFunc: func(_, _, _ string) error {
+			return errBranchGone
+		},
+	}
+	svc, project, ws, store := newShelveHarness(t, mock)
+	ws.Archived = true
+	ws.Shelved = true
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	msg := svc.RestoreWorkspace(project, ws)()
+	failed, ok := msg.(messages.WorkspaceRestoreFailed)
+	if !ok {
+		t.Fatalf("missing kept branch = %T, want WorkspaceRestoreFailed", msg)
+	}
+	if !errors.Is(failed.Err, errBranchGone) {
+		t.Fatalf("git's attach error must surface verbatim, got %v", failed.Err)
+	}
+}
+
 func TestRestoreWorkspace_RollsBackCreatedWorktreeOnUnarchiveFailure(t *testing.T) {
 	var removed bool
 	svc, project, ws, store := newShelveHarness(t, &testutil.FakeGitOps{
-		CreateWorkspaceFunc: func(_, workspacePath, _, _ string) (bool, error) {
-			return false, os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
+		AttachWorkspaceFunc: func(_, workspacePath, _ string) error {
+			return os.MkdirAll(filepath.Join(workspacePath, ".git"), 0o755)
 		},
 		RemoveWorkspaceFunc: func(_, _ string) error { removed = true; return nil },
 	})

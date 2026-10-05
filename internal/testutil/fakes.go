@@ -12,6 +12,7 @@ package testutil
 // testutil).
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"sync"
@@ -25,6 +26,8 @@ type FakeGitOps struct {
 	// the branch (the `worktree add -b` path) — rollback deletes only owned
 	// branches, so hooks that expect deletion must return true.
 	CreateWorkspaceFunc    func(repoPath, workspacePath, branch, base string) (branchCreated bool, err error)
+	AttachWorkspaceFunc    func(repoPath, workspacePath, branch string) error
+	WorktreeIdentityFunc   func(workspacePath string) (repo, branch string, err error)
 	RemoveWorkspaceFunc    func(repoPath, workspacePath string) error
 	DeleteBranchFunc       func(repoPath, branch string) error
 	DiscoverWorkspacesFunc func(project *data.Project) ([]data.Workspace, error)
@@ -35,6 +38,20 @@ func (f *FakeGitOps) CreateWorkspace(repoPath, workspacePath, branch, base strin
 		return f.CreateWorkspaceFunc(repoPath, workspacePath, branch, base)
 	}
 	return false, nil
+}
+
+func (f *FakeGitOps) AttachWorkspace(repoPath, workspacePath, branch string) error {
+	if f.AttachWorkspaceFunc != nil {
+		return f.AttachWorkspaceFunc(repoPath, workspacePath, branch)
+	}
+	return nil
+}
+
+func (f *FakeGitOps) WorktreeIdentity(workspacePath string) (string, string, error) {
+	if f.WorktreeIdentityFunc != nil {
+		return f.WorktreeIdentityFunc(workspacePath)
+	}
+	return "", "", errors.New("fake: not a worktree")
 }
 
 func (f *FakeGitOps) RemoveWorkspace(repoPath, workspacePath string) error {
