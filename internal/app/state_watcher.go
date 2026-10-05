@@ -34,13 +34,12 @@ type stateWatcher struct {
 	onChanged func(reason string, paths []string)
 	debounce  time.Duration
 
-	mu            sync.Mutex
-	timer         debounceTimer
-	pendingReason string
-	pendingPaths  map[string]struct{}
-	closed        bool
-	closeOnce     sync.Once
-	metadataDirs  map[string]struct{}
+	mu           sync.Mutex
+	timer        debounceTimer
+	pending      map[string]map[string]struct{}
+	closed       bool
+	closeOnce    sync.Once
+	metadataDirs map[string]struct{}
 
 	addWatchFn func(w *fsnotify.Watcher, dir string) error   // test hook; nil = use watcher.Add
 	newTimer   func(d time.Duration, f func()) debounceTimer // test seam; nil = time.AfterFunc
@@ -310,15 +309,19 @@ func (sw *stateWatcher) scheduleNotify(reason, path string) {
 		sw.mu.Unlock()
 		return
 	}
-	if sw.pendingReason != "" && sw.pendingReason != reason {
-		sw.pendingPaths = nil
+	// Debounce coalesces within a reason, never across reasons: a
+	// different-reason event in the same window must not drop the paths
+	// already queued for an earlier reason.
+	if sw.pending == nil {
+		sw.pending = make(map[string]map[string]struct{})
 	}
-	sw.pendingReason = reason
+	paths := sw.pending[reason]
+	if paths == nil {
+		paths = make(map[string]struct{})
+		sw.pending[reason] = paths
+	}
 	if path = strings.TrimSpace(path); path != "" {
-		if sw.pendingPaths == nil {
-			sw.pendingPaths = make(map[string]struct{})
-		}
-		sw.pendingPaths[path] = struct{}{}
+		paths[path] = struct{}{}
 	}
 	if sw.timer == nil {
 		sw.timer = sw.armTimer(sw.debounce, sw.fire)
@@ -344,22 +347,28 @@ func (sw *stateWatcher) fire() {
 		sw.mu.Unlock()
 		return
 	}
-	reason := sw.pendingReason
-	sw.pendingReason = ""
-	pathsMap := sw.pendingPaths
-	sw.pendingPaths = nil
+	pending := sw.pending
+	sw.pending = nil
 	sw.timer = nil
 	sw.mu.Unlock()
 
 	if sw.onChanged != nil {
-		var paths []string
-		if len(pathsMap) > 0 {
-			paths = make([]string, 0, len(pathsMap))
-			for path := range pathsMap {
-				paths = append(paths, path)
-			}
-			sort.Strings(paths)
+		reasons := make([]string, 0, len(pending))
+		for reason := range pending {
+			reasons = append(reasons, reason)
 		}
-		sw.onChanged(reason, paths)
+		sort.Strings(reasons)
+		for _, reason := range reasons {
+			pathsMap := pending[reason]
+			var paths []string
+			if len(pathsMap) > 0 {
+				paths = make([]string, 0, len(pathsMap))
+				for path := range pathsMap {
+					paths = append(paths, path)
+				}
+				sort.Strings(paths)
+			}
+			sw.onChanged(reason, paths)
+		}
 	}
 }
