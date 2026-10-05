@@ -92,6 +92,56 @@ func bulkTargetsFromItems(items []messages.BulkWorkspaceItem) []bulkTarget {
 	return targets
 }
 
+// resolveBulkTargets re-resolves a queued bulk-open's captured targets
+// against the loaded projects at drain time (requestOverlayOpen's contract):
+// shelved=false matches project.Workspaces, shelved=true matches
+// project.ShelvedWorkspaces. required carries whether the WHOLE set was
+// loaded at request time (bulkTargetsRequired evaluated by the handler): a
+// fully-loaded set whose membership changed while queued invalidates the open
+// — the typed count and row list were computed from the request-time set, so
+// presenting anyway would confirm a different operation than the user sees.
+// The user re-marks and retries.
+func (a *App) resolveBulkTargets(targets []bulkTarget, shelved, required bool) ([]bulkTarget, bool) {
+	resolved := make([]bulkTarget, 0, len(targets))
+	for _, t := range targets {
+		var ws *data.Workspace
+		var proj *data.Project
+		if shelved {
+			ws, proj = a.findShelvedWorkspaceAndProjectByID(string(t.workspace.ID()))
+		} else {
+			ws, proj = a.findWorkspaceAndProjectByID(string(t.workspace.ID()))
+		}
+		if ws == nil {
+			if !required {
+				resolved = append(resolved, t)
+				continue
+			}
+			logging.Debug("Dropping stale bulk overlay open: workspace %s no longer loaded", t.workspace.Name)
+			return nil, false
+		}
+		resolved = append(resolved, bulkTarget{project: proj, workspace: ws, markID: t.markID})
+	}
+	return resolved, true
+}
+
+// bulkTargetsRequired reports whether every captured target is loaded at
+// request time — shelved matching resolveBulkTargets' lookup — and is the
+// required flag it expects.
+func (a *App) bulkTargetsRequired(targets []bulkTarget, shelved bool) bool {
+	for _, t := range targets {
+		var ws *data.Workspace
+		if shelved {
+			ws, _ = a.findShelvedWorkspaceAndProjectByID(string(t.workspace.ID()))
+		} else {
+			ws, _ = a.findWorkspaceAndProjectByID(string(t.workspace.ID()))
+		}
+		if ws == nil {
+			return false
+		}
+	}
+	return true
+}
+
 // handleShowBulkShelveWorkspaceDialog opens the single confirm dialog for
 // the marked shelve set — the bulk counterpart of
 // handleShowShelveWorkspaceDialog.
@@ -103,7 +153,12 @@ func (a *App) handleShowBulkShelveWorkspaceDialog(msg messages.ShowBulkShelveWor
 	if a.dialogOpen() {
 		return
 	}
+	required := a.bulkTargetsRequired(targets, false)
 	a.requestOverlayOpen(func() {
+		targets, ok := a.resolveBulkTargets(targets, false, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
 		a.dlg.bulkTargets = targets
 		a.dialog = common.NewConfirmDialog(
@@ -129,7 +184,12 @@ func (a *App) handleShowBulkRestoreWorkspaceDialog(msg messages.ShowBulkRestoreW
 	if a.dialogOpen() {
 		return
 	}
+	required := a.bulkTargetsRequired(targets, true)
 	a.requestOverlayOpen(func() {
+		targets, ok := a.resolveBulkTargets(targets, true, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
 		a.dlg.bulkTargets = targets
 		a.dialog = common.NewConfirmDialog(
@@ -159,7 +219,12 @@ func (a *App) handleShowBulkPurgeWorkspaceDialog(msg messages.ShowBulkPurgeWorks
 	if a.dialogOpen() {
 		return
 	}
+	required := a.bulkTargetsRequired(targets, true)
 	a.requestOverlayOpen(func() {
+		targets, ok := a.resolveBulkTargets(targets, true, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
 		a.dlg.bulkTargets = targets
 		want := strconv.Itoa(len(targets))
@@ -193,7 +258,12 @@ func (a *App) handleShowBulkDeleteWorkspaceDialog(msg messages.ShowBulkDeleteWor
 	if a.dialogOpen() {
 		return
 	}
+	required := a.bulkTargetsRequired(targets, false)
 	a.requestOverlayOpen(func() {
+		targets, ok := a.resolveBulkTargets(targets, false, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
 		a.dlg.bulkTargets = targets
 		want := strconv.Itoa(len(targets))

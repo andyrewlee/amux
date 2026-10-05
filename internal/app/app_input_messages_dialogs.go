@@ -89,14 +89,22 @@ func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
+		ws, proj, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
-		a.dlg.project = msg.Project
-		a.dlg.workspace = msg.Workspace
+		if proj == nil {
+			proj = msg.Project
+		}
+		a.dlg.project = proj
+		a.dlg.workspace = ws
 		a.dialog = common.NewConfirmDialog(
 			DialogDeleteWorkspace,
 			"Delete Workspace",
-			fmt.Sprintf("Delete workspace '%s' and its branch?", msg.Workspace.Name),
+			fmt.Sprintf("Delete workspace '%s' and its branch?", ws.Name),
 		)
 		a.presentDialog(a.dialog)
 	})
@@ -112,14 +120,22 @@ func (a *App) handleShowShelveWorkspaceDialog(msg messages.ShowShelveWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
+		ws, proj, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
-		a.dlg.project = msg.Project
-		a.dlg.workspace = msg.Workspace
+		if proj == nil {
+			proj = msg.Project
+		}
+		a.dlg.project = proj
+		a.dlg.workspace = ws
 		a.dialog = common.NewConfirmDialog(
 			DialogShelveWorkspace,
 			"Shelve Workspace",
-			fmt.Sprintf("Shelve workspace '%s'? Its worktree is removed; the branch and settings are kept for restore.", msg.Workspace.Name),
+			fmt.Sprintf("Shelve workspace '%s'? Its worktree is removed; the branch and settings are kept for restore.", ws.Name),
 		)
 		a.presentDialog(a.dialog)
 	})
@@ -209,15 +225,23 @@ func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) 
 	if a.dialogOpen() {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
+		// The captured ConfigHash stays as-is: the service re-verifies it
+		// against the live file at commit, so only the workspace's presence
+		// needs re-validating here.
+		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
-		a.dlg.workspace = msg.Workspace
+		a.dlg.workspace = ws
 		a.dlg.trustScriptsHash = msg.ConfigHash
 		workspaceName := ""
 		repoRoot := ""
-		if msg.Workspace != nil {
-			workspaceName = msg.Workspace.Name
-			repoRoot = msg.Workspace.Repo
+		if ws != nil {
+			workspaceName = ws.Name
+			repoRoot = ws.Repo
 		}
 		message := fmt.Sprintf("Trust .amux/workspaces.json scripts for '%s' and run setup now?", workspaceName)
 		// Show what approval covers: the exact commands being trusted and the repo
