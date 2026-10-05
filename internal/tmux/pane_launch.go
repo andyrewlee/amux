@@ -120,3 +120,37 @@ func ensureSessionScript(base, sessionName, dir string, launch *preparedLaunch, 
 		shellutil.ShellQuote(launch.payload.Path()), launch.discardArgv)
 	return fmt.Sprintf("%s || ( %s ) || %s", present, create, race)
 }
+
+// exitCodeCollision is the shell sentinel createSessionScript exits with on a
+// confirmed name collision — distinct from every tmux error code so the Go
+// caller can map it to ErrSessionNameTaken without parsing stderr.
+const exitCodeCollision = 3
+
+// createSessionScript is ensureSessionScript's allocation sibling: it
+// reports a name collision instead of adopting the existing session. A
+// same-named session present on entry — or a foreign winner surviving a
+// failed create — exits exitCodeCollision after discarding this attempt's
+// provably-unused payload in-band. The create-lost-to-our-own-pane case
+// applies the settings post-hoc and succeeds, exactly like the ensure race
+// branch; an empty pane_start_command query stays ambiguous (payload left to
+// expire) and reports collision so the caller retries a fresh name.
+//
+// The settings text is threaded in because only the owner of a create should
+// stamp tags: the collision branches must never touch a foreign session.
+func createSessionScript(base, sessionName, dir string, launch *preparedLaunch, keepDeadPane bool, settings string) string {
+	session := shellutil.ShellQuote(sessionName)
+	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
+	create := fmt.Sprintf("%s new-session -ds %s -c %s %s", base, session, dir, launch.runArgv)
+	if keepDeadPane {
+		create += fmt.Sprintf(" ';' set-option -t %s remain-on-exit on", session)
+	}
+	create = fmt.Sprintf("( %s ) && { %s}", create, settings)
+	taken := fmt.Sprintf("(%s has-session -t %s 2>/dev/null && { %s || true; exit %d; })",
+		base, sessionTgt, launch.discardArgv, exitCodeCollision)
+	race := fmt.Sprintf("(%s has-session -t %s 2>/dev/null && { "+
+		"s=\"$(%s list-panes -t %s -F '#{pane_start_command}' 2>/dev/null)\"; "+
+		"if [ -n \"$s\" ]; then case \"$s\" in *%s*) { %s}; exit 0 ;; *) %s || true ;; esac; fi; exit %d; })",
+		base, sessionTgt, base, sessionTgt,
+		shellutil.ShellQuote(launch.payload.Path()), settings, launch.discardArgv, exitCodeCollision)
+	return fmt.Sprintf("%s || %s || %s", taken, create, race)
+}

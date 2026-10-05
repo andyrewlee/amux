@@ -2,119 +2,10 @@ package process
 
 import (
 	"errors"
-	"sort"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
 )
-
-// fakeRunSessionHost is an in-memory RunSessionHost: sessions carry an
-// alive/exitCode state so tests can simulate live, finished, and crashed runs
-// without tmux.
-type fakeRunSessionHost struct {
-	sessions  map[string]*fakeRunSession
-	ensured   []string // Ensure call order, for name assertions
-	killed    []string
-	findCalls []string // workspaceID per Find call
-	findErr   error
-	ensureErr error
-	findExtra []string // names Find returns that sessions lacks (vanished)
-}
-
-type fakeRunSession struct {
-	alive    bool
-	exitCode int
-	meta     RunSessionMeta
-	cmd      string
-	workDir  string
-	env      []string
-	tail     string
-}
-
-func newFakeRunSessionHost() *fakeRunSessionHost {
-	return &fakeRunSessionHost{sessions: map[string]*fakeRunSession{}}
-}
-
-func (f *fakeRunSessionHost) Ensure(name, workDir, cmd string, env []string, meta RunSessionMeta) error {
-	if f.ensureErr != nil {
-		return f.ensureErr
-	}
-	if _, ok := f.sessions[name]; !ok {
-		f.sessions[name] = &fakeRunSession{alive: true, exitCode: -1}
-		f.ensured = append(f.ensured, name)
-	}
-	s := f.sessions[name]
-	s.meta = meta
-	s.cmd = cmd
-	s.workDir = workDir
-	s.env = env
-	return nil
-}
-
-func (f *fakeRunSessionHost) Status(name string) (exists, alive bool, exitCode int, err error) {
-	s, ok := f.sessions[name]
-	if !ok {
-		return false, false, -1, nil
-	}
-	return true, s.alive, s.exitCode, nil
-}
-
-func (f *fakeRunSessionHost) Kill(name string) error {
-	delete(f.sessions, name)
-	f.killed = append(f.killed, name)
-	return nil
-}
-
-func (f *fakeRunSessionHost) Tail(name string, _ int) string {
-	if s, ok := f.sessions[name]; ok {
-		return s.tail
-	}
-	return ""
-}
-
-func (f *fakeRunSessionHost) Find(workspaceID string) ([]string, error) {
-	f.findCalls = append(f.findCalls, workspaceID)
-	if f.findErr != nil {
-		return nil, f.findErr
-	}
-	var names []string
-	for name, s := range f.sessions {
-		if s.meta.WorkspaceID == workspaceID {
-			names = append(names, name)
-		}
-	}
-	// findExtra injects names Find returns but Status/Tail don't know — a
-	// session that vanished between the sweep and the status read.
-	names = append(names, f.findExtra...)
-	sort.Strings(names)
-	return names, nil
-}
-
-// die simulates the session's command finishing with the given exit code:
-// the session stays (remain-on-exit) but the pane is dead.
-func (f *fakeRunSessionHost) die(name string, exitCode int) {
-	if s, ok := f.sessions[name]; ok {
-		s.alive = false
-		s.exitCode = exitCode
-	}
-}
-
-func newHostedWorkspace(t *testing.T, mode string) *data.Workspace {
-	t.Helper()
-	ws := &data.Workspace{
-		Name:       "ws",
-		Root:       t.TempDir(),
-		Repo:       t.TempDir(),
-		ScriptMode: mode,
-		Scripts: data.ScriptsConfig{
-			Run: "make dev",
-		},
-	}
-	if ws.ScriptMode == "" {
-		ws.ScriptMode = "nonconcurrent"
-	}
-	return ws
-}
 
 func TestRunScriptHostedEnsuresSession(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
@@ -454,20 +345,28 @@ func TestFindRunSessions_DedupesIdentityForms(t *testing.T) {
 	}
 }
 
-// TestRunScriptStatus_SkipsSweepWhenNothingCanRun pins the early-out:
+// TestRunScriptStatus_SkipsSweepWhenNothingCanRun pins the bounded early-out:
 // a workspace with no configured run script and no previously observed session
-// must not pay the tmux Find sweep on every poll — while a workspace whose
-// script was removed mid-session keeps sweeping until the session is gone.
+// pays at most ONE discovery sweep per process — a restarted amux can still
+// discover a detached session its config-gone gate never observed — while a
+// workspace whose script was removed mid-session keeps sweeping until the
+// session is gone.
 func TestRunScriptStatus_SkipsSweepWhenNothingCanRun(t *testing.T) {
 	runner := NewScriptRunner(6200, 10)
 	host := newFakeRunSessionHost()
 	runner.SetRunHost(host)
 
-	// No repo config and no ws.Scripts.Run → nothing can be running → no Find.
+	// No repo config and no ws.Scripts.Run → one bounded probe, then the
+	// swept-set keeps every later poll free.
 	bare := &data.Workspace{Name: "bare", Root: t.TempDir(), Repo: t.TempDir()}
 	runner.RunScriptStatus(bare)
-	if got := len(host.findCalls); got != 0 {
-		t.Fatalf("Find calls = %d, want 0 for a workspace that cannot have a session", got)
+	if got := len(host.findCalls); got != 1 {
+		t.Fatalf("Find calls = %d, want 1 bounded discovery sweep", got)
+	}
+	runner.RunScriptStatus(bare)
+	runner.RunScriptStatus(bare)
+	if got := len(host.findCalls); got != 1 {
+		t.Fatalf("Find calls = %d after the swept-set cached the probe, want 1", got)
 	}
 
 	// Configured workspace runs a session; the sweep observes it.

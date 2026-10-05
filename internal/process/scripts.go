@@ -136,6 +136,11 @@ type ScriptRunner struct {
 	// were ever found, so the hosted-status sweep can be skipped for
 	// workspaces that have never had one. See run_session.go.
 	runSessionsSeen map[string]struct{}
+	// runSessionsSwept records ID forms whose one-shot post-restart probe
+	// already ran — the seen-set is process-local, so a restarted amux gets
+	// exactly one discovery sweep per workspace, not zero and not every
+	// poll. See run_session.go.
+	runSessionsSwept map[string]struct{}
 	// lifecycle tracks local lifecycle work — the workspace's single
 	// admitted setup sequence and its detached on-done hooks — plus the
 	// teardown gate service removal holds across stop→archive→remove.
@@ -191,6 +196,7 @@ func NewScriptRunner(portStart, portRange int) *ScriptRunner {
 		pendingRelease:   make(map[string]pendingPortRelease),
 		lastOutput:       make(map[string]ScriptOutput),
 		runSessionsSeen:  make(map[string]struct{}),
+		runSessionsSwept: make(map[string]struct{}),
 		killProcessGroup: KillProcessGroup,
 		trust:            defaultScriptTrust(),
 		lifecycle:        newLifecycleCoordinator(),
