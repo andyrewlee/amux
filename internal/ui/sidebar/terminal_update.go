@@ -120,6 +120,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 		}
 		m.drainSidebarClipboard(msg.clip)
 
+	case SidebarInputFailed:
+		m.handleSidebarInputFailed(msg)
+
 	case SidebarTerminalCreated:
 		if cmd := m.handleTerminalCreated(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -184,14 +187,21 @@ func (m *TerminalModel) handlePaste(msg tea.PasteMsg) (*TerminalModel, tea.Cmd) 
 		return m, nil
 	}
 
-	// Handle bracketed paste - send entire content at once with escape sequences
+	// Handle bracketed paste - send entire content at once with escape sequences.
+	// Admission only: the binding's writer goroutine owns SendString, so a
+	// stalled PTY can never park Update on ptyFile.Write.
 	text := msg.Content
 	bracketedText := ansi.BracketedPasteStart + text + ansi.BracketedPasteEnd
-	if err := ts.Terminal.SendString(bracketedText); err != nil {
-		logging.Error("Sidebar paste failed: %v", err)
-		m.detachState(ts, false)
+	tab := m.getActiveTab()
+	var tabID TerminalTabID
+	if tab != nil {
+		tabID = tab.ID
 	}
-	logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
+	if res := m.admitSidebarInput(ts, tabID, bracketedText, "paste"); res == sidebarInputRejectedFull {
+		m.surfaceSidebarInputRejection(ts, tabID, "input queue full")
+	} else if res == sidebarInputAdmitted {
+		logging.Debug("Sidebar terminal pasted %d bytes via bracketed paste", len(text))
+	}
 	return m, nil
 }
 
@@ -251,12 +261,17 @@ func (m *TerminalModel) handleKeyPress(msg tea.KeyPressMsg) (*TerminalModel, tea
 	}
 	ts.mu.Unlock()
 
-	// Forward ALL keys to terminal (no Ctrl interceptions)
+	// Forward ALL keys to terminal (no Ctrl interceptions). Same admission
+	// contract as paste: Update never writes to the PTY itself.
 	input := common.KeyToBytes(msg)
 	if len(input) > 0 {
-		if err := ts.Terminal.SendString(string(input)); err != nil {
-			logging.Error("Sidebar input failed: %v", err)
-			m.detachState(ts, false)
+		tab := m.getActiveTab()
+		var tabID TerminalTabID
+		if tab != nil {
+			tabID = tab.ID
+		}
+		if res := m.admitSidebarInput(ts, tabID, string(input), "key"); res == sidebarInputRejectedFull {
+			m.surfaceSidebarInputRejection(ts, tabID, "input queue full")
 		}
 	}
 	return m, nil

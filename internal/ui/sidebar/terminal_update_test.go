@@ -346,8 +346,9 @@ func TestHandlePasteNoTerminalIsNoop(t *testing.T) {
 
 func TestHandlePasteWriteFailureDetaches(t *testing.T) {
 	// A zero-value *pty.Terminal has no underlying PTY file, so SendString
-	// returns an error. handlePaste must react by detaching the terminal (the
-	// not-user-initiated branch) rather than swallowing the failure.
+	// returns an error on the input-writer goroutine. The failure reaches
+	// Update as a SidebarInputFailed and detaches the terminal (the
+	// not-user-initiated branch) rather than blocking handlePaste.
 	tests := []struct {
 		name    string
 		content string
@@ -362,12 +363,15 @@ func TestHandlePasteWriteFailureDetaches(t *testing.T) {
 			m, state := scrollableTermModel(t, true, 0)
 			state.Terminal = &appPty.Terminal{}
 			state.Running = true
+			sink := make(chan tea.Msg, 8)
+			m.SetMsgSink(func(msg tea.Msg) { sink <- msg })
 
 			gotM, cmd := m.handlePaste(tea.PasteMsg{Content: tt.content})
 
 			if gotM != m || cmd != nil {
 				t.Fatal("expected (m, nil) from handlePaste")
 			}
+			m.Update(awaitInputFailure(t, sink))
 			state.mu.Lock()
 			detached := state.Detached
 			running := state.Running
@@ -391,13 +395,16 @@ func TestHandlePasteWriteFailureDetaches(t *testing.T) {
 }
 
 func TestHandlePasteRoutedThroughUpdate(t *testing.T) {
-	// Update must dispatch PasteMsg to handlePaste; routing a paste whose write
-	// fails detaches the terminal exactly as the direct handler call does.
+	// Update must dispatch PasteMsg to handlePaste; the admitted paste fails
+	// on the writer goroutine and its report detaches on the next Update.
 	m, state := scrollableTermModel(t, true, 0)
 	state.Terminal = &appPty.Terminal{}
 	state.Running = true
+	sink := make(chan tea.Msg, 8)
+	m.SetMsgSink(func(msg tea.Msg) { sink <- msg })
 
 	_, _ = m.Update(tea.PasteMsg{Content: "payload"})
+	_, _ = m.Update(awaitInputFailure(t, sink))
 
 	state.mu.Lock()
 	detached := state.Detached

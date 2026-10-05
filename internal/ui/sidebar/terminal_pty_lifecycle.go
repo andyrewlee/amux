@@ -58,19 +58,14 @@ func (m *TerminalModel) createTerminalStateForTabWithSizeAndRefresh(
 
 	vt := vterm.New(termWidth, termHeight)
 	vt.AllowAltScreenScrollback = true
-	// Capture term directly — the response writer is replaced on reattach,
-	// so the captured reference stays valid. Acquiring ts.mu here would
-	// deadlock because VTerm.Write() (called under ts.mu) triggers this
-	// callback synchronously.
-	if term != nil {
-		vt.SetResponseWriter(func(data []byte) {
-			if term != nil {
-				if _, err := term.Write(data); err != nil {
-					logging.Debug("VTerm response write failed: %v", err)
-				}
-			}
-		})
-	}
+	// Query replies join the input FIFO rather than writing to term directly:
+	// this callback fires inside VTerm.Write under ts.mu, so a stalled PTY
+	// would wedge every handler on the mutex (see the input queue contract).
+	// It consults ts.input.writer dynamically under that same hold, so the
+	// response writer never needs re-installing on terminal replacement.
+	vt.SetResponseWriter(func(data []byte) {
+		ts.admitQueryReplyLocked(data)
+	})
 	ts.VTerm = vt
 	if term != nil && resizeTerminal {
 		if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
@@ -202,11 +197,17 @@ func (m *TerminalModel) teardownTabState(ts *TerminalState, reason string) (sess
 	// The tab is going away: the writer stream's queued requests are
 	// obsolete — stop discards them and fences the epoch.
 	retiredWriter := ts.stopSidebarWriterLocked()
+	// Same for the input binding: queued keypresses belong to the dead
+	// terminal — retire fences them and any late failure report.
+	retiredInput := ts.retireSidebarInputWriterLocked()
 	ts.Running = false
 	ts.RestartBackoff = 0
 	ts.pendingBufferedBytes = 0
 	ts.mu.Unlock()
 	joinSidebarWriter(retiredWriter)
+	// The terminal was closed under ts.mu above, so a send blocked inside
+	// it has already unblocked — safe to join here.
+	joinSidebarInputWriter(retiredInput)
 	return sessionName
 }
 
@@ -233,6 +234,7 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	// performs — before the stream buffers reset.
 	clip := drainSidebarWriterQueueLocked(ts)
 	retiredWriter := ts.stopSidebarWriterLocked()
+	retiredInput := ts.retireSidebarInputWriterLocked()
 	term := ts.Terminal
 	ts.Terminal = nil
 	ts.Running = false
@@ -246,22 +248,28 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	if term != nil {
 		closeTerminalForSidebar(term, "detach")
 	}
+	// A send blocked inside the just-closed terminal unblocks only now —
+	// join the retired writer after the close, never under ts.mu.
+	joinSidebarInputWriter(retiredInput)
 	if clip != nil {
 		m.drainSidebarClipboard(clip)
 	}
 }
 
-// SendToTerminal sends a string directly to the current terminal
+// SendToTerminal queues a string for the current terminal's input writer —
+// same admission contract as paste/key, so a stalled PTY cannot park the
+// caller on SendString. A write failure detaches via SidebarInputFailed.
 func (m *TerminalModel) SendToTerminal(s string) {
 	ts := m.getTerminal()
-	if ts != nil && ts.Terminal != nil {
-		if err := ts.Terminal.SendString(s); err != nil {
-			logging.Error("Sidebar SendToTerminal failed: %v", err)
-			ts.mu.Lock()
-			ts.Running = false
-			ts.Detached = true
-			ts.UserDetached = false
-			ts.mu.Unlock()
-		}
+	if ts == nil || ts.Terminal == nil {
+		return
+	}
+	tab := m.getActiveTab()
+	var tabID TerminalTabID
+	if tab != nil {
+		tabID = tab.ID
+	}
+	if res := m.admitSidebarInput(ts, tabID, s, "direct send"); res == sidebarInputRejectedFull {
+		m.surfaceSidebarInputRejection(ts, tabID, "input queue full")
 	}
 }
