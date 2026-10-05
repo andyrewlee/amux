@@ -24,7 +24,7 @@ func (a *App) handleToggleWorkspaceScript(msg messages.ToggleWorkspaceScript) te
 	if msg.Workspace == nil || a.workspaceService == nil {
 		return nil
 	}
-	return a.workspaceService.ToggleScriptAsync(msg.Workspace)
+	return a.workspaceService.ToggleScriptAsync(cloneForCmd(msg.Workspace))
 }
 
 // handleRerunWorkspaceScript re-runs a lifecycle script on demand — today only
@@ -36,7 +36,7 @@ func (a *App) handleRerunWorkspaceScript(msg messages.RerunWorkspaceScript) tea.
 	if msg.Workspace == nil || a.workspaceService == nil || msg.Script != process.ScriptSetup {
 		return nil
 	}
-	inner := a.workspaceService.RunSetupAsync(msg.Workspace)
+	inner := a.workspaceService.RunSetupAsync(cloneForCmd(msg.Workspace))
 	if inner == nil {
 		return nil
 	}
@@ -77,6 +77,20 @@ func sameWorkspaceRecord(a, b *data.Workspace) bool {
 	return a.Created.Equal(b.Created)
 }
 
+// cloneForCmd snapshots a workspace for handoff into a background Cmd —
+// Bubble Tea Cmds run off the Update loop, and a live *data.Workspace read
+// there races the loop's own writes (Env edits, scripts confirmation) with
+// torn Scripts/Env/Repo state as the consequence. Clone preserves store
+// identity, so fencing and persistence keys are unaffected. Nil-safe so
+// dispatch sites keep their pass-through shape.
+func cloneForCmd(ws *data.Workspace) *data.Workspace {
+	if ws == nil {
+		return nil
+	}
+	snap := ws.Clone()
+	return &snap
+}
+
 // requestRunScriptStatus emits the run-script status check as a Cmd rather
 // than running it inline: RunScriptStatus shells `tmux list-sessions` plus a
 // display-message per session, and a wedged tmux would otherwise freeze the
@@ -90,7 +104,7 @@ func (a *App) requestRunScriptStatus() tea.Cmd {
 	if a.runScriptStatusInFlight {
 		return nil
 	}
-	ws := a.activeWorkspace
+	ws := cloneForCmd(a.activeWorkspace)
 	a.runScriptStatusInFlight = true
 	stampedIDs := workspacesvc.WorkspaceIDStrings(ws)
 	svc := a.workspaceService
@@ -191,13 +205,14 @@ func (a *App) handleRunOutputTick(msg runOutputTickMsg) tea.Cmd {
 	}
 	token, svc := a.overlays.runOutputToken, a.workspaceService
 	session := a.overlays.runOutputSession
+	snap := cloneForCmd(ws)
 	return func() tea.Msg {
 		var content string
 		var alive bool
 		if session != "" {
 			content, alive = svc.RunScriptSessionTail(session, 400), svc.RunScriptSessionAlive(session)
 		} else {
-			content, alive, _ = svc.RunScriptOutputAndStatus(ws, 400)
+			content, alive, _ = svc.RunScriptOutputAndStatus(snap, 400)
 		}
 		return runOutputRefreshedMsg{token: token, content: content, alive: alive}
 	}
@@ -431,15 +446,16 @@ func (a *App) attachRunViewerCmd(ws *data.Workspace, session string) tea.Cmd {
 	// and every new enumeration, so a result stamped by a viewer that has
 	// since moved on can never close (or attach beside) the newer one.
 	token := a.overlays.runOutputToken
+	snap := cloneForCmd(ws)
 	return func() tea.Msg {
 		var name string
 		var ok bool
 		if session != "" {
 			name, ok = session, svc.RunScriptSessionAlive(session)
 		} else {
-			name, ok = svc.RunScriptAttachTarget(ws)
+			name, ok = svc.RunScriptAttachTarget(snap)
 		}
-		return runAttachTargetMsg{token: token, ws: ws, name: name, ok: ok}
+		return runAttachTargetMsg{token: token, ws: snap, name: name, ok: ok}
 	}
 }
 
