@@ -263,19 +263,32 @@ func (a *App) restoreWorkspace(project *data.Project, ws *data.Workspace) tea.Cm
 }
 
 // removeProject removes a project from the registry (does not delete files).
+// The user is NOT navigated home here: that happens only once the removal is
+// confirmed (handleProjectRemoved) — dispatch-time side effects must never
+// preempt an async outcome.
 func (a *App) removeProject(project *data.Project) tea.Cmd {
 	if project == nil {
 		return func() tea.Msg {
 			return messages.Error{Err: errors.New("missing project"), Context: errorContext(errorServiceWorkspace, "removing project")}
 		}
 	}
-	if a.activeWorkspace != nil && a.activeWorkspace.Repo == project.Path {
-		a.goHome()
-	}
 	if a.workspaceService == nil {
 		return nil
 	}
 	return a.workspaceService.RemoveProject(project)
+}
+
+// handleProjectRemoved applies the confirmed-removal side effects: the success
+// toast, navigation home when the removed project hosted the active workspace,
+// and a registry reload. A failed removal emits messages.Error instead, so a
+// removal that did not happen leaves the user's context intact.
+func (a *App) handleProjectRemoved(msg messages.ProjectRemoved) []tea.Cmd {
+	cmds := []tea.Cmd{a.toast.ShowSuccess("Project removed")}
+	if a.activeWorkspace != nil && a.activeWorkspace.Repo == msg.Path {
+		a.goHome()
+	}
+	cmds = append(cmds, a.loadProjects())
+	return cmds
 }
 
 // goHome is the explicit "no active workspace" state transition: it clears the

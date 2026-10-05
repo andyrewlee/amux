@@ -269,8 +269,7 @@ func (a *App) updateWorkspaceLifecycleMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	case messages.WorkspaceDeleted:
 		*cmds = append(*cmds, a.handleWorkspaceDeleted(msg)...)
 	case messages.ProjectRemoved:
-		*cmds = append(*cmds, a.toast.ShowSuccess("Project removed"))
-		*cmds = append(*cmds, a.loadProjects())
+		*cmds = append(*cmds, a.handleProjectRemoved(msg)...)
 	case messages.WorkspaceDeleteFailed:
 		if cmd := a.handleWorkspaceDeleteFailed(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
