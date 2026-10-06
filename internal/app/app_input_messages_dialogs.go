@@ -70,12 +70,27 @@ func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDi
 		a.clearPendingWorkspaceCreate()
 		a.dlg.project = msg.Project
 		a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Workspace", "Enter workspace name...")
+		a.dialog.SetInputLabel("Workspace name")
 		a.dialog.SetInputValidate(func(s string) string {
 			s = validation.SanitizeInput(s)
 			if s == "" {
 				return "" // Don't show error for empty input
 			}
 			if err := validation.ValidateWorkspaceName(s); err != nil {
+				return err.Error()
+			}
+			return ""
+		})
+		// Second field is the base ref the new worktree's branch is created
+		// from — empty means "detect the project's default branch"
+		// (workspacesvc.ResolveBase). Distinct from the workspace's own
+		// branch name, which still derives from the workspace name.
+		a.dialog.SetSecondInput("Base (optional)", "default branch", func(s string) string {
+			s = validation.SanitizeInput(s)
+			if s == "" {
+				return ""
+			}
+			if err := validation.ValidateBaseRef(s); err != nil {
 				return err.Error()
 			}
 			return ""

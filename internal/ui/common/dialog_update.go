@@ -42,12 +42,16 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				if d.inputValidate != nil {
 					d.validationErr = d.inputValidate(d.input.Value())
 				}
+				if d.hasSecondInput() && d.input2Validate != nil {
+					d.validationErr2 = d.input2Validate(d.input2.Value())
+				}
 				// Block Enter if validation fails
-				if d.validationErr != "" {
+				if d.validationErr != "" || d.validationErr2 != "" {
 					return d, nil
 				}
 				d.visible = false
 				value := d.input.Value()
+				value2 := d.input2.Value()
 				id := d.id
 				logging.Info("Dialog returning InputResult: id=%s value_len=%d", id, len(value))
 				return d, func() tea.Msg {
@@ -55,6 +59,7 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 						ID:        id,
 						Confirmed: true,
 						Value:     value,
+						Value2:    value2,
 					}
 				}
 			case DialogConfirm:
@@ -94,6 +99,12 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("tab", "down"))):
+			// Two-field input forms: tab/down move focus to the other field
+			// instead of falling through to the text input.
+			if d.hasSecondInput() {
+				d.switchFocus()
+				return d, nil
+			}
 			// Structural navigation: arrows and Tab move the cursor on every
 			// select — including filtered ones — and never reach the filter
 			// input.
@@ -102,6 +113,10 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 			}
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab", "up"))):
+			if d.hasSecondInput() {
+				d.switchFocus()
+				return d, nil
+			}
 			if d.moveCursor(-1) {
 				return d, nil
 			}
@@ -141,11 +156,18 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 		}
 
 		var cmd tea.Cmd
-		d.input, cmd = d.input.Update(msg)
+		if d.focused2 && d.hasSecondInput() {
+			d.input2, cmd = d.input2.Update(msg)
+		} else {
+			d.input, cmd = d.input.Update(msg)
+		}
 
 		// Run validation if validator is set
 		if d.inputValidate != nil {
 			d.validationErr = d.inputValidate(d.input.Value())
+		}
+		if d.hasSecondInput() && d.input2Validate != nil {
+			d.validationErr2 = d.input2Validate(d.input2.Value())
 		}
 
 		return d, cmd
@@ -164,6 +186,23 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 	}
 
 	return d, nil
+}
+
+// switchFocus moves keystroke ownership between the two inputs of a
+// two-field form (no-op on single-field dialogs). Focus is exclusive so the
+// caret renders on exactly one field.
+func (d *Dialog) switchFocus() {
+	if !d.hasSecondInput() {
+		return
+	}
+	d.focused2 = !d.focused2
+	if d.focused2 {
+		d.input.Blur()
+		d.input2.Focus()
+	} else {
+		d.input2.Blur()
+		d.input.Focus()
+	}
 }
 
 // moveCursor applies structural up/down navigation (delta ±1) with wraparound.
@@ -221,16 +260,18 @@ func (d *Dialog) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 
 			switch d.dtype {
 			case DialogInput:
-				if hit.optionIndex == 0 && d.validationErr != "" {
+				if hit.optionIndex == 0 && (d.validationErr != "" || d.validationErr2 != "") {
 					return nil
 				}
 				d.visible = false
 				value := d.input.Value()
+				value2 := d.input2.Value()
 				return func() tea.Msg {
 					return DialogResult{
 						ID:        d.id,
 						Confirmed: hit.optionIndex == 0,
 						Value:     value,
+						Value2:    value2,
 					}
 				}
 			case DialogConfirm:
