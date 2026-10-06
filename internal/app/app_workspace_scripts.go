@@ -241,6 +241,7 @@ func (a *App) closeRunOutputDialog() {
 	a.overlays.runOutputSession = ""
 	a.overlays.runOutputAttachable = false
 	a.overlays.runOutputReleaseCount = 0
+	a.overlays.runOutputUntrustable = false
 	a.overlays.runOutputToken++
 }
 
@@ -261,6 +262,7 @@ func (a *App) handleShowScriptOutput(msg messages.ShowScriptOutput) tea.Cmd {
 		a.overlays.runOutputWorkspace = msg.Workspace
 		a.overlays.runOutputAttachable = false
 		a.overlays.runOutputReleaseCount = 0
+		a.overlays.runOutputUntrustable = false
 		a.overlays.runOutputToken++
 		a.overlays.runOutput = common.NewOutputDialog("Script output — "+msg.Workspace.Name, content)
 		a.overlays.runOutput.SetSearchable(true)

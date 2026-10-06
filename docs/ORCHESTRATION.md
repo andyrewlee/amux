@@ -79,7 +79,12 @@ authoritative write — the recovery config.json deliberately rejects.
 (`project-scripts.json` is a live read layer — the per-project script
 defaults the runner consults after repo config and the workspace record both
 miss. Nothing in the UI writes it yet; edit the file by hand. User-authored,
-so never trust-gated.)
+so never trust-gated.) A recorded script approval can be revoked from the
+`i` workspace-status dialog: `U` opens a typed-confirm gate (`untrust`), the
+delete is re-attempted against the durable registry inside that transaction —
+never trusted from the displayed snapshot — and a failed or corrupt
+`trusted-scripts.json` refuses the revoke instead of dropping bytes it
+cannot inspect.
 External tooling editing the file should keep it a JSON object — a file amux
 cannot parse at save time is preserved untouched, never repaired or
 truncated.

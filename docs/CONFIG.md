@@ -154,7 +154,11 @@ initializes, but corrupt JSON is still replaced by the authoritative write
 is a live read layer (resolution only — nothing in the UI writes it yet);
 its shape is `{"version": 1, "scripts": {"<abs repo path>": {"setup": "...",
 "run": "...", "archive": "...", "on-done": "..."}}}` and each script resolves
-repo `.amux/workspaces.json` → workspace record → this file.
+repo `.amux/workspaces.json` → workspace record → this file. Revocation runs
+through the `i` workspace-status dialog (`U`, typed-confirm) and is stricter
+than approval in one respect: a corrupt or unreadable `trusted-scripts.json`
+refuses the delete and keeps its bytes, since the store cannot safely tell
+which grant it would be dropping.
 
 ## The `assistants` schema
 

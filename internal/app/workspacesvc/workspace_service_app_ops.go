@@ -63,6 +63,17 @@ func (s *Service) WorkspaceScriptsTrusted(repoPath string) (bool, error) {
 	return s.scripts.ScriptsTrusted(repoPath)
 }
 
+// UntrustRepoScripts revokes the recorded approval for the repo's script
+// config — the typed-confirm revoke offered from the workspace-status
+// viewer. A nil runner is a no-op: there is no grant to drop. Fail-closed —
+// a registry that cannot be read refuses the delete and the grant stays.
+func (s *Service) UntrustRepoScripts(repoPath string) error {
+	if s == nil || s.scripts == nil {
+		return nil
+	}
+	return s.scripts.UntrustRepoScripts(repoPath)
+}
+
 // WorkspaceScriptPort returns the run-script port allocated to the workspace.
 // Memory-only — see ScriptRunner.PortAllocated; the authoritative persisted
 // interval for status display is WorkspacePortInterval.

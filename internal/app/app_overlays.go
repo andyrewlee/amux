@@ -64,6 +64,11 @@ type overlayState struct {
 	// orphaned port reservations it reported. >0 answers the `R` typed-confirm
 	// release intercept; 0 disables it for every other flavor.
 	runOutputReleaseCount int
+	// runOutputUntrustable marks the workspace-status flavor's other action:
+	// the repo has a script config AND its current content is trusted — the
+	// `U` typed-confirm revoke intercept is armed. False for every other
+	// flavor and whenever nothing is recorded to revoke.
+	runOutputUntrustable bool
 }
 
 // overlayInputSlot feeds one message into a bespoke overlay and reports
@@ -128,6 +133,16 @@ func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	if a.overlays.runOutputReleaseCount > 0 && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
 		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "R" {
 			a.openReservationReleaseDialog(a.overlays.runOutputReleaseCount)
+			return true
+		}
+	}
+	// Workspace-status flavor: `U` swaps the viewer for the typed-confirm
+	// trust-revocation dialog. Same overlay-arbitration shape as `R` — the
+	// viewer closes first; cancel returns to the dashboard, confirm revokes
+	// off-loop and reports by toast.
+	if a.overlays.runOutputUntrustable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
+		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "U" {
+			a.openUntrustScriptsDialog(a.overlays.runOutputWorkspace)
 			return true
 		}
 	}
