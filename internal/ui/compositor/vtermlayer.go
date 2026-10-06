@@ -3,6 +3,7 @@ package compositor
 import (
 	"image/color"
 	"sync"
+	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
 
@@ -241,12 +242,31 @@ func vtermColorToUV(c vterm.Color) color.Color {
 // RGB value. Boxing a color.RGBA into the color.Color interface allocates, and
 // vtermColorToUV runs twice per cell per frame; caching collapses that churn to
 // a bounded set since the same handful of colors dominate any given frame.
-var rgbColorCache sync.Map // uint32 -> color.Color
+//
+// The cache is epoch-bounded: 24-bit keys give ~16.7M possible entries, so a
+// truecolor-dense stream (gradient spam) could grow it past a gigabyte. At
+// rgbCacheCap stores the whole map swaps for a fresh epoch — the rebuild cost
+// is one boxing alloc per live color, and the "same handful dominate" premise
+// means the working set repopulates within a frame or two. The hit path stays
+// a single atomic load + sync.Map.Load; the counter overshoots slightly under
+// concurrent first-stores, which only trades a slightly-early swap.
+const rgbCacheCap = 32 << 10
+
+var (
+	rgbColorCache    atomic.Pointer[sync.Map] // uint32 -> color.Color
+	rgbColorCacheLen atomic.Int64
+	rgbColorSwapMu   sync.Mutex // serializes epoch swaps
+)
+
+func init() {
+	rgbColorCache.Store(new(sync.Map))
+}
 
 // rgbToUV returns a cached color.Color for a 24-bit packed RGB value, building
 // (and boxing) it once on first use.
 func rgbToUV(v uint32) color.Color {
-	if cached, ok := rgbColorCache.Load(v); ok {
+	m := rgbColorCache.Load()
+	if cached, ok := m.Load(v); ok {
 		if col, ok := cached.(color.Color); ok {
 			return col
 		}
@@ -257,7 +277,18 @@ func rgbToUV(v uint32) color.Color {
 		B: uint8(v & 0xFF),
 		A: 255,
 	})
-	rgbColorCache.Store(v, c)
+	if rgbColorCacheLen.Add(1) >= rgbCacheCap {
+		rgbColorSwapMu.Lock()
+		if rgbColorCacheLen.Load() >= rgbCacheCap {
+			rgbColorCache.Store(new(sync.Map))
+			rgbColorCacheLen.Store(0)
+		}
+		rgbColorSwapMu.Unlock()
+		// Store into the live map — the pre-swap reference may already be a
+		// retired epoch.
+		m = rgbColorCache.Load()
+	}
+	m.Store(v, c)
 	return c
 }
 

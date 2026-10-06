@@ -120,6 +120,30 @@ func (r *ScriptRunner) LastScriptOutputs(ws *data.Workspace) map[ScriptType]Scri
 	return out
 }
 
+// ForgetWorkspace drops every retained record keyed to the workspace:
+// lastOutput transcripts (the in-memory copies — disk transcripts are the
+// metadata store's lifecycle, swept with it) and the runSessionsSeen/Swept
+// identity forms. Called from the confirmed-delete path so a lifetime of
+// deleted workspaces cannot grow these maps without bound. Safe on a nil or
+// already-pruned workspace — deletion is idempotent.
+func (r *ScriptRunner) ForgetWorkspace(ws *data.Workspace) {
+	if r == nil || ws == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	prefix := scriptWorkspaceKey(ws) + "|"
+	for key := range r.lastOutput {
+		if strings.HasPrefix(key, prefix) {
+			delete(r.lastOutput, key)
+		}
+	}
+	for _, id := range data.WorkspaceIdentitySet(ws) {
+		delete(r.runSessionsSeen, string(id))
+		delete(r.runSessionsSwept, string(id))
+	}
+}
+
 // missingScriptTypes lists the lifecycle types absent from the set — the
 // fallback's trigger, so a workspace with only a setup transcript in memory
 // still picks up a persisted archive tail.
