@@ -31,24 +31,24 @@ func TestFieldPasteFirstLinePolicy(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := pasteFirstLine(tc.input)
+			got := PasteFirstLine(tc.input)
 			if got != tc.want {
-				t.Fatalf("pasteFirstLine(%q) = %q, want %q", tc.input, got, tc.want)
+				t.Fatalf("PasteFirstLine(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 			if !utf8.ValidString(got) {
-				t.Fatalf("pasteFirstLine(%q) emitted invalid UTF-8 %q", tc.input, got)
+				t.Fatalf("PasteFirstLine(%q) emitted invalid UTF-8 %q", tc.input, got)
 			}
 		})
 	}
 
 	t.Run("invalid UTF-8 yields replacement runes not garbage", func(t *testing.T) {
-		got := pasteFirstLine("a\xffb")
+		got := PasteFirstLine("a\xffb")
 		if !utf8.ValidString(got) {
 			t.Fatalf("invalid UTF-8 emitted: %q", got)
 		}
 		// range decodes the bad byte as U+FFFD, which is graphic and kept.
 		if got != "a\ufffdb" {
-			t.Fatalf("pasteFirstLine invalid bytes = %q, want %q", got, "a\ufffdb")
+			t.Fatalf("PasteFirstLine invalid bytes = %q, want %q", got, "a\ufffdb")
 		}
 	})
 }

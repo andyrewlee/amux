@@ -184,7 +184,9 @@ sequential driver (`bulkOpState`) in `app_bulk_shelve.go` (the filename is
 stale: it houses all four `bulkOpKind` values, not just shelve).
 
 1. `messages.ShowBulk{Shelve,Restore,Purge,Delete}WorkspaceDialog`
-   (dashboard `S`/`Enter`/`P`/`D` with marks) → the matching
+   (dashboard with marks: `S` shelves a marked live set, `Enter` restores a
+   marked shelved set, `D` purges a marked shelved set or deletes a marked
+   live set) → the matching
    `handleShowBulk*` handler: `bulkTargetsFromItems` converts the marked
    items to `bulkTarget`s (each carries its project — marks can span
    projects — and its `MetadataID` as `markID`, the mark-clearing key) and

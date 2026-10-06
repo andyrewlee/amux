@@ -127,9 +127,9 @@ func (s *SettingsDialog) updateAssistantAddMode(msg tea.KeyPressMsg) (*SettingsD
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("backspace"))):
 		if s.assistantAddField == 0 {
-			s.assistantAddName = trimLastRune(s.assistantAddName)
+			s.assistantAddName = TrimLastRune(s.assistantAddName)
 		} else {
-			s.assistantAddCmd = trimLastRune(s.assistantAddCmd)
+			s.assistantAddCmd = TrimLastRune(s.assistantAddCmd)
 		}
 		return s, nil
 	}
@@ -247,5 +247,5 @@ func (s *SettingsDialog) deleteFocusedAssistantRune() {
 	if !ok {
 		return
 	}
-	s.assistantCommands[name] = trimLastRune(s.assistantCommands[name])
+	s.assistantCommands[name] = TrimLastRune(s.assistantCommands[name])
 }

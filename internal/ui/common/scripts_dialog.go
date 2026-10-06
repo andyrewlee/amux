@@ -75,7 +75,7 @@ func (d *ScriptsDialog) Update(msg tea.Msg) (*ScriptsDialog, tea.Cmd) {
 		// Paste is text only — the mode row is a toggle, so it ignores paste
 		// entirely rather than risk a pasted space flipping it.
 		if d.cursor != 4 {
-			d.appendFocusedText(pasteFirstLine(pasteMsg.Content))
+			d.appendFocusedText(PasteFirstLine(pasteMsg.Content))
 		}
 		return d, nil
 	}
@@ -142,7 +142,7 @@ func (d *ScriptsDialog) appendFocusedText(txt string) {
 
 func (d *ScriptsDialog) deleteFocusedRune() {
 	if v := d.focusedValue(); v != nil {
-		*v = trimLastRune(*v)
+		*v = TrimLastRune(*v)
 	}
 }
 

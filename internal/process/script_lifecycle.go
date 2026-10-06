@@ -278,7 +278,7 @@ func (r *ScriptRunner) runArchive(ws *data.Workspace, guard *TeardownGuard) erro
 // a lifecycle edge with no user keystroke), while ws.Scripts.OnDone is user
 // input and always runs.
 //
-// env is BuildEnv plus AMUX_SESSION naming the session that finished. Errors
+// env is BuildEnvLayers plus AMUX_SESSION naming the session that finished. Errors
 // resolve as: ErrNoScriptConfigured → nil (most workspaces have no hook);
 // untrusted or spawn failures → returned for the caller to surface. The
 // spawned process's own exit is logged, never propagated — a hook crash must

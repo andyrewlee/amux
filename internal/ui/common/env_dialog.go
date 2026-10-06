@@ -219,7 +219,7 @@ func (d *EnvDialog) Update(msg tea.Msg) (*EnvDialog, tea.Cmd) {
 // shortcut: it cannot submit, cancel, or toggle add mode.
 func (d *EnvDialog) handlePaste(msg tea.PasteMsg) *EnvDialog {
 	d.notice = ""
-	txt := pasteFirstLine(msg.Content)
+	txt := PasteFirstLine(msg.Content)
 	if !d.adding {
 		d.appendFocusedText(txt)
 		return d
@@ -261,9 +261,9 @@ func (d *EnvDialog) updateAddMode(keyMsg tea.KeyPressMsg) (*EnvDialog, tea.Cmd) 
 
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("backspace"))):
 		if d.addField == 0 {
-			d.addName = trimLastRune(d.addName)
+			d.addName = TrimLastRune(d.addName)
 		} else {
-			d.addValue = trimLastRune(d.addValue)
+			d.addValue = TrimLastRune(d.addValue)
 		}
 		return d, nil
 	}
@@ -383,7 +383,7 @@ func (d *EnvDialog) deleteFocusedRune() {
 	if !ok {
 		return
 	}
-	d.values[k] = trimLastRune(d.values[k])
+	d.values[k] = TrimLastRune(d.values[k])
 }
 
 // deleteFocusedPair removes the focused key/value pair outright (not just its

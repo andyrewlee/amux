@@ -38,7 +38,7 @@ func TestRunScriptHostedEnsuresSession(t *testing.T) {
 		t.Fatal("session CreatedAt tag not stamped")
 	}
 	if len(s.env) == 0 {
-		t.Fatal("session env empty — BuildEnv was not applied")
+		t.Fatal("session env empty — BuildEnvLayers was not applied")
 	}
 	if !runner.IsRunning(ws) {
 		t.Fatal("IsRunning() = false with a live session")

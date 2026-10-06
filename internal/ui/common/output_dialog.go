@@ -200,7 +200,7 @@ func (d *OutputDialog) Update(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 func (d *OutputDialog) updateQueryEdit(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 	if pm, ok := msg.(tea.PasteMsg); ok {
 		if strings.ContainsAny(pm.Content, "\r\n") {
-			d.query += pasteFirstLine(pm.Content)
+			d.query += PasteFirstLine(pm.Content)
 			d.recomputeMatches()
 			d.acceptSearch()
 			return d, nil
@@ -221,11 +221,11 @@ func (d *OutputDialog) updateQueryEdit(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 		d.acceptSearch()
 		return d, nil
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("backspace"))):
-		d.query = trimLastRune(d.query)
+		d.query = TrimLastRune(d.query)
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("ctrl+u"))):
 		d.query = ""
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("ctrl+w"))):
-		d.query = trimLastWord(d.query)
+		d.query = TrimLastWord(d.query)
 	default:
 		if keyMsg.Text != "" {
 			d.query += keepRunes(keyMsg.Text, isPrintableFieldRune)
@@ -339,9 +339,9 @@ func (d *OutputDialog) repairMatchSelection(prevLine int) {
 	d.matchIdx = -1
 }
 
-// trimLastWord drops a trailing run of spaces then the preceding word —
-// ctrl+w behavior in the query field.
-func trimLastWord(s string) string {
+// TrimLastWord drops a trailing run of spaces then the preceding word —
+// ctrl+w behavior in a query field.
+func TrimLastWord(s string) string {
 	rs := []rune(s)
 	i := len(rs)
 	for i > 0 && unicode.IsSpace(rs[i-1]) {
