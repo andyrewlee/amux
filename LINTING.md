@@ -14,7 +14,8 @@ This runs:
 
 - `go vet ./...`
 - `make test` — `go test` on all packages except `internal/tmux`,
-  `internal/e2e`, `internal/app`, and `internal/pty` (the package list comes
+  `internal/e2e`, `internal/app`, `internal/pty`, and `internal/ui/sidebar`
+  (the package list comes
   from `scripts/test_pkgs.sh --exclude-app`), followed by `tmux-skip-check`,
   which runs the excluded real-tmux packages and warns when they skip
 - `lint-config-drift` — fails if `.golangci.strict.yml` drops lines present
@@ -153,7 +154,7 @@ Escalation is path-based. For local confidence, use:
 
 - `internal/ui/`, `internal/vterm/`, `cmd/amux-harness/`:
   - run `make harness-presets`
-- `internal/tmux/`, `internal/e2e/`, `internal/pty/`:
+- `internal/tmux/`, `internal/e2e/`, `internal/pty/`, `internal/ui/sidebar/` (the real-tmux tests in `terminal_pty_session_tags_test.go`):
   - run `go test ./internal/tmux ./internal/e2e`
 - agent input/send path (`internal/pty/terminal.go`, `internal/ui/center/tab_actor_write.go`, `internal/pty/`, keystroke forwarding):
   - run `make verify-loop` — drives a real keystroke through amux into a real raw-mode agent and asserts it arrives intact (incl. a literal CR). `make devcheck` alone is insufficient: the real-tmux tests skip there, so it gives a false green for send/Enter behavior.

@@ -67,7 +67,7 @@ test:
 
 # test-race mirrors the former CI "Test (race)" step: `go test -race` over
 # the shared package set from scripts/test_pkgs.sh (excludes internal/tmux,
-# e2e, and pty). Note this is wider than
+# e2e, pty, and ui/sidebar). Note this is wider than
 # `make test`/`make devcheck`, which run the script's --exclude-app variant
 # (internal/app is deferred to tmux-skip-check locally). Race runs are slow;
 # that is why this is a separate target rather than part of devcheck (same
@@ -80,8 +80,10 @@ test-race:
 # test-race-tmux covers the packages test_pkgs.sh excludes plus the real-tmux
 # integration tests in app/pty — they need a real tmux server and run under
 # -race here (the former tmux-e2e CI job's race leg). Without tmux they skip.
+# Keep this list coupled to the exclusion filter in scripts/test_pkgs.sh and
+# the tmux-skip-check package list below.
 test-race-tmux:
-	go test -race ./internal/tmux ./internal/e2e ./internal/app ./internal/pty
+	go test -race ./internal/tmux ./internal/e2e ./internal/app ./internal/pty ./internal/ui/sidebar
 
 # soak runs the build-tagged sustained-workload test (PTY ingest + message
 # pump under load for minutes). Part of `make ci-nightly` — also run before
@@ -117,7 +119,7 @@ windows-build:
 #   devcheck (vet + tests + lint + file-length + lint-config-drift, and its
 #           embedded tmux-skip-check under STRICT_TMUX=1 so a real-tmux skip
 #           fails like the old CI assert), test-race (the wide -race sweep),
-#   test-race-tmux (the former tmux-e2e job's race leg on tmux/e2e/app/pty),
+#   test-race-tmux (the former tmux-e2e job's race leg on tmux/e2e/app/pty/ui/sidebar),
 #   tidy-check, govulncheck, windows-build, harness-smoke (the former CI
 #   test job's three quick harness asserts).
 # `ci` exercises whichever tmux is installed locally; for the tmux version
@@ -169,9 +171,10 @@ devcheck:
 
 # tmux-skip-check is the single `make test`/`make devcheck` execution of the
 # real-tmux package set excluded from the main go test sweep:
-# internal/tmux, internal/e2e, internal/app, and internal/pty. Keep this
-# package list coupled to scripts/test_pkgs.sh --exclude-app (the sweep's
-# package source). The -v output exposes
+# internal/tmux, internal/e2e, internal/app, internal/pty, and
+# internal/ui/sidebar. Keep this package list coupled to
+# scripts/test_pkgs.sh --exclude-app (the sweep's package source) and to
+# test-race-tmux above. The -v output exposes
 # per-test `--- SKIP:` lines, failures propagate, and skipped real-tmux
 # coverage still prints the same non-fatal NOTE unless STRICT_TMUX=1.
 # -count=1 is load-bearing: the tmux environment is not part of Go's test
@@ -179,7 +182,7 @@ devcheck:
 # `-v` output and false-green (or false-fail STRICT_TMUX).
 tmux-skip-check:
 	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
-	if ! go test -count=1 ./internal/tmux ./internal/e2e ./internal/app ./internal/pty -v >"$$output" 2>&1; then \
+	if ! go test -count=1 ./internal/tmux ./internal/e2e ./internal/app ./internal/pty ./internal/ui/sidebar -v >"$$output" 2>&1; then \
 		cat "$$output"; \
 		exit 1; \
 	fi; \
@@ -504,7 +507,7 @@ help:
 	@echo "  install    - Build and install into PREFIX/bin (default /usr/local; falls back to GOPATH/bin)"
 	@echo "  test       - Run the non-tmux package sweep, then the real-tmux packages via tmux-skip-check (skips cleanly without tmux)"
 	@echo "  test-race  - Run go test -race over the shared package set (slow)"
-	@echo "  test-race-tmux - Run go test -race on the real-tmux packages (tmux, e2e, app, pty; skips cleanly sans tmux)"
+	@echo "  test-race-tmux - Run go test -race on the real-tmux packages (tmux, e2e, app, pty, ui/sidebar; skips cleanly sans tmux)"
 	@echo "  soak       - Run the sustained-workload soak test (PTY ingest + msgpump; AMUX_SOAK_DURATION=2m or AMUX_SOAK_MINUTES=10; default 5m)"
 	@echo "  fuzz       - Fuzz the vterm parser and porcelain parser for FUZZ_TIME each (default 30s)"
 	@echo "  tidy-check - Run go mod tidy and fail if go.mod/go.sum change"

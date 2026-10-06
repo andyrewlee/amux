@@ -47,7 +47,7 @@ func TestTruncateTranscriptTail_CutsOnNewlineBoundary(t *testing.T) {
 	filler := strings.Repeat("x", TranscriptMaxBytes-11) + "\nLASTLINE"
 	text := "HEAD-DROPPED\n" + filler
 	if len(text) <= TranscriptMaxBytes {
-		t.Skipf("fixture miscalc: %d bytes", len(text))
+		t.Fatalf("fixture miscalc: %d bytes — the filler math must exceed TranscriptMaxBytes", len(text))
 	}
 	got, truncated := TruncateTranscriptTail(text)
 	if !truncated {

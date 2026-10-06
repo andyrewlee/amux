@@ -257,7 +257,7 @@ func TestProjectTreeRowIndexAtRespectsHelpLines(t *testing.T) {
 	// node exists.
 	contentHeight := m.height - m.helpLineCount()
 	if contentHeight < 1 {
-		t.Skipf("seeded geometry left no content rows (contentHeight=%d)", contentHeight)
+		t.Fatalf("seeded geometry left no content rows (contentHeight=%d) — update the fixture", contentHeight)
 	}
 	if _, ok := m.rowIndexAt(contentHeight); ok {
 		t.Fatalf("rowIndexAt(%d) accepted a row inside the help region", contentHeight)
