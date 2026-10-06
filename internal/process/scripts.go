@@ -133,6 +133,12 @@ type ScriptRunner struct {
 	// (secrets/overrides that sit above repo `env` and beneath ws.Env). Nil
 	// means no project layer. See script_env.go.
 	projectEnv func(repoPath string) map[string]string
+	// projectScripts resolves the user-level per-project script defaults for
+	// a repo path — the layer beneath ws.Scripts (precedence: repo →
+	// workspace → project). Nil means no project layer. User-authored like
+	// ws.Scripts, so never trust-gated. See project_scripts.go /
+	// script_lifecycle.go.
+	projectScripts func(repoPath string) data.ScriptsConfig
 	// lastOutput records the bounded transcript of the most recent run of
 	// each lifecycle script (setup/archive/on-done) per workspace — what the
 	// "script output" viewer shows. See script_output.go.
@@ -245,12 +251,18 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 
 	// Resolution order matches resolveScriptCommand: the repo's
 	// setup-workspace list wins; the workspace's own Scripts.Setup (typed
-	// into the scripts editor, user input that always runs) fills in when
-	// the repo defines none.
+	// into the scripts editor) fills in, then the user-level project default
+	// (project-scripts.json — same precedence tail). Both non-repo layers
+	// are user-authored and run without the trust gate.
 	commands := config.SetupWorkspace
 	fromRepo := len(commands) > 0
 	if !fromRepo && ws.Scripts.Setup != "" {
 		commands = []string{ws.Scripts.Setup}
+	}
+	if len(commands) == 0 {
+		if setup := r.projectScriptFor(ws.Repo, ScriptSetup); setup != "" {
+			commands = []string{setup}
+		}
 	}
 
 	// Gate repo-supplied commands behind recorded per-repo consent. Until the

@@ -151,7 +151,10 @@ one deliberate difference: an existing file that cannot be read refuses the
 save or approval and is preserved byte-for-byte, a missing file
 initializes, but corrupt JSON is still replaced by the authoritative write
 (the recovery path config.json intentionally rejects). `project-scripts.json`
-is reserved for the per-project script layer — nothing writes it yet.
+is a live read layer (resolution only — nothing in the UI writes it yet);
+its shape is `{"version": 1, "scripts": {"<abs repo path>": {"setup": "...",
+"run": "...", "archive": "...", "on-done": "..."}}}` and each script resolves
+repo `.amux/workspaces.json` → workspace record → this file.
 
 ## The `assistants` schema
 

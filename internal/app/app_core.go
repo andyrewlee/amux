@@ -77,6 +77,13 @@ type projectEnvIO interface {
 	Set(repoPath string, env map[string]string) error
 }
 
+// projectScriptsIO is the app-facing surface of *data.ProjectScriptStore:
+// ForRepo feeds both the runner's resolver and the `i` status dialog's
+// source labels. Narrowed to an interface so tests can fake it.
+type projectScriptsIO interface {
+	ForRepo(repoPath string) data.ScriptsConfig
+}
+
 // App is the root Bubbletea model.
 type App struct {
 	// Configuration
@@ -132,6 +139,9 @@ type App struct {
 	// another overlay is visible — see app_overlay_arbiter.go.
 	pendingOverlayOpens []func()
 	projectEnvStore     projectEnvIO
+	// projectScriptStore backs the runner's third resolution layer and the
+	// `i` dialog's per-script source labels (repo → workspace → project).
+	projectScriptStore projectScriptsIO
 	// lastRunScriptRoot/lastRunScriptAlive track the active workspace's run
 	// state across run-script status results so a running→stopped flip with
 	// a non-zero exit surfaces as a toast instead of a silent badge-off.

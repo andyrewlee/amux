@@ -76,8 +76,10 @@ The project-level registries (`project-env.json`, `project-scripts.json`,
 file that cannot be read refuses the save/approval and keeps its bytes, a
 missing file initializes, and corrupt JSON is still replaced by the
 authoritative write — the recovery config.json deliberately rejects.
-(`project-scripts.json` is reserved for the per-project script layer — not
-yet wired, so nothing writes it.)
+(`project-scripts.json` is a live read layer — the per-project script
+defaults the runner consults after repo config and the workspace record both
+miss. Nothing in the UI writes it yet; edit the file by hand. User-authored,
+so never trust-gated.)
 External tooling editing the file should keep it a JSON object — a file amux
 cannot parse at save time is preserved untouched, never repaired or
 truncated.

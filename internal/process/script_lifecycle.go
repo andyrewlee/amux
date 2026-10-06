@@ -17,9 +17,10 @@ import (
 // lifecycle hooks: `run` (started on demand, long-lived) and `archive` (run to
 // completion at teardown).
 
-// ErrNoScriptConfigured is returned (wrapped) when neither the repo's
-// .amux/workspaces.json nor the workspace's own Scripts field defines a command
-// for the requested script type. It is a sentinel rather than a bare error so
+// ErrNoScriptConfigured is returned (wrapped) when none of the three layers —
+// the repo's .amux/workspaces.json, the workspace's own Scripts field, or the
+// user-level project defaults — defines a command for the requested script
+// type. It is a sentinel rather than a bare error so
 // callers can treat "nothing to run" as benign — the archive-on-delete path
 // skips silently, while a user-triggered run reports it — instead of surfacing
 // it as a failure.
@@ -30,11 +31,13 @@ var ErrNoScriptConfigured = errors.New("no script configured")
 // front half of RunScript (async, long-lived `run`) and RunArchive (synchronous,
 // bounded `archive`) so both resolve the command and enforce trust identically.
 //
-// Resolution order is repo config first, then the workspace's own Scripts field.
+// Resolution order is repo config first, then the workspace's own Scripts
+// field, then the user-level project script defaults (project-scripts.json).
 // Only the repo-supplied command is gated behind trust: ws.Scripts.* is the
-// user's own input, typed into the amux UI, and always runs.
+// user's own input, typed into the amux UI, and the project layer is the
+// user's own file — both always run.
 //
-// It returns ErrNoScriptConfigured when neither source defines a command, and a
+// It returns ErrNoScriptConfigured when no layer defines a command, and a
 // *ScriptsNotTrustedError when a repo-supplied command is not yet approved.
 func (r *ScriptRunner) resolveScriptCommand(ws *data.Workspace, scriptType ScriptType) (string, error) {
 	if err := validateScriptWorkspace(ws); err != nil {
@@ -48,8 +51,8 @@ func (r *ScriptRunner) resolveScriptCommand(ws *data.Workspace, scriptType Scrip
 
 	// fromRepoConfig is true only when the command came from the repo's
 	// .amux/workspaces.json (config.RunScript/config.ArchiveScript), false when
-	// it fell back to ws.Scripts.* (user-entered in the amux UI). Only the
-	// repo-supplied case is gated behind trust.
+	// it fell back to ws.Scripts.* or the project layer (both user-authored,
+	// never trust-gated). Only the repo-supplied case is gated behind trust.
 	var cmdStr string
 	var fromRepoConfig bool
 	switch scriptType {
@@ -72,12 +75,19 @@ func (r *ScriptRunner) resolveScriptCommand(ws *data.Workspace, scriptType Scrip
 			cmdStr = ws.Scripts.OnDone
 		}
 	}
+	// Third layer: the per-project defaults file, consulted only when repo
+	// and workspace both miss — the documented repo → workspace → project
+	// precedence.
+	if cmdStr == "" {
+		cmdStr = r.projectScriptFor(ws.Repo, scriptType)
+	}
 
 	if cmdStr == "" {
 		return "", fmt.Errorf("%s: %w", scriptType, ErrNoScriptConfigured)
 	}
 
-	// Gate only repo-supplied commands; user-entered ws.Scripts.* always run.
+	// Gate only repo-supplied commands; user-authored ws.Scripts.* and the
+	// project layer always run.
 	if fromRepoConfig && !r.trust.IsTrusted(ws.Repo, raw) {
 		return "", &ScriptsNotTrustedError{
 			Repo:       ws.Repo,

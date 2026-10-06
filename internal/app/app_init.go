@@ -208,6 +208,12 @@ func New(version, commit, date string) (*App, error) {
 	scripts.SetRunHost(newTmuxRunSessionHost(tmuxOpts, app.instanceID))
 	app.projectEnvStore = data.NewProjectEnvStore(cfg.Paths.Home)
 	scripts.SetProjectEnvResolver(app.projectEnvStore.ForRepo)
+	// Project script defaults ride the same read-on-demand contract as the
+	// env layer: the store re-reads project-scripts.json per resolution so a
+	// hand-edited file takes effect without a restart. User-authored — no
+	// trust gate (only repo-supplied commands are gated).
+	app.projectScriptStore = data.NewProjectScriptStore(cfg.Paths.Home)
+	scripts.SetProjectScriptResolver(app.projectScriptStore.ForRepo)
 	// Surface detached lifecycle-script failures (on-done — the only hook
 	// whose Wait has no synchronous caller): the runner records the bounded
 	// transcript, this enqueues the visible warning. tryEnqueue drops on a
