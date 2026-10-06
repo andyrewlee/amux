@@ -15,6 +15,42 @@ func (r *ScriptRunner) SetProjectEnvResolver(resolve func(repoPath string) map[s
 	r.mu.Unlock()
 }
 
+// SetProjectScriptResolver installs the lookup for the user-level
+// per-project script defaults (the layer beneath ws.Scripts). Called once at
+// app init; nil means no project layer. The resolver is read on every
+// resolution so a hand-edited project-scripts.json takes effect for existing
+// workspaces without a restart — the same read-on-demand contract the env
+// resolver gives project-env.json.
+func (r *ScriptRunner) SetProjectScriptResolver(resolve func(repoPath string) data.ScriptsConfig) {
+	r.mu.Lock()
+	r.projectScripts = resolve
+	r.mu.Unlock()
+}
+
+// projectScriptFor returns the project layer's command for scriptType, or ""
+// when the layer is unwired, the project has none, or the file is unreadable
+// (ForRepo's documented empty-on-error contract applies).
+func (r *ScriptRunner) projectScriptFor(repoPath string, scriptType ScriptType) string {
+	r.mu.Lock()
+	resolve := r.projectScripts
+	r.mu.Unlock()
+	if resolve == nil {
+		return ""
+	}
+	cfg := resolve(repoPath)
+	switch scriptType {
+	case ScriptSetup:
+		return cfg.Setup
+	case ScriptRun:
+		return cfg.Run
+	case ScriptArchive:
+		return cfg.Archive
+	case ScriptOnDone:
+		return cfg.OnDone
+	}
+	return ""
+}
+
 // buildScriptEnv assembles the env for one script spawn with the documented
 // precedence:
 //

@@ -328,7 +328,8 @@ For the full operational picture press `i` in the Changes sidebar: a
 read-only snapshot of the workspace's reserved port range (read live from the
 durable registry — a workspace with no reservation yet, or a corrupt registry,
 says so rather than guessing), run-session
-state, script config (repo vs. yours) and its trust verdict, custom env key
+state, script config (repo vs. workspace vs. project layer) and its trust
+verdict, custom env key
 names (never values), lifecycle state, and open tabs.
 
 You can also set per-workspace scripts yourself: press `s` in the Changes
@@ -339,6 +340,16 @@ overlap). A repo-provided `.amux/workspaces.json` script still wins over the
 per-workspace one when both exist — the editor's fields are the fallback.
 Commands entered here are your own input, so they run without the repo trust
 prompt described below.
+
+A third, per-project layer sits beneath both: `~/.amux/project-scripts.json`
+maps each project (keyed by repo path) to `setup`/`run`/`archive`/`on-done`
+defaults every workspace in that project inherits. Precedence per script is
+repo `.amux/workspaces.json` → workspace record → project defaults — the
+strongest layer that defines the script wins. The file is hand-edited (there
+is no project-script editor yet), re-read on every resolution so changes take
+effect without a restart, and user-authored like the workspace layer — no
+trust prompt. The `i` status dialog labels which layer each script comes
+from (`repo`/`user`/`project`).
 
 ### Environment available to workspace scripts
 
@@ -403,9 +414,9 @@ scripts never widens what the repo can inject into your agents.
 Because these commands come from the repository, amux runs them only after you trust the repo. The first time a repo's `.amux/workspaces.json` would run (and every time its contents change), amux records the approved content of the file; until then those project-supplied scripts are skipped and you are notified, rather than executing arbitrary commands chosen by the repo's author. Editing `.amux/workspaces.json` invalidates the approval, so changed commands are re-gated until you trust the file again. (Run/archive scripts you enter yourself in the amux UI are your own input and are never gated.)
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Field writes are transactional and narrow: renaming a workspace, editing its env or scripts, shelving/restoring it, and debounced tab-state saves each rewrite only their own fields inside the record lock, so concurrent edits merge instead of a delayed write resurrecting a stale snapshot. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`, and the
-project-level environment map in `~/.amux/project-env.json` (script defaults
-are reserved for `~/.amux/project-scripts.json` — the per-project script
-layer is not yet wired, so nothing writes it). These registries share one write
+project-level environment map in `~/.amux/project-env.json` and per-project
+script defaults in `~/.amux/project-scripts.json` (hand-edited — nothing in
+the UI writes it yet). These registries share one write
 boundary: a file that exists but cannot be read refuses the save or
 approval and leaves its bytes untouched — a blind write could erase other
 projects' state — while a missing file initializes normally and corrupt

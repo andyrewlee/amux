@@ -204,9 +204,13 @@ func (a *App) buildWorkspaceStatus(ws *data.Workspace) workspaceStatus {
 	if a.workspaceService != nil {
 		a.fillRunnerStatus(&st, ws)
 	}
-	// User-entered ws.Scripts fill in whatever the repo doesn't define (repo
-	// wins per field — the resolveScriptCommand precedence).
-	mergeScriptSources(st.scriptSources, ws, "user")
+	// User-entered ws.Scripts fill in whatever the repo doesn't define, then
+	// the project defaults file fills whatever remains — the same
+	// repo → workspace → project precedence resolveScriptCommand applies.
+	mergeScriptSources(st.scriptSources, ws.Scripts, "user")
+	if a.projectScriptStore != nil {
+		mergeScriptSources(st.scriptSources, a.projectScriptStore.ForRepo(ws.Repo), "project")
+	}
 	a.fillEnvSources(&st, ws)
 	if a.center != nil {
 		if tabs, _ := a.center.GetTabsInfoForWorkspace(string(ws.ID())); len(tabs) > 0 {
@@ -259,13 +263,14 @@ func (a *App) fillRunnerStatus(st *workspaceStatus, ws *data.Workspace) {
 }
 
 // mergeScriptSources labels each configured script source unless a
-// higher-precedence layer already claimed it (repo wins over user).
-func mergeScriptSources(dst map[process.ScriptType]string, ws *data.Workspace, src string) {
+// higher-precedence layer already claimed it (repo wins over workspace wins
+// over project). Callers apply the layers in precedence order.
+func mergeScriptSources(dst map[process.ScriptType]string, cfg data.ScriptsConfig, src string) {
 	for t, cmd := range map[process.ScriptType]string{
-		process.ScriptSetup:   ws.Scripts.Setup,
-		process.ScriptRun:     ws.Scripts.Run,
-		process.ScriptArchive: ws.Scripts.Archive,
-		process.ScriptOnDone:  ws.Scripts.OnDone,
+		process.ScriptSetup:   cfg.Setup,
+		process.ScriptRun:     cfg.Run,
+		process.ScriptArchive: cfg.Archive,
+		process.ScriptOnDone:  cfg.OnDone,
 	} {
 		if cmd != "" {
 			if _, ok := dst[t]; !ok {

@@ -113,6 +113,52 @@ func TestBuildWorkspaceStatus_UntrustedRepo(t *testing.T) {
 	}
 }
 
+// TestBuildWorkspaceStatus_ProjectScriptLayer proves the `i` dialog names the
+// project layer: repo → workspace → project precedence assigns each type the
+// strongest layer that defines it, and the label matches the rendered string.
+func TestBuildWorkspaceStatus_ProjectScriptLayer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := t.TempDir()
+	writeRepoConfig(t, repo, `{"archive": "echo a"}`)
+
+	scripts := process.NewScriptRunner(6200, 10)
+	scriptStore := data.NewProjectScriptStore(t.TempDir())
+	if err := scriptStore.Set(repo, data.ScriptsConfig{Run: "make dev", OnDone: "make done"}); err != nil {
+		t.Fatalf("script store Set: %v", err)
+	}
+	app := &App{
+		config:             &config.Config{PortRangeSize: 10},
+		toast:              common.NewToastModel(),
+		workspaceService:   workspacesvc.New(nil, nil, scripts, ""),
+		projectScriptStore: scriptStore,
+	}
+	ws := &data.Workspace{
+		Name: "ws", Repo: repo, Root: t.TempDir(), Branch: "feat",
+		Scripts: data.ScriptsConfig{OnDone: "echo ws-done"},
+	}
+
+	st := app.buildWorkspaceStatus(ws)
+
+	// archive: repo claims it (only layer). on-done: ws beats project.
+	// run: project claims it (repo+ws miss). setup: unclaimed everywhere.
+	want := map[process.ScriptType]string{
+		process.ScriptSetup:   "",
+		process.ScriptRun:     "project",
+		process.ScriptArchive: "repo",
+		process.ScriptOnDone:  "user",
+	}
+	for typ, w := range want {
+		got := st.scriptSources[typ]
+		if got != w {
+			t.Fatalf("scriptSources[%v] = %q, want %q (all: %v)", typ, got, w, st.scriptSources)
+		}
+	}
+	rendered := renderWorkspaceStatus(st)
+	if !strings.Contains(rendered, "run:         project") && !strings.Contains(rendered, "project") {
+		t.Fatalf("render missing project source label:\n%s", rendered)
+	}
+}
+
 // TestBuildWorkspaceStatus_Empties proves missing data renders sane empties:
 // no port, no run, no scripts, no env — the dialog still opens.
 func TestBuildWorkspaceStatus_Empties(t *testing.T) {
