@@ -109,6 +109,17 @@ func (a *App) handleDialogResult(result common.DialogResult, dlg dialogContext) 
 			a.pendingWorkspaceCreate.name = ""
 			a.pendingWorkspaceCreate.base = ""
 		}
+		if result.ID == DialogLaunchTask {
+			// Esc leaves task entry, not the pick itself: drop the handoff
+			// and reopen the picker so the launch stays one keystroke away.
+			armed := a.pendingLaunchTask.assistant != ""
+			a.pendingLaunchTask = pendingLaunchTaskState{}
+			if armed {
+				return func() tea.Msg {
+					return messages.ShowSelectAssistantDialog{}
+				}
+			}
+		}
 		logging.Debug("Dialog canceled")
 		return nil
 	}
@@ -308,46 +319,6 @@ func dialogResultRemoveProject(_ *App, _ common.DialogResult, dlg dialogContext)
 			Project: proj,
 		}
 	}
-}
-
-func dialogResultAgentPicker(a *App, result common.DialogResult, _ dialogContext) tea.Cmd {
-	assistant := result.Value
-	if err := validation.ValidateAssistant(assistant); err != nil {
-		return func() tea.Msg {
-			return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating assistant")}
-		}
-	}
-	if !a.isKnownAssistant(assistant) {
-		return func() tea.Msg {
-			return messages.Error{Err: errors.New("unknown assistant: " + assistant), Context: errorContext(errorServiceDialog, "validating assistant")}
-		}
-	}
-	if a.pendingWorkspaceCreate.project != nil && a.pendingWorkspaceCreate.name != "" {
-		pendingProject := a.pendingWorkspaceCreate.project
-		pendingName := a.pendingWorkspaceCreate.name
-		pendingBase := a.pendingWorkspaceCreate.base
-		a.pendingWorkspaceCreate.project = nil
-		a.pendingWorkspaceCreate.name = ""
-		a.pendingWorkspaceCreate.base = ""
-		return func() tea.Msg {
-			return messages.CreateWorkspace{
-				Project:   pendingProject,
-				Name:      pendingName,
-				Base:      pendingBase,
-				Assistant: assistant,
-			}
-		}
-	}
-	if a.activeWorkspace != nil {
-		ws := a.activeWorkspace
-		return func() tea.Msg {
-			return messages.LaunchAgent{
-				Assistant: assistant,
-				Workspace: ws,
-			}
-		}
-	}
-	return nil
 }
 
 func dialogResultQuit(a *App, _ common.DialogResult, _ dialogContext) tea.Cmd {

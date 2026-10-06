@@ -27,6 +27,12 @@ type DialogResult struct {
 	// SetSecondInput).
 	Value2 string
 	Index  int
+	// RequestTask is emitted by the agent picker when the user chooses the
+	// highlighted assistant via ctrl+t instead of enter: the pick still
+	// carries Value/Index, and Confirmed stays true, but the result asks the
+	// consumer to collect an optional first task before launching. Only the
+	// picker sets it; every other dialog leaves it false.
+	RequestTask bool
 }
 
 // InputTransformFunc transforms input text before it's added to the input field
@@ -72,6 +78,13 @@ type Dialog struct {
 	filterEnabled   bool
 	filterInput     textinput.Model
 	filteredIndices []int // indices into options
+
+	// taskEntry gates the agent picker's ctrl+t → first-task handoff: true
+	// only when the consumer (the launch path) can honor a collected task.
+	// Off in contexts where the pick feeds a flow with no task carrier —
+	// the create-workspace handoff ends at CreateWorkspace, which has no
+	// Task field — so the key stays inert there.
+	taskEntry bool
 
 	// sessionRowLive flags each option row's liveness for the run-session
 	// picker's vertical renderer; nil for every other select dialog.
@@ -197,6 +210,34 @@ func (d *Dialog) SetSecondInput(label, placeholder string, validate InputValidat
 // hasSecondInput reports whether the dialog is a two-field input form.
 func (d *Dialog) hasSecondInput() bool {
 	return d.dtype == DialogInput && d.secondInput
+}
+
+// SetTaskEntry arms the picker's ctrl+t key: with it enabled, ctrl+t emits
+// the selection as a DialogResult with RequestTask set instead of launching
+// immediately. Only meaningful on the agent picker; other dialogs ignore it.
+func (d *Dialog) SetTaskEntry(enabled bool) *Dialog {
+	if d == nil {
+		return d
+	}
+	d.taskEntry = enabled
+	return d
+}
+
+// selectedOption resolves the highlighted option on a select dialog, mapping
+// the cursor through the fuzzy filter when one is active. ok is false when
+// nothing valid is highlighted (e.g. a filter with no matches).
+func (d *Dialog) selectedOption() (idx int, value string, ok bool) {
+	if d.filterEnabled {
+		if len(d.filteredIndices) == 0 {
+			return 0, "", false
+		}
+		idx = d.filteredIndices[d.cursor]
+		return idx, d.options[idx], true
+	}
+	if d.cursor < len(d.options) {
+		return d.cursor, d.options[d.cursor], true
+	}
+	return 0, "", false
 }
 
 // SetInputLabel sets a small caption rendered above the first input — used so

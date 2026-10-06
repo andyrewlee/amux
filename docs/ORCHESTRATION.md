@@ -259,6 +259,13 @@ session-scoped `send-keys`/`has-session`/`kill-session` for exactly this reason
 see `exactSessionOptionTarget` in the same file. Prefix collisions are still
 avoided there because names carry both workspace and tab IDs.)
 
+The interactive equivalent for seeding a brand-new agent is the agent
+picker's `ctrl+t`: it opens an optional first-task field whose text amux
+queues and types itself once the agent's TUI reports readiness (first
+private-mode set) — the wait-for-readiness dance below, automated on the
+typed-input path. Orchestrators keep the `send-keys` approach; the field is
+a TUI convenience, not a new control surface.
+
 Two hard-won caveats apply when the target is a raw-mode agent (Claude Code,
 Codex, and friends run in raw mode). amux earned these the hard way and pins
 them with the close-the-loop e2e tests — `internal/e2e/closeloop_test.go` drives

@@ -109,6 +109,12 @@ type AddProject struct {
 // ShowSelectAssistantDialog requests showing the assistant selection dialog
 type ShowSelectAssistantDialog struct{}
 
+// ShowLaunchTaskDialog requests showing the first-task entry dialog. The
+// agent picker emits it after a ctrl+t pick (DialogResult.RequestTask); the
+// collected text becomes LaunchAgent.Task — delivered as typed input once the
+// agent's TUI reports readiness, never argv.
+type ShowLaunchTaskDialog struct{}
+
 // LaunchAgent requests launching an agent in a new tab
 type LaunchAgent struct {
 	Assistant string

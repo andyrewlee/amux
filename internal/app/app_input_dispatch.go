@@ -410,6 +410,8 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		a.handleShowRemoveProjectDialog(msg)
 	case messages.ShowSelectAssistantDialog:
 		a.handleShowSelectAssistantDialog()
+	case messages.ShowLaunchTaskDialog:
+		a.handleShowLaunchTaskDialog()
 	case messages.ShowSettingsDialog:
 		a.handleShowSettingsDialog()
 	case messages.ShowCleanupTmuxDialog:

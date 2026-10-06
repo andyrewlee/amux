@@ -49,8 +49,13 @@ const (
 	// deleting the dashboard's marked live rows — same gate as bulk purge.
 	DialogBulkDeleteWorkspace = "bulk_delete_workspace"
 	DialogRemoveProject       = "remove_project"
-	DialogQuit                = "quit"
-	DialogCleanupTmux         = "cleanup_tmux"
+	// DialogLaunchTask is the single-field follow-up the agent picker chains
+	// to on ctrl+t: it collects the optional first task delivered to the new
+	// agent once its TUI reports readiness (LaunchAgent.Task →
+	// pendingInitialTask).
+	DialogLaunchTask  = "launch_task"
+	DialogQuit        = "quit"
+	DialogCleanupTmux = "cleanup_tmux"
 	// DialogReleasePortReservations is the typed confirm for releasing
 	// orphaned port reservations shown by the workspace-status viewer.
 	DialogReleasePortReservations = "release_port_reservations"
@@ -175,6 +180,9 @@ type App struct {
 	// dialog's result (or its cancel), so it cannot live in dlg — a blanket
 	// clear at each result would wipe it before consumption.
 	pendingWorkspaceCreate pendingWorkspaceCreateState
+	// pendingLaunchTask carries the assistant/workspace picked with ctrl+t
+	// across to the first-task dialog before the LaunchAgent dispatch.
+	pendingLaunchTask pendingLaunchTaskState
 	// Assistants chosen during workspace creation, keyed by workspace ID and
 	// launched once that workspace is activated, so creating a workspace lands
 	// the user in a live agent tab instead of making them re-pick the same
@@ -296,4 +304,13 @@ type pendingWorkspaceCreateState struct {
 	// branch name (derived from name) — attach-vs-create behavior is the
 	// service's, keyed on that branch, not on base.
 	base string
+}
+
+// pendingLaunchTaskState is the agent-picker→task-dialog handoff: written by
+// the picker result when the user picks an assistant with ctrl+t, consumed by
+// the launch-task dialog result. assistant non-empty means armed — the picker
+// never emits RequestTask without a valid selection.
+type pendingLaunchTaskState struct {
+	assistant string
+	workspace *data.Workspace
 }

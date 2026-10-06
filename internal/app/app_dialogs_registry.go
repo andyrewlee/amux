@@ -36,6 +36,7 @@ var appDialogHandlers = map[string]dialogResultHandler{
 	DialogBulkPurgeWorkspace:   dialogResultBulkPurgeWorkspace,
 	DialogBulkDeleteWorkspace:  dialogResultBulkDeleteWorkspace,
 	DialogRemoveProject:        dialogResultRemoveProject,
+	DialogLaunchTask:           dialogResultLaunchTask,
 	// AgentPickerDialogID is the runtime ID emitted by common.NewAgentPicker;
 	// the App owns assistant selection, so it must route here, not a component.
 	common.AgentPickerDialogID: dialogResultAgentPicker,

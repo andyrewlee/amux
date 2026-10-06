@@ -243,6 +243,15 @@ agent picker additionally fuzzy-filters as you type (printable keys are
 filter text there); unfiltered pickers like the run-session list take `j`/`k`
 as navigation.
 
+On the agent picker, `ctrl+t` picks the highlighted assistant but routes
+through an optional first-task field before launching: the text you enter is
+queued on the tab and typed into the agent once its TUI reports readiness
+(first private-mode set — the same delivery a `tmux send-keys` seeding script
+approximates, with the wait handled for you). Sent as keystrokes plus Enter,
+never as argv. An empty field launches exactly like a plain `enter` pick;
+`esc` backs out to the picker. The key is inert where the pick feeds a flow
+with no task carrier — the assistant pick inside workspace creation.
+
 Path pickers (add project, transcript browser) fuzzy-filter the listed rows
 as you type a name, but an explicit path takes precedence over the
 highlighted row: an absolute path, `~`, `~/…`, `./…`, `../…`, or any input

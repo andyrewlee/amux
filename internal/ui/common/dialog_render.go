@@ -353,6 +353,9 @@ func (d *Dialog) helpText() string {
 		return "h/l or tab: choose • enter: confirm • esc: cancel"
 	case DialogSelect:
 		if d.filterEnabled {
+			if d.id == AgentPickerDialogID && d.taskEntry {
+				return "type to filter • ↑/↓ or tab: move • enter: select • ctrl+t: first task • esc: cancel"
+			}
 			return "type to filter • ↑/↓ or tab: move • enter: select • esc: cancel"
 		}
 		return "↑/↓ or tab: move • enter: select • esc: cancel"

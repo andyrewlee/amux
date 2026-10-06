@@ -173,3 +173,49 @@ func TestDialogNavigation_UnfilteredSelectPrintableNav(t *testing.T) {
 		t.Fatalf("cursor = %d, want 1", d.cursor)
 	}
 }
+
+// TestAgentPicker_CtrlTRequestsTask pins the plan-053 picker affordance: with
+// task entry armed, ctrl+t emits the highlighted selection with RequestTask
+// set — routing the launch through the first-task prompt — instead of a
+// plain confirm.
+func TestAgentPicker_CtrlTRequestsTask(t *testing.T) {
+	d := NewAgentPicker([]string{"claude", "codex", "gemini"})
+	d.SetTaskEntry(true)
+	d.SetSize(100, 40)
+	d.Show()
+
+	// Filter down so the highlighted option is not index 0: ctrl+t must carry
+	// the FILTERED selection, the same mapping Enter uses.
+	d, _ = d.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	d, _ = d.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	_, cmd := d.Update(keyMsg('t', tea.ModCtrl))
+	if cmd == nil {
+		t.Fatal("ctrl+t produced no result")
+	}
+	res, ok := cmd().(DialogResult)
+	if !ok {
+		t.Fatalf("ctrl+t result = %T, want DialogResult", cmd())
+	}
+	if !res.Confirmed || !res.RequestTask || res.Value != "codex" || res.Index != 1 {
+		t.Fatalf("result = %+v, want confirmed RequestTask codex index 1", res)
+	}
+}
+
+// TestAgentPicker_CtrlTInertWithoutTaskEntry pins the gate: with task entry
+// off (the create-workspace handoff has no Task carrier), ctrl+t is not a
+// picker command — it must not emit a pick result or close the dialog.
+func TestAgentPicker_CtrlTInertWithoutTaskEntry(t *testing.T) {
+	d := NewAgentPicker([]string{"claude", "codex"})
+	d.SetSize(100, 40)
+	d.Show()
+
+	_, cmd := d.Update(keyMsg('t', tea.ModCtrl))
+	if cmd != nil {
+		if res, ok := cmd().(DialogResult); ok {
+			t.Fatalf("unarmed ctrl+t emitted a result: %+v", res)
+		}
+	}
+	if !d.visible {
+		t.Fatal("unarmed ctrl+t closed the picker")
+	}
+}
