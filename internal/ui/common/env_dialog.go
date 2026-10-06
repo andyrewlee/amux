@@ -55,7 +55,14 @@ type EnvDialogResult struct {
 type EnvDialog struct {
 	visible bool
 	width   int
+	height  int
 	title   string
+
+	// scrollOffset is the first visible row of the scrollable body (the
+	// env rows plus the add-entry block), evaluated fresh on every render so
+	// the focused row stays inside the window — the same shape as
+	// SettingsDialog.scrollOffset (settings_scroll.go).
+	scrollOffset int
 
 	// keys is the display order. It is built once at construction (sorted,
 	// for a deterministic and testable row order); removes shrink it and adds
@@ -118,7 +125,7 @@ func (d *EnvDialog) SetKeyValidator(fn func(string) string) {
 func (d *EnvDialog) Show()            { d.visible = true }
 func (d *EnvDialog) Hide()            { d.visible = false }
 func (d *EnvDialog) Visible() bool    { return d.visible }
-func (d *EnvDialog) SetSize(w, _ int) { d.width = w }
+func (d *EnvDialog) SetSize(w, h int) { d.width, d.height = w, h }
 func (d *EnvDialog) Cursor() *tea.Cursor {
 	return nil
 }
@@ -146,6 +153,20 @@ func (d *EnvDialog) Update(msg tea.Msg) (*EnvDialog, tea.Cmd) {
 	}
 	if pasteMsg, ok := msg.(tea.PasteMsg); ok {
 		return d.handlePaste(pasteMsg), nil
+	}
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		// Wheel scrolls the list, matching the file picker's convention. In
+		// add mode the list cursor is inert (structural keys are), so the
+		// wheel is too.
+		if !d.adding {
+			switch wheel.Button {
+			case tea.MouseWheelUp:
+				d.moveCursor(-1)
+			case tea.MouseWheelDown:
+				d.moveCursor(1)
+			}
+		}
+		return d, nil
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -386,7 +407,7 @@ func (d *EnvDialog) View() string {
 	if !d.visible {
 		return ""
 	}
-	return d.dialogStyle().Render(strings.Join(d.renderLines(), "\n"))
+	return d.dialogStyle().Render(strings.Join(d.composeVisibleLines(), "\n"))
 }
 
 func (d *EnvDialog) dialogContentWidth() int {
@@ -400,11 +421,17 @@ func (d *EnvDialog) dialogStyle() lipgloss.Style {
 	return dialogBorderStyle(d.dialogContentWidth())
 }
 
+// renderLines builds the full, unclamped line list. Every string derived
+// from stored or typed env data (keys, values, add fields, the title, and
+// notices/errors that embed a key name) is sanitized for display here —
+// env values can carry SGR escapes or newlines that would otherwise land in
+// the compositor raw. The stored map itself is never touched: Env() hands
+// the caller the raw bytes.
 func (d *EnvDialog) renderLines() []string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary())
 	muted := lipgloss.NewStyle().Foreground(ColorMuted())
 
-	lines := []string{title.Render(d.title), ""}
+	lines := []string{title.Render(SanitizeDisplayText(d.title, dialogMaxTitleRunes)), ""}
 
 	if len(d.keys) == 0 && !d.adding {
 		lines = append(lines, muted.Render("No editable environment variables."))
@@ -415,7 +442,9 @@ func (d *EnvDialog) renderLines() []string {
 			style = lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
 			prefix = Icons.Cursor + " "
 		}
-		lines = append(lines, prefix+style.Render(k+": "+d.values[k]))
+		displayKey := SanitizeDisplayText(k, dialogMaxLineRunes)
+		displayValue := SanitizeDisplayText(d.values[k], dialogMaxLineRunes)
+		lines = append(lines, prefix+style.Render(displayKey+": "+displayValue))
 	}
 
 	if d.adding {
@@ -430,17 +459,17 @@ func (d *EnvDialog) renderLines() []string {
 			valuePrefix = Icons.Cursor + " "
 		}
 		lines = append(lines,
-			namePrefix+nameStyle.Render("name:  "+d.addName),
-			valuePrefix+valueStyle.Render("value: "+d.addValue))
+			namePrefix+nameStyle.Render("name:  "+SanitizeDisplayText(d.addName, dialogMaxLineRunes)),
+			valuePrefix+valueStyle.Render("value: "+SanitizeDisplayText(d.addValue, dialogMaxLineRunes)))
 		if d.addError != "" {
-			lines = append(lines, lipgloss.NewStyle().Foreground(ColorError()).Render("  "+d.addError))
+			lines = append(lines, lipgloss.NewStyle().Foreground(ColorError()).Render("  "+SanitizeDisplayText(d.addError, dialogMaxLineRunes)))
 		}
 		lines = append(lines, "", muted.Render("tab switch field  enter next/commit  esc cancel"))
 		return lines
 	}
 
 	if d.notice != "" {
-		lines = append(lines, "", muted.Render(d.notice))
+		lines = append(lines, "", muted.Render(SanitizeDisplayText(d.notice, dialogMaxLineRunes)))
 	}
 	lines = append(lines, "", muted.Render("up/down move  ctrl+a add  ctrl+d remove  enter save  esc cancel"))
 	return lines
