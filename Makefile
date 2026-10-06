@@ -32,7 +32,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 # recursive GOLANGCI = $(shell ...) would re-run the probe on every $(GOLANGCI)
 # expansion, which lint-strict-new/lint-strict-base reference multiple times).
 GOLANGCI ?= golangci-lint
-lint lint-strict lint-strict-new lint-strict-base check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$$PWD/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
+lint lint-strict lint-strict-new lint-strict-base check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$(CURDIR)/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
 .PHONY: build install test test-race test-race-tmux soak fuzz tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config check-fmt-versions fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
 
@@ -83,7 +83,7 @@ test-race:
 # Keep this list coupled to the exclusion filter in scripts/test_pkgs.sh and
 # the tmux-skip-check package list below.
 test-race-tmux:
-	go test -race ./internal/tmux ./internal/e2e ./internal/app ./internal/pty ./internal/ui/sidebar
+	go test -race -count=1 ./internal/tmux ./internal/e2e ./internal/app ./internal/pty ./internal/ui/sidebar
 
 # soak runs the build-tagged sustained-workload test (PTY ingest + message
 # pump under load for minutes). Part of `make ci-nightly` — also run before
@@ -121,13 +121,17 @@ windows-build:
 #           fails like the old CI assert), test-race (the wide -race sweep),
 #   test-race-tmux (the former tmux-e2e job's race leg on tmux/e2e/app/pty/ui/sidebar),
 #   tidy-check, govulncheck, windows-build, harness-smoke (the former CI
-#   test job's three quick harness asserts).
+#   test job's three quick harness asserts), lint-strict-base (changed-code
+#   strict lint — the external-PR path never runs the pre-push hook).
 # `ci` exercises whichever tmux is installed locally; for the tmux version
 # matrix (ubuntu-22.04 apt floor + from-source 3.6a, the old tmux-e2e matrix
 # job) run `make ci-tmux-matrix` — it replays the matrix in docker. Strict
-# changed-code lint is enforced by the pre-push hook's `lint-strict-base`.
+# changed-code lint runs here too: the documented external-PR flow
+# (gh pr checkout + make ci + web merge) never executes the pre-push hook,
+# so ci must carry lint-strict-base itself (unresolvable base degrades to
+# --new with a warning; pre-push sets REQUIRE_BASE=1 for the real gate).
 ci:
-	STRICT_TMUX=1 FMT_VERSION_STRICT=1 $(MAKE) devcheck test-race test-race-tmux tidy-check govulncheck windows-build harness-smoke
+	STRICT_TMUX=1 FMT_VERSION_STRICT=1 $(MAKE) devcheck test-race test-race-tmux tidy-check govulncheck windows-build harness-smoke lint-strict-base
 
 # ci-tmux-matrix replays the old tmux-e2e CI matrix job in Linux containers:
 # the real-tmux race suite + strict skip check against ubuntu-22.04's apt tmux
@@ -438,9 +442,15 @@ check-file-length:
 # role as lint-config-drift). lint-config-drift already forces strict.yml to
 # carry the same block, so checking the baseline is enough.
 check-fmt-config:
-	@yml=$$(awk '/local-prefixes:/{getline; gsub(/[ \t-]/, "", $$0); print; exit}' .golangci.yml); \
-	if [ "$$yml" != "$(LOCAL_PREFIXES)" ]; then \
+	@yml=$$(awk '/local-prefixes:/{f=1;next} f&&/^[ \t]*-[ \t]/{gsub(/^[ \t]*-[ \t]*/,""); print; next} f{exit}' .golangci.yml | sort | tr '\n' ' ' | sed 's/ *$$//'); \
+	mk=$$(echo "$(LOCAL_PREFIXES)" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ *$$//'); \
+	if [ "$$yml" != "$$mk" ]; then \
 		echo "ERROR: Makefile LOCAL_PREFIXES ($(LOCAL_PREFIXES)) != .golangci.yml local-prefixes ($$yml)"; \
+		exit 1; \
+	fi; \
+	yml_extra=$$(awk '/gofumpt:/{f=1;next} f&&/extra:/{e=1;next} e&&/^[ \t]{8,}[a-z-]+:[ \t]*true/{gsub(/[ \t:]/,""); sub(/true$$/,""); gsub(/-/,"_"); print; next} e{exit}' .golangci.yml | sort | tr '\n' ',' | sed 's/,$$//'); \
+	if [ "$$yml_extra" != "$(GOFUMPT_EXTRA)" ]; then \
+		echo "ERROR: Makefile GOFUMPT_EXTRA ($(GOFUMPT_EXTRA)) != .golangci.yml gofumpt extra rules ($$yml_extra)"; \
 		exit 1; \
 	fi
 
@@ -470,12 +480,19 @@ check-fmt-versions:
 	tools_ver=$$(echo "$(GOIMPORTS)" | sed -n 's/.*@\([^[:space:]]*\)$$/\1/p'); \
 	./scripts/check_fmt_versions.sh "$$fumpt_ver" "$$tools_ver"
 
+# GOFUMPT_EXTRA is the gofumpt extra-rule set `make fmt`/`fmt-check` enforce.
+# It must equal .golangci.yml's `formatters.settings.gofumpt.extra` keys —
+# check-fmt-config verifies the parity so the two formatters can never
+# disagree on a file (hyphenated yml names normalize to gofumpt's
+# underscore flag spellings).
+GOFUMPT_EXTRA := group_params
+
 fmt:
-	$(GOFUMPT) -extra -w .
+	$(GOFUMPT) -extra=$(GOFUMPT_EXTRA) -w .
 	$(GOIMPORTS) -local $(LOCAL_PREFIXES) -w .
 
 fmt-check:
-	@test -z "$$($(GOFUMPT) -extra -l .)" || ($(GOFUMPT) -extra -l .; exit 1)
+	@test -z "$$($(GOFUMPT) -extra=$(GOFUMPT_EXTRA) -l .)" || ($(GOFUMPT) -extra=$(GOFUMPT_EXTRA) -l .; exit 1)
 	@test -z "$$($(GOIMPORTS) -local $(LOCAL_PREFIXES) -l .)" || ($(GOIMPORTS) -local $(LOCAL_PREFIXES) -l .; exit 1)
 
 vet:

@@ -37,6 +37,11 @@ linters:
       check-type-assertions: true
     errorlint:
       errorf: true
+      # asserts/comparison are disabled deliberately: producers return
+      # unwrapped sentinels and direct io.EOF/errno comparisons are
+      # idiomatic at ~10 existing sites (port_reservations, update/install,
+      # git/status, treekill). Enabling either needs a site-by-site pass —
+      # keep these flags commented as the documented tradeoff.
       asserts: false
       comparison: false
     forbidigo:

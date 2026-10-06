@@ -82,7 +82,7 @@ Pull requests are gated by the local gates above plus the git hooks — nothing 
 - after touching `internal/vterm` parsing or `internal/git` porcelain parsing: `make fuzz` — runs the three fuzz targets (`FuzzANSIParser`, `FuzzRenderInvariant`, `FuzzParseStatusPorcelain`) for `FUZZ_TIME` each (default 30s). Without it the corpus never mutates — the seeds alone run inside `make test`. Also part of `make ci-nightly`
 - if touching the agent input/send path (`internal/pty/terminal.go`, `internal/ui/center/tab_actor_write.go`, `internal/pty/`, agent keystroke forwarding): `make verify-loop` — proves a real agent receives keystrokes end-to-end (incl. a literal CR); `make devcheck` does not, since the real-tmux tests skip there
 
-Merging PRs: with no server-side CI, the hook gates run on the committer's machine — a web-UI squash merge runs *none* of them. For dependabot (grouped gomod bumps) and external-contributor PRs, validate locally before merging: `gh pr checkout N`, `make ci`, then merge. Squash-merging a dependency bump without a local pass can land a broken `go.mod` on `main`.
+Merging PRs: with no server-side CI, the hook gates run on the committer's machine — a web-UI squash merge runs *none* of them. For dependabot (grouped gomod bumps) and external-contributor PRs, validate locally before merging: `gh pr checkout N`, `make ci`, then merge. Squash-merging a dependency bump without a local pass can land a broken `go.mod` on `main`. `make ci` covers the full gate set for this flow, including `lint-strict-base` (the changed-code strict lint the pre-push hook otherwise enforces).
 
 Dev-side environment variables:
 
@@ -103,6 +103,9 @@ Dev-side environment variables:
 - `AMUX_SKIP_RACE=1` — skip only the pre-push race smoke (`go test -race` on
   the data-flocking, ptyio, and msgpump race tests); strict lint, the
   harness, and the e2e suite still apply.
+- `AMUX_SKIP_TESTS=1` — skip only the pre-push unit-test sweep (the
+  non-tmux package set from `scripts/test_pkgs.sh --exclude-app`); strict
+  lint, the harness, the race smoke, and the e2e suite still apply.
 - `AMUX_LINT_BASE_REF=<ref>` — override the pre-push strict-lint base ref
   (default `origin/main`).
 - `AMUX_HARNESS_CENTER_ARGS="..."` — override the pre-push harness args
