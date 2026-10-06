@@ -2,6 +2,7 @@ package process
 
 import (
 	"errors"
+	"os"
 	"sync"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -17,10 +18,13 @@ var ErrPortRangeExhausted = errors.New("port allocator exhausted")
 //   - Transient (the default): an in-memory map keyed by workspace root, used
 //     by tests and isolated callers. Released bases are reused.
 //   - Durable (after SetDurableStore): every reservation commits to the shared
-//     on-disk registry keyed by the workspace's persisted metadata ID BEFORE
-//     the env reaches a spawn. Reservations are never released — retention is
-//     the cross-instance ownership contract — and the registry serializes
-//     concurrent instances through its own lock.
+//     on-disk registry BEFORE the env reaches a spawn — workspaces under
+//     their persisted metadata ID, workspaces without one (and raw root-keyed
+//     callers) under a `transient-<pid>-<rootHash>` hold that sweeps when
+//     the owning process dies. Durable reservations are never released —
+//     retention is the cross-instance ownership contract — while transient
+//     holds release on owner death or workspace delete; the registry
+//     serializes concurrent instances through its own lock.
 type PortAllocator struct {
 	mu        sync.Mutex
 	portStart int
@@ -81,13 +85,13 @@ func (p *PortAllocator) ReserveWorkspace(ws *data.Workspace) (port, rangeEnd int
 	id, ok := ws.StoredID()
 	if !ok {
 		// No persisted metadata ID means no durable key — a transient store
-		// error during load or a never-saved record. Degrade to the in-memory
-		// allocator (the pre-registry contract) instead of blocking every
-		// spawn behind an unactionable error. The degrade is still
-		// registry-aware: usedRangesLocked folds persisted intervals into the
-		// used set, so a transient base can never overlap a live reservation
-		// minted by this or another instance. A later successful metadata
-		// load restores the durable path under the real stored ID.
+		// error during load or a never-saved record. Degrade to the
+		// root-keyed allocation path instead of blocking every spawn behind
+		// an unactionable error; in durable mode that path still publishes
+		// a process-scoped transient hold into the shared registry, so a
+		// second instance's mint can never select the same interval. A
+		// later successful metadata load restores the durable path under
+		// the real stored ID.
 		logging.Warn("workspace %q has no persisted metadata record; using transient port allocation", ws.Name)
 		iv, err := p.allocateLocked(ws.Root)
 		if err != nil {
@@ -96,17 +100,11 @@ func (p *PortAllocator) ReserveWorkspace(ws *data.Workspace) (port, rangeEnd int
 		return iv.start, iv.end, nil
 	}
 	// The registry's mint scan only avoids persisted intervals — locally held
-	// transient allocations (unsaved workspaces) are invisible to it, so they
-	// pass through as explicit exclusions or the mint could re-issue a range
-	// this process already handed out.
-	avoid := make([]data.PortReservationInterval, 0, len(p.allocated))
-	for root, iv := range p.allocated {
-		if root == ws.Root {
-			continue
-		}
-		avoid = append(avoid, data.PortReservationInterval{Start: iv.start, End: iv.end})
-	}
-	base, end, err := p.durable.Reserve(string(id), p.portStart, p.rangeSize, avoid...)
+	// allocations that predate the durable store (or a published transient
+	// hold's in-memory mirror) are invisible to it, so they pass through as
+	// explicit exclusions or the mint could re-issue a range this process
+	// already handed out.
+	base, end, err := p.durable.Reserve(string(id), p.portStart, p.rangeSize, p.avoidAllocatedLocked(ws.Root)...)
 	if errors.Is(err, data.ErrPortReservationsExhausted) {
 		return 0, 0, ErrPortRangeExhausted
 	}
@@ -119,6 +117,21 @@ func (p *PortAllocator) ReserveWorkspace(ws *data.Workspace) (port, rangeEnd int
 	// allocator's used set covers the stored interval at its true width.
 	p.allocated[ws.Root] = portRange{start: base, end: end}
 	return base, end, nil
+}
+
+// avoidAllocatedLocked returns the locally held intervals the registry mint
+// must skip beyond the persisted set — excluding the workspace's own prior
+// interval (its re-reserve is idempotent on the persisted record). Call
+// under p.mu.
+func (p *PortAllocator) avoidAllocatedLocked(exceptRoot string) []data.PortReservationInterval {
+	avoid := make([]data.PortReservationInterval, 0, len(p.allocated))
+	for root, iv := range p.allocated {
+		if root == exceptRoot {
+			continue
+		}
+		avoid = append(avoid, data.PortReservationInterval{Start: iv.start, End: iv.end})
+	}
+	return avoid
 }
 
 // LookupWorkspaceInterval reports the workspace's reserved interval without
@@ -152,7 +165,9 @@ func (p *PortAllocator) LookupWorkspaceInterval(ws *data.Workspace) (base, end i
 // ReservedIntervals returns the durable registry's workspace-ID → interval
 // map (a locked copy) for read-only enumeration. Transient mode reports
 // (nil, nil): there is no cross-instance registry to enumerate. Real I/O —
-// callers route it through an async fetch path.
+// callers route it through an async fetch path. Transient holds are
+// per-process and release only through owner death or workspace delete —
+// never user reclamation — so they are filtered out of the enumeration.
 func (p *PortAllocator) ReservedIntervals() (map[string]data.PortReservationInterval, error) {
 	p.mu.Lock()
 	durable := p.durable
@@ -160,7 +175,16 @@ func (p *PortAllocator) ReservedIntervals() (map[string]data.PortReservationInte
 	if durable == nil {
 		return nil, nil
 	}
-	return durable.Snapshot()
+	snap, err := durable.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	for id := range snap {
+		if data.IsTransientReservationID(id) {
+			delete(snap, id)
+		}
+	}
+	return snap, nil
 }
 
 // ReleaseReservedIntervals deletes the named workspace-ID reservations from
@@ -189,8 +213,8 @@ func (p *PortAllocator) AllocatePort(workspaceRoot string) (int, error) {
 }
 
 // allocate returns the workspace's interval, minting one on first use. In
-// durable mode the used set includes every persisted registry interval, so a
-// transient range can never overlap a live reservation.
+// durable mode the mint publishes a process-scoped transient hold into the
+// shared registry — never a purely local pick other instances cannot see.
 func (p *PortAllocator) allocate(workspaceRoot string) (portRange, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -203,11 +227,29 @@ func (p *PortAllocator) allocateLocked(workspaceRoot string) (portRange, error) 
 		return iv, nil
 	}
 
-	used, err := p.usedRangesLocked()
-	if err != nil {
-		return portRange{}, err
+	if p.durable != nil {
+		// A root-only allocation has no durable identity, but a purely
+		// local mint would be invisible to every other instance — a second
+		// instance's durable reservation or degraded pick could select the
+		// same interval and hand two workspaces the same ports. Publish
+		// the hold under the process-scoped transient key instead; it
+		// sweeps when this process dies and releases on workspace delete.
+		base, end, err := p.durable.Reserve(
+			data.TransientReservationKey(os.Getpid(), workspaceRoot),
+			p.portStart, p.rangeSize, p.avoidAllocatedLocked(workspaceRoot)...,
+		)
+		if errors.Is(err, data.ErrPortReservationsExhausted) {
+			return portRange{}, ErrPortRangeExhausted
+		}
+		if err != nil {
+			return portRange{}, err
+		}
+		iv := portRange{start: base, end: end}
+		p.allocated[workspaceRoot] = iv
+		return iv, nil
 	}
-	base, err := p.nextAvailablePortLocked(used)
+
+	base, err := p.nextAvailablePortLocked(p.localRangesLocked())
 	if err != nil {
 		return portRange{}, err
 	}
@@ -252,29 +294,17 @@ func (p *PortAllocator) rangeFits(base int) bool {
 	return p.rangeSize > 0 && base >= 1 && base <= maxPort && base+p.rangeSize-1 <= maxPort
 }
 
-// usedRangesLocked returns every interval the transient allocator must avoid:
-// the local map (transient allocations plus durable mirrors at their true
-// stored ends) unioned with the persisted registry. The registry read is real
-// I/O under p.mu — a failure fails the allocation closed rather than minting
-// a range a live reservation may already own. Mirror entries duplicate their
-// persisted records; overlap checks are idempotent so the union needs no
-// dedup.
-func (p *PortAllocator) usedRangesLocked() ([]portRange, error) {
+// localRangesLocked returns the locally held intervals the in-memory
+// allocator must avoid — transient allocations plus durable mirrors at
+// their true stored ends. Consulted only when no durable store exists; a
+// durable-mode mint goes through the registry, which sees every published
+// interval on its own.
+func (p *PortAllocator) localRangesLocked() []portRange {
 	used := make([]portRange, 0, len(p.allocated))
 	for _, iv := range p.allocated {
 		used = append(used, iv)
 	}
-	if p.durable == nil {
-		return used, nil
-	}
-	snap, err := p.durable.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	for _, iv := range snap {
-		used = append(used, portRange{start: iv.Start, end: iv.End})
-	}
-	return used, nil
+	return used
 }
 
 func (p *PortAllocator) rangeAvailable(base int, used []portRange) bool {
@@ -304,15 +334,29 @@ func (p *PortAllocator) GetPort(workspaceRoot string) (int, bool) {
 	return iv.start, ok
 }
 
-// ReleasePort releases the port allocation for a workspace so the base can be
-// reused — transient mode only. In durable mode it is a deliberate no-op: the
-// registry's reservations outlive every consumer, so a release arriving from
-// a delete, quit, crash, or a stale pending-release sweep can never make a
-// surviving session's interval reusable by a different workspace.
+// ReleasePort releases the port allocation for a workspace so the base can
+// be reused — transient mode only. In durable mode it is a deliberate no-op
+// for durable records: the registry's reservations outlive every consumer,
+// so a release arriving from a delete, quit, crash, or a stale
+// pending-release sweep can never make a surviving session's interval
+// reusable by a different workspace. The one exception is a transient hold
+// published by THIS process for a StoredID-less workspace — its sessions
+// are torn down by the delete path, so its ports are genuinely free.
 func (p *PortAllocator) ReleasePort(workspaceRoot string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.durable != nil {
+		released, err := p.durable.ReleaseMany([]string{
+			data.TransientReservationKey(os.Getpid(), workspaceRoot),
+		})
+		if err != nil {
+			logging.Warn("transient port-hold release for %q failed: %v", workspaceRoot, err)
+			return
+		}
+		if len(released) == 0 {
+			return // durable mirror or never published — keep the no-op contract
+		}
+		delete(p.allocated, workspaceRoot)
 		return
 	}
 
