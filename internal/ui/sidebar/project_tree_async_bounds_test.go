@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestProjectTreeAsyncBoundedConcurrency(t *testing.T) {
@@ -89,6 +92,90 @@ func TestProjectTreeAsyncStaleRunningJobsReleaseSlots(t *testing.T) {
 	}
 	g.release(rootA)
 	<-blocked // drain the goroutine
+}
+
+// TestProjectTreePhysicalReadBoundAcrossGenerations is the audit-21
+// regression: invalidation clears the *logical* executing set but must not
+// multiply *physical* in-flight ReadDir calls — a dead generation's blocked
+// reads hold their slots until they return, so a refresh storm can never run
+// more than projectTreeMaxConcurrentLoads syscalls at once.
+func TestProjectTreePhysicalReadBoundAcrossGenerations(t *testing.T) {
+	root := t.TempDir()
+	g := &gatedReadDir{gates: map[string]chan struct{}{}, listing: map[string][]os.DirEntry{}}
+	started := make(chan string, 2*projectTreeMaxConcurrentLoads)
+	m := NewProjectTree()
+	m.readDir = func(path string) ([]os.DirEntry, error) {
+		started <- path
+		return g.read(path)
+	}
+	g.listing[root] = []os.DirEntry{}
+	pumpTree(t, m, m.SetWorkspace(wsFor(root)))
+	<-started // the seeding root read — keep the channel gen-1-only
+
+	// Fill every physical slot with a blocked generation-1 read. Gates must be
+	// installed before the commands launch — g.read consults the map under its
+	// own lock, so writes after dispatch would race it.
+	gen1 := make([]string, projectTreeMaxConcurrentLoads)
+	for i := range gen1 {
+		p := filepath.Join(root, "g1"+string(rune('a'+i)))
+		gen1[i] = p
+		g.gates[p] = make(chan struct{})
+	}
+	gen1cmds := make([]<-chan tea.Msg, projectTreeMaxConcurrentLoads)
+	for i, p := range gen1 {
+		gen1cmds[i] = runCmdAsync(m.enqueueLoad(&projectTreeNode{
+			Name: "g1", Path: p, IsDir: true, Expanded: true, Parent: m.root,
+		}))
+	}
+	for range gen1 {
+		p := <-started // barrier: all four gen-1 reads are kernel-blocked
+		if filepath.Base(p)[:2] != "g1" {
+			t.Fatalf("unexpected read start while filling slots: %s", p)
+		}
+	}
+
+	// New generation: four fresh jobs issue, but none may start a read —
+	// every physical slot is still held by a dead-generation syscall.
+	m.invalidatePending()
+	gen2 := make([]string, projectTreeMaxConcurrentLoads)
+	gen2cmds := make([]<-chan tea.Msg, projectTreeMaxConcurrentLoads)
+	for i := range gen2 {
+		p := filepath.Join(root, "g2"+string(rune('a'+i)))
+		gen2[i] = p
+		gen2cmds[i] = runCmdAsync(m.enqueueLoad(&projectTreeNode{
+			Name: "g2", Path: p, IsDir: true, Expanded: true, Parent: m.root,
+		}))
+	}
+	select {
+	case p := <-started:
+		t.Fatalf("gen-2 read %s started while all physical slots were held by gen-1", p)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Release the dead generation's reads one at a time; each freed slot lets
+	// exactly one gen-2 command proceed — physical concurrency never exceeds
+	// the cap.
+	for _, p := range gen1 {
+		g.release(p)
+		<-started // exactly one gen-2 read begins per freed slot
+	}
+	if g.maxInflight != projectTreeMaxConcurrentLoads {
+		t.Fatalf("maxInflight = %d, want exactly %d", g.maxInflight, projectTreeMaxConcurrentLoads)
+	}
+
+	// Deliver everything: gen-1 results discard on the generation check,
+	// gen-2 results apply — the drop path is orthogonal to the slot release.
+	// Receiving each result is the completion barrier: a command yields its
+	// message only after readDir returned and the physical slot was released.
+	for i := range gen1cmds {
+		<-gen1cmds[i]
+	}
+	for i := range gen2cmds {
+		deliver(t, m, <-gen2cmds[i])
+	}
+	if g.inflightCount() != 0 {
+		t.Fatalf("leaked in-flight reads after all completions delivered: %d pending=%v", g.inflightCount(), g.inflightPaths())
+	}
 }
 
 func TestProjectTreeAsyncContentVersionBumpsOnResult(t *testing.T) {

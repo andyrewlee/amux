@@ -91,12 +91,20 @@ func (m *ProjectTree) scheduleLoads() tea.Cmd {
 	return common.SafeBatch(cmds...)
 }
 
-// issueLoad snapshots the readDir function and job identity into the command.
-// The command reads no model state, so it is safe to execute off the Update
-// goroutine.
+// issueLoad snapshots the readDir function, the physical-read semaphore, and
+// job identity into the command. The command reads no mutable model state, so
+// it is safe to execute off the Update goroutine.
 func (m *ProjectTree) issueLoad(job projectTreeLoadJob) tea.Cmd {
 	readDir := m.readDir
+	slots := m.readSlots
 	return func() tea.Msg {
+		// Hold a physical slot for the syscall's whole lifetime — generation
+		// guards drop *results*, this semaphore bounds *reads*: a dead
+		// generation's kernel-blocked ReadDir keeps its slot until the OS
+		// returns, so invalidation cannot multiply concurrent filesystem I/O.
+		// Commands that outlive their generation park here instead of running.
+		slots <- struct{}{}
+		defer func() { <-slots }()
 		entries, err := readDir(job.path)
 		msg := ProjectTreeDirectoryLoaded{
 			Generation: job.generation,
@@ -257,8 +265,9 @@ func (m *ProjectTree) reloadTree() tea.Cmd {
 
 // invalidatePending bumps the generation, clears the queue, and resets every
 // node's pending token so queued superseded work drops and in-flight results
-// are discarded on arrival. Executing jobs keep their bounded slots until
-// they finish — a kernel-blocked ReadDir cannot be canceled.
+// are discarded on arrival. Executing jobs lose their logical slot here but
+// keep their physical read slot until they finish — a kernel-blocked ReadDir
+// cannot be canceled (see readSlots).
 func (m *ProjectTree) invalidatePending() {
 	m.generation++
 	m.loadQueue = nil

@@ -53,16 +53,21 @@ type ProjectTree struct {
 
 	// Async directory loading (see project_tree_load.go):
 	// generation invalidates every outstanding job on workspace switch,
-	// refresh, or root rebase; executing holds running jobs (the concurrency
-	// cap's source of truth) keyed by request ID; loadQueue is FIFO pending
-	// work; pendingRoot is the shadow root a refresh is loading while the old
-	// tree stays visible.
+	// refresh, or root rebase; executing holds running jobs (the
+	// per-generation admission cap's source of truth) keyed by request ID;
+	// loadQueue is FIFO pending work; pendingRoot is the shadow root a
+	// refresh is loading while the old tree stays visible.
+	// readSlots is the PHYSICAL bound: a channel semaphore held by every
+	// dispatched ReadDir until the syscall returns — a separate budget from
+	// the generation-scoped executing set, which invalidation clears while
+	// kernel-blocked reads keep running.
 	generation    uint64
 	nextRequestID uint64
 	executing     map[uint64]projectTreeLoadJob
 	loadQueue     []projectTreeLoadJob
 	pendingRoot   *projectTreeNode
 	rootErr       string
+	readSlots     chan struct{}
 	// pendingExpanded/pendingSelectedPath carry expansion and selection
 	// intent across an in-flight reload; navVersion records the cursor
 	// movement counter at refresh start so a user navigation while loading
@@ -104,6 +109,7 @@ func NewProjectTree() *ProjectTree {
 		styles:     common.DefaultStyles(),
 		showHidden: true,
 		executing:  map[uint64]projectTreeLoadJob{},
+		readSlots:  make(chan struct{}, projectTreeMaxConcurrentLoads),
 		readDir:    defaultReadDir,
 	}
 }
