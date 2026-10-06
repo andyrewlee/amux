@@ -60,7 +60,7 @@ func TestMergeKeyIgnoresProjectRow(t *testing.T) {
 		}
 	}
 	if projectRow == -1 {
-		t.Skip("no project row rendered for this fixture")
+		t.Fatal("no project row rendered for this fixture — update the fixture")
 	}
 	m.cursor = projectRow
 

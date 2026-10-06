@@ -76,7 +76,7 @@ Pull requests are gated by the local gates above plus the git hooks — nothing 
 - after any dependency change (adding/removing an import, editing `go.mod`): `make tidy-check`
 - before opening a PR you want green end-to-end: `make ci` (the full local CI gate; slow)
 - if touching `internal/ui/`, `internal/vterm/`, or `cmd/amux-harness/`: `make harness-presets`
-- if touching `internal/tmux/`, `internal/e2e/`, or `internal/pty/`: `go test ./internal/tmux ./internal/e2e`
+- if touching `internal/tmux/`, `internal/e2e/`, `internal/pty/`, or the sidebar tmux tests in `internal/ui/sidebar/`: `go test ./internal/tmux ./internal/e2e`
 - for race coverage on the real-tmux packages (`test_pkgs.sh` excludes them from `make test-race`): `make test-race-tmux` — skips cleanly without tmux; `make ci` runs it too
 - before landing PTY-ingest or render-pipeline changes: `make soak` — runs `TestSoakHarnessPTY` (a `soak`-build-tagged sustained synthetic-PTY workload through the app, exercising the message pump under load for 5m by default; `AMUX_SOAK_DURATION=2m` or `AMUX_SOAK_MINUTES=10` to adjust). Also part of `make ci-nightly`
 - after touching `internal/vterm` parsing or `internal/git` porcelain parsing: `make fuzz` — runs the three fuzz targets (`FuzzANSIParser`, `FuzzRenderInvariant`, `FuzzParseStatusPorcelain`) for `FUZZ_TIME` each (default 30s). Without it the corpus never mutates — the seeds alone run inside `make test`. Also part of `make ci-nightly`

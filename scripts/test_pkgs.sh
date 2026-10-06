@@ -2,22 +2,24 @@
 # Single source for the "no real tmux required" test package set shared by
 # `make test-race` and — via --exclude-app — `make test`/`make devcheck`.
 #
-# Bare output excludes internal/tmux, internal/e2e, and internal/pty, which
-# need a real tmux server (they run via `make test-race-tmux`/
-# tmux-skip-check). --exclude-app additionally drops internal/app: the
-# no-tmux sweep defers that package to tmux-skip-check.
+# Bare output excludes internal/tmux, internal/e2e, internal/pty, and
+# internal/ui/sidebar, which need a real tmux server (they run via
+# `make test-race-tmux`/tmux-skip-check — keep the package list in
+# `Makefile`'s test-race-tmux and tmux-skip-check targets coupled to this
+# filter). --exclude-app additionally drops internal/app: the no-tmux
+# sweep defers that package to tmux-skip-check.
 #
 # Race coverage for the excluded real-tmux packages (and the real-tmux tests
 # inside app) lives in `make test-race-tmux` —
 # keep any new real-tmux package in BOTH the default and --exclude-app sets.
 set -euo pipefail
 
-filter='/internal/(tmux|e2e|pty)$'
+filter='/internal/(tmux|e2e|pty|ui/sidebar)$'
 case "${1:-}" in
 	"")
 		;;
 	--exclude-app)
-		filter='/internal/(tmux|e2e|app|pty)$'
+		filter='/internal/(tmux|e2e|app|pty|ui/sidebar)$'
 		;;
 	*)
 		echo "usage: $0 [--exclude-app]" >&2

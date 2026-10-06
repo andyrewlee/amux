@@ -125,7 +125,7 @@ func TestMarkMutatingWorkspaceIDsRejectsDriftedOverlap(t *testing.T) {
 	}
 	postDrift := ws.ComputedID()
 	if postDrift == preDrift {
-		t.Skip("workspace root does not traverse a symlink — no drift to exercise")
+		t.Fatal("fixture produced no identity drift — the symlinked root must change ComputedID once the leaf exists; if NormalizePath stopped resolving, the drift guard this test covers is broken")
 	}
 	if st.markMutatingWorkspaceIDs(ws, true) {
 		t.Fatal("mark under a partially drifted identity set was accepted")

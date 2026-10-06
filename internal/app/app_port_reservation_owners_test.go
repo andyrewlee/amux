@@ -118,7 +118,7 @@ func TestPortReservationOwners_IdentityAliases(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if loaded.ComputedID() == savedID {
-		t.Skip("drift fixture did not produce a divergent computed ID on this platform")
+		t.Fatal("drift fixture produced no divergent computed ID — the symlinked root must change ComputedID once the leaf exists; if NormalizePath stopped resolving, the drift guard this test covers is broken")
 	}
 	storedID, ok := loaded.StoredID()
 	if !ok || storedID != savedID {
