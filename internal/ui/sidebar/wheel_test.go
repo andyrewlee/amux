@@ -272,3 +272,34 @@ func TestTerminalModelCanConsumeWheel(t *testing.T) {
 		}
 	})
 }
+
+// TestChangesCanConsumeWheelInBranchModeOnCleanTree: branch-comparison mode
+// builds displayItems from committed-vs-base changes independently of the
+// working tree, so a clean tree must not early-out the wheel gate.
+func TestChangesCanConsumeWheelInBranchModeOnCleanTree(t *testing.T) {
+	m := NewChangesModel()
+	m.SetSize(80, 20)
+	m.SetGitStatus(&git.StatusResult{Clean: true})
+	m.branchMode = true
+	m.branchChanges = []git.Change{
+		{Path: "a.go", Kind: git.ChangeModified},
+		{Path: "b.go", Kind: git.ChangeModified},
+	}
+	m.rebuildDisplayList()
+
+	if !m.canConsumeWheel() {
+		t.Fatal("branch mode with committed-vs-base items should consume wheel despite a clean worktree")
+	}
+}
+
+// TestChangesWheelCleanWorktreeStillIgnoresWheel keeps the working-tree
+// early-out: a clean tree with no items legitimately cannot scroll.
+func TestChangesWheelCleanWorktreeStillIgnoresWheel(t *testing.T) {
+	m := NewChangesModel()
+	m.SetSize(80, 20)
+	m.SetGitStatus(&git.StatusResult{Clean: true})
+
+	if m.canConsumeWheel() {
+		t.Fatal("clean worktree in working-tree mode should not consume wheel")
+	}
+}
