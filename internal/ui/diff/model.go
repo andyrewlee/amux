@@ -344,15 +344,25 @@ func (m *Model) contentHeight() int {
 	return h
 }
 
-// nextHunk moves to the next hunk's first visual row, wrapping around. The
-// target scroll clamps into the scrollable range while hunkIdx tracks the
-// selected hunk explicitly, so a last hunk whose top lands past maxScroll
-// still advances the cycle instead of getting stuck.
+// nextHunk advances the hunk selection and scrolls to that hunk's first
+// visual row, wrapping around. When the viewport is parked on the selected
+// hunk the selection advances by index — comparing raw hunk tops against
+// the clamped scroll would re-select the last hunk forever once its top
+// lands past maxScroll. When the user has scrolled off the selected hunk
+// (parked != scroll), position-derive instead: the next hunk is the first
+// one below the viewport top, wrapping at the end.
 func (m *Model) nextHunk() {
 	if m.diff == nil || len(m.diff.Hunks) == 0 {
 		return
 	}
 	rows := m.rows()
+
+	if m.hunkIdx >= 0 && m.hunkIdx < len(m.diff.Hunks) &&
+		m.scroll == m.clampScroll(rows.topFor(m.diff.Hunks[m.hunkIdx].StartLine)) {
+		m.hunkIdx = (m.hunkIdx + 1) % len(m.diff.Hunks)
+		m.scroll = m.clampScroll(rows.topFor(m.diff.Hunks[m.hunkIdx].StartLine))
+		return
+	}
 
 	for i, hunk := range m.diff.Hunks {
 		if rows.topFor(hunk.StartLine) > m.scroll {
@@ -366,12 +376,20 @@ func (m *Model) nextHunk() {
 	m.scroll = m.clampScroll(rows.topFor(m.diff.Hunks[0].StartLine))
 }
 
-// prevHunk moves to the previous hunk's first visual row, wrapping around.
+// prevHunk retreats the hunk selection and scrolls to that hunk's first
+// visual row, wrapping around — the mirror of nextHunk.
 func (m *Model) prevHunk() {
 	if m.diff == nil || len(m.diff.Hunks) == 0 {
 		return
 	}
 	rows := m.rows()
+
+	if m.hunkIdx >= 0 && m.hunkIdx < len(m.diff.Hunks) &&
+		m.scroll == m.clampScroll(rows.topFor(m.diff.Hunks[m.hunkIdx].StartLine)) {
+		m.hunkIdx = (m.hunkIdx - 1 + len(m.diff.Hunks)) % len(m.diff.Hunks)
+		m.scroll = m.clampScroll(rows.topFor(m.diff.Hunks[m.hunkIdx].StartLine))
+		return
+	}
 
 	for i := len(m.diff.Hunks) - 1; i >= 0; i-- {
 		if rows.topFor(m.diff.Hunks[i].StartLine) < m.scroll {

@@ -180,3 +180,67 @@ func TestPageScrollUsesMinimumOneLine(t *testing.T) {
 		t.Fatalf("expected PgUp on a short diff to scroll back to 0, got %d", m.scroll)
 	}
 }
+
+// TestHunkCycleWrapsPastClampedScrollBound exercises the geometry the
+// original fixture missed: two hunk tops sit beyond maxScroll, so parking on
+// either clamps scroll to the same value — position-derived navigation would
+// re-select the same hunk forever instead of wrapping.
+func TestHunkCycleWrapsPastClampedScrollBound(t *testing.T) {
+	hunks := []git.Hunk{
+		{StartLine: 2},
+		{StartLine: 28},
+		{StartLine: 29},
+	}
+	m := newModelWithDiff(6, 30, hunks)
+
+	// Precondition (finding 38's fixture flaw): the clamp must actually
+	// engage — both tail hunk tops must exceed maxScroll.
+	rows := m.rows()
+	if rows.topFor(28) <= m.maxScroll() || rows.topFor(29) <= m.maxScroll() {
+		t.Fatalf("fixture must clamp tail hunk tops: top(28)=%d top(29)=%d maxScroll=%d",
+			rows.topFor(28), rows.topFor(29), m.maxScroll())
+	}
+
+	m.scroll = 0
+	var got []int
+	for i := 0; i <= len(hunks); i++ {
+		m.nextHunk()
+		got = append(got, m.hunkIdx)
+	}
+	want := []int{0, 1, 2, 0}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("nextHunk sequence = %v, want %v — the cycle must advance past the clamped tail instead of sticking", got, want)
+		}
+	}
+
+	// prevHunk mirrors: from the first hunk it wraps to the last.
+	m.prevHunk()
+	if m.hunkIdx != 2 {
+		t.Fatalf("prevHunk from hunk 0 should wrap to the last hunk, got idx=%d", m.hunkIdx)
+	}
+	m.prevHunk()
+	if m.hunkIdx != 1 {
+		t.Fatalf("prevHunk should retreat to hunk 1, got idx=%d", m.hunkIdx)
+	}
+}
+
+// TestHunkCycleAfterManualScroll preserves the position-derived path: when
+// the user scrolls off the parked hunk, n jumps to the first hunk below the
+// viewport top rather than resuming the stale index.
+func TestHunkCycleAfterManualScroll(t *testing.T) {
+	hunks := []git.Hunk{
+		{StartLine: 2},
+		{StartLine: 8},
+		{StartLine: 14},
+	}
+	m := newModelWithDiff(10, 40, hunks)
+
+	m.scroll = 10 // mid-diff, between hunk 1 (top ~8) and hunk 2 (top ~14)
+	m.hunkIdx = 0 // stale selection left behind by earlier navigation
+
+	m.nextHunk()
+	if m.hunkIdx != 2 {
+		t.Fatalf("manual scroll off the selected hunk: n should pick the first hunk below the viewport, got idx=%d", m.hunkIdx)
+	}
+}
