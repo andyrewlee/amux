@@ -72,18 +72,9 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				}
 			case DialogSelect:
 				d.visible = false
-				// For filtered dialogs, return the original index
-				var originalIdx int
-				var value string
-				if d.filterEnabled && len(d.filteredIndices) > 0 {
-					originalIdx = d.filteredIndices[d.cursor]
-					value = d.options[originalIdx]
-				} else if !d.filterEnabled && d.cursor < len(d.options) {
-					originalIdx = d.cursor
-					value = d.options[d.cursor]
-				} else {
+				originalIdx, value, ok := d.selectedOption()
+				if !ok {
 					// No valid selection
-					d.visible = false
 					return d, func() tea.Msg {
 						return DialogResult{ID: d.id, Confirmed: false}
 					}
@@ -94,6 +85,26 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 						Confirmed: true,
 						Index:     originalIdx,
 						Value:     value,
+					}
+				}
+			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+t"))):
+			// Agent picker fast path: ctrl+t picks the highlighted assistant
+			// but routes through the first-task prompt before launching.
+			// Gated on taskEntry so contexts whose pick feeds a flow with no
+			// task carrier (the create-workspace handoff) ignore the key.
+			if d.id == AgentPickerDialogID && d.taskEntry {
+				if originalIdx, value, ok := d.selectedOption(); ok {
+					d.visible = false
+					return d, func() tea.Msg {
+						return DialogResult{
+							ID:          d.id,
+							Confirmed:   true,
+							Index:       originalIdx,
+							Value:       value,
+							RequestTask: true,
+						}
 					}
 				}
 			}

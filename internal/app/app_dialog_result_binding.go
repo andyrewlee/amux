@@ -72,6 +72,11 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 				// must die with it.
 				a.clearPendingWorkspaceCreate()
 			}
+			if m.result.ID == DialogLaunchTask {
+				// Same for a displaced task dialog: its pending launch must
+				// die with it so a later result can't fire a stale LaunchAgent.
+				a.pendingLaunchTask = pendingLaunchTaskState{}
+			}
 			logging.Debug("Dropping stale dialog result: id=%s seq=%d openSeq=%d", m.result.ID, m.seq, a.dialogOpenSeq)
 			return true, nil
 		}

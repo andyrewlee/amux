@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -312,8 +313,109 @@ func (a *App) handleShowSelectAssistantDialog() {
 	}
 	a.requestOverlayOpen(func() {
 		a.dialog = common.NewAgentPicker(a.assistantNames())
+		// ctrl+t (first-task entry) only when the pick will feed a
+		// LaunchAgent — the create-workspace handoff ends at CreateWorkspace,
+		// which has no Task carrier, so the key stays inert there.
+		a.dialog.SetTaskEntry(a.pendingWorkspaceCreate.project == nil)
 		a.presentDialog(a.dialog)
 	})
+}
+
+// handleShowLaunchTaskDialog shows the first-task entry dialog the agent
+// picker chains to on ctrl+t. The pending handoff was armed by the picker
+// result; without it the dialog has no launch to feed, so the open is a no-op.
+func (a *App) handleShowLaunchTaskDialog() {
+	if a.dialogOpen() {
+		return
+	}
+	if a.pendingLaunchTask.assistant == "" || a.pendingLaunchTask.workspace == nil {
+		return
+	}
+	assistant := a.pendingLaunchTask.assistant
+	a.requestOverlayOpen(func() {
+		// The assistant name is config-derived — sanitize it in the title the
+		// same way the picker sanitizes its option labels.
+		title := "First task for " + common.SanitizeDisplayText(assistant, 64)
+		a.dialog = common.NewInputDialog(DialogLaunchTask, title, "optional — sent once the agent is ready")
+		a.dialog.SetInputLabel("Task (optional)")
+		a.presentDialog(a.dialog)
+	})
+}
+
+func dialogResultAgentPicker(a *App, result common.DialogResult, _ dialogContext) tea.Cmd {
+	assistant := result.Value
+	if err := validation.ValidateAssistant(assistant); err != nil {
+		return func() tea.Msg {
+			return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating assistant")}
+		}
+	}
+	if !a.isKnownAssistant(assistant) {
+		return func() tea.Msg {
+			return messages.Error{Err: errors.New("unknown assistant: " + assistant), Context: errorContext(errorServiceDialog, "validating assistant")}
+		}
+	}
+	// ctrl+t pick: collect the optional first task before dispatching the
+	// launch. taskEntry is only armed when the pick feeds a LaunchAgent
+	// directly; a RequestTask arriving in create-handoff mode (or with no
+	// active workspace) falls through to the normal dispatch rather than
+	// dropping the pick.
+	if result.RequestTask && a.pendingWorkspaceCreate.project == nil && a.activeWorkspace != nil {
+		a.pendingLaunchTask = pendingLaunchTaskState{
+			assistant: assistant,
+			workspace: a.activeWorkspace,
+		}
+		return func() tea.Msg {
+			return messages.ShowLaunchTaskDialog{}
+		}
+	}
+	if a.pendingWorkspaceCreate.project != nil && a.pendingWorkspaceCreate.name != "" {
+		pendingProject := a.pendingWorkspaceCreate.project
+		pendingName := a.pendingWorkspaceCreate.name
+		pendingBase := a.pendingWorkspaceCreate.base
+		a.pendingWorkspaceCreate.project = nil
+		a.pendingWorkspaceCreate.name = ""
+		a.pendingWorkspaceCreate.base = ""
+		return func() tea.Msg {
+			return messages.CreateWorkspace{
+				Project:   pendingProject,
+				Name:      pendingName,
+				Base:      pendingBase,
+				Assistant: assistant,
+			}
+		}
+	}
+	if a.activeWorkspace != nil {
+		ws := a.activeWorkspace
+		return func() tea.Msg {
+			return messages.LaunchAgent{
+				Assistant: assistant,
+				Workspace: ws,
+			}
+		}
+	}
+	return nil
+}
+
+// dialogResultLaunchTask consumes the picker→task-dialog handoff: the typed
+// text becomes LaunchAgent.Task, delivered verbatim + Enter by the tab actor
+// once the agent's TUI reports readiness. The field boundary owns line policy
+// — a pasted multi-line payload must never act as Enter mid-task, so
+// PasteFirstLine keeps only the first line of printable runes, matching every
+// other single-line field. Empty stays empty, preserving the no-task path.
+func dialogResultLaunchTask(a *App, result common.DialogResult, _ dialogContext) tea.Cmd {
+	pending := a.pendingLaunchTask
+	a.pendingLaunchTask = pendingLaunchTaskState{}
+	if pending.assistant == "" || pending.workspace == nil {
+		return nil
+	}
+	task := strings.TrimSpace(common.PasteFirstLine(result.Value))
+	return func() tea.Msg {
+		return messages.LaunchAgent{
+			Assistant: pending.assistant,
+			Workspace: pending.workspace,
+			Task:      task,
+		}
+	}
 }
 
 // handleShowCleanupTmuxDialog shows the tmux cleanup dialog.
