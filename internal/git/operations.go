@@ -58,11 +58,15 @@ const noHooksPath = "/dev/null"
 // AMUX_ALLOW_GIT_HOOKS=1 — opting into repo hooks is opting into repo trust,
 // so signing is restored too.
 //
-// NOT neutralized: repo .gitattributes clean/smudge/process filter drivers
-// and diff/merge textconv/external-diff drivers named in-tree. Diff/browse
-// read paths pass --no-ext-diff/--no-textconv per call site instead (see
-// diff.go); there is no single git-wide flag to disable all attribute-driven
-// filter drivers, so that vector is a documented residual.
+// Merge drivers (merge.<name>.driver) are repo-configured commands git runs
+// on conflicting attributed files — they cannot be flag-neutralized because
+// driver names are arbitrary, so MergeWorkspaceBranch enumerates configured
+// drivers and refuses when the target tree attributes any of them (see
+// merge.go). NOT neutralized: repo .gitattributes clean/smudge/process
+// filter drivers and diff textconv/external-diff drivers named in-tree.
+// Diff/browse read paths pass --no-ext-diff/--no-textconv per call site
+// instead (see diff.go); there is no single git-wide flag to disable all
+// attribute-driven filter drivers, so that vector is a documented residual.
 func hardenedGitArgs(args []string) []string {
 	if allowRepoGitHooks {
 		return args

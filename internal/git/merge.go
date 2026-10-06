@@ -143,6 +143,23 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 		return fmt.Errorf("merging %s: resolving local branch: unexpected output %q", branch, out)
 	}
 
+	// A repo-configured merge driver (merge.<name>.driver) runs its command
+	// on any conflicting file whose attributes name it — arbitrary code
+	// execution under the user's identity during a routine UI merge, the
+	// same threat class the hook/fsmonitor hardening exists to close. Refuse
+	// when a configured driver is actually attributed in the tree; an
+	// unconfigured or unattributed driver name can never fire, so those
+	// merges proceed. The AMUX_ALLOW_GIT_HOOKS=1 opt-out stands the guard
+	// down along with the rest of the hardening — opting into repo hooks is
+	// opting into repo trust.
+	if !allowRepoGitHooks {
+		if live, err := liveMergeDrivers(mergeCtx, repoPath); err != nil {
+			return fmt.Errorf("merging %s: checking merge drivers: %w", branch, err)
+		} else if len(live) > 0 {
+			return fmt.Errorf("merging %s: refusing: repo-configured merge driver %q is attributed to %s and would execute during the merge — merge manually after reviewing .git/config and .gitattributes", branch, live[0].driver, live[0].path)
+		}
+	}
+
 	if _, err := RunGitCtx(mergeCtx, repoPath, "merge", "--no-ff", "--", oid); err != nil {
 		// Distinguish "stopped part-way, with state to clean up" from "could not
 		// start at all". The signal is MERGE_HEAD rather than the presence of
@@ -161,6 +178,76 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 		return fmt.Errorf("merging %s: %w", branch, err)
 	}
 	return nil
+}
+
+// mergeDriverAttribution pairs a configured merge driver with a tracked path
+// whose attributes select it — a live repo-delivered exec binding.
+type mergeDriverAttribution struct {
+	driver string
+	path   string
+}
+
+// liveMergeDrivers returns every configured merge driver (<name> from
+// merge.<name>.driver) that at least one tracked path in the target tree
+// attributes via `merge=<name>` — the pairs a merge could actually execute.
+// Two enumerations bound the answer exactly: `git config --get-regexp` reads
+// the merged config view (local .git/config plus inherited scopes — the
+// repo-deliverable surface), and `git check-attr` applies the real attribute
+// stack (.gitattributes at every tree level plus info/attributes), so
+// unattributed driver names and unconfigured merge= values are correctly
+// ignored.
+func liveMergeDrivers(ctx context.Context, repoPath string) ([]mergeDriverAttribution, error) {
+	out, err := RunGitAllowFailureCtx(ctx, repoPath, "config", "--get-regexp", `^merge\..*\.driver$`)
+	if err != nil {
+		return nil, err
+	}
+	configured := make(map[string]struct{})
+	for _, line := range strings.Split(out, "\n") {
+		key, _, _ := strings.Cut(line, " ")
+		name, ok := strings.CutPrefix(key, "merge.")
+		if !ok {
+			continue
+		}
+		if name, ok = strings.CutSuffix(name, ".driver"); ok && name != "" {
+			configured[name] = struct{}{}
+		}
+	}
+	if len(configured) == 0 {
+		return nil, nil
+	}
+
+	pathsRaw, err := RunGitRawCtx(ctx, repoPath, "ls-files", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, p := range strings.Split(string(pathsRaw), "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	var live []mergeDriverAttribution
+	const checkAttrBatch = 200
+	for i := 0; i < len(paths); i += checkAttrBatch {
+		end := min(i+checkAttrBatch, len(paths))
+		args := append([]string{"check-attr", "-z", "merge", "--"}, paths[i:end]...)
+		raw, err := RunGitRawCtx(ctx, repoPath, args...)
+		if err != nil {
+			return nil, err
+		}
+		// -z output is path\0merge\0value\0 triples.
+		fields := strings.Split(string(raw), "\x00")
+		for j := 0; j+2 < len(fields); j += 3 {
+			if _, ok := configured[fields[j+2]]; ok {
+				live = append(live, mergeDriverAttribution{driver: fields[j+2], path: fields[j]})
+			}
+		}
+	}
+	return live, nil
 }
 
 // mergeInProgress reports whether repoPath has a merge waiting to be completed
