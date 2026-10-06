@@ -52,13 +52,13 @@ func (s *SettingsDialog) appendFocusedText(txt string) {
 func (s *SettingsDialog) deleteFocusedTextRune() {
 	switch s.focusedItem {
 	case settingsItemTmuxServer:
-		s.tmuxServer = trimLastRune(s.tmuxServer)
+		s.tmuxServer = TrimLastRune(s.tmuxServer)
 	case settingsItemTmuxConfig:
-		s.tmuxConfigPath = trimLastRune(s.tmuxConfigPath)
+		s.tmuxConfigPath = TrimLastRune(s.tmuxConfigPath)
 	case settingsItemTmuxSync:
-		s.tmuxSyncInterval = trimLastRune(s.tmuxSyncInterval)
+		s.tmuxSyncInterval = TrimLastRune(s.tmuxSyncInterval)
 	case settingsItemViewerCmd:
-		s.viewerCmd = trimLastRune(s.viewerCmd)
+		s.viewerCmd = TrimLastRune(s.viewerCmd)
 	}
 }
 
@@ -72,7 +72,14 @@ func keepRunes(s string, keep func(rune) bool) string {
 	return b.String()
 }
 
-func trimLastRune(s string) string {
+// KeepPrintable drops every nongraphic rune from s — the plain-text filter the
+// single-line fields and search queries share.
+func KeepPrintable(s string) string {
+	return keepRunes(s, isPrintableFieldRune)
+}
+
+// TrimLastRune drops the last rune of s (backspace at the end of a field).
+func TrimLastRune(s string) string {
 	if s == "" {
 		return s
 	}

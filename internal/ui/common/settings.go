@@ -293,7 +293,7 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 // update, and close rows are not text fields, so they ignore paste; the field
 // filters (printable / duration runes) are the same ones typed input uses.
 func (s *SettingsDialog) handlePaste(msg tea.PasteMsg) (*SettingsDialog, tea.Cmd) {
-	txt := pasteFirstLine(msg.Content)
+	txt := PasteFirstLine(msg.Content)
 	switch {
 	case isTextField(s.focusedItem):
 		s.appendFocusedText(txt)

@@ -375,8 +375,8 @@ func TestReleaseWorkspace_ParksDuringSetup(t *testing.T) {
 	ws := &data.Workspace{Repo: repo, Root: wsRoot}
 
 	// Allocate the port before setup starts so there is something to release.
-	if _, err := runner.envBuilder.BuildEnv(ws); err != nil {
-		t.Fatalf("BuildEnv: %v", err)
+	if _, err := runner.envBuilder.BuildEnvLayers(ws); err != nil {
+		t.Fatalf("BuildEnvLayers: %v", err)
 	}
 	if _, held := runner.PortAllocated(ws); !held {
 		t.Fatal("no port allocated for workspace")

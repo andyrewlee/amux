@@ -384,9 +384,12 @@ precedence:
 3. **Workspace env** — per-workspace variables via `e` in the Changes sidebar.
    Always wins.
 
-For ordinary keys (e.g. `PATH`, `GOFLAGS`) the highest layer's value wins
-outright — amux replaces rather than merges. The injected `AMUX_*`/`ROOT_*`
-names are reserved: custom layers can never override them.
+For ordinary keys (e.g. `GOFLAGS`) the highest layer's value wins
+outright — amux replaces rather than merges. `PATH` is the exception in
+interactive sessions: agents and sidebar terminals always get amux's
+augmented `PATH` — the inherited path plus the tool directories amux adds —
+appended after every user layer, so a layer cannot shadow it. The injected
+`AMUX_*`/`ROOT_*` names are reserved: custom layers can never override them.
 
 Agent sessions and sidebar terminals get the same injected variables plus the
 two user-controlled layers — project env and workspace env — so an agent sees
@@ -401,7 +404,8 @@ Because these commands come from the repository, amux runs them only after you t
 
 Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. Field writes are transactional and narrow: renaming a workspace, editing its env or scripts, shelving/restoring it, and debounced tab-state saves each rewrite only their own fields inside the record lock, so concurrent edits merge instead of a delayed write resurrecting a stale snapshot. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`, and the
 project-level environment map in `~/.amux/project-env.json` (script defaults
-in `~/.amux/project-scripts.json`). These registries share one write
+are reserved for `~/.amux/project-scripts.json` — the per-project script
+layer is not yet wired, so nothing writes it). These registries share one write
 boundary: a file that exists but cannot be read refuses the save or
 approval and leaves its bytes untouched — a blind write could erase other
 projects' state — while a missing file initializes normally and corrupt

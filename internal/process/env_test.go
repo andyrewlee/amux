@@ -8,7 +8,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 )
 
-func TestEnvBuilder_BuildEnv(t *testing.T) {
+func TestEnvBuilder_BuildEnvLayers(t *testing.T) {
 	ports := NewPortAllocator(6200, 10)
 	builder := NewEnvBuilder(ports)
 
@@ -22,9 +22,9 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 		},
 	}
 
-	env, err := builder.BuildEnv(wt)
+	env, err := builder.BuildEnvLayers(wt)
 	if err != nil {
-		t.Fatalf("BuildEnv() error = %v", err)
+		t.Fatalf("BuildEnvLayers() error = %v", err)
 	}
 
 	// Check required variables are present
@@ -66,30 +66,6 @@ func TestEnvBuilder_BuildEnv(t *testing.T) {
 	}
 }
 
-func TestEnvBuilder_BuildEnvMap(t *testing.T) {
-	ports := NewPortAllocator(6200, 10)
-	builder := NewEnvBuilder(ports)
-
-	wt := &data.Workspace{
-		Name:   "feature-1",
-		Branch: "feature-1",
-		Repo:   "/home/user/repo",
-		Root:   "/home/user/.amux/workspaces/feature-1",
-	}
-
-	envMap, err := builder.BuildEnvMap(wt)
-	if err != nil {
-		t.Fatalf("BuildEnvMap() error = %v", err)
-	}
-
-	if envMap["AMUX_WORKSPACE_NAME"] != "feature-1" {
-		t.Errorf("AMUX_WORKSPACE_NAME = %v, want feature-1", envMap["AMUX_WORKSPACE_NAME"])
-	}
-	if envMap["AMUX_PORT"] != "6200" {
-		t.Errorf("AMUX_PORT = %v, want 6200", envMap["AMUX_PORT"])
-	}
-}
-
 func TestEnvBuilder_CustomEnvCannotOverrideReservedEnv(t *testing.T) {
 	ports := NewPortAllocator(6200, 10)
 	builder := NewEnvBuilder(ports)
@@ -110,13 +86,9 @@ func TestEnvBuilder_CustomEnvCannotOverrideReservedEnv(t *testing.T) {
 		},
 	}
 
-	envSlice, err := builder.BuildEnv(wt)
+	envSlice, err := builder.BuildEnvLayers(wt)
 	if err != nil {
-		t.Fatalf("BuildEnv() error = %v", err)
-	}
-	envMap, err := builder.BuildEnvMap(wt)
-	if err != nil {
-		t.Fatalf("BuildEnvMap() error = %v", err)
+		t.Fatalf("BuildEnvLayers() error = %v", err)
 	}
 	env := envSliceMap(envSlice)
 	checks := map[string]string{
@@ -130,10 +102,7 @@ func TestEnvBuilder_CustomEnvCannotOverrideReservedEnv(t *testing.T) {
 	}
 	for key, wantValue := range checks {
 		if got := env[key]; got != wantValue {
-			t.Errorf("BuildEnv()[%s] = %q, want %q", key, got, wantValue)
-		}
-		if got := envMap[key]; got != wantValue {
-			t.Errorf("BuildEnvMap()[%s] = %q, want %q", key, got, wantValue)
+			t.Errorf("BuildEnvLayers()[%s] = %q, want %q", key, got, wantValue)
 		}
 	}
 }
@@ -151,12 +120,12 @@ func TestEnvBuilder_CustomEnvOrderIsDeterministic(t *testing.T) {
 		},
 	}
 
-	env, err := builder.BuildEnv(wt)
+	env, err := builder.BuildEnvLayers(wt)
 	if err != nil {
-		t.Fatalf("BuildEnv() error = %v", err)
+		t.Fatalf("BuildEnvLayers() error = %v", err)
 	}
 	if len(env) < 2 {
-		t.Fatalf("BuildEnv() returned %d entries, want at least 2", len(env))
+		t.Fatalf("BuildEnvLayers() returned %d entries, want at least 2", len(env))
 	}
 	if got := env[len(env)-2]; got != "CUSTOM_A=a" {
 		t.Fatalf("second-to-last env = %q, want CUSTOM_A=a", got)
@@ -174,9 +143,9 @@ func TestEnvBuilder_NilPortAllocator(t *testing.T) {
 		Root: "/path/to/wt",
 	}
 
-	env, err := builder.BuildEnv(wt)
+	env, err := builder.BuildEnvLayers(wt)
 	if err != nil {
-		t.Fatalf("BuildEnv() error = %v", err)
+		t.Fatalf("BuildEnvLayers() error = %v", err)
 	}
 
 	// Should not crash with nil port allocator
@@ -192,20 +161,12 @@ func TestEnvBuilder_NilWorkspace(t *testing.T) {
 	builder := NewEnvBuilder(NewPortAllocator(6200, 10))
 
 	wantLen := len(os.Environ())
-	env, err := builder.BuildEnv(nil)
+	env, err := builder.BuildEnvLayers(nil)
 	if err != nil {
-		t.Fatalf("BuildEnv() error = %v", err)
+		t.Fatalf("BuildEnvLayers() error = %v", err)
 	}
 	if len(env) != wantLen {
-		t.Fatalf("BuildEnv(nil) returned %d entries, want current environment length %d", len(env), wantLen)
-	}
-
-	envMap, err := builder.BuildEnvMap(nil)
-	if err != nil {
-		t.Fatalf("BuildEnvMap() error = %v", err)
-	}
-	if len(envMap) != 0 {
-		t.Fatalf("BuildEnvMap(nil) = %#v, want empty map", envMap)
+		t.Fatalf("BuildEnvLayers(nil) returned %d entries, want current environment length %d", len(env), wantLen)
 	}
 }
 
@@ -218,9 +179,9 @@ func TestEnvBuilder_NilReceiver(t *testing.T) {
 		Root:   "/home/user/.amux/workspaces/feature-1",
 	}
 
-	env, err := builder.BuildEnv(wt)
+	env, err := builder.BuildEnvLayers(wt)
 	if err != nil {
-		t.Fatalf("BuildEnv() error = %v", err)
+		t.Fatalf("BuildEnvLayers() error = %v", err)
 	}
 	foundName := false
 	for _, e := range env {
@@ -234,22 +195,11 @@ func TestEnvBuilder_NilReceiver(t *testing.T) {
 	if !foundName {
 		t.Fatal("nil EnvBuilder receiver should still add workspace variables")
 	}
-
-	envMap, err := builder.BuildEnvMap(wt)
-	if err != nil {
-		t.Fatalf("BuildEnvMap() error = %v", err)
-	}
-	if envMap["AMUX_WORKSPACE_NAME"] != "feature-1" {
-		t.Fatalf("AMUX_WORKSPACE_NAME = %q, want feature-1", envMap["AMUX_WORKSPACE_NAME"])
-	}
-	if _, ok := envMap["AMUX_PORT"]; ok {
-		t.Fatal("nil EnvBuilder receiver should not add AMUX_PORT to map")
-	}
 }
 
 // TestIsReservedScriptEnvKey_MatchesUnexported pins the exported wrapper's
 // only contract: it must agree with isReservedScriptEnvKey for every name
-// BuildEnv actually injects, plus an arbitrary non-reserved name, so the
+// BuildEnvLayers actually injects, plus an arbitrary non-reserved name, so the
 // workspace env editor (internal/ui/common's EnvDialog, via internal/app)
 // cannot drift from the list this package enforces at injection time.
 func TestIsReservedScriptEnvKey_MatchesUnexported(t *testing.T) {
@@ -373,28 +323,22 @@ func TestBuildEnvLayers_DurableTwoRunnersShareReservation(t *testing.T) {
 	}
 }
 
-// TestBuildEnvMap_DurableDegradesUnsaved proves a workspace with no persisted
-// metadata ID still gets env — the allocator degrades to the transient
-// root-keyed map rather than surfacing an unactionable error.
-func TestBuildEnvMap_DurableDegradesUnsaved(t *testing.T) {
+// TestBuildEnvLayers_DurableDegradesUnsaved proves a workspace with no
+// persisted metadata ID still gets env — the allocator mints a transient
+// registry hold rather than surfacing an unactionable error.
+func TestBuildEnvLayers_DurableDegradesUnsaved(t *testing.T) {
 	home := t.TempDir()
 	p := durableAllocator(t, home, 6200, 10)
 	builder := NewEnvBuilder(p)
 	ws := &data.Workspace{Name: "unsaved", Repo: t.TempDir(), Root: t.TempDir()}
 
-	m, err := builder.BuildEnvMap(ws)
+	env, err := builder.BuildEnvLayers(ws)
 	if err != nil {
-		t.Fatalf("BuildEnvMap(unsaved) error = %v, want transient fallback", err)
+		t.Fatalf("BuildEnvLayers(unsaved) error = %v, want transient fallback", err)
 	}
+	m := envSliceMap(env)
 	if m["AMUX_PORT"] != "6200" || m["AMUX_PORT_RANGE"] != "6200-6209" {
-		t.Fatalf("BuildEnvMap(unsaved) ports = %q/%q, want 6200/6200-6209", m["AMUX_PORT"], m["AMUX_PORT_RANGE"])
-	}
-	env, err := builder.BuildEnv(ws)
-	if err != nil {
-		t.Fatalf("BuildEnv(unsaved) error = %v, want transient fallback", err)
-	}
-	if got := envSliceMap(env)["AMUX_PORT"]; got != "6200" {
-		t.Fatalf("BuildEnv(unsaved) AMUX_PORT = %q, want 6200", got)
+		t.Fatalf("BuildEnvLayers(unsaved) ports = %q/%q, want 6200/6200-6209", m["AMUX_PORT"], m["AMUX_PORT_RANGE"])
 	}
 }
 

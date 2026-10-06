@@ -21,7 +21,7 @@ func TestScriptRunnerReleaseWorkspace(t *testing.T) {
 
 	runner := NewScriptRunner(6200, 10)
 
-	// Allocate a port range for the workspace, as BuildEnv would during a run.
+	// Allocate a port range for the workspace, as BuildEnvLayers does during a run.
 	if _, err := runner.portAllocator.AllocatePort(ws.Root); err != nil {
 		t.Fatalf("AllocatePort: %v", err)
 	}

@@ -3,7 +3,6 @@ package diff
 import (
 	"strconv"
 	"strings"
-	"unicode"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -34,12 +33,12 @@ func (m *Model) Searching() bool { return m.searching }
 func (m *Model) updateSearchEdit(msg tea.Msg) (*Model, tea.Cmd) {
 	if pm, ok := msg.(tea.PasteMsg); ok {
 		if strings.ContainsAny(pm.Content, "\r\n") {
-			m.query += pasteFirstLine(pm.Content)
+			m.query += common.PasteFirstLine(pm.Content)
 			m.recomputeMatches()
 			m.acceptSearch()
 			return m, nil
 		}
-		m.query += keepPrintable(pm.Content)
+		m.query += common.KeepPrintable(pm.Content)
 		m.recomputeMatches()
 		return m, nil
 	}
@@ -55,14 +54,14 @@ func (m *Model) updateSearchEdit(msg tea.Msg) (*Model, tea.Cmd) {
 		m.acceptSearch()
 		return m, nil
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("backspace"))):
-		m.query = trimLastRune(m.query)
+		m.query = common.TrimLastRune(m.query)
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("ctrl+u"))):
 		m.query = ""
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("ctrl+w"))):
-		m.query = trimLastWord(m.query)
+		m.query = common.TrimLastWord(m.query)
 	default:
 		if keyMsg.Text != "" {
-			m.query += keepPrintable(keyMsg.Text)
+			m.query += common.KeepPrintable(keyMsg.Text)
 		} else {
 			return m, nil
 		}
@@ -261,50 +260,4 @@ func (m *Model) renderRowMatch(row visualRow, sel diffMatch) string {
 		style.Render(string(runes[:lo])) +
 		style.Reverse(true).Render(string(runes[lo:hi])) +
 		style.Render(string(runes[hi:]))
-}
-
-// --- Field-editing helpers, mirrored from internal/ui/common (the output
-// viewers' search field runs the same byte/rune policy; the helpers are
-// private there and not worth exporting for one consumer — see the plan's
-// mirror-not-extract note).
-
-// pasteFirstLine mirrors the output viewers' paste semantics — a newline in
-// pasted text ends the query at the first line (enter-accept follows).
-func pasteFirstLine(content string) string {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.ReplaceAll(content, "\r", "\n")
-	line, _, _ := strings.Cut(content, "\n")
-	return keepPrintable(line)
-}
-
-func keepPrintable(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if unicode.IsGraphic(r) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-func trimLastRune(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:len(r)-1])
-}
-
-// trimLastWord drops a trailing run of spaces then the preceding word —
-// ctrl+w behavior in the query field.
-func trimLastWord(s string) string {
-	rs := []rune(s)
-	i := len(rs)
-	for i > 0 && unicode.IsSpace(rs[i-1]) {
-		i--
-	}
-	for i > 0 && !unicode.IsSpace(rs[i-1]) {
-		i--
-	}
-	return string(rs[:i])
 }

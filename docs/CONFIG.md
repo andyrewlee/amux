@@ -69,7 +69,9 @@ are documented in the README's environment section, which also covers the
 custom env layering — repo `env` (trust-gated, **scripts only**) < project
 env (`~/.amux/project-env.json`, press `E`) < workspace env (press `e`).
 Interactive sessions (agents, sidebar terminals) get the injected vars plus
-the project and workspace layers — never repo `env`, even when trusted.
+the project and workspace layers — never repo `env`, even when trusted — and
+their `PATH` is amux's augmented value appended after every user layer, so a
+layer cannot shadow it.
 Workspace env edits persist as a field-scoped transaction on
 `workspace.json`: only the `env` map is rewritten, so an `e` edit cannot
 revert a rename, script change, or tab save committed in the meantime.
@@ -148,7 +150,8 @@ and the `trusted-scripts.json` approval store — share the same boundary with
 one deliberate difference: an existing file that cannot be read refuses the
 save or approval and is preserved byte-for-byte, a missing file
 initializes, but corrupt JSON is still replaced by the authoritative write
-(the recovery path config.json intentionally rejects).
+(the recovery path config.json intentionally rejects). `project-scripts.json`
+is reserved for the per-project script layer — nothing writes it yet.
 
 ## The `assistants` schema
 
