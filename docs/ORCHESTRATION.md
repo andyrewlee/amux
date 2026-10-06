@@ -110,6 +110,14 @@ into the tree never outlives the tree's removal, and while the gate is held
 the runner rejects new lifecycle starts (`ErrWorkspaceTeardown`). External
 tooling must not remove a workspace's directory without the same ordering.
 
+**Workspace creation takes an optional base ref**: the create dialog's second
+field is the ref the new branch is created from (`branch`, `tag`, `commit`,
+`origin/…`, `HEAD`). Empty resolves to the repo's detected default branch
+(`ResolveBase`, falling back to `HEAD` when detection fails); non-empty is
+validated with `ValidateBaseRef` before anything is dispatched. The base ref
+is not the workspace's branch name — the branch still derives from the
+workspace name, and attach-vs-create behavior is unchanged.
+
 **Creation rollback is ownership-scoped**: the git create path reports
 whether the call created the branch (`worktree add -b`) or attached to a
 pre-existing one, and a failed create removes its worktree under the

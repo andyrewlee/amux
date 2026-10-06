@@ -22,7 +22,11 @@ type DialogResult struct {
 	ID        string
 	Confirmed bool
 	Value     string
-	Index     int
+	// Value2 carries the second input's text on two-field input dialogs
+	// (empty for every other dialog kind — the field is opt-in via
+	// SetSecondInput).
+	Value2 string
+	Index  int
 }
 
 // InputTransformFunc transforms input text before it's added to the input field
@@ -48,6 +52,11 @@ type Dialog struct {
 	// State
 	visible       bool
 	input         textinput.Model
+	input2        textinput.Model // opt-in second field; see SetSecondInput
+	secondInput   bool            // input2 is active (set only by SetSecondInput)
+	focused2      bool            // which input owns keystrokes on two-field dialogs
+	inputLabel    string
+	input2Label   string
 	cursor        int
 	defaultCursor int
 	confirmed     bool
@@ -55,7 +64,9 @@ type Dialog struct {
 	// Input transformation and validation
 	inputTransform InputTransformFunc
 	inputValidate  InputValidateFunc
+	input2Validate InputValidateFunc
 	validationErr  string
+	validationErr2 string
 
 	// Fuzzy filter state
 	filterEnabled   bool
@@ -161,6 +172,44 @@ func fuzzyMatch(pattern, target string) bool {
 	return pi == len(pr)
 }
 
+// SetSecondInput gives an input dialog a second text field. Keystrokes route
+// to the focused field; tab/shift-tab (and up/down) switch focus, enter
+// confirms from either field after re-validating both — an optional field
+// stays one Enter keystroke for users who skip it. The field-2 validator is
+// optional; pass nil to skip live validation.
+func (d *Dialog) SetSecondInput(label, placeholder string, validate InputValidateFunc) *Dialog {
+	if d == nil || d.dtype != DialogInput {
+		return d
+	}
+	ti := textinput.New()
+	ti.Placeholder = placeholder
+	ti.CharLimit = d.input.CharLimit
+	// Same width contract as SetSize — negative values pass through.
+	ti.SetWidth(min(40, d.width-10))
+	ti.SetVirtualCursor(false)
+	d.input2 = ti
+	d.secondInput = true
+	d.input2Label = label
+	d.input2Validate = validate
+	return d
+}
+
+// hasSecondInput reports whether the dialog is a two-field input form.
+func (d *Dialog) hasSecondInput() bool {
+	return d.dtype == DialogInput && d.secondInput
+}
+
+// SetInputLabel sets a small caption rendered above the first input — used so
+// far only by two-field forms, where each field needs a visible name once
+// its placeholder is filled.
+func (d *Dialog) SetInputLabel(label string) *Dialog {
+	if d == nil {
+		return d
+	}
+	d.inputLabel = label
+	return d
+}
+
 // SetInputTransform sets a transform function that will be applied to input text
 func (d *Dialog) SetInputTransform(fn InputTransformFunc) *Dialog {
 	d.inputTransform = fn
@@ -209,10 +258,16 @@ func (d *Dialog) Show() {
 	d.visible = true
 	d.confirmed = false
 	d.validationErr = ""
+	d.validationErr2 = ""
+	d.focused2 = false
 	d.cursor = d.defaultCursor
 	if d.dtype == DialogInput {
 		d.input.SetValue("")
 		d.input.Focus()
+		if d.secondInput {
+			d.input2.SetValue("")
+			d.input2.Blur()
+		}
 	}
 	if d.filterEnabled {
 		d.filterInput.SetValue("")
@@ -256,7 +311,14 @@ func (d *Dialog) SetSize(width, height int) {
 	d.width = width
 	d.height = height
 	if d.dtype == DialogInput {
-		d.input.SetWidth(min(40, width-10))
+		// Negative widths are passed through unchanged: textinput treats a
+		// non-positive SetWidth as "keep default" — clamping to 1 would
+		// shrink the field to a one-character window on degenerate sizes.
+		w := min(40, width-10)
+		d.input.SetWidth(w)
+		if d.secondInput {
+			d.input2.SetWidth(w)
+		}
 	}
 	if d.dtype == DialogSelect && d.filterEnabled {
 		d.filterInput.SetWidth(min(30, width-10))

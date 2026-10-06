@@ -212,6 +212,31 @@ func TestCreateWorkspaceEmptyBaseResolvesToMainBranch(t *testing.T) {
 	}
 }
 
+func TestCreateWorkspaceExplicitBaseReachesGitOps(t *testing.T) {
+	// An explicit base ref from the create dialog must pass through ResolveBase
+	// unchanged and arrive at gitOps.CreateWorkspace as the create-from ref —
+	// distinct from the workspace's own branch name.
+	var capturedBranch, capturedBase string
+	svc := New(nil, nil, nil, "/tmp/workspaces")
+	svc.gitOps = &testutil.FakeGitOps{
+		CreateWorkspaceFunc: func(repoPath, workspacePath, branch, base string) (bool, error) {
+			capturedBranch = branch
+			capturedBase = base
+			return false, errors.New("stop")
+		},
+	}
+
+	project := data.NewProject("/tmp/repo")
+	svc.CreateWorkspace(project, "feature", "release/1.2")()
+
+	if capturedBase != "release/1.2" {
+		t.Fatalf("expected gitOps to receive base 'release/1.2', got %q", capturedBase)
+	}
+	if capturedBranch != "feature" {
+		t.Fatalf("workspace branch must derive from the name, got %q", capturedBranch)
+	}
+}
+
 func TestCreateWorkspacePendingMatchesAppSidePath(t *testing.T) {
 	gitErr := errors.New("git worktree add failed")
 

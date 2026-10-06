@@ -73,6 +73,8 @@ func applyHarnessOverlay(app *App, overlay string) {
 			"Create Workspace",
 			"Enter workspace name...",
 		)
+		app.dialog.SetInputLabel("Workspace name")
+		app.dialog.SetSecondInput("Base (optional)", "default branch", nil)
 		app.presentDialog(app.dialog)
 	}
 }

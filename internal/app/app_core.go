@@ -280,9 +280,10 @@ type dialogContext struct {
 type pendingWorkspaceCreateState struct {
 	project *data.Project
 	name    string
-	// base is reserved for a create-dialog "base branch" field that does not
-	// exist yet — the dialog collects only a name, so this is always "".
-	// workspacesvc.ResolveBase treats empty as "detect the default branch".
-	// Kept so the handoff is already shaped for a future base-branch input.
+	// base is the create-from ref the create dialog's optional second field
+	// collects; "" is the common case and workspacesvc.ResolveBase treats
+	// empty as "detect the default branch". Distinct from the workspace
+	// branch name (derived from name) — attach-vs-create behavior is the
+	// service's, keyed on that branch, not on base.
 	base string
 }

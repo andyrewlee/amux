@@ -58,6 +58,20 @@ func (d *Dialog) Cursor() *tea.Cursor {
 	switch d.dtype {
 	case DialogInput:
 		input = &d.input
+		// Two-field forms: keep this stack line-for-line identical to the
+		// rows renderLines emits before the focused input, or the caret
+		// lands on the wrong row.
+		pre := d.linesBeforeFocusedInput()
+		if d.focused2 && d.hasSecondInput() {
+			input = &d.input2
+		}
+		if len(pre) > 0 {
+			// Same phantom-row convention as the "\n\n" above: the trailing
+			// newline adds one counted row that the Height-1 below cancels,
+			// leaving the caret on the first row of the focused input.
+			prefix.WriteString(strings.Join(pre, "\n"))
+			prefix.WriteString("\n")
+		}
 	case DialogSelect:
 		if d.filterEnabled {
 			if d.message != "" {
@@ -140,11 +154,25 @@ func (d *Dialog) renderLines() []string {
 
 	switch d.dtype {
 	case DialogInput:
+		errStyle := lipgloss.NewStyle().Foreground(ColorError())
+		// Keep this stack line-for-line identical to linesBeforeFocusedInput —
+		// Cursor() counts those rows to place the caret.
+		if l := d.fieldLabel(d.inputLabel, !d.focused2); d.hasSecondInput() && l != "" {
+			appendLines(l)
+		}
 		appendLines(d.input.View())
 		// Show validation error if present
 		if d.validationErr != "" {
-			errStyle := lipgloss.NewStyle().Foreground(ColorError())
 			appendLines(errStyle.Render(d.validationErr))
+		}
+		if d.hasSecondInput() {
+			if l := d.fieldLabel(d.input2Label, d.focused2); l != "" {
+				appendLines(l)
+			}
+			appendLines(d.input2.View())
+			if d.validationErr2 != "" {
+				appendLines(errStyle.Render(d.validationErr2))
+			}
 		}
 		appendBlank(1)
 		baseLine := d.renderedLineCount(lines)
@@ -258,6 +286,46 @@ func (d *Dialog) renderInputButtonsLine(baseLine int) string {
 	return ok + "  " + cancel
 }
 
+// linesBeforeFocusedInput returns the rendered rows a two-field input dialog
+// emits between the title margin and whichever input owns focus — Cursor()
+// uses it to place the caret. Keep it line-for-line identical to the
+// DialogInput branch of renderLines.
+func (d *Dialog) linesBeforeFocusedInput() []string {
+	if !d.hasSecondInput() {
+		return nil
+	}
+	var pre []string
+	if l := d.fieldLabel(d.inputLabel, !d.focused2); l != "" {
+		pre = append(pre, strings.Split(l, "\n")...)
+	}
+	if !d.focused2 {
+		return pre
+	}
+	pre = append(pre, strings.Split(d.input.View(), "\n")...)
+	if d.validationErr != "" {
+		errStyle := lipgloss.NewStyle().Foreground(ColorError())
+		pre = append(pre, strings.Split(errStyle.Render(d.validationErr), "\n")...)
+	}
+	if l := d.fieldLabel(d.input2Label, true); l != "" {
+		pre = append(pre, strings.Split(l, "\n")...)
+	}
+	return pre
+}
+
+// fieldLabel renders a small caption above an input field — dim when the
+// field is unfocused, primary when it owns keystrokes, so the two-field form
+// reads which input is live before the caret does.
+func (d *Dialog) fieldLabel(label string, focused bool) string {
+	if label == "" {
+		return ""
+	}
+	style := lipgloss.NewStyle().Foreground(ColorMuted())
+	if focused {
+		style = style.Foreground(ColorPrimary())
+	}
+	return style.Render(SanitizeDisplayText(label, dialogMaxLineRunes))
+}
+
 func (d *Dialog) addOptionHit(cursorIdx, optionIdx, line, x, width int) {
 	if width <= 0 {
 		return
@@ -277,6 +345,9 @@ func (d *Dialog) addOptionHit(cursorIdx, optionIdx, line, x, width int) {
 func (d *Dialog) helpText() string {
 	switch d.dtype {
 	case DialogInput:
+		if d.hasSecondInput() {
+			return "tab: switch field • enter: confirm • esc: cancel • click OK/Cancel"
+		}
 		return "enter: confirm • esc: cancel • click OK/Cancel"
 	case DialogConfirm:
 		return "h/l or tab: choose • enter: confirm • esc: cancel"

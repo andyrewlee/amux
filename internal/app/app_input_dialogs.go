@@ -149,9 +149,20 @@ func dialogResultCreateWorkspace(a *App, result common.DialogResult, dlg dialogC
 			return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating workspace name")}
 		}
 	}
+	// result.Value2 is the optional base ref; the dialog's field validator
+	// already gates on ValidateBaseRef, but re-check here so a base arriving
+	// through any other path still can't reach the service unvetted.
+	base := validation.SanitizeInput(result.Value2)
+	if base != "" {
+		if err := validation.ValidateBaseRef(base); err != nil {
+			return func() tea.Msg {
+				return messages.Error{Err: err, Context: errorContext(errorServiceDialog, "validating workspace base")}
+			}
+		}
+	}
 	a.pendingWorkspaceCreate.project = dlg.project
 	a.pendingWorkspaceCreate.name = name
-	a.pendingWorkspaceCreate.base = "" // create dialog is name-only; see field comment
+	a.pendingWorkspaceCreate.base = base // empty resolves to the default branch
 	return func() tea.Msg {
 		return messages.ShowSelectAssistantDialog{}
 	}
