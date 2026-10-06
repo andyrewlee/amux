@@ -35,19 +35,24 @@ func (f fakeDirEntry) Info() (fs.FileInfo, error) { return nil, errors.New("fake
 // so tests can hold a directory read open while they inspect pending state
 // and can order completions precisely without sleeps.
 type gatedReadDir struct {
-	mu          sync.Mutex
-	calls       []string
-	inflight    int
-	maxInflight int
-	gates       map[string]chan struct{}
-	listing     map[string][]os.DirEntry
-	errs        map[string]error
+	mu             sync.Mutex
+	calls          []string
+	inflight       int
+	maxInflight    int
+	inflightByPath map[string]int
+	gates          map[string]chan struct{}
+	listing        map[string][]os.DirEntry
+	errs           map[string]error
 }
 
 func (g *gatedReadDir) read(path string) ([]os.DirEntry, error) {
 	g.mu.Lock()
 	g.calls = append(g.calls, path)
 	g.inflight++
+	if g.inflightByPath == nil {
+		g.inflightByPath = map[string]int{}
+	}
+	g.inflightByPath[path]++
 	if g.inflight > g.maxInflight {
 		g.maxInflight = g.inflight
 	}
@@ -61,7 +66,30 @@ func (g *gatedReadDir) read(path string) ([]os.DirEntry, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.inflight--
+	g.inflightByPath[path]--
+	if g.inflightByPath[path] == 0 {
+		delete(g.inflightByPath, path)
+	}
 	return g.listing[path], g.errs[path]
+}
+
+// inflightCount reports how many readDir calls are blocked right now.
+func (g *gatedReadDir) inflightCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.inflight
+}
+
+// inflightPaths reports which readDir calls are still in flight, for failure
+// diagnostics. Path order is nondeterministic.
+func (g *gatedReadDir) inflightPaths() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var paths []string
+	for p := range g.inflightByPath {
+		paths = append(paths, filepath.Base(p))
+	}
+	return paths
 }
 
 func (g *gatedReadDir) callCount() int {
