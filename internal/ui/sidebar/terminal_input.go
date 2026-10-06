@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/andyrewlee/amux/internal/logging"
@@ -286,6 +287,7 @@ func (w *sidebarInputWriter) failSidebarInput(ts *TerminalState, m *TerminalMode
 		ts.input.failed = true
 	}
 	ts.mu.Unlock()
+	err = fmt.Errorf("%s: %w", req.label, err)
 	if !current {
 		logging.Debug("Sidebar input write failed on a retired binding (ignored): %v", err)
 		return

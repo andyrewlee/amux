@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -468,6 +469,11 @@ func TestSendToTerminal(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("input writer never reported the send failure")
 		}
+		// The failure report names the user op — the same Error-log
+		// contract the paste/key paths share through this writer.
+		if !strings.Contains(msg.Err.Error(), "direct send") {
+			t.Fatalf("expected failure report to name the operation, got %v", msg.Err)
+		}
 		m.Update(msg)
 
 		tab.State.mu.Lock()
@@ -480,6 +486,14 @@ func TestSendToTerminal(t *testing.T) {
 		}
 		if tab.State.UserDetached {
 			t.Fatal("expected UserDetached cleared (the detach was not user-initiated)")
+		}
+		// Teardown parity with paste/key: a flag-flip-only detach would
+		// leave the dead terminal and its queued bytes behind.
+		if tab.State.Terminal != nil {
+			t.Fatal("expected Terminal nilled after a failed send")
+		}
+		if tab.State.PendingOutput != nil || tab.State.pendingBufferedBytes != 0 || tab.State.NoiseTrailing != nil {
+			t.Fatal("expected pending output/buffers cleared after a failed send")
 		}
 	})
 }
