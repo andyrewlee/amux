@@ -87,8 +87,12 @@ func runTUI() {
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".amux", "logs")
 	logLevel := logging.LevelInfo
-	if lvl, ok := logging.ParseLevel(os.Getenv("AMUX_LOG_LEVEL")); ok {
-		logLevel = lvl
+	if raw := strings.TrimSpace(os.Getenv("AMUX_LOG_LEVEL")); raw != "" {
+		if lvl, ok := logging.ParseLevel(raw); ok {
+			logLevel = lvl
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: unrecognized AMUX_LOG_LEVEL %q — using info\n", raw)
+		}
 	}
 	if err := logging.Initialize(logDir, logLevel); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not initialize logging: %v\n", err)

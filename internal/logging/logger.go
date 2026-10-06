@@ -134,6 +134,9 @@ func logRetentionDays() int {
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 0 {
+		// The file logger does not exist yet — stderr via slog is the only
+		// channel (same discipline as the Initialize prune-failure warn).
+		slog.Warn("unparsable "+logRetentionEnvVarName+", using default", "value", raw, "default", defaultRetentionDays)
 		return defaultRetentionDays
 	}
 	return value
@@ -254,9 +257,11 @@ func Error(format string, args ...any) {
 	log(LevelError, format, args...)
 }
 
-// Close closes the log file
+// Close closes the log file and detaches the default logger — after Close,
+// log calls are no-ops rather than writes to a closed file.
 func Close() error {
-	if l := defaultLogger.Load(); l != nil && l.writer != nil {
+	l := defaultLogger.Swap(nil)
+	if l != nil && l.writer != nil {
 		if closer, ok := l.writer.(io.Closer); ok {
 			return closer.Close()
 		}

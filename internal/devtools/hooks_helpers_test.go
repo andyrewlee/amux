@@ -71,6 +71,10 @@ exit 0
 `)
 	writeStub(t, fx.stubDir, "go", `#!/bin/sh
 { printf 'go'; printf '\037%s' "$@"; printf '\n'; } >> "$STUB_LOG"
+if [ "$1" = "list" ]; then
+  printf 'example.com/fake/pkg\n'
+  exit 0
+fi
 if [ -n "${STUB_FAIL_GO:-}" ]; then
   case " $* " in *" $STUB_FAIL_GO "*) exit 1;; esac
 fi
@@ -89,6 +93,22 @@ exit "${STUB_TMUX_RC:-0}"
 { printf 'tmux'; printf '\037%s' "$@"; printf '\n'; } >> "$STUB_LOG"
 exit "${STUB_TMUX_RC:-1}"
 `)
+	}
+	// The hook invokes ./scripts/test_pkgs.sh relative to the repo root it
+	// resolves — materialize the real script into the fake repo so the gate
+	// list exercises the same package source `make test` uses (its `go list`
+	// call lands on the stub above, which emits one fake package).
+	scriptSrc := filepath.Join(repoRoot(t), "scripts", "test_pkgs.sh")
+	scriptDst := filepath.Join(fx.repoDir, "scripts", "test_pkgs.sh")
+	data, err := os.ReadFile(scriptSrc)
+	if err != nil {
+		t.Fatalf("read %s: %v", scriptSrc, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(scriptDst), 0o755); err != nil {
+		t.Fatalf("mkdir fake scripts dir: %v", err)
+	}
+	if err := os.WriteFile(scriptDst, data, 0o755); err != nil {
+		t.Fatalf("materialize test_pkgs.sh: %v", err)
 	}
 	return fx
 }

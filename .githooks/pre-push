@@ -60,3 +60,24 @@ if [[ "$e2e_validated" -eq 0 ]]; then
   echo "amux pre-push: WARNING: e2e tests SKIPPED — tmux unusable, push not validated end-to-end" >&2
   echo "amux pre-push: run inside a usable tmux and \`make verify-loop\` to exercise input/send end-to-end." >&2
 fi
+
+if [[ -n "${AMUX_SKIP_TESTS:-}" ]]; then
+  echo "amux pre-push: skipping unit-test sweep (AMUX_SKIP_TESTS set)"
+else
+  # The non-tmux unit sweep — e2e above only covers the e2e package, so
+  # without this leg a unit regression could reach main unexecuted. Same
+  # package source as `make test` (scripts/test_pkgs.sh --exclude-app):
+  # real-tmux packages are deferred to tmux-skip-check/test-race-tmux.
+  echo "amux pre-push: running unit-test sweep (non-tmux packages)..."
+  # bash 3.2-compatible accumulation (no mapfile) — package paths contain
+  # no spaces, so word-splitting $test_packages is the intended expansion.
+  test_packages=""
+  while IFS= read -r pkg; do
+    test_packages="$test_packages $pkg"
+  done < <(./scripts/test_pkgs.sh --exclude-app)
+  if [[ -z "${test_packages// /}" ]]; then
+    echo "amux pre-push: ERROR: test_pkgs.sh produced an empty package list" >&2
+    exit 1
+  fi
+  go test -count=1 $test_packages
+fi
