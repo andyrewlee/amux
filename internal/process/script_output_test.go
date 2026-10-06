@@ -259,3 +259,47 @@ func TestLastScriptOutputs_ScopedPerWorkspace(t *testing.T) {
 		t.Fatal("wsA's transcript missing")
 	}
 }
+
+// TestForgetWorkspacePrunesRetention: deleting a workspace must drop its
+// lastOutput transcripts and run-session identity forms while leaving other
+// workspaces' retention intact — the maps otherwise grow with the lifetime
+// workspace count.
+func TestForgetWorkspacePrunesRetention(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	wsA := newHostedWorkspace(t, "nonconcurrent")
+	wsB := newHostedWorkspace(t, "nonconcurrent")
+
+	runner.recordScriptOutput(wsA, ScriptSetup, "setup-A", nil)
+	runner.recordScriptOutput(wsA, ScriptArchive, "arch-A", nil)
+	runner.recordScriptOutput(wsB, ScriptSetup, "setup-B", nil)
+	runner.markRunSessionSeen(wsA)
+	runner.markRunSessionSeen(wsB)
+	runner.markRunSessionSwept(wsA)
+
+	runner.ForgetWorkspace(wsA)
+
+	if got := runner.LastScriptOutputs(wsA); len(got) != 0 {
+		t.Fatalf("deleted workspace A still has %d retained transcripts", len(got))
+	}
+	if runner.runSessionSeen(wsA) || runner.runSessionSwept(wsA) {
+		t.Fatal("deleted workspace A still marked seen/swept")
+	}
+	if got := runner.LastScriptOutputs(wsB); len(got) != 1 || got[ScriptSetup].Text != "setup-B" {
+		t.Fatalf("workspace B retention must survive pruning A: %+v", got)
+	}
+	if !runner.runSessionSeen(wsB) {
+		t.Fatal("workspace B's seen marker must survive pruning A")
+	}
+}
+
+// TestForgetWorkspaceIdempotentAndNilSafe: pruning a workspace twice, or a
+// nil workspace, is a no-op rather than a panic.
+func TestForgetWorkspaceIdempotentAndNilSafe(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+	runner.ForgetWorkspace(ws)
+	runner.ForgetWorkspace(ws)
+	runner.ForgetWorkspace(nil)
+	var nilRunner *ScriptRunner
+	nilRunner.ForgetWorkspace(ws)
+}

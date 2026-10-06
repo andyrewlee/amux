@@ -322,6 +322,10 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		// one entry per workspace that ever ran a script.
 		if a.workspaceService != nil {
 			a.workspaceService.ReleaseWorkspacePort(msg.Workspace)
+			// Drop the runner's retained script records for the workspace —
+			// transcript tails and run-session identity forms — so a lifetime
+			// of deleted workspaces cannot grow those maps.
+			a.workspaceService.ForgetWorkspace(msg.Workspace)
 		}
 		a.removeWorkspaceFromLoadedProjects(msg.Workspace, msg.WorkspaceIDs)
 		if a.dashboard != nil {

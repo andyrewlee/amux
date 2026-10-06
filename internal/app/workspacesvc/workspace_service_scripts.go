@@ -193,6 +193,16 @@ func (s *Service) ReleaseWorkspacePort(ws *data.Workspace) {
 	s.scripts.ReleaseWorkspace(ws)
 }
 
+// ForgetWorkspace drops the deleted workspace's retained script records —
+// in-memory lifecycle transcripts and run-session identity forms — so a
+// lifetime of deleted workspaces cannot grow the runner's maps. Idempotent.
+func (s *Service) ForgetWorkspace(ws *data.Workspace) {
+	if s == nil || s.scripts == nil || ws == nil {
+		return
+	}
+	s.scripts.ForgetWorkspace(ws)
+}
+
 // RunSessionList enumerates the workspace's hosted run sessions with
 // liveness, base-first then numeric suffix — the run-session picker's row
 // set. Nil under the subprocess fallback.

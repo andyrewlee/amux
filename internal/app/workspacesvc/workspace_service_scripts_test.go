@@ -176,6 +176,7 @@ func TestScriptAccessorsNilService(t *testing.T) {
 			t.Fatalf("RunScriptOutputAndStatus = (%q, %v, %d), want (\"\", false, -1)", out, alive, exit)
 		}
 		svc.ReleaseWorkspacePort(ws) // must not panic
+		svc.ForgetWorkspace(ws)      // must not panic
 		if target, ok := svc.RunScriptAttachTarget(ws); ok || target != "" {
 			t.Fatalf("RunScriptAttachTarget = (%q, %v), want (\"\", false)", target, ok)
 		}
