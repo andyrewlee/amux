@@ -261,6 +261,49 @@ func (t *ScriptTrust) Trust(repoPath string, configContent []byte) error {
 	})
 }
 
+// Untrust removes the recorded approval for repoPath, if one exists — the
+// revoke half of the grant. Fail-closed in both directions: an unreadable or
+// corrupt registry refuses the delete and preserves the file byte-for-byte
+// (a failed revoke must leave the grant in place, and a file that cannot be
+// decoded cannot be inspected to know what the delete would drop), while an
+// absent entry is an idempotent no-op success. The whole load→delete→write
+// rides the same mutex+sibling-flock transaction Trust uses, so a revoke
+// cannot lose a concurrent grant — or vice versa.
+func (t *ScriptTrust) Untrust(repoPath string) error {
+	if t == nil {
+		return nil
+	}
+	if t.path == "" {
+		return errors.New("script trust registry unavailable: amux home could not be resolved")
+	}
+	key := data.NormalizePath(repoPath)
+	if key == "" {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	lockFile, err := fsatomic.LockFile(t.path+".lock", false)
+	if err != nil {
+		return err
+	}
+	defer fsatomic.UnlockFile(lockFile)
+	entries, err := t.loadStrict()
+	if err != nil {
+		// No decode-recovery here — unlike Trust, a revoke cannot inspect a
+		// corrupt file to know what it would be deleting, so it refuses and
+		// preserves the bytes; whatever grant it may carry stays in place.
+		return err
+	}
+	if _, ok := entries[key]; !ok {
+		return nil
+	}
+	delete(entries, key)
+	return fsatomic.WriteJSON(t.path, scriptTrustFile{
+		Version: scriptTrustFileVersion,
+		Trusted: entries,
+	})
+}
+
 // ScriptsTrusted reports whether the repo's current .amux/workspaces.json
 // content is approved — the read side of the trust gate for status surfaces.
 // A repo with no config file reports true (nothing exists to gate).
@@ -318,6 +361,17 @@ func (r *ScriptRunner) TrustRepoScriptsIfHash(repoPath, expectedHash string) err
 		return ErrScriptsChangedSincePrompt
 	}
 	return r.trust.Trust(repoPath, raw)
+}
+
+// UntrustRepoScripts removes the recorded approval for repoPath's script
+// config — the revoke counterpart to TrustRepoScripts. Revocation does not
+// consult the current file content: whatever grant the registry records for
+// the repo is dropped, and the next resolution reports untrusted (the gate
+// re-prompts on its own terms — revoke never prompts mid-teardown). A
+// registry that cannot be read refuses the delete rather than guessing: a
+// failed revoke leaves the grant in place.
+func (r *ScriptRunner) UntrustRepoScripts(repoPath string) error {
+	return r.trust.Untrust(repoPath)
 }
 
 // Stop stops the running script for a workspace

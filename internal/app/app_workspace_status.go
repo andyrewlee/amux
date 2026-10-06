@@ -173,6 +173,9 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 		a.overlays.runOutputWorkspace = msg.ws
 		a.overlays.runOutputAttachable = false
 		a.overlays.runOutputReleaseCount = st.reclaimablePorts
+		// The U intercept is armed only when a grant is actually recorded —
+		// the same trusted+config pair the status row advertises.
+		a.overlays.runOutputUntrustable = st.repoConfig && st.repoTrusted
 		a.overlays.runOutput = common.NewOutputDialog("Workspace — "+msg.ws.Name, content)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()
@@ -363,7 +366,7 @@ func renderWorkspaceStatus(st workspaceStatus) string {
 	trust := "no repo config"
 	if st.repoConfig {
 		if st.repoTrusted {
-			trust = "trusted"
+			trust = "trusted — press U to revoke"
 		} else {
 			trust = "NOT trusted — repo scripts gated"
 		}

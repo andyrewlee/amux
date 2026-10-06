@@ -59,6 +59,11 @@ const (
 	// DialogReleasePortReservations is the typed confirm for releasing
 	// orphaned port reservations shown by the workspace-status viewer.
 	DialogReleasePortReservations = "release_port_reservations"
+	// DialogUntrustScripts is the typed-confirm revoke offered from the
+	// workspace-status viewer's `U` key when the repo's script config is
+	// trusted — input must equal "untrust" so a stray Enter can't drop a
+	// grant.
+	DialogUntrustScripts = "untrust_scripts"
 	// DialogMergedWorkspace is the post-merge follow-up picker offering
 	// keep/shelve/delete after a successful merge.
 	DialogMergedWorkspace = "merged_workspace"

@@ -458,6 +458,10 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleReservationReleaseResult(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case untrustResultMsg:
+		if cmd := a.handleUntrustResult(msg); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case runAttachTargetMsg:
 		if cmd := a.handleRunAttachTarget(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
