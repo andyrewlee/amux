@@ -1,6 +1,7 @@
 package common
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -191,5 +192,90 @@ func TestSettingsClickOnCloseWorksWhenBodyIsScrolled(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected a SettingsResult command from clicking [Close]")
+	}
+}
+
+// scrollTestAssistants builds a dialog with a 20-entry assistant roster —
+// taller than any short test frame — focused on the assistants section.
+func scrollTestAssistants(t *testing.T, height int) *SettingsDialog {
+	t.Helper()
+	names := make([]string, 20)
+	cmds := make(map[string]string, 20)
+	for i := range names {
+		names[i] = fmt.Sprintf("agent%02d", i)
+		cmds[names[i]] = "run " + names[i]
+	}
+	d := NewSettingsDialog(themeAt(t, 0), "", "", "")
+	d.SetAssistants(names, cmds)
+	d.SetSize(120, height)
+	d.Show()
+	d.focusedItem = settingsItemAssistants
+	d.assistantCursor = 0
+	return d
+}
+
+// TestSettingsAddBlockStaysInScrollWindow: opening the add input while a
+// roster taller than the window is displayed must bring the "New
+// assistant"/name/command lines into view — pre-fix the scroll anchor could
+// only see roster rows, so the fields stayed below the window.
+func TestSettingsAddBlockStaysInScrollWindow(t *testing.T) {
+	d := scrollTestAssistants(t, 15)
+
+	d.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	if !d.assistantAdding {
+		t.Fatal("ctrl+a did not enter assistant add mode")
+	}
+	view := d.View()
+	if !strings.Contains(view, "New assistant") || !strings.Contains(view, "name:") {
+		t.Fatalf("add block must be inside the scroll window while adding:\n%s", view)
+	}
+
+	// Tab to the command field — it must stay anchored too.
+	d.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	view = d.View()
+	if !strings.Contains(view, "command:") {
+		t.Fatalf("command field must stay inside the scroll window:\n%s", view)
+	}
+}
+
+// TestSettingsWheelScrollsWindow: wheel events nudge scrollOffset without
+// moving focus, clamped at both ends by the next render. The fixture
+// focuses assistant roster row 0 mid-body, so the baseline offset is the
+// minimal window that shows it; wheel-down can advance toward the tail
+// until the focused row hits the window's top edge, and wheel-up retreats.
+func TestSettingsWheelScrollsWindow(t *testing.T) {
+	d := scrollTestAssistants(t, 15)
+	d.View() // establish the baseline clamp
+	baseline := d.scrollOffset
+	// hitRegions are remapped into visible coordinates by each render;
+	// regenerate them (renderLines repopulates in full coordinates) to read
+	// the focused row's true body index.
+	d.renderLines()
+	focused := d.focusedBodyIndex(d.hitRegions)
+	if focused < 0 {
+		t.Fatal("fixture must focus a body row")
+	}
+
+	for i := 0; i < 30; i++ {
+		d.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	}
+	d.View()
+	if d.scrollOffset <= baseline {
+		t.Fatalf("wheel-down did not advance scrollOffset past baseline %d (=%d)", baseline, d.scrollOffset)
+	}
+	// Focus-follow bounds the wheel: the focused roster row must stay in
+	// view, so the offset can never exceed that row's index.
+	if d.scrollOffset > focused {
+		t.Fatalf("scrollOffset %d scrolled the focused row (%d) out of view", d.scrollOffset, focused)
+	}
+
+	for i := 0; i < 60; i++ {
+		d.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	}
+	d.View()
+	// Wheel-up retreats until the focused row would scroll out below the
+	// window — the minimal offset that keeps it visible.
+	if d.scrollOffset != baseline {
+		t.Fatalf("wheel-up did not retreat to the focus-preserving baseline %d (=%d)", baseline, d.scrollOffset)
 	}
 }
