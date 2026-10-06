@@ -1,6 +1,7 @@
 package process
 
 import (
+	"os"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -106,10 +107,12 @@ func TestPortAllocator_DurableReleaseRetains(t *testing.T) {
 
 // TestPortAllocator_DurableUnsavedWorkspaceDegrades pins the degrade
 // contract: with no persisted store key there is no durable key, so the
-// allocator falls back to the root-keyed in-memory map rather than blocking
-// the spawn — a transient store error during load must not wedge the
-// workspace for the rest of the session. The durable registry stays
-// untouched: no phantom record is minted under a drifting computed ID.
+// allocator publishes a process-scoped transient hold into the shared
+// registry rather than blocking the spawn — a transient store error during
+// load must not wedge the workspace for the rest of the session. The hold
+// is keyed `transient-<pid>-<rootHash>`: durable identity is never faked
+// under a drifting computed ID, but other instances can see and avoid the
+// interval.
 func TestPortAllocator_DurableUnsavedWorkspaceDegrades(t *testing.T) {
 	home := t.TempDir()
 	p := durableAllocator(t, home, 6200, 10)
@@ -125,11 +128,24 @@ func TestPortAllocator_DurableUnsavedWorkspaceDegrades(t *testing.T) {
 	if port, ok := p.GetPort(ws.Root); !ok || port != base {
 		t.Fatalf("in-memory map missing transient base: got %d,%v want %d,true", port, ok, base)
 	}
-	// The status lookup reports the transient interval truthfully, and the
-	// registry itself still holds no record for the unsaved workspace.
+	// The status lookup reports the transient interval truthfully.
 	lb, le, found, err := p.LookupWorkspaceInterval(ws)
 	if err != nil || !found || lb != base || le != end {
 		t.Fatalf("LookupWorkspaceInterval(unsaved) = (%d,%d,%v,%v), want (%d,%d,true,nil)", lb, le, found, err, base, end)
+	}
+	// And the published hold exists under the process-scoped transient key —
+	// never under a workspace identity.
+	snap, err := data.NewPortReservationStore(home).Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(snap) != 1 {
+		t.Fatalf("registry holds %d records, want exactly the transient hold", len(snap))
+	}
+	key := data.TransientReservationKey(os.Getpid(), ws.Root)
+	iv, ok := snap[key]
+	if !ok || iv.Start != base || iv.End != end {
+		t.Fatalf("registry[%q] = %+v,%v want {%d %d},true", key, iv, ok, base, end)
 	}
 }
 

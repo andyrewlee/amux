@@ -437,12 +437,22 @@ state home. The contract an orchestrator can rely on:
   untouched and surfaced as errors — never silently accepted or rewritten.
 - **Missing metadata degrades, never blocks — and never overlaps**: a
   workspace object with no persisted ID (a transient store error during load,
-  or a never-saved record) falls back to the per-process allocator for that
-  spawn — the pre-registry contract — and logs a warning. The fallback still
-  avoids every persisted registry interval, and a durable mint avoids
-  intervals the fallback holds, so neither direction can re-issue a live
-  range. No registry record is minted under a path-derived key; the durable
-  path resumes on the next successful load.
+  or a never-saved record) logs a warning and mints a *transient hold* into
+  the same registry under a `transient-<pid>-<rootHash>` key — a purely
+  in-memory fallback would be invisible to other instances, letting a second
+  instance's durable mint (or another degraded pick) select the same
+  interval. Transient holds differ from durable reservations: they release
+  when their owning amux process dies (dead-owner holds are swept on the
+  next registry write), and a workspace delete or shelve releases the
+  calling process's own hold (its sessions are gone, so the range is free).
+  They never appear in the `i` reclaim enumeration — they are per-process,
+  not orphans — and a workspace that later gains a stored ID mints a normal
+  durable reservation alongside its transient hold, so the sessions bound to
+  the transient range are never shadowed. The residual window is documented
+  rather than closed: a session that outlives its degraded owner's process
+  may hold a range the sweep has already released — the same class of gap
+  the registry carries for any process it cannot name. The durable path
+  resumes on the next successful load.
 - **Do not delete the registry while any amux session exists**: removing it
   orphans the ranges live sessions still hold, and the next launch would mint
   overlapping reservations. There is intentionally no reset command.

@@ -24,6 +24,8 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 )
 
+require golang.org/x/sys v0.48.0
+
 require (
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
@@ -34,5 +36,4 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 )

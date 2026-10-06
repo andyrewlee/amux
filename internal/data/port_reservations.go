@@ -197,6 +197,10 @@ func (s *PortReservationStore) Reserve(workspaceID string, start, size int, avoi
 			base, end = iv.Start, iv.End
 			return nil
 		}
+		// Free intervals covered by dead-owner transient holds before the
+		// mint scans — the sweep's deletions commit in the same fsatomic
+		// write as the minted reservation.
+		sweepDeadTransientReservationsLocked(file)
 		base = selectReservationBase(file.Reservations, start, size, avoid)
 		if base < 0 {
 			return ErrPortReservationsExhausted
