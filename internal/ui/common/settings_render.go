@@ -22,6 +22,7 @@ func (s *SettingsDialog) addHit(item settingsItem, index, y int) {
 
 func (s *SettingsDialog) renderLines() []string {
 	s.hitRegions = s.hitRegions[:0]
+	s.assistantAddBodyIndex = -1
 	var lines []string
 
 	title := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary())
@@ -188,7 +189,12 @@ func (s *SettingsDialog) renderAssistantAddLines(lines []string, muted lipgloss.
 		}
 	}
 	lines = append(lines,
-		muted.Render("  New assistant"),
+		muted.Render("  New assistant"))
+	// The add block registers no hit regions; record the name row's
+	// body-relative index so focusedBodyIndex can anchor the scroll window
+	// on the field being edited instead of on the roster rows above it.
+	s.assistantAddBodyIndex = len(lines) - settingsHeaderLines
+	lines = append(lines,
 		namePrefix+nameStyle.Render("name:    "+s.assistantAddName),
 		cmdPrefix+cmdStyle.Render("command: "+s.assistantAddCmd))
 	if s.assistantAddError != "" {

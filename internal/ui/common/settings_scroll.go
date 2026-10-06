@@ -85,7 +85,7 @@ func (s *SettingsDialog) clampScrollOffset(fullHits []settingsHitRegion, bodyLen
 		return 0
 	}
 
-	if idx := focusedBodyIndex(fullHits, s.focusedItem, s.themeCursor, s.assistantCursor); idx >= 0 {
+	if idx := s.focusedBodyIndex(fullHits); idx >= 0 {
 		switch {
 		case idx < s.scrollOffset:
 			s.scrollOffset = idx
@@ -108,20 +108,31 @@ func (s *SettingsDialog) clampScrollOffset(fullHits []settingsHitRegion, bodyLen
 // already records for every focusable row. It returns -1 when the focused
 // item has no body row (settingsItemClose, rendered in the fixed footer).
 //
+// While the assistant add input is open the anchor is the add block itself,
+// not the roster: the add lines register no hit regions, so without this
+// branch a roster taller than the window would leave the user typing into
+// fields scrolled out of view. The anchor is the active field's row —
+// assistantAddBodyIndex is the name row, the command row is one below — so
+// the block's remaining lines (the other field and any validation error)
+// stay inside the window whenever the window is a few rows tall.
+//
 // settingsItemTheme and settingsItemAssistants each pack multiple rows under
 // one settingsItem (themeCursor / assistantCursor selects which), so a
 // matching item alone is not enough to identify the row -- both cursors must
 // also be checked, or focus would always resolve to the first hit recorded
 // for that item regardless of which row is actually selected.
-func focusedBodyIndex(hits []settingsHitRegion, focused settingsItem, themeCursor, assistantCursor int) int {
+func (s *SettingsDialog) focusedBodyIndex(hits []settingsHitRegion) int {
+	if s.focusedItem == settingsItemAssistants && s.assistantAdding && s.assistantAddBodyIndex >= 0 {
+		return s.assistantAddBodyIndex + s.assistantAddField
+	}
 	for _, h := range hits {
-		if h.item != focused {
+		if h.item != s.focusedItem {
 			continue
 		}
-		if focused == settingsItemTheme && h.index != themeCursor {
+		if s.focusedItem == settingsItemTheme && h.index != s.themeCursor {
 			continue
 		}
-		if focused == settingsItemAssistants && h.index != assistantCursor {
+		if s.focusedItem == settingsItemAssistants && h.index != s.assistantCursor {
 			continue
 		}
 		return h.region.Y - settingsHeaderLines

@@ -116,6 +116,14 @@ type SettingsDialog struct {
 	// without requiring every navigation handler to update it explicitly.
 	scrollOffset int
 
+	// assistantAddBodyIndex is the body-relative row of the add input's
+	// name field, recorded by renderAssistantAddLines during renderLines
+	// (the same render-time bookkeeping hitRegions uses) and reset to -1 at
+	// the top of each renderLines pass. The add block registers no hit
+	// regions, so without this the scroll anchor could only see roster rows
+	// and a roster taller than the window scrolled the add fields off-view.
+	assistantAddBodyIndex int
+
 	// For mouse hit detection
 	hitRegions []settingsHitRegion
 
@@ -224,6 +232,19 @@ func (s *SettingsDialog) Update(msg tea.Msg) (*SettingsDialog, tea.Cmd) {
 		// Paste is text only: it routes to the focused text field's append
 		// helper and never submits, navigates, or toggles a row.
 		return s.handlePaste(msg)
+
+	case tea.MouseWheelMsg:
+		// Wheel nudges the scroll window without moving focus — a settings
+		// form's focused row owns typed input, so hover-wheel must not
+		// retarget it. The next render's clampScrollOffset bounds the
+		// offset and re-anchors if it would hide the focused row.
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			s.scrollOffset--
+		case tea.MouseWheelDown:
+			s.scrollOffset++
+		}
+		return s, nil
 
 	case tea.KeyPressMsg:
 		// Esc always cancels, whatever is focused — except while the
