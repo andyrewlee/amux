@@ -95,9 +95,26 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 		opts.CommandTimeout = tmuxCommandTimeout
 	}
 	svc := a.tmuxService
-	return func() tea.Msg {
+	return a.tmuxActivityScanCmd(scanToken, infoBySession, statesSnapshot, opts, svc)
+}
+
+// tmuxActivityScanCmd runs one scan off-loop. The panic fallback emits the
+// scan's own result type carrying the live token — the result handler clears
+// scanInFlight on a token match, so a generic messages.Error (or a
+// now-stale token) would leave the guard set and every later tick would only
+// re-arm rescanPending while no scan ever runs.
+func (a *App) tmuxActivityScanCmd(
+	scanToken activityScanToken,
+	infoBySession map[string]activity.SessionInfo,
+	statesSnapshot map[string]*activity.SessionState,
+	opts tmux.Options,
+	svc TmuxOps,
+) tea.Cmd {
+	return panicAsMsg(func() tea.Msg {
 		return a.runTmuxActivityScan(scanToken, infoBySession, statesSnapshot, opts, svc)
-	}
+	}, func(err error) tea.Msg {
+		return tmuxActivityResult{Token: scanToken, Err: err}
+	})
 }
 
 func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
@@ -124,9 +141,10 @@ func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
 		opts.CommandTimeout = tmuxCommandTimeout
 	}
 	svc := a.tmuxService
-	cmds := []tea.Cmd{a.scheduleTmuxActivityTick(), func() tea.Msg {
-		return a.runTmuxActivityScan(scanToken, sessionInfo, statesSnapshot, opts, svc)
-	}}
+	cmds := []tea.Cmd{
+		a.scheduleTmuxActivityTick(),
+		a.tmuxActivityScanCmd(scanToken, sessionInfo, statesSnapshot, opts, svc),
+	}
 	return cmds
 }
 

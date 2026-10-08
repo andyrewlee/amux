@@ -388,7 +388,9 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 	}
 	a.upgradeRunning = true
 	svc := a.updateService
-	upgradeCmd := func() tea.Msg {
+	// panicAsMsg: a panic must still emit UpgradeComplete or upgradeRunning
+	// never clears and the upgrade path dead-ends for the session.
+	upgradeCmd := panicAsMsg(func() tea.Msg {
 		if svc == nil {
 			return messages.UpgradeComplete{Err: errors.New("update service unavailable")}
 		}
@@ -405,7 +407,9 @@ func (a *App) handleTriggerUpgrade() tea.Cmd {
 			return messages.UpgradeComplete{Err: err}
 		}
 		return messages.UpgradeComplete{NewVersion: result.Release.TagName}
-	}
+	}, func(err error) tea.Msg {
+		return messages.UpgradeComplete{Err: err}
+	})
 	return common.SafeBatch(persistCmd, upgradeCmd)
 }
 

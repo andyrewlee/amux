@@ -98,7 +98,9 @@ func (a *App) initGitStatusDedup() {
 }
 
 func (a *App) gitStatusCmd(root string, full bool) tea.Cmd {
-	return func() tea.Msg {
+	// panicAsMsg: a producer panic must still emit a Tracked result or the
+	// root's in-flight mark stays set forever and the status column freezes.
+	return panicAsMsg(func() tea.Msg {
 		if a.gitStatus == nil {
 			return messages.GitStatusResult{Root: root, Tracked: true}
 		}
@@ -113,7 +115,9 @@ func (a *App) gitStatusCmd(root string, full bool) tea.Cmd {
 			a.gitStatus.UpdateCache(root, status)
 		}
 		return messages.GitStatusResult{Root: root, Status: status, Err: err, Tracked: true}
-	}
+	}, func(err error) tea.Msg {
+		return messages.GitStatusResult{Root: root, Err: err, Tracked: true}
+	})
 }
 
 // gitStatusFollowUp runs on the Update goroutine when a tracked result lands:
@@ -161,7 +165,10 @@ func (a *App) requestGitStatusBatch(roots []string) tea.Cmd {
 	if len(run) == 0 {
 		return nil
 	}
-	return func() tea.Msg {
+	// panicAsMsg: a mid-batch panic must still emit one result per marked
+	// root — handleGitStatusBatchResult clears in-flight marks per entry, so
+	// a bare messages.Error would leave every run root stuck in-flight.
+	return panicAsMsg(func() tea.Msg {
 		batch := messages.GitStatusBatchResult{Results: make([]messages.GitStatusResult, 0, len(run))}
 		for _, root := range run {
 			if a.gitStatus == nil {
@@ -175,7 +182,13 @@ func (a *App) requestGitStatusBatch(roots []string) tea.Cmd {
 			batch.Results = append(batch.Results, messages.GitStatusResult{Root: root, Status: status, Err: err})
 		}
 		return batch
-	}
+	}, func(err error) tea.Msg {
+		results := make([]messages.GitStatusResult, 0, len(run))
+		for _, root := range run {
+			results = append(results, messages.GitStatusResult{Root: root, Err: err})
+		}
+		return messages.GitStatusBatchResult{Results: results}
+	})
 }
 
 // requestGitStatusFull requests git status with full line stats (for sidebar display).
