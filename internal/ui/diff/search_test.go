@@ -312,3 +312,58 @@ func TestSearchUnicodeByteLengthChanges(t *testing.T) {
 		})
 	}
 }
+
+// Paste inside the query field appends filtered text and recomputes live —
+// the PasteMsg must reach updateSearchEdit through Model.Update's switch.
+func TestSearchPasteAppendsToQuery(t *testing.T) {
+	m := searchFixture()
+	pressKey(m, '/')
+
+	m.Update(tea.PasteMsg{Content: "alp\x00\x07ha"})
+
+	if m.query != "alpha" {
+		t.Fatalf("paste should append printable bytes only, got %q", m.query)
+	}
+	if got := len(m.matches); got != 2 {
+		t.Fatalf("alpha should match 2 lines after paste, got %d", got)
+	}
+	if !m.Searching() {
+		t.Fatal("single-line paste must keep the field in edit mode")
+	}
+}
+
+// A pasted newline acts as enter: first line joins the query and search is
+// accepted in the same gesture.
+func TestSearchPasteNewlineAccepts(t *testing.T) {
+	m := searchFixture()
+	pressKey(m, '/')
+
+	m.Update(tea.PasteMsg{Content: "beta\r\nsecond line dropped"})
+
+	if m.Searching() {
+		t.Fatal("newline paste should accept the search")
+	}
+	if m.query != "beta" {
+		t.Fatalf("only the first pasted line should land, got %q", m.query)
+	}
+	if m.matchIdx != 0 {
+		t.Fatalf("accepted beta should select the first match, got idx=%d", m.matchIdx)
+	}
+}
+
+// Paste while browsing (not searching) or unfocused must no-op — the field
+// doesn't own input and nothing may edit the query.
+func TestSearchPasteIgnoredOutsideEdit(t *testing.T) {
+	m := searchFixture()
+
+	m.Update(tea.PasteMsg{Content: "beta"})
+	if m.query != "" || m.Searching() {
+		t.Fatalf("paste outside search must no-op, query=%q searching=%v", m.query, m.Searching())
+	}
+
+	m.focused = false
+	m.Update(tea.PasteMsg{Content: "beta"})
+	if m.query != "" {
+		t.Fatalf("unfocused paste must no-op, query=%q", m.query)
+	}
+}
