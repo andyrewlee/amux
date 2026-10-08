@@ -63,6 +63,15 @@ Three surfacing channels exist; every `messages.Error` is handled in one place
 The `safecmd.go` panic wrappers intentionally emit `Error{Logged:true}` with
 no toast: a panic already owns the overlay.
 
+Single-flight producers (set an in-flight guard → dispatch a cmd → clear the
+guard in the typed-result handler) must NOT rely on SafeCmd alone: a panic
+becomes `messages.Error`, which never reaches the typed handler, so the guard
+stays set and the feature silently dies for the session. Wrap those producers
+with `panicAsMsg` (`app_panic_results.go`) so a panic emits the feature's own
+failure result instead — git status, run-script status, upgrade, and the tmux
+activity scan all use it; `wrapLifecycleCmd` does the same for workspace
+lifecycle ops.
+
 New code should reach for `ReportError` for user-initiated operation failures;
 a raw `messages.Error` is acceptable when the modal alone is the intended
 surface. If a lint check ever lands, "raw `messages.Error` emitted with no
