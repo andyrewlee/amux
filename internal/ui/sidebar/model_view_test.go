@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -69,6 +71,27 @@ func TestViewRendersBranchAndChangedFiles(t *testing.T) {
 	}
 	if !strings.Contains(out, "alpha.go") || !strings.Contains(out, "beta.go") {
 		t.Fatalf("View() should render every changed file path, got %q", out)
+	}
+}
+
+// TestViewSanitizesWorkspaceBranch proves a git-derived branch name can't
+// carry escapes, control bytes, or bidi overrides into the rendered header
+// (refnames admit C1/invalid-UTF-8/format runes; Trojan-Source class).
+func TestViewSanitizesWorkspaceBranch(t *testing.T) {
+	m := NewChangesModel()
+	m.SetSize(60, 12)
+	// \x9bZ is a complete C1 CSI sequence (final byte 'Z') — ansi.Strip must
+	// remove it whole, so the surviving text is "feat" + "malicious".
+	m.SetWorkspace(&data.Workspace{Branch: "feat\x1b[7m\x9bZmal\u202eicious"})
+	m.SetGitStatus(&git.StatusResult{Clean: true})
+
+	raw := m.View()
+
+	if strings.Contains(raw, "\x1b[7m") || strings.Contains(raw, "\x9b") || strings.Contains(raw, "\u202e") {
+		t.Fatalf("hostile branch bytes reached the frame: %q", raw)
+	}
+	if plain := ansi.Strip(raw); !strings.Contains(plain, "branch: featmalicious") {
+		t.Fatalf("sanitized branch missing, got %q", plain)
 	}
 }
 
