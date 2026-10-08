@@ -220,6 +220,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case tea.PasteMsg:
+		// Paste routes to the query field like keys do — without this case a
+		// PasteMsg fell through the type-switch and was silently dropped even
+		// though updateSearchEdit already handles it.
+		if !m.focused || !m.searching {
+			return m, nil
+		}
+		return m.updateSearchEdit(msg)
+
 	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil
