@@ -107,7 +107,7 @@ func TestPaneLaunchViewerDeliversEnv(t *testing.T) {
 	}
 
 	waitForPTYTestSession(t, sessionName, opts)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(ptyTestTimeout)
 	for time.Now().Before(deadline) {
 		raw, _ := os.ReadFile(outFile)
 		if s := string(raw); s != "" {

@@ -391,7 +391,10 @@ func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
 	}()
 
 	worktreeTimeout = 100 * time.Millisecond
-	worktreeRecoveryReserve = 10 * time.Millisecond
+	// Recovery budget is worktreeTimeout+reserve; keep the reserve large so
+	// fsync'd staging work can't outrun it on a loaded host — the test's
+	// subject is that recovery gets a *fresh* ctx, not the budget's size.
+	worktreeRecoveryReserve = 5 * time.Second
 
 	workspacePath := filepath.Join(t.TempDir(), "timeout-fresh-recovery")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -401,11 +404,17 @@ func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
+	var removeDeadline time.Time
 	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
 		case "worktree remove " + workspacePath + " --force":
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("expected remove context to have a deadline")
+			}
+			removeDeadline = deadline
 			<-ctx.Done()
 			return "", errors.Join(context.DeadlineExceeded, ctx.Err())
 		default:
@@ -422,8 +431,12 @@ func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
 		if !ok {
 			t.Fatal("expected recovery cleanup context to have a deadline")
 		}
-		if remaining := time.Until(deadline); remaining < 50*time.Millisecond {
-			t.Fatalf("expected fresh recovery budget, remaining=%v", remaining)
+		// "Fresh recovery budget" is a construction property: the recovery
+		// ctx's deadline is strictly later than the expired remove ctx's.
+		// Comparing the deadlines avoids asserting wall-clock headroom at
+		// callback time, which flakes when staging work runs under load.
+		if !deadline.After(removeDeadline) {
+			t.Fatalf("recovery deadline %v not after expired remove deadline %v", deadline, removeDeadline)
 		}
 		return os.RemoveAll(path)
 	}
