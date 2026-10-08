@@ -264,7 +264,7 @@ func TestProjectEnvWriteRunsOffUpdateLoop(t *testing.T) {
 	}
 	h.app.projectEnvStore = gate
 
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws})
+	deliverCmdMsgs(t, h.app, h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws}))
 	h.app.overlays.projectEnv.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
 
 	cmd := h.app.handleProjectEnvDialogResult(common.EnvDialogResult{})

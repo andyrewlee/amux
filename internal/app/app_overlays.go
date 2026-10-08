@@ -40,6 +40,10 @@ type overlayState struct {
 	// the emitted scope — never on which pointer is non-nil.
 	projectEnv     *common.EnvDialog
 	projectEnvRepo string
+	// projectEnvSeq fences the async open: each show request bumps it and a
+	// ready msg carrying an older seq is dropped — last writer wins for the
+	// shared projectEnv slot.
+	projectEnvSeq int
 	// scripts edits a workspace's user-entered setup/run/archive commands;
 	// scriptsWorkspace is read back in handleScriptsDialogResult.
 	scripts          *common.ScriptsDialog
