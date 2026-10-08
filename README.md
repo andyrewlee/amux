@@ -238,6 +238,13 @@ bracketed paste: only the first pasted line is appended to the focused field
 (later lines and control bytes are dropped — these are single-line fields),
 and paste never submits, cancels, or toggles a row.
 
+Inside those editors, `up`/`down` move between rows, `enter` saves, and `esc`
+cancels. The env editor adds a row with `ctrl+a` (a two-field name→value
+input where `tab`/`shift+tab` switch fields) and removes the selected row
+with `ctrl+d`; the scripts editor toggles a row's run mode with `space`;
+the Settings assistants list also adds with `ctrl+a`. Note `ctrl+d` means
+remove here, not page-down — dialogs own their keys while open.
+
 Picker keys: arrows and `tab`/`shift+tab` navigate every list picker. The
 agent picker additionally fuzzy-filters as you type (printable keys are
 filter text there); unfiltered pickers like the run-session list take `j`/`k`

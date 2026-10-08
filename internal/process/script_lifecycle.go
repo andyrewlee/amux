@@ -169,7 +169,9 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	safego.Go("process.script_wait", func() {
 		defer close(running.done)
 		if err := cmd.Wait(); err != nil {
-			logging.Debug("script process exited with error: %v", err)
+			// Warn, not Debug: the exit surfaces to the user via the script
+			// output dialog, and AMUX_LOG_LEVEL=warn should still show it.
+			logging.Warn("script process exited with error: %v", err)
 		}
 		r.finishRunningEntry(key, running)
 	})
@@ -375,7 +377,9 @@ func (r *ScriptRunner) waitOnDone(ws *data.Workspace, key string, proc *lifecycl
 	}
 	r.recordScriptOutput(ws, ScriptOnDone, tailText, err)
 	if err != nil {
-		logging.Debug("on-done hook exited non-zero: %s: %v", cmdStr, err)
+		// Warn matches the contract above: a non-zero exit must reach the
+		// UI (the exit notification) and the warn-level log, not just Debug.
+		logging.Warn("on-done hook exited non-zero: %s: %v", cmdStr, err)
 		r.notifyScriptExit(ws, ScriptOnDone, err)
 	}
 }

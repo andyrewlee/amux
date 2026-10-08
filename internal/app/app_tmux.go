@@ -75,6 +75,9 @@ func (a *App) cleanupAllTmuxSessions() tea.Cmd {
 		}
 		prefix := tmux.SessionName("amux") + "-"
 		prefixErr := svc.KillSessionsWithPrefix(prefix, opts)
+		if prefixErr != nil {
+			logging.Error("Failed to cleanup tmux sessions by prefix: %v", prefixErr)
+		}
 		switch {
 		case tagErr != nil && prefixErr != nil:
 			return messages.Toast{Message: fmt.Sprintf("tmux cleanup failed: tag pass: %v; prefix pass: %v", tagErr, prefixErr), Level: messages.ToastWarning}
