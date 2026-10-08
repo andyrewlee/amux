@@ -63,7 +63,10 @@ func (m *ChangesModel) renderChanges() string {
 	// Show branch info + ahead/behind badge
 	if m.workspace != nil && m.workspace.Branch != "" {
 		b.WriteString(m.styles.Muted.Render("branch: "))
-		b.WriteString(m.styles.BranchName.Render(m.workspace.Branch))
+		// Sanitize before render — refnames are raw git bytes and admit C1
+		// controls, invalid UTF-8, and bidi runes (same class as paths/tab
+		// names). Flat cap matches terminal_render.go's tab-name budget.
+		b.WriteString(m.styles.BranchName.Render(common.SanitizeDisplayText(m.workspace.Branch, 256)))
 		if badge := m.renderAheadBehindBadge(); badge != "" {
 			b.WriteString(" ")
 			b.WriteString(badge)
