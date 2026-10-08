@@ -124,7 +124,7 @@ func TestAgentManagerStartsTmuxServerOutsideWorkspace(t *testing.T) {
 		t.Fatalf("second tmux client cwd = %q, want stable cwd %q", got, tmuxClientWorkingDirectory)
 	}
 
-	output := readTerminalThroughMarker(t, second.Terminal, marker, 5*time.Second)
+	output := readTerminalThroughMarker(t, second.Terminal, marker, ptyTestTimeout)
 	if strings.Contains(output, "getcwd") || strings.Contains(output, "retrieving current directory") {
 		t.Fatalf("second viewer inherited deleted server cwd diagnostics:\n%s", output)
 	}
@@ -151,9 +151,15 @@ func TestAgentManagerStartsTmuxServerOutsideWorkspace(t *testing.T) {
 	}
 }
 
+// ptyTestTimeout bounds waits for real tmux spawn/session/marker work —
+// sized to the e2e suite's spawn conventions (~30s), not per-command
+// latency. Waiting loops exit early on success, so the bound costs nothing
+// on the happy path but must survive a loaded host.
+const ptyTestTimeout = 30 * time.Second
+
 func waitForPTYTestSession(t *testing.T, sessionName string, opts tmux.Options) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(ptyTestTimeout)
 	for time.Now().Before(deadline) {
 		state, err := tmux.SessionStateFor(sessionName, opts)
 		if err == nil && state.Exists && state.HasLivePane {

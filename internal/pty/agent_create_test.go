@@ -85,7 +85,7 @@ func TestAgentManager_CreateAgentWithTags_RegistersAgent(t *testing.T) {
 	// consumed by tmux's pane parser (alt-screen/RIS are state changes, not
 	// forwarded output), so the observable regression marker is the
 	// drop-to-shell text proving the payload command ran end to end.
-	output := readTerminalThroughMarker(t, agent.Terminal, "Agent exited. Dropping to shell", 5*time.Second)
+	output := readTerminalThroughMarker(t, agent.Terminal, "Agent exited. Dropping to shell", ptyTestTimeout)
 	if !strings.Contains(output, "claude") {
 		t.Error("pane output missing the agent command's printed name")
 	}

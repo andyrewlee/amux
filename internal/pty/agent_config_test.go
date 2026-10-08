@@ -59,7 +59,7 @@ func TestAgentManager_CreateAgentWithConfig_UsesSuppliedSnapshot(t *testing.T) {
 	// The snapshot command travels inside the private launch payload, not
 	// argv — assert it actually ran in the pane. `echo snapshot-cfg` prints
 	// the marker; the map entry "echo claude" would print "claude" instead.
-	output := readTerminalThroughMarker(t, agent.Terminal, "snapshot-cfg", 5*time.Second)
+	output := readTerminalThroughMarker(t, agent.Terminal, "snapshot-cfg", ptyTestTimeout)
 	if strings.Contains(output, "claude\n") {
 		t.Error("pane ran the manager's map entry, not the snapshot")
 	}

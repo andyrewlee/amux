@@ -256,8 +256,11 @@ func TestTmuxDeliversSynchronizedOutputToClient(t *testing.T) {
 
 	// The trace lands under <home>/.amux/logs as hex.Dump chunks; poll for a
 	// sync-begin marker in the decoded bytes while repaints stream through.
+	// Use the suite's spawn-scale deadline: the marker depends on the agent
+	// running inside real tmux, which is the same dependency class the 30s
+	// legs above already budget for.
 	logDir := filepath.Join(home, ".amux", "logs")
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(closeLoopTimeout)
 	for time.Now().Before(deadline) {
 		entries, err := os.ReadDir(logDir)
 		if err == nil {
