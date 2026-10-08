@@ -10,6 +10,8 @@
 // frames), -warmup (warmup frames to ignore), -width, -height, -keymap-hints,
 // -dump-frame (write the final rendered view as raw ANSI bytes to a path — the
 // exact frame an agent sees; `cat`/diff it to inspect, or feed it into a golden),
+// -overlay (render one deterministic overlay in every frame — dialog, settings,
+// prefix, error, or input — so goldens cover the composeOverlays path),
 // -assert-min-visible (fail if the final frame has fewer than N visible glyphs).
 //
 // Set AMUX_PPROF=1/true, a port, or a listen address to start net/http/pprof
