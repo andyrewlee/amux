@@ -31,7 +31,11 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 			a.err = fmt.Errorf("internal error: %v", r)
 			a.renderCache.frame.invalidate()
 			model = a
-			cmd = nil
+			// Periodic handlers re-arm their chain only in tail position, so
+			// the panic discarded that arm — restart the chain this msg
+			// drives. Non-periodic messages map to nil and keep the original
+			// drop-everything semantics.
+			cmd = a.rearmCmdForPanic(msg)
 		}
 	}()
 	model, cmd = a.update(msg)
