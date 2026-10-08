@@ -53,21 +53,46 @@ func (a *App) handleScriptsDialogResult(res common.ScriptsDialogResult) tea.Cmd 
 	return a.saveWorkspaceScriptsAsync(ws, scripts, mode)
 }
 
+// projectEnvReadyMsg delivers the seeded project env map — ForRepo is an
+// uncached os.ReadFile+unmarshal, so it runs inside the fetch cmd off the
+// Update loop. seq fences the open: a second request bumps
+// overlays.projectEnvSeq and the stale ready is dropped (last writer wins,
+// matching runOutputToken's convention).
+type projectEnvReadyMsg struct {
+	seq  int
+	repo string
+	seed map[string]string
+}
+
 // handleShowProjectEnvDialog opens the per-project env editor for the
 // workspace's repo — the user-owned layer above repo `env` and beneath
 // ws.Env. Seeded from the stored project map (filtered like the workspace
 // editor so reserved keys can never become rows); the repo path is stashed
 // on the App like envDialogWorkspace is for its dialog.
-func (a *App) handleShowProjectEnvDialog(msg messages.ShowProjectEnvDialog) {
+func (a *App) handleShowProjectEnvDialog(msg messages.ShowProjectEnvDialog) tea.Cmd {
 	if msg.Workspace == nil || a.projectEnvStore == nil {
+		return nil
+	}
+	a.overlays.projectEnvSeq++
+	seq, repo, store := a.overlays.projectEnvSeq, msg.Workspace.Repo, a.projectEnvStore
+	return func() tea.Msg {
+		return projectEnvReadyMsg{seq: seq, repo: repo, seed: store.ForRepo(repo)}
+	}
+}
+
+// handleProjectEnvReady opens the editor with the fetched seed once nothing
+// else is pending ahead of it — requestOverlayOpen still arbitrates a
+// visible overlay at drain time.
+func (a *App) handleProjectEnvReady(msg projectEnvReadyMsg) {
+	if msg.seq != a.overlays.projectEnvSeq || msg.repo == "" {
 		return
 	}
 	a.requestOverlayOpen(func() {
-		a.overlays.projectEnvRepo = msg.Workspace.Repo
-		a.overlays.projectEnv = common.NewEnvDialog(filterReservedEnv(a.projectEnvStore.ForRepo(msg.Workspace.Repo)))
+		a.overlays.projectEnvRepo = msg.repo
+		a.overlays.projectEnv = common.NewEnvDialog(filterReservedEnv(msg.seed))
 		a.overlays.projectEnv.SetScope(common.EnvScopeProject)
 		a.overlays.projectEnv.SetKeyValidator(envAddKeyValidator)
-		a.overlays.projectEnv.SetTitle("Project Environment (" + filepath.Base(msg.Workspace.Repo) + ")")
+		a.overlays.projectEnv.SetTitle("Project Environment (" + filepath.Base(msg.repo) + ")")
 		a.overlays.projectEnv.SetSize(a.width, a.height)
 		a.overlays.projectEnv.Show()
 	})

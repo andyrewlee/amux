@@ -66,7 +66,9 @@ type workspaceStatus struct {
 // a wedged tmux would otherwise freeze the whole TUI for a timeout). The port
 // interval read is a durable-registry read in production — the same off-loop
 // placement applies, and it must NOT allocate: viewing status observes, it
-// does not reserve.
+// does not reserve. fetchWorkspaceStatusReads rides the same cmd: the repo
+// config, trust registry, and ~/.amux store reads are file I/O of the same
+// class, so a wedged filesystem must stall the fetch, not the TUI.
 func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cmd {
 	ws := msg.Workspace
 	if ws == nil || a.workspaceService == nil {
@@ -91,6 +93,7 @@ func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cm
 			token: token, ws: ws, runAlive: alive, runLastExit: lastExit,
 			portBase: base, portEnd: end, portFound: found, portErr: portErr,
 			cleanup: cleanup, reclaimablePorts: reclaimable,
+			reads: a.fetchWorkspaceStatusReads(&snap),
 		}
 	}
 }
@@ -133,9 +136,9 @@ func (a *App) reclaimablePortReservationIDs(svc *workspacesvc.Service, knownIDs 
 }
 
 // workspaceStatusReadyMsg delivers the off-loop portion of the status
-// snapshot — the run-session read and the durable port-interval read.
-// Everything else buildWorkspaceStatus gathers is cheap in-memory/file state
-// applied back on the loop.
+// snapshot — the run-session read, the durable port-interval read, and every
+// file-backed store read. buildWorkspaceStatus consumes the prefetched reads
+// so the on-loop assembly is pure.
 type workspaceStatusReadyMsg struct {
 	token            int
 	ws               *data.Workspace
@@ -147,6 +150,43 @@ type workspaceStatusReadyMsg struct {
 	portErr          error
 	cleanup          workspacesvc.WorkspaceCleanup
 	reclaimablePorts int
+	reads            workspaceStatusReads
+}
+
+// workspaceStatusReads bundles every filesystem/registry read the status
+// panel needs. It is produced inside the open cmd — off the Update loop —
+// so a slow or wedged filesystem stalls the fetch, never the TUI.
+type workspaceStatusReads struct {
+	repoCfg        *process.WorkspaceConfig
+	repoTrusted    bool
+	repoTrustedOK  bool
+	projectScripts data.ScriptsConfig
+	projectEnv     map[string]string
+}
+
+// fetchWorkspaceStatusReads performs those reads. Errors degrade exactly as
+// the synchronous path did: a failed ScriptConfig reads as "no repo config"
+// and a failed trust probe leaves repoTrusted unset (repoTrustedOK=false).
+func (a *App) fetchWorkspaceStatusReads(ws *data.Workspace) workspaceStatusReads {
+	var reads workspaceStatusReads
+	if a.workspaceService != nil {
+		if cfg, err := a.workspaceService.ScriptConfig(ws.Repo); err == nil && cfg != nil {
+			reads.repoCfg = cfg
+		}
+		// The trust verdict is read whether or not the config has scripts —
+		// WorkspaceScriptsTrusted reports true for a config-less repo, so the
+		// render can distinguish "no repo config" from "untrusted".
+		if trusted, err := a.workspaceService.WorkspaceScriptsTrusted(ws.Repo); err == nil {
+			reads.repoTrusted, reads.repoTrustedOK = trusted, true
+		}
+	}
+	if a.projectScriptStore != nil {
+		reads.projectScripts = a.projectScriptStore.ForRepo(ws.Repo)
+	}
+	if a.projectEnvStore != nil {
+		reads.projectEnv = a.projectEnvStore.ForRepo(ws.Repo)
+	}
+	return reads
 }
 
 // handleWorkspaceStatusReady applies the fetched runner status under the
@@ -160,7 +200,7 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 	if msg.portErr != nil {
 		return a.toast.ShowError("Cannot read port reservation: " + msg.portErr.Error())
 	}
-	st := a.buildWorkspaceStatus(msg.ws)
+	st := a.buildWorkspaceStatus(msg.ws, msg.reads)
 	st.runAlive = msg.runAlive
 	st.runLastExit = msg.runLastExit
 	st.cleanup = msg.cleanup
@@ -183,10 +223,12 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 	return nil
 }
 
-// buildWorkspaceStatus reads every operational surface once. Each read is
-// nil-safe: a missing runner/store/center degrades to the field's empty
-// value rather than failing the whole panel.
-func (a *App) buildWorkspaceStatus(ws *data.Workspace) workspaceStatus {
+// buildWorkspaceStatus assembles the operational snapshot once. Every
+// file-backed read arrives prefetched on reads (produced off-loop by
+// fetchWorkspaceStatusReads); what remains here is nil-safe in-memory state —
+// a missing runner/store/center degrades to the field's empty value rather
+// than failing the whole panel.
+func (a *App) buildWorkspaceStatus(ws *data.Workspace, reads workspaceStatusReads) workspaceStatus {
 	st := workspaceStatus{
 		name:        ws.Name,
 		branch:      ws.Branch,
@@ -205,16 +247,14 @@ func (a *App) buildWorkspaceStatus(ws *data.Workspace) workspaceStatus {
 	st.envKeySource = map[string]string{}
 
 	if a.workspaceService != nil {
-		a.fillRunnerStatus(&st, ws)
+		a.fillRunnerStatus(&st, ws, reads)
 	}
 	// User-entered ws.Scripts fill in whatever the repo doesn't define, then
 	// the project defaults file fills whatever remains — the same
 	// repo → workspace → project precedence resolveScriptCommand applies.
 	mergeScriptSources(st.scriptSources, ws.Scripts, "user")
-	if a.projectScriptStore != nil {
-		mergeScriptSources(st.scriptSources, a.projectScriptStore.ForRepo(ws.Repo), "project")
-	}
-	a.fillEnvSources(&st, ws)
+	mergeScriptSources(st.scriptSources, reads.projectScripts, "project")
+	a.fillEnvSources(&st, ws, reads.projectEnv)
 	if a.center != nil {
 		if tabs, _ := a.center.GetTabsInfoForWorkspace(string(ws.ID())); len(tabs) > 0 {
 			st.tabsOpen = len(tabs)
@@ -223,17 +263,18 @@ func (a *App) buildWorkspaceStatus(ws *data.Workspace) workspaceStatus {
 	return st
 }
 
-// fillRunnerStatus reads the repo script config + trust verdict and recorded
-// lifecycle outputs from the runner — extracted to keep buildWorkspaceStatus
-// under the complexity cap. The port range is NOT read here: the durable
-// registry read runs off-loop in the open cmd and arrives on
-// workspaceStatusReadyMsg, so a stored interval's actual (possibly
+// fillRunnerStatus applies the prefetched repo script config + trust verdict
+// and reads recorded lifecycle outputs from the runner — extracted to keep
+// buildWorkspaceStatus under the complexity cap. The port range is NOT read
+// here: the durable registry read runs off-loop in the open cmd and arrives
+// on workspaceStatusReadyMsg, so a stored interval's actual (possibly
 // config-divergent) end is what renders.
-func (a *App) fillRunnerStatus(st *workspaceStatus, ws *data.Workspace) {
+func (a *App) fillRunnerStatus(st *workspaceStatus, ws *data.Workspace, reads workspaceStatusReads) {
 	// runAlive/runLastExit and the port interval are filled by
 	// handleWorkspaceStatusReady — the tmux/registry reads run off-loop in
-	// the open cmd.
-	if cfg, err := a.workspaceService.ScriptConfig(ws.Repo); err == nil && cfg != nil {
+	// the open cmd. So do the repo config and trust reads: they arrive on
+	// reads rather than being re-read here.
+	if cfg := reads.repoCfg; cfg != nil {
 		st.repoConfig = len(cfg.SetupWorkspace) > 0 || cfg.RunScript != "" ||
 			cfg.ArchiveScript != "" || cfg.OnDoneScript != "" || len(cfg.Env) > 0
 		setIf := func(t process.ScriptType, set bool) {
@@ -249,11 +290,8 @@ func (a *App) fillRunnerStatus(st *workspaceStatus, ws *data.Workspace) {
 			st.envKeySource[k] = "repo"
 		}
 	}
-	// Trust verdict is read whether or not the config has scripts —
-	// ScriptsTrusted reports true for a config-less repo, so the render
-	// can distinguish "no repo config" from "untrusted".
-	if trusted, err := a.workspaceService.WorkspaceScriptsTrusted(ws.Repo); err == nil {
-		st.repoTrusted = trusted
+	if reads.repoTrustedOK {
+		st.repoTrusted = reads.repoTrusted
 	}
 	for stType, entry := range a.workspaceService.LastScriptOutputs(ws) {
 		if entry.Text != "" || entry.Err != "" {
@@ -283,16 +321,15 @@ func mergeScriptSources(dst map[process.ScriptType]string, cfg data.ScriptsConfi
 	}
 }
 
-// fillEnvSources merges the env key names from the project and workspace
-// layers on top of whatever the repo layer contributed — names only.
-func (a *App) fillEnvSources(st *workspaceStatus, ws *data.Workspace) {
-	if a.projectEnvStore != nil {
-		for k := range a.projectEnvStore.ForRepo(ws.Repo) {
-			// A repo-defined key keeps its "repo" source label — it is the
-			// lower-precedence layer and the one under a trust gate.
-			if _, ok := st.envKeySource[k]; !ok {
-				st.envKeySource[k] = "project"
-			}
+// fillEnvSources merges the env key names from the prefetched project map
+// and the workspace layer on top of whatever the repo layer contributed —
+// names only.
+func (a *App) fillEnvSources(st *workspaceStatus, ws *data.Workspace, projectEnv map[string]string) {
+	for k := range projectEnv {
+		// A repo-defined key keeps its "repo" source label — it is the
+		// lower-precedence layer and the one under a trust gate.
+		if _, ok := st.envKeySource[k]; !ok {
+			st.envKeySource[k] = "project"
 		}
 	}
 	for k := range ws.Env {
@@ -403,86 +440,6 @@ func renderWorkspaceStatus(st workspaceStatus) string {
 		}
 	}
 	return b.String()
-}
-
-// reservationReleaseResultMsg carries the off-loop probe+release outcome for
-// the typed-confirm flow: count is the number of reservations actually
-// deleted (0 with nil err means the orphan set was already gone).
-type reservationReleaseResultMsg struct {
-	count int
-	err   error
-}
-
-// openReservationReleaseDialog swaps the workspace-status viewer for the
-// typed-confirm gate. The viewer closes first — overlay arbitration forbids
-// stacking a dialog over it — and the displayed count is bound into the
-// dialog context as the expected confirmation, enforced at the consumer
-// alongside the fresh orphan probe (the released set is still re-derived at
-// confirm time, never trusted from display).
-func (a *App) openReservationReleaseDialog(count int) {
-	if count <= 0 {
-		return
-	}
-	a.closeRunOutputDialog()
-	want := strconv.Itoa(count)
-	a.dialog = common.NewInputDialog(
-		DialogReleasePortReservations,
-		fmt.Sprintf("Release %d Port Reservations", count),
-		"Type "+want+" to confirm",
-	)
-	a.dialog.SetInputValidate(func(s string) string {
-		if strings.TrimSpace(s) != want {
-			return "Type " + want + " to confirm the release"
-		}
-		return ""
-	})
-	a.dlg = dialogContext{portReleaseCount: count}
-	a.presentDialog(a.dialog)
-}
-
-// dialogResultReleasePortReservations runs the release on confirm. Two
-// gates: the typed value must equal the displayed count captured in the
-// dialog's context (intent enforcement — an empty or wrong submission never
-// reaches the registry), and the orphan set is RE-DERIVED inside the cmd,
-// never trusted from display time (a workspace could have been deleted or
-// its sessions recreated since the viewer opened). Re-derivation is
-// fail-closed: a stale probe under-releases, never over-.
-func dialogResultReleasePortReservations(a *App, result common.DialogResult, dlg dialogContext) tea.Cmd {
-	if !result.Confirmed || a.workspaceService == nil {
-		return nil
-	}
-	if dlg.portReleaseCount <= 0 ||
-		strings.TrimSpace(result.Value) != strconv.Itoa(dlg.portReleaseCount) {
-		return nil
-	}
-	svc := a.workspaceService
-	knownIDs := a.collectPortReservationOwnerIDs()
-	opts := a.tmuxOptions
-	return func() tea.Msg {
-		ids := a.reclaimablePortReservationIDs(svc, knownIDs, opts)
-		if len(ids) == 0 {
-			return reservationReleaseResultMsg{}
-		}
-		released, err := svc.ReleasePortReservations(ids)
-		if err != nil {
-			return reservationReleaseResultMsg{err: err}
-		}
-		return reservationReleaseResultMsg{count: len(released)}
-	}
-}
-
-// handleReservationReleaseResult reports the release outcome. A zero count
-// is honest — the orphans resolved themselves (or a fresh probe found live
-// sessions) between display and confirm, so nothing was deleted.
-func (a *App) handleReservationReleaseResult(msg reservationReleaseResultMsg) tea.Cmd {
-	if msg.err != nil {
-		logging.Error("port reservation release failed: %v", msg.err)
-		return a.toast.ShowError("Reservation release failed: " + msg.err.Error())
-	}
-	if msg.count == 0 {
-		return a.toast.ShowInfo("No orphaned reservations to release")
-	}
-	return a.toast.ShowInfo(fmt.Sprintf("Released %d orphaned port reservation(s)", msg.count))
 }
 
 func orDash(s string) string {

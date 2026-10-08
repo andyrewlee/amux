@@ -120,7 +120,7 @@ func TestEnvDialogResultProjectScopeRoutesToProjectHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws})
+	deliverCmdMsgs(t, h.app, h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws}))
 	h.app.overlays.projectEnv.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
 	// A live workspace editor must not divert the project-scoped result.
 	h.app.overlays.env = common.NewEnvDialog(map[string]string{"K": "v"})

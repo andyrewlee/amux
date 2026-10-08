@@ -35,7 +35,7 @@ func TestHandleShowProjectEnvDialog_SeedsFromStore(t *testing.T) {
 	}
 	ws := &data.Workspace{Name: "ws", Repo: repo, Root: repo + "/ws"}
 
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws})
+	deliverCmdMsgs(t, h.app, h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws}))
 
 	if h.app.overlays.projectEnv == nil || !h.app.overlays.projectEnv.Visible() {
 		t.Fatal("expected projectEnvDialog shown")
@@ -57,14 +57,85 @@ func TestHandleShowProjectEnvDialog_SeedsFromStore(t *testing.T) {
 
 func TestHandleShowProjectEnvDialog_NilInputsAreNoop(t *testing.T) {
 	h, _ := newProjectEnvHarness(t)
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: nil})
+	if cmd := h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: nil}); cmd != nil {
+		t.Fatal("nil workspace produced a fetch cmd")
+	}
 	if h.app.overlays.projectEnv != nil {
 		t.Fatal("dialog shown for nil workspace")
 	}
 	h.app.projectEnvStore = nil
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: &data.Workspace{Repo: "/r"}})
+	if cmd := h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: &data.Workspace{Repo: "/r"}}); cmd != nil {
+		t.Fatal("nil store produced a fetch cmd")
+	}
 	if h.app.overlays.projectEnv != nil {
 		t.Fatal("dialog shown with no store")
+	}
+}
+
+// TestHandleShowProjectEnvDialog_OpensViaAsyncReady proves the store read
+// rides the returned cmd: the dialog is not open until the ready msg lands
+// back on the loop.
+func TestHandleShowProjectEnvDialog_OpensViaAsyncReady(t *testing.T) {
+	h, store := newProjectEnvHarness(t)
+	repo := t.TempDir()
+	if err := store.Set(repo, map[string]string{"K": "v"}); err != nil {
+		t.Fatalf("seed Set() error = %v", err)
+	}
+	ws := &data.Workspace{Name: "ws", Repo: repo, Root: repo + "/ws"}
+
+	cmd := h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws})
+	if cmd == nil {
+		t.Fatal("expected the fetch cmd")
+	}
+	if h.app.overlays.projectEnv != nil {
+		t.Fatal("dialog opened before the ready msg — the store read ran on-loop")
+	}
+	deliverCmdMsgs(t, h.app, cmd)
+	if h.app.overlays.projectEnv == nil || !h.app.overlays.projectEnv.Visible() {
+		t.Fatal("dialog did not open on the ready msg")
+	}
+}
+
+// TestHandleProjectEnvReady_StaleSeqDropped proves last-writer-wins: a second
+// open request invalidates the first in-flight fetch, so its stale ready msg
+// must not open a dialog bound to the older repo.
+func TestHandleProjectEnvReady_StaleSeqDropped(t *testing.T) {
+	h, store := newProjectEnvHarness(t)
+	repoA, repoB := t.TempDir(), t.TempDir()
+	if err := store.Set(repoA, map[string]string{"A": "a"}); err != nil {
+		t.Fatalf("seed A: %v", err)
+	}
+	if err := store.Set(repoB, map[string]string{"B": "b"}); err != nil {
+		t.Fatalf("seed B: %v", err)
+	}
+	wsA := &data.Workspace{Name: "a", Repo: repoA, Root: repoA + "/ws"}
+	wsB := &data.Workspace{Name: "b", Repo: repoB, Root: repoB + "/ws"}
+
+	// Two requests back-to-back: only the second's ready may open.
+	cmdA := h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: wsA})
+	cmdB := h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: wsB})
+	readyA, ok := cmdA().(projectEnvReadyMsg)
+	if !ok {
+		t.Fatalf("cmd emitted %T, want projectEnvReadyMsg", cmdA())
+	}
+	readyB, ok := cmdB().(projectEnvReadyMsg)
+	if !ok {
+		t.Fatalf("cmd emitted %T, want projectEnvReadyMsg", cmdB())
+	}
+
+	h.app.handleProjectEnvReady(readyA) // stale — must drop
+	if h.app.overlays.projectEnv != nil {
+		t.Fatal("stale ready opened a dialog")
+	}
+	h.app.handleProjectEnvReady(readyB)
+	if h.app.overlays.projectEnv == nil {
+		t.Fatal("live ready did not open the dialog")
+	}
+	if h.app.overlays.projectEnvRepo != repoB {
+		t.Fatalf("dialog bound to %q, want %q", h.app.overlays.projectEnvRepo, repoB)
+	}
+	if got := h.app.overlays.projectEnv.Env(); got["B"] != "b" {
+		t.Fatalf("dialog seeded %#v, want repo B's map", got)
 	}
 }
 
@@ -76,7 +147,7 @@ func TestHandleProjectEnvDialogResult_PersistsToProjectStore(t *testing.T) {
 		t.Fatalf("seed Set() error = %v", err)
 	}
 
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws})
+	deliverCmdMsgs(t, h.app, h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws}))
 	h.app.overlays.projectEnv.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
 
 	cmd := h.app.handleProjectEnvDialogResult(common.EnvDialogResult{})
@@ -104,10 +175,10 @@ func TestHandleShowProjectEnvDialog_SharedAcrossWorkspaces(t *testing.T) {
 	wsA := &data.Workspace{Name: "a", Repo: repo, Root: repo + "/a"}
 	wsB := &data.Workspace{Name: "b", Repo: repo, Root: repo + "/b"}
 
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: wsA})
+	deliverCmdMsgs(t, h.app, h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: wsA}))
 	h.app.handleProjectEnvDialogResult(common.EnvDialogResult{Canceled: true})
 
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: wsB})
+	deliverCmdMsgs(t, h.app, h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: wsB}))
 	if got := h.app.overlays.projectEnv.Env(); got["SHARED_KEY"] != "shared" {
 		t.Fatalf("wsB's dialog seeded %#v, want the repo-level map wsA shares", got)
 	}
@@ -121,7 +192,7 @@ func TestHandleProjectEnvDialogResult_CanceledDiscardsEdits(t *testing.T) {
 		t.Fatalf("seed Set() error = %v", err)
 	}
 
-	h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws})
+	deliverCmdMsgs(t, h.app, h.app.handleShowProjectEnvDialog(messages.ShowProjectEnvDialog{Workspace: ws}))
 	h.app.overlays.projectEnv.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
 	if cmd := h.app.handleProjectEnvDialogResult(common.EnvDialogResult{Canceled: true}); cmd != nil {
 		t.Fatalf("cancel should emit no cmd, got one that emits %T", cmd())

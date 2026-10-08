@@ -58,7 +58,7 @@ func TestBuildWorkspaceStatus_FullSnapshot(t *testing.T) {
 		t.Fatalf("RunArchive() error = %v", err)
 	}
 
-	st := app.buildWorkspaceStatus(ws)
+	st := app.buildWorkspaceStatus(ws, app.fetchWorkspaceStatusReads(ws))
 
 	if st.name != "ws" || st.branch != "feat" || st.root != ws.Root {
 		t.Fatalf("identity fields wrong: %+v", st)
@@ -103,7 +103,7 @@ func TestBuildWorkspaceStatus_UntrustedRepo(t *testing.T) {
 	}
 	ws := &data.Workspace{Name: "ws", Repo: repo, Root: t.TempDir()}
 
-	st := app.buildWorkspaceStatus(ws)
+	st := app.buildWorkspaceStatus(ws, app.fetchWorkspaceStatusReads(ws))
 	if !st.repoConfig || st.repoTrusted {
 		t.Fatalf("repoConfig=%v repoTrusted=%v, want config=true trusted=false", st.repoConfig, st.repoTrusted)
 	}
@@ -137,7 +137,7 @@ func TestBuildWorkspaceStatus_ProjectScriptLayer(t *testing.T) {
 		Scripts: data.ScriptsConfig{OnDone: "echo ws-done"},
 	}
 
-	st := app.buildWorkspaceStatus(ws)
+	st := app.buildWorkspaceStatus(ws, app.fetchWorkspaceStatusReads(ws))
 
 	// archive: repo claims it (only layer). on-done: ws beats project.
 	// run: project claims it (repo+ws miss). setup: unclaimed everywhere.
@@ -169,7 +169,7 @@ func TestBuildWorkspaceStatus_Empties(t *testing.T) {
 	}
 	ws := &data.Workspace{Name: "bare", Repo: t.TempDir(), Root: t.TempDir(), Shelved: true}
 
-	st := app.buildWorkspaceStatus(ws)
+	st := app.buildWorkspaceStatus(ws, app.fetchWorkspaceStatusReads(ws))
 	rendered := renderWorkspaceStatus(st)
 	for _, want := range []string{"shelved", "none allocated", "not running", "no repo config", "(none)"} {
 		if !strings.Contains(rendered, want) {
