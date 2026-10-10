@@ -223,6 +223,94 @@ func TestResolveTmuxActivityScanRole_OwnerResolveRenewsHeartbeatAtScanStart(t *t
 	}
 }
 
+// An owner whose scan outlives the lease TTL must renew its own expired lease
+// in place. Previously the resolve claimed a new epoch every scan (each epoch
+// triggers the hysteresis reset in updateTmuxActivityOwnershipState) and
+// canPublish rejected the stale-heartbeat lease, so every scan was discarded:
+// followers sat on a permanently stale snapshot and owner-side indicators
+// blinked off each cycle.
+func TestResolveTmuxActivityScanRole_ExpiredSelfLeaseRenewsSameEpoch(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+
+	owner := &App{instanceID: "owner-expired-self"}
+	now := time.Now()
+	_, _, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
+	if err != nil {
+		t.Fatalf("resolve owner role: %v", err)
+	}
+
+	renewAt := now.Add(activity.OwnerLeaseTTL + time.Second)
+	role, _, _, _, renewedEpoch, err := owner.resolveTmuxActivityScanRole(opts, renewAt)
+	if err != nil {
+		t.Fatalf("resolve owner role after expiry: %v", err)
+	}
+	if role != tmuxActivityRoleOwner {
+		t.Fatalf("expected owner role for expired self lease, got %v", role)
+	}
+	if renewedEpoch != epoch {
+		t.Fatalf("expected expired self lease to keep epoch %d, got %d", epoch, renewedEpoch)
+	}
+
+	lease, err := activity.ReadOwnerLease(opts)
+	if err != nil {
+		t.Fatalf("read owner lease: %v", err)
+	}
+	if lease.OwnerID != owner.instanceID || lease.Epoch != epoch {
+		t.Fatalf("expected lease to stay %q epoch %d, got %q epoch %d", owner.instanceID, epoch, lease.OwnerID, lease.Epoch)
+	}
+	if lease.HeartbeatAt.UnixMilli() != renewAt.UnixMilli() {
+		t.Fatalf("expected heartbeat renewed to %d, got %d", renewAt.UnixMilli(), lease.HeartbeatAt.UnixMilli())
+	}
+}
+
+func TestCanPublishTmuxActivitySnapshot_ExpiredSelfLeaseRenews(t *testing.T) {
+	skipIfNoTmux(t)
+	opts := gcTestServer(t)
+
+	owner := &App{instanceID: "owner-expired-publish"}
+	now := time.Now()
+	_, _, _, _, epoch, err := owner.resolveTmuxActivityScanRole(opts, now)
+	if err != nil {
+		t.Fatalf("resolve owner role: %v", err)
+	}
+
+	// The scan ran past the TTL: the heartbeat is dead but nobody claimed the
+	// lease, so the publish must proceed instead of dropping the result.
+	canPublishAt := now.Add(activity.OwnerLeaseTTL + time.Second)
+	canPublish, _, err := owner.canPublishTmuxActivitySnapshot(opts, epoch, canPublishAt)
+	if err != nil {
+		t.Fatalf("canPublish after expiry: %v", err)
+	}
+	if !canPublish {
+		t.Fatal("expected canPublish to renew an unclaimed expired self lease")
+	}
+	lease, err := activity.ReadOwnerLease(opts)
+	if err != nil {
+		t.Fatalf("read owner lease: %v", err)
+	}
+	if lease.HeartbeatAt.UnixMilli() != canPublishAt.UnixMilli() {
+		t.Fatalf("expected canPublish to renew heartbeat to %d, got %d", canPublishAt.UnixMilli(), lease.HeartbeatAt.UnixMilli())
+	}
+
+	// A lease that a different owner claimed while this scan ran must still be
+	// rejected — same-owner expiry is not a license to clobber a successor.
+	// Resolve once the renewed heartbeat has expired again so the successor
+	// takes the claim path.
+	other := &App{instanceID: "owner-successor"}
+	_, _, _, _, successorEpoch, err := other.resolveTmuxActivityScanRole(opts, canPublishAt.Add(activity.OwnerLeaseTTL+time.Second))
+	if err != nil {
+		t.Fatalf("resolve successor role: %v", err)
+	}
+	canPublish, _, err = owner.canPublishTmuxActivitySnapshot(opts, epoch, canPublishAt.Add(activity.OwnerLeaseTTL+2*time.Second))
+	if err != nil {
+		t.Fatalf("canPublish after takeover: %v", err)
+	}
+	if canPublish {
+		t.Fatalf("expected canPublish to reject epoch %d after successor claimed %d", epoch, successorEpoch)
+	}
+}
+
 func TestEncodeDecodeTmuxActivitySnapshot_EncodesWorkspaceIDsSafely(t *testing.T) {
 	now := time.Now()
 	raw := activity.EncodeSnapshot(map[string]bool{
