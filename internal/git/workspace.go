@@ -15,7 +15,12 @@ import (
 )
 
 var (
-	worktreeTimeout         = 30 * time.Second
+	worktreeTimeout = 30 * time.Second
+	// worktreeAddTimeout bounds `worktree add`, which checks out the whole
+	// tree: a large repo on a loaded machine can take minutes, and a killed
+	// add leaves a locked, half-populated worktree behind (see
+	// rollbackInterruptedWorktreeAdd).
+	worktreeAddTimeout      = 5 * time.Minute
 	worktreeRecoveryReserve = 2 * time.Minute
 	runGitCtx               = RunGitCtx
 	unregisterWorktreeCtx   = unregisterWorktreeAdminDirWithContext
@@ -47,11 +52,17 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 	}
 
 	// Create branch from base and checkout into workspace path
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeAddTimeout)
 	_, err = runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, "--", workspacePath, base)
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 	cancel()
 	if err == nil {
 		return true, nil
+	}
+	if timedOut {
+		// `-b` fails up front when the branch exists, so a timeout means
+		// this call created it and owns the rollback of both.
+		return false, rollbackInterruptedWorktreeAdd(err, repoPath, workspacePath, branch, true)
 	}
 	if !isBranchAlreadyExistsError(err, branch) {
 		return false, err
@@ -60,9 +71,14 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 	// If the branch already exists, reuse it instead of failing hard.
 	// Retry with a fresh timeout context so a slow first attempt does not
 	// consume the entire budget for the fallback path.
-	retryCtx, retryCancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	retryCtx, retryCancel := context.WithTimeout(context.Background(), worktreeAddTimeout)
 	_, retryErr := runGitCtx(retryCtx, repoPath, "worktree", "add", "--", workspacePath, branch)
+	retryTimedOut := errors.Is(retryCtx.Err(), context.DeadlineExceeded)
 	retryCancel()
+	if retryErr != nil && retryTimedOut {
+		// The branch predates this call: remove the worktree, keep the ref.
+		retryErr = rollbackInterruptedWorktreeAdd(retryErr, repoPath, workspacePath, branch, false)
+	}
 	if retryErr != nil {
 		firstErrMsg := err.Error()
 		return false, fmt.Errorf(
@@ -72,6 +88,27 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 		)
 	}
 	return false, nil
+}
+
+// rollbackInterruptedWorktreeAdd undoes a `worktree add` killed by its
+// timeout. git locks a new worktree ("initializing") until checkout finishes,
+// so a killed add leaves a locked worktree with a partial index, and every
+// retry then fails on "branch already exists" / "path already exists". The
+// double --force is what removes a locked worktree; deleteBranch is true only
+// when this call created the branch. The returned error always wraps addErr.
+func rollbackInterruptedWorktreeAdd(addErr error, repoPath, workspacePath, branch string, deleteBranch bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeRecoveryReserve)
+	defer cancel()
+	errs := []error{fmt.Errorf("worktree add timed out after %s: %w", worktreeAddTimeout, addErr)}
+	if _, err := runGitCtx(ctx, repoPath, "worktree", "remove", "--force", "--force", "--", workspacePath); err != nil {
+		errs = append(errs, fmt.Errorf("rollback worktree remove: %w", err))
+	}
+	if deleteBranch {
+		if _, err := runGitCtx(ctx, repoPath, "branch", "-D", branch); err != nil && !IsBranchNotFoundError(err) {
+			errs = append(errs, fmt.Errorf("rollback branch delete: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
@@ -129,9 +166,13 @@ func AttachWorkspaceWorktree(repoPath, workspacePath, branch string) error {
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeAddTimeout)
 	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "--", workspacePath, branch)
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 	cancel()
+	if err != nil && timedOut {
+		return rollbackInterruptedWorktreeAdd(err, repoPath, workspacePath, branch, false)
+	}
 	return err
 }
 
