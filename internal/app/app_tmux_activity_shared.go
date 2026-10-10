@@ -61,6 +61,20 @@ func (a *App) resolveTmuxActivityScanRole(
 		return tmuxActivityRoleOwner, nil, nil, false, epoch, nil
 	}
 
+	// The lease is expired. If the owner tag is still ours, nobody claimed it
+	// during the gap — a competing claim would have bumped the epoch. This
+	// happens whenever a scan plus its inter-scan gap exceeds the TTL (scans
+	// over ~7s under session load): renew the heartbeat in place and keep the
+	// epoch rather than minting a new one each scan. A new epoch on every pass
+	// re-runs the owner-transition reset in updateTmuxActivityOwnershipState,
+	// clearing scan hysteresis and blinking the published indicators off.
+	if lease.OwnerID == instanceID && lease.Epoch > 0 {
+		if err := activity.RenewOwnerLeaseHeartbeat(opts, now); err != nil {
+			return tmuxActivityRoleOwner, nil, nil, false, lease.Epoch, err
+		}
+		return tmuxActivityRoleOwner, nil, nil, false, lease.Epoch, nil
+	}
+
 	candidateEpoch := lease.Epoch + 1
 	if candidateEpoch < 1 {
 		candidateEpoch = 1
@@ -93,11 +107,18 @@ func (a *App) canPublishTmuxActivitySnapshot(opts tmux.Options, epoch int64, now
 	if err != nil {
 		return false, 0, err
 	}
-	if !activity.OwnerLeaseAlive(lease, now) {
-		return false, lease.Epoch, nil
-	}
 	if lease.OwnerID != instanceID || lease.Epoch != epoch {
 		return false, lease.Epoch, nil
+	}
+	if !activity.OwnerLeaseAlive(lease, now) {
+		// The heartbeat went stale while this scan ran — but the owner tag and
+		// epoch still match, so no other instance claimed the expired lease (a
+		// claim always bumps the epoch). Renew in place and allow the publish:
+		// rejecting here silently discarded every scan that outlived the TTL,
+		// leaving followers on a permanently stale snapshot.
+		if err := activity.RenewOwnerLeaseHeartbeat(opts, now); err != nil {
+			return false, lease.Epoch, err
+		}
 	}
 	return true, lease.Epoch, nil
 }
