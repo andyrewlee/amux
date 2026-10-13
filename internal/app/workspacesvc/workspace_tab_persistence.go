@@ -193,7 +193,14 @@ func (s *Service) saveWorkspaceTabs(id data.WorkspaceID, ws *data.Workspace, seq
 // Unlike SaveWorkspaceTabs this write carries no capture sequence — tmux
 // sync results are observations, not ordered captures; staleness between
 // them is resolved by each transaction reading fresh.
-func (s *Service) SyncWorkspaceTabs(ws *data.Workspace, tabs []data.TabInfo) (bool, error) {
+//
+// checkMutation selects the mutation-in-flight probes inside the
+// transaction and before the missing-record create — required in
+// predicate-only mode, forbidden while an atomic lifecycle guard is
+// already held by the caller: the probe re-acquires the lifecycle RWMutex
+// for reading, and a writer queued between the outer and inner read
+// acquisitions deadlocks it.
+func (s *Service) SyncWorkspaceTabs(ws *data.Workspace, tabs []data.TabInfo, checkMutation bool) (bool, error) {
 	if s == nil || s.store == nil || ws == nil {
 		return false, nil
 	}
@@ -203,7 +210,7 @@ func (s *Service) SyncWorkspaceTabs(ws *data.Workspace, tabs []data.TabInfo) (bo
 	}
 	committed := false
 	err := s.store.Update(id, func(fresh *data.Workspace) (bool, error) {
-		if s.isMutationInFlight(fresh) {
+		if checkMutation && s.isMutationInFlight(fresh) {
 			return false, errTabSaveSkipped
 		}
 		cloned := slices.Clone(tabs)
@@ -218,7 +225,7 @@ func (s *Service) SyncWorkspaceTabs(ws *data.Workspace, tabs []data.TabInfo) (bo
 		return false, nil
 	}
 	if errors.Is(err, fs.ErrNotExist) {
-		if s.isMutationInFlight(ws) {
+		if checkMutation && s.isMutationInFlight(ws) {
 			return false, nil
 		}
 		// No record to field-write — persist the caller's record whole, same

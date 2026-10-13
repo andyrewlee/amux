@@ -194,3 +194,92 @@ func TestRunUnlessWorkspaceMutationInFlightBlocksDeleteMarkUntilCallbackReturns(
 		t.Fatal("expected workspace to be marked mutation-in-flight after callback completion")
 	}
 }
+
+// TestSyncWorkspaceTabsInsideGuardNeverReacquiresPhaseLock is the nested-RLock
+// regression: the tmux tab-sync callback runs inside
+// runUnlessWorkspaceMutationInFlight, which holds phaseMu.RLock across it.
+// The pre-fix SyncWorkspaceTabs probed isMutationInFlight *inside* its store
+// transaction — a second RLock that blocks forever once a writer queues,
+// while the writer blocks on the still-held outer read. Go's RWMutex is
+// writer-preferring, so a single queued markMutating completes the deadlock.
+// The fix passes checkMutation=false: no in-transaction probe may run, so
+// the guarded call must complete even with a writer queued.
+func TestSyncWorkspaceTabsInsideGuardNeverReacquiresPhaseLock(t *testing.T) {
+	ws := data.NewWorkspace("feature", "feature", "main", "/repo", "/repo/feature")
+	wsID := string(ws.ID())
+	app := &App{lifecycle: workspaceLifecycleState{
+		phases:         make(map[string]lifecyclePhase),
+		mutatingRootID: make(map[string]string),
+	}}
+
+	store := data.NewWorkspaceStore(t.TempDir())
+	if err := store.Save(ws); err != nil {
+		t.Fatalf("store.Save() error = %v", err)
+	}
+	svc := workspacesvc.New(&testutil.FakeProjectRegistry{}, store, nil, "")
+	svc.Configure(workspacesvc.Deps{
+		MutationInFlight:      app.lifecycle.isMutatingWorkspaceIDs,
+		MutationInFlightGuard: app.lifecycle.runUnlessMutatingWorkspaceIDs,
+	})
+
+	entered := make(chan struct{})
+	writerQueued := make(chan struct{})
+	syncDone := make(chan error, 1)
+	done := make(chan bool, 1)
+
+	go func() {
+		done <- app.runUnlessWorkspaceMutationInFlight(wsID, func() {
+			close(entered)
+			<-writerQueued
+			// checkMutation=false — the atomic guard already covers the
+			// check; an in-transaction probe would re-acquire phaseMu.
+			_, err := svc.SyncWorkspaceTabs(ws, []data.TabInfo{{Name: "a"}}, false)
+			syncDone <- err
+		})
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for guarded callback to start")
+	}
+
+	// Queue a writer while the outer RLock is held — the exact interleaving
+	// that turned the nested probe into a self-deadlock.
+	markDone := make(chan struct{})
+	go func() {
+		app.markWorkspaceMutationInFlight(ws, true)
+		close(markDone)
+	}()
+	select {
+	case <-markDone:
+		t.Fatal("expected delete mark to block while guarded callback is running")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(writerQueued)
+
+	select {
+	case err := <-syncDone:
+		if err != nil {
+			t.Fatalf("SyncWorkspaceTabs() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SyncWorkspaceTabs blocked inside the guard — nested phaseMu acquisition")
+	}
+
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("expected guarded callback to run")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for guarded callback completion")
+	}
+
+	select {
+	case <-markDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for delete mark after callback completion")
+	}
+}

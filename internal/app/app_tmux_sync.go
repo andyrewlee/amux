@@ -88,7 +88,11 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 				// Field-wise commit: only OpenTabs is written, onto the fresh
 				// record inside the store lock — concurrent field edits
 				// committed since the snapshot are never clobbered.
-				wrote, saveErr = a.workspaceService.SyncWorkspaceTabs(wsSnapshot, tabs)
+				// checkMutation=false: the surrounding guard holds the
+				// lifecycle RLock across this call, so an in-transaction
+				// probe would re-acquire it and self-deadlock once a writer
+				// queues.
+				wrote, saveErr = a.workspaceService.SyncWorkspaceTabs(wsSnapshot, tabs, false)
 			})
 			if !saved {
 				return nil

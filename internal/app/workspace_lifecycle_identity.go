@@ -106,7 +106,10 @@ func (w *workspaceLifecycleState) isMutatingWorkspaceIDs(ws *data.Workspace) boo
 // mutation marked mid-flight between the probe and the store write can't
 // slip past. Used by the service's rescan/import/tab-persist guards — whose
 // callbacks must never re-acquire phaseMu (a queued writer between the two
-// read acquisitions would deadlock).
+// read acquisitions would deadlock). The canonical violation is a
+// SyncWorkspaceTabs-style store transaction probing isMutationInFlight
+// inside its Update callback: such calls must take the caller's
+// checkMutation=false contract instead.
 func (w *workspaceLifecycleState) runUnlessMutatingWorkspaceIDs(ws *data.Workspace, fn func()) bool {
 	if ws == nil {
 		return false

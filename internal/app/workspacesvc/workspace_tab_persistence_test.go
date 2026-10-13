@@ -399,7 +399,7 @@ func TestSyncWorkspaceTabs_FieldwisePreservesUnownedFields(t *testing.T) {
 	// The caller's snapshot is stale on every field the sync does not own.
 	ws.ActiveTabIndex = 0
 
-	committed, err := svc.SyncWorkspaceTabs(ws, tabsNamed("a", "b"))
+	committed, err := svc.SyncWorkspaceTabs(ws, tabsNamed("a", "b"), true)
 	if err != nil {
 		t.Fatalf("SyncWorkspaceTabs() error = %v", err)
 	}
@@ -434,7 +434,7 @@ func TestSyncWorkspaceTabs_NoOpReportsFalse(t *testing.T) {
 		t.Fatalf("seed tabs error = %v", err)
 	}
 
-	committed, err := svc.SyncWorkspaceTabs(ws, tabs)
+	committed, err := svc.SyncWorkspaceTabs(ws, tabs, true)
 	if err != nil {
 		t.Fatalf("SyncWorkspaceTabs() error = %v", err)
 	}
@@ -451,7 +451,7 @@ func TestSyncWorkspaceTabs_MissingRecordCreates(t *testing.T) {
 	svc := New(nil, store, nil, t.TempDir())
 	ws := data.NewWorkspace("feat", "feat", "main", t.TempDir(), t.TempDir()+"/feat")
 
-	committed, err := svc.SyncWorkspaceTabs(ws, tabsNamed("a"))
+	committed, err := svc.SyncWorkspaceTabs(ws, tabsNamed("a"), true)
 	if err != nil {
 		t.Fatalf("SyncWorkspaceTabs() error = %v", err)
 	}
