@@ -196,6 +196,14 @@ var rearmChainClassification = []struct {
 	// rearmCmdForPanic, so it is classified here even though the AST walker
 	// cannot see it in a case list.
 	{"center.PTYRestart", zeroMsg[center.PTYRestart](), true},
+	// center.PTYCursorRefresh travels the same default-sink path. It is
+	// deliberately non-rearmed: scheduleChatCursorRefreshLocked's
+	// stale-deadline rule re-arms on the next event even when a panic drops
+	// the delivered tick. Its model-internal completeness coverage (and the
+	// rest of center.Model.Update / sidebar TerminalModel.Update's dispatch
+	// surfaces) lives in each model's own rearm completeness test — most of
+	// those types are unexported and cannot be named from this package.
+	{"center.PTYCursorRefresh", zeroMsg[center.PTYCursorRefresh](), false},
 }
 
 // zeroMsg returns a zero-value sample of an exported message type — a var
