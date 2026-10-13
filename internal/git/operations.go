@@ -210,9 +210,12 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 		}
 	}
 
-	// Only return error if there's actual stderr output indicating a problem
-	// and no stdout (which would indicate the command worked but returned non-zero)
-	if stderr.Len() > 0 && stdout.Len() == 0 {
+	// Only return error when git actually failed (tolerated ExitError) AND
+	// there's stderr output indicating a problem and no stdout. A clean exit
+	// (err == nil) with stderr chatter — unreadable ~/.gitconfig, a stale
+	// include.path, safe.directory warnings — is success, not failure: git
+	// routinely warns on stderr while exiting 0.
+	if err != nil && stderr.Len() > 0 && stdout.Len() == 0 {
 		return "", newGitError(args, stderr.String(), err)
 	}
 
