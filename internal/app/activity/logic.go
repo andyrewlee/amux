@@ -1,10 +1,19 @@
 package activity
 
 import (
+	"sync"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+// activityCaptureWorkers bounds the concurrent capture-pane probes issued
+// per scan. Each capture is a fork+exec+tmux round-trip with its own
+// command timeout; issuing them serially at dozens of fallback sessions
+// pushed the whole scan past its own 5s period (and the owner-lease TTL).
+// Eight workers parallelize the fork/exec overhead while bounding pressure
+// on the single-threaded tmux server.
+const activityCaptureWorkers = 8
 
 // ActiveWorkspaceIDsFromTagsWithRemoved is the production entry point. It
 // returns the active workspace IDs, updated session states, and the names of
@@ -261,6 +270,18 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 		seenSessions = make(map[string]bool, len(sessions))
 	}
 
+	// Collect phase (serial): every per-session decision that does not need
+	// the pane content runs here — the hysteresis apply phase below then
+	// iterates `needed` in the same session order. Only the capture itself
+	// is parallel: it is a subprocess per session and the dominant scan cost.
+	type pendingCapture struct {
+		session tmux.SessionActivity
+		info    SessionInfo
+		infoOK  bool
+		state   *SessionState
+	}
+	var needed []pendingCapture
+
 	for _, session := range sessions {
 		seenSessions[session.Name] = true
 		info, ok := infoBySession[session.Name]
@@ -275,7 +296,6 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 		}
 		// Observed this scan: it is not a candidate for unseen-pruning.
 		state.UnseenScans = 0
-		observedWork := false
 
 		// Capture pane content and compute hash. Sessions whose baseline was
 		// seeded during this scan's tag-classification pass skip the capture —
@@ -291,7 +311,25 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 			continue
 		}
 
-		content, captureOK := captureFn(session.Name, CaptureTail, opts)
+		needed = append(needed, pendingCapture{session: session, info: info, infoOK: ok, state: state})
+	}
+
+	// Capture phase (bounded parallel): workers issue the capture-pane
+	// probes; each writes only its own result, so nothing here touches the
+	// hysteresis maps. Ordering is irrelevant — results are keyed by name.
+	neededNames := make([]string, len(needed))
+	for i, p := range needed {
+		neededNames[i] = p.session.Name
+	}
+	captures := capturePanesConcurrent(neededNames, opts, captureFn)
+
+	// Apply phase (serial, original order): identical hysteresis bookkeeping
+	// to the pre-parallel loop — per-session state mutation only.
+	for _, p := range needed {
+		session, info, ok, state := p.session, p.info, p.infoOK, p.state
+		observedWork := false
+		res := captures[session.Name]
+		content, captureOK := res.content, res.ok
 		if captureOK {
 			hash := hashFn(content)
 
@@ -361,6 +399,52 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 	removed := decayOrPruneUnseenStates(states, seenSessions, updatedStates)
 
 	return active, updatedStates, removed
+}
+
+// paneCaptureResult is one session's capture outcome.
+type paneCaptureResult struct {
+	content string
+	ok      bool
+}
+
+// capturePanesConcurrent runs captureFn for every session name through a
+// bounded worker pool (activityCaptureWorkers). The whole call runs inside
+// one scan's Cmd goroutine and returns before the caller proceeds, so the
+// result map needs no downstream synchronization: workers write only their
+// own keyed slot. captureFn itself must be pure w.r.t. scan state — the
+// production impl is a capture-pane subprocess; the suppression wrapper's
+// map reads are safe because suppressedByInput is never mutated after the
+// classification pass.
+func capturePanesConcurrent(names []string, opts tmux.Options, captureFn CaptureFn) map[string]paneCaptureResult {
+	results := make(map[string]paneCaptureResult, len(names))
+	if len(names) == 0 || captureFn == nil {
+		return results
+	}
+	workers := activityCaptureWorkers
+	if len(names) < workers {
+		workers = len(names)
+	}
+	jobs := make(chan string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for name := range jobs {
+				content, ok := captureFn(name, CaptureTail, opts)
+				mu.Lock()
+				results[name] = paneCaptureResult{content: content, ok: ok}
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, name := range names {
+		jobs <- name
+	}
+	close(jobs)
+	wg.Wait()
+	return results
 }
 
 // pruneAfterScans is how many consecutive unseen scans a session state survives
