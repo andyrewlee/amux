@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
@@ -30,6 +31,9 @@ import (
 //     already spent, so exactly one new consumer is armed.
 //   - The dashboard spinner re-arms only while a spinner is actually
 //     running (StartSpinnerIfNeeded is a no-op otherwise).
+//   - The per-tab PTY flush/stopped/restart chains delegate to each model's
+//     own RearmForPanic: their arm inputs (flush timing, active-tab state,
+//     reader gen) are model-internal, so the App can only route the msg.
 //
 // SafeTick starters are independent tickers — the panicked handler's arm
 // never ran (its cmds were discarded), so this arms exactly one chain.
@@ -60,6 +64,14 @@ func (a *App) rearmCmdForPanic(msg tea.Msg) tea.Cmd {
 	case dashboard.SpinnerTickMsg:
 		if a.dashboard != nil {
 			return a.dashboard.StartSpinnerIfNeeded()
+		}
+	case center.PTYFlush, center.PTYStopped, center.PTYRestart:
+		if a.center != nil {
+			return a.center.RearmForPanic(msg)
+		}
+	case messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart:
+		if a.sidebarTerminal != nil {
+			return a.sidebarTerminal.RearmForPanic(msg)
 		}
 	}
 	return nil

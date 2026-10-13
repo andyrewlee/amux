@@ -8,6 +8,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
 )
 
@@ -103,6 +104,16 @@ func TestRearmCmdForPanic_MapsPeriodicChains(t *testing.T) {
 		{"run output refreshed", runOutputRefreshedMsg{token: 1}, true},
 		{"file watcher event", messages.FileWatcherEvent{}, true},
 		{"state watcher event", messages.StateWatcherEvent{}, true},
+		// Delegated chains: mapped to the models' own RearmForPanic, so they
+		// are NOT the nil default — but on this fixture (nil models) the
+		// delegation correctly yields nil. Proven non-nil at the model level
+		// in internal/ui/{center,sidebar}'s rearm tests.
+		{"center pty flush (delegated)", center.PTYFlush{}, false},
+		{"center pty stopped (delegated)", center.PTYStopped{}, false},
+		{"center pty restart (delegated)", center.PTYRestart{}, false},
+		{"sidebar pty flush (delegated)", messages.SidebarPTYFlush{}, false},
+		{"sidebar pty stopped (delegated)", messages.SidebarPTYStopped{}, false},
+		{"sidebar pty restart (delegated)", messages.SidebarPTYRestart{}, false},
 		{"key press", tea.KeyPressMsg{}, false},
 		{"window size", tea.WindowSizeMsg{}, false},
 		{"error", messages.Error{}, false},
@@ -136,6 +147,12 @@ func TestRearmCmdForPanic_NilSafeOnUnconfiguredApp(t *testing.T) {
 		messages.FileWatcherEvent{},
 		messages.StateWatcherEvent{},
 		dashboard.SpinnerTickMsg{},
+		center.PTYFlush{},
+		center.PTYStopped{},
+		center.PTYRestart{},
+		messages.SidebarPTYFlush{},
+		messages.SidebarPTYStopped{},
+		messages.SidebarPTYRestart{},
 		tea.KeyPressMsg{},
 		nil,
 	} {
