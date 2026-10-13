@@ -98,7 +98,12 @@ func (m *Model) scheduleChatCursorRefreshLocked(tab *Tab, workspaceID string, no
 		delay = time.Millisecond
 	}
 	due := now.Add(delay)
-	if tab.cursorRefreshPending && !tab.cursorRefreshAt.IsZero() && !due.Before(tab.cursorRefreshAt) {
+	// A pending tick whose deadline still lies ahead suppresses a redundant
+	// re-arm; one whose deadline already passed is dead (delivered-late ticks
+	// self-drop on the gen check), so fall through and re-arm — this is what
+	// lets the chain recover if a panic ever dropped the delivered tick.
+	if tab.cursorRefreshPending && !tab.cursorRefreshAt.IsZero() &&
+		tab.cursorRefreshAt.After(now) && !due.Before(tab.cursorRefreshAt) {
 		return nil
 	}
 
