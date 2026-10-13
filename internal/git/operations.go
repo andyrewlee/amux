@@ -48,13 +48,14 @@ var allowRepoGitHooks = os.Getenv("AMUX_ALLOW_GIT_HOOKS") == "1"
 const noHooksPath = "/dev/null"
 
 // hardenedGitArgs prepends config flags that neutralize repo-controlled code
-// execution on exactly three vectors: post-checkout/pre-* hooks
+// execution on five vectors: post-checkout/pre-* hooks
 // (core.hooksPath), core.fsmonitor, and gpg-signing on commit
-// (commit.gpgsign, which would otherwise run a repo-configured
-// gpg.program). amux runs git in repositories it does not control, and a
+// (commit.gpgsign), merge (merge.verifySignatures), and tag
+// (tag.gpgSign) — each signing key would otherwise run a repo-configured
+// gpg.program. amux runs git in repositories it does not control, and a
 // repo delivered with a populated .git (hooks, core.fsmonitor, or
-// commit.gpgsign+gpg.program in .git/config) must not auto-run its code just
-// because amux touched it. It is a no-op when the user opted in via
+// signing config in .git/config plus signed commits) must not auto-run its
+// code just because amux touched it. It is a no-op when the user opted in via
 // AMUX_ALLOW_GIT_HOOKS=1 — opting into repo hooks is opting into repo trust,
 // so signing is restored too.
 //
@@ -74,11 +75,15 @@ func hardenedGitArgs(args []string) []string {
 	// core.hooksPath points git's hook lookup at noHooksPath so no repo hook is
 	// found or run; core.fsmonitor=false disables any repo-configured fsmonitor
 	// program; commit.gpgsign=false stops `git commit` from invoking a
-	// repo-configured gpg.program.
+	// repo-configured gpg.program, and merge.verifySignatures/tag.gpgSign close
+	// the same gpg.program channel on `git merge`/`git tag` (a bundled repo can
+	// ship both the config keys and the signed commits that trigger them).
 	prefix := []string{
 		"-c", "core.hooksPath=" + noHooksPath,
 		"-c", "core.fsmonitor=false",
 		"-c", "commit.gpgsign=false",
+		"-c", "merge.verifySignatures=false",
+		"-c", "tag.gpgSign=false",
 	}
 	return append(prefix, args...)
 }
@@ -384,6 +389,27 @@ func filteredGitEnv() []string {
 	return env
 }
 
+// isGitProcessEnv reports whether an env entry is git-process state that a
+// child git must not inherit. Two families are stripped:
+//
+//   - Repository-discovery vars (GIT_DIR and friends): a parent git process
+//     (a hook, a `git -c` wrapper) sets them to point at ITS repo, which
+//     would redirect every amux git call away from the target worktree.
+//   - Config-injection vars (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT +
+//     GIT_CONFIG_KEY_*/GIT_CONFIG_VALUE_*, GIT_CONFIG, GIT_CONFIG_GLOBAL,
+//     GIT_CONFIG_SYSTEM, GIT_CONFIG_NOSYSTEM): these carry the same config
+//     surface hardenedGitArgs locks down via -c flags — an env-carried
+//     merge.verifySignatures or core.sshCommand would bypass the argv
+//     hardening entirely. The namespace/quarantine/template/attr-source/
+//     external-diff/editor vars are stripped for the same reason: they only
+//     exist when a parent git process is mid-operation.
+//
+// Deliberately KEPT (documented, do not strip without a migration):
+// GIT_SSH_COMMAND, GIT_SSH, GIT_ASKPASS (user SSH/agent config for remotes),
+// GIT_AUTHOR_*/GIT_COMMITTER_*/GIT_*_DATE (commit identity — CommitAll sets
+// no author itself, so stripping these would change attribution for users
+// who rely on env identity), and GIT_OPTIONAL_LOCKS/GIT_INDEX_VERSION
+// (legitimate user index tuning).
 func isGitProcessEnv(kv string) bool {
 	key, _, ok := strings.Cut(kv, "=")
 	if !ok {
@@ -397,9 +423,23 @@ func isGitProcessEnv(kv string) bool {
 		"GIT_OBJECT_DIRECTORY",
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
 		"GIT_CEILING_DIRECTORIES",
-		"GIT_DISCOVERY_ACROSS_FILESYSTEM":
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM",
+		"GIT_CONFIG_PARAMETERS",
+		"GIT_CONFIG",
+		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_GLOBAL",
+		"GIT_CONFIG_SYSTEM",
+		"GIT_CONFIG_NOSYSTEM",
+		"GIT_NAMESPACE",
+		"GIT_TEMPLATE_DIR",
+		"GIT_QUARANTINE_PATH",
+		"GIT_ATTR_SOURCE",
+		"GIT_EXTERNAL_DIFF",
+		"GIT_EDITOR",
+		"GIT_PREFIX":
 		return true
 	default:
-		return false
+		return strings.HasPrefix(key, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(key, "GIT_CONFIG_VALUE_")
 	}
 }

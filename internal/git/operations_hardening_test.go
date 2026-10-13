@@ -31,6 +31,8 @@ func TestHardenedGitArgs(t *testing.T) {
 			"-c", "core.hooksPath=/dev/null",
 			"-c", "core.fsmonitor=false",
 			"-c", "commit.gpgsign=false",
+			"-c", "merge.verifySignatures=false",
+			"-c", "tag.gpgSign=false",
 			"status", "--porcelain",
 		}
 		if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
@@ -274,4 +276,101 @@ func TestInternalGitCommitDoesNotRunRepoGpgProgram(t *testing.T) {
 			t.Fatalf("expected repo gpg.program to run under opt-in; sentinel stat err = %v", err)
 		}
 	})
+}
+
+func TestFilteredGitEnvDropsGitProcessEnv(t *testing.T) {
+	denied := []string{
+		"GIT_DIR",
+		"GIT_WORK_TREE",
+		"GIT_INDEX_FILE",
+		"GIT_COMMON_DIR",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM",
+		// Config-injection family: a parent git process (hook, `git -c`
+		// wrapper) exports these to propagate config into children — they
+		// would bypass the argv hardening entirely.
+		"GIT_CONFIG_PARAMETERS",
+		"GIT_CONFIG",
+		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_GLOBAL",
+		"GIT_CONFIG_SYSTEM",
+		"GIT_CONFIG_NOSYSTEM",
+		"GIT_CONFIG_KEY_0",
+		"GIT_CONFIG_VALUE_0",
+		"GIT_NAMESPACE",
+		"GIT_TEMPLATE_DIR",
+		"GIT_QUARANTINE_PATH",
+		"GIT_ATTR_SOURCE",
+		"GIT_EXTERNAL_DIFF",
+		"GIT_EDITOR",
+		"GIT_PREFIX",
+	}
+	for _, key := range denied {
+		t.Setenv(key, "poison")
+	}
+	// Deliberately kept user vars: SSH/agent config for remotes and commit
+	// identity (CommitAll sets no author itself — stripping these would
+	// change attribution for users relying on env identity).
+	kept := []string{
+		"GIT_SSH_COMMAND",
+		"GIT_SSH",
+		"GIT_ASKPASS",
+		"GIT_AUTHOR_NAME",
+		"GIT_COMMITTER_EMAIL",
+		"GIT_OPTIONAL_LOCKS",
+		"GIT_INDEX_VERSION",
+		"AMUX_FILTERED_GIT_ENV_KEEP",
+	}
+	for _, key := range kept {
+		t.Setenv(key, "keep")
+	}
+
+	env := envMap(filteredGitEnv())
+	for _, key := range denied {
+		if _, ok := env[key]; ok {
+			t.Fatalf("filteredGitEnv kept %s", key)
+		}
+	}
+	for _, key := range kept {
+		if got := env[key]; got != "keep" {
+			t.Fatalf("filteredGitEnv dropped %s, got %q", key, got)
+		}
+	}
+}
+
+func TestRunGitCtxIgnoresParentGitEnv(t *testing.T) {
+	skipIfNoGit(t)
+
+	repo := initRepo(t)
+	poisonDir := t.TempDir()
+	for _, key := range []string{
+		"GIT_DIR",
+		"GIT_WORK_TREE",
+		"GIT_INDEX_FILE",
+		"GIT_COMMON_DIR",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM",
+	} {
+		t.Setenv(key, poisonDir)
+	}
+
+	got, err := RunGitCtx(context.Background(), repo, "rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Fatalf("RunGitCtx() error = %v", err)
+	}
+	gotPath, err := filepath.EvalSymlinks(got)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(got) error = %v", err)
+	}
+	wantPath, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(repo) error = %v", err)
+	}
+	if gotPath != wantPath {
+		t.Fatalf("RunGitCtx() = %q, want %q", gotPath, wantPath)
+	}
 }
