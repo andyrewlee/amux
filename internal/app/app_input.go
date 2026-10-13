@@ -30,6 +30,7 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 			logging.Error("panic in app.Update (msg=%T, workspace=%s): %v\n%s", msg, wsID, r, debug.Stack())
 			a.err = fmt.Errorf("internal error: %v", r)
 			a.renderCache.frame.invalidate()
+			a.resetAdvisoryLatchesAfterPanic()
 			model = a
 			// Periodic handlers re-arm their chain only in tail position, so
 			// the panic discarded that arm — restart the chain this msg
