@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -124,6 +125,13 @@ func (a *App) canPublishTmuxActivitySnapshot(opts tmux.Options, epoch int64, now
 }
 
 func (a *App) publishTmuxActivitySnapshot(opts tmux.Options, active map[string]bool, states map[string]activity.AgentState, epoch int64, now time.Time) error {
+	// Renew once more before the write: the scan-start renewal can expire
+	// during a slow scan (TTL 7s); refreshing here narrows the takeover window
+	// to this call's latency. Best-effort — a failed renew does not block the
+	// publish; the owner/epoch validation below still decides correctness.
+	if err := activity.RenewOwnerLeaseHeartbeat(opts, now); err != nil {
+		logging.Warn("activity lease pre-publish heartbeat renew failed: %v", err)
+	}
 	if err := tmux.SetGlobalOptionValue(activity.SnapshotOption, activity.EncodeSnapshotWithStates(active, states, epoch, now), opts); err != nil {
 		return err
 	}
