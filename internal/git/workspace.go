@@ -287,7 +287,7 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveCommandTimeout())
 	defer cancel()
-	_, err = runGitCtx(ctx, repoPath, "worktree", "remove", workspacePath, "--force")
+	_, err = runGitCtx(ctx, repoPath, "worktree", "remove", "--force", "--", workspacePath)
 	if err != nil {
 		if isGitContextError(err) {
 			recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
@@ -366,6 +366,23 @@ func DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error) {
 	}
 
 	return parseWorktreeList(output, project.Path), nil
+}
+
+// worktreeListPaths returns the literal path payload of every "worktree "
+// record in `git worktree list --porcelain` output. A path may legally begin
+// or end with spaces, so only the line terminator is stripped — never the
+// line itself. Readers that only need paths (worktree registration checks)
+// must use this shared extraction so they classify identically with
+// parseWorktreeList's literal-byte discipline.
+func worktreeListPaths(output string) []string {
+	var paths []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.HasPrefix(line, "worktree ") {
+			paths = append(paths, strings.TrimPrefix(line, "worktree "))
+		}
+	}
+	return paths
 }
 
 // parseWorktreeList parses the output of `git worktree list --porcelain`

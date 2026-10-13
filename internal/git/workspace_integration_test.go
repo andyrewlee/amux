@@ -155,11 +155,12 @@ func TestRemoveWorkspaceTimeoutFallsBackToPrune(t *testing.T) {
 	removeCalls := 0
 	runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
 		if dir == repo &&
-			len(args) == 4 &&
+			len(args) == 5 &&
 			args[0] == "worktree" &&
 			args[1] == "remove" &&
-			args[2] == workspacePath &&
-			args[3] == "--force" {
+			args[2] == "--force" &&
+			args[3] == "--" &&
+			args[4] == workspacePath {
 			removeCalls++
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), context.DeadlineExceeded)
 		}
@@ -203,11 +204,12 @@ func TestRemoveWorkspaceTimeoutWithMissingGitDirStillPrunes(t *testing.T) {
 	removeCalls := 0
 	runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
 		if dir == repo &&
-			len(args) == 4 &&
+			len(args) == 5 &&
 			args[0] == "worktree" &&
 			args[1] == "remove" &&
-			args[2] == workspacePath &&
-			args[3] == "--force" {
+			args[2] == "--force" &&
+			args[3] == "--" &&
+			args[4] == workspacePath {
 			removeCalls++
 			if err := os.RemoveAll(workspacePath); err != nil {
 				t.Fatalf("RemoveAll(workspacePath) error = %v", err)

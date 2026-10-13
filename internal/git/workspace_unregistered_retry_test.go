@@ -36,7 +36,7 @@ func TestRemoveWorkspaceRetriesUnregisteredLeftoverAfterMarkerWriteFailure(t *te
 				return "worktree " + workspacePath, nil
 			}
 			return "", nil
-		case "worktree remove " + workspacePath + " --force":
+		case "worktree remove --force -- " + workspacePath:
 			return "", errors.New("leftover cleanup required")
 		default:
 			t.Fatalf("unexpected git args %q", strings.Join(args, " "))
@@ -150,7 +150,7 @@ func TestRemoveWorkspaceRetriesTimeoutCleanupAfterMarkerWriteFailure(t *testing.
 				return "worktree " + workspacePath, nil
 			}
 			return "", nil
-		case "worktree remove " + workspacePath + " --force":
+		case "worktree remove --force -- " + workspacePath:
 			if err := os.Remove(gitFile); err != nil && !os.IsNotExist(err) {
 				t.Fatalf("Remove(.git) error = %v", err)
 			}

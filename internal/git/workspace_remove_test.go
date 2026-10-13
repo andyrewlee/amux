@@ -106,7 +106,7 @@ func TestRemoveWorkspaceTimeoutPersistsHiddenCleanupAndRetriesDirectly(t *testin
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
-		case "worktree remove " + workspacePath + " --force":
+		case "worktree remove --force -- " + workspacePath:
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), context.DeadlineExceeded)
 		default:
 			t.Fatalf("unexpected git args %q", strings.Join(args, " "))
@@ -210,7 +210,7 @@ func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *test
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
-		case "worktree remove " + workspacePath + " --force":
+		case "worktree remove --force -- " + workspacePath:
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), context.DeadlineExceeded)
 		default:
 			t.Fatalf("unexpected git args %q", strings.Join(args, " "))

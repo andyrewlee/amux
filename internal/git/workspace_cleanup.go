@@ -200,13 +200,9 @@ func isRegisteredWorktreeCtx(ctx context.Context, repoPath, workspacePath string
 		return false, err
 	}
 	expectedPaths := comparablePathSet(workspacePath)
-	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "worktree ") {
-			wtPath := strings.TrimPrefix(trimmed, "worktree ")
-			if pathSetContains(expectedPaths, wtPath) {
-				return true, nil
-			}
+	for _, wtPath := range worktreeListPaths(output) {
+		if pathSetContains(expectedPaths, wtPath) {
+			return true, nil
 		}
 	}
 	return false, nil

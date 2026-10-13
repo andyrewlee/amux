@@ -87,32 +87,12 @@ func isSafeProjectPathSegment(segment string) bool {
 	return !strings.ContainsAny(segment, "/\\")
 }
 
-// isManagedWorkspacePathForProject returns true if path is within the managed
-// project roots under workspacesRoot. An empty path is never managed, in every
-// mode. An empty workspacesRoot is the legacy/no-managed-root mode (config
-// always populates it in production; tests pass "" to disable scoping) and
-// treats every non-empty path as managed — destructive flows must prefer the
-// strict isManagedWorkspaceChildPathForProject, which fails closed on empty
-// workspacesRoot instead.
-func isManagedWorkspacePathForProject(workspacesRoot string, project *data.Project, path string) bool {
-	if strings.TrimSpace(path) == "" {
-		return false
-	}
-	root := strings.TrimSpace(workspacesRoot)
-	if root == "" {
-		return true
-	}
-	roots := managedProjectRoots(workspacesRoot, project)
-	if len(roots) == 0 {
-		return false
-	}
-	return pathWithinAliases(roots, workspacePathAliases(path))
-}
-
-// isManagedWorkspaceChildPathForProject returns true only when path is strictly
-// nested beneath a managed project root. Destructive stale-cleanup flows should
-// prefer this over isManagedWorkspacePathForProject so the project root itself
-// cannot be recursively deleted.
+// isManagedWorkspaceChildPathForProject returns true only when path is an
+// immediate child of a managed project root. Destructive flows MUST use this:
+// amux creates workspaces only at filepath.Join(projectRoot, name), so the
+// project root itself and any deeper descendant are both untrusted — a forged
+// `git worktree list` entry naming either must never reach a
+// delete/shelve/staging path. Fails closed on empty workspacesRoot.
 func isManagedWorkspaceChildPathForProject(workspacesRoot string, project *data.Project, path string) bool {
 	root := strings.TrimSpace(workspacesRoot)
 	if root == "" {
@@ -125,5 +105,5 @@ func isManagedWorkspaceChildPathForProject(workspacesRoot string, project *data.
 	if strings.TrimSpace(path) == "" {
 		return false
 	}
-	return pathWithinAliasesStrict(roots, workspacePathAliases(path))
+	return pathWithinAliasesImmediateChild(roots, workspacePathAliases(path))
 }

@@ -409,7 +409,7 @@ func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
-		case "worktree remove " + workspacePath + " --force":
+		case "worktree remove --force -- " + workspacePath:
 			deadline, ok := ctx.Deadline()
 			if !ok {
 				t.Fatal("expected remove context to have a deadline")

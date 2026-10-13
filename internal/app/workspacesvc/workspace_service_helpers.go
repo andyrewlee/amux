@@ -64,7 +64,7 @@ func (s *Service) rollbackWorkspaceCreation(
 	defer unlock()
 
 	if err := s.gitOps.RemoveWorkspace(repoPath, workspacePath); err != nil {
-		if git.IsUnregisteredWorkspacePathError(err) && isManagedWorkspacePathForProject(s.workspacesRoot, project, workspacePath) {
+		if git.IsUnregisteredWorkspacePathError(err) && isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, workspacePath) {
 			cleanupErr := cleanupStaleWorkspacePath(workspacePath)
 			if cleanupErr == nil {
 				goto branchCleanup

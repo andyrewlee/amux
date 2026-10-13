@@ -63,116 +63,6 @@ func TestIsPathWithin(t *testing.T) {
 	}
 }
 
-func TestIsManagedWorkspacePathForProject(t *testing.T) {
-	tests := []struct {
-		name           string
-		workspacesRoot string
-		project        *data.Project
-		path           string
-		want           bool
-	}{
-		{
-			name:           "within root",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/tmp/workspaces/repo/feature",
-			want:           true,
-		},
-		{
-			name:           "outside root",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/tmp/other/repo/feature",
-			want:           false,
-		},
-		{
-			name:           "within root via project path basename alias",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo-link", Path: "/tmp/repo-real"},
-			path:           "/tmp/workspaces/repo-real/feature",
-			want:           true,
-		},
-		{
-			name:           "empty workspacesRoot legacy",
-			workspacesRoot: "",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/anywhere/feature",
-			want:           true,
-		},
-		{
-			name:           "empty path still rejected in legacy mode",
-			workspacesRoot: "",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "",
-			want:           false,
-		},
-		{
-			name:           "nil project",
-			workspacesRoot: "/tmp/workspaces",
-			project:        nil,
-			path:           "/tmp/workspaces/repo/feature",
-			want:           false,
-		},
-		{
-			name:           "empty path",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "",
-			want:           false,
-		},
-		{
-			name:           "whitespace path",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "   ",
-			want:           false,
-		},
-		{
-			name:           "project root itself is not a managed child",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/tmp/repo",
-			want:           false,
-		},
-		{
-			name:           "sibling directory sharing root prefix",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/tmp/workspacesX/repo/feature",
-			want:           false,
-		},
-		{
-			name:           "sibling project segment sharing name prefix",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/tmp/workspaces/repoX/feature",
-			want:           false,
-		},
-		{
-			name:           "managed project root itself is within (non-strict)",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/tmp/workspaces/repo",
-			want:           true,
-		},
-		{
-			name:           "dotdot escape out of managed root",
-			workspacesRoot: "/tmp/workspaces",
-			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
-			path:           "/tmp/workspaces/repo/../escape",
-			want:           false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isManagedWorkspacePathForProject(tt.workspacesRoot, tt.project, tt.path)
-			if got != tt.want {
-				t.Fatalf("got %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestIsManagedWorkspaceChildPathForProject(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -196,6 +86,27 @@ func TestIsManagedWorkspaceChildPathForProject(t *testing.T) {
 			want:           false,
 		},
 		{
+			name:           "deep descendant inside live workspace",
+			workspacesRoot: "/tmp/workspaces",
+			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
+			path:           "/tmp/workspaces/repo/feature/src",
+			want:           false,
+		},
+		{
+			name:           "deep descendant via project path basename alias",
+			workspacesRoot: "/tmp/workspaces",
+			project:        &data.Project{Name: "repo-link", Path: "/tmp/repo-real"},
+			path:           "/tmp/workspaces/repo-real/feature/src",
+			want:           false,
+		},
+		{
+			name:           "child via project path basename alias",
+			workspacesRoot: "/tmp/workspaces",
+			project:        &data.Project{Name: "repo-link", Path: "/tmp/repo-real"},
+			path:           "/tmp/workspaces/repo-real/feature",
+			want:           true,
+		},
+		{
 			name:           "legacy root disabled for destructive cleanup",
 			workspacesRoot: "",
 			project:        &data.Project{Name: "repo", Path: "/tmp/repo"},
@@ -217,5 +128,80 @@ func TestIsManagedWorkspaceChildPathForProject(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestShouldSurfaceWorkspace_ForgedWorktreePaths proves a forged
+// `git worktree list` entry — the delivery vector is a bundled .git shipping
+// its own .git/worktrees admin dirs — can never become a surfaced row: the
+// project root itself and any subpath of a live workspace are rejected,
+// while a legitimate direct-child worktree still surfaces.
+func TestShouldSurfaceWorkspace_ForgedWorktreePaths(t *testing.T) {
+	svc := New(nil, nil, nil, "/tmp/workspaces")
+	projectPath := "/tmp/repo"
+
+	cases := []struct {
+		name string
+		ws   *data.Workspace
+		want bool
+	}{
+		{
+			name: "legitimate direct child",
+			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repo/feature"},
+			want: true,
+		},
+		{
+			// Flat depth-1 worktrees under the managed root are legitimate:
+			// git-discovered worktrees can live outside any project segment.
+			name: "flat child of managed root",
+			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/feature"},
+			want: true,
+		},
+		{
+			name: "forged project root entry",
+			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repo"},
+			want: false,
+		},
+		{
+			name: "forged subdirectory of a live workspace",
+			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repo/feature/src"},
+			want: false,
+		},
+		{
+			// Depth-2 under a different segment still surfaces (the record's
+			// Repo matched this project) — but the stricter per-project gate
+			// on destructive paths means it cannot be deleted through it.
+			name: "cross-segment grandchild surfaces",
+			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repoX/feature"},
+			want: true,
+		},
+		{
+			name: "forged path outside managed root",
+			ws:   &data.Workspace{Repo: projectPath, Root: "/home/user/important"},
+			want: false,
+		},
+		{
+			name: "empty root",
+			ws:   &data.Workspace{Repo: projectPath, Root: ""},
+			want: false,
+		},
+		{
+			name: "nil workspace",
+			ws:   nil,
+			want: false,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := svc.shouldSurfaceWorkspace(projectPath, tt.ws); got != tt.want {
+				t.Fatalf("shouldSurfaceWorkspace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// The primary checkout is exempt — it never lives under the managed root.
+	primary := &data.Workspace{Repo: projectPath, Root: projectPath}
+	if !svc.shouldSurfaceWorkspace(projectPath, primary) {
+		t.Fatal("primary checkout should always surface")
 	}
 }

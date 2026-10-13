@@ -10,28 +10,53 @@ import (
 )
 
 // shouldSurfaceWorkspace returns true for workspaces managed by amux for this
-// project and for the primary checkout.
-func (s *Service) shouldSurfaceWorkspace(_ string, ws *data.Workspace) bool {
+// project and for the primary checkout. Managed workspaces live under the
+// managed root — either <root>/<project>/<name> or, for git-discovered
+// worktrees, flat <root>/<name>. Forged `git worktree
+// list` entries (a bundled .git ships its own admin dirs) that name the
+// managed root, a project container, or a deep descendant are rejected so
+// they can never become a plausible-looking row the user might delete.
+func (s *Service) shouldSurfaceWorkspace(path string, ws *data.Workspace) bool {
 	if ws == nil {
 		return false
 	}
 	if ws.IsPrimaryCheckout() {
 		return true
 	}
-	managedRoot := s.managedProjectRoot()
+	// Reject the shapes a forged `git worktree list` entry could weaponize:
+	// the managed root itself, this project's container directories
+	// (<root>/<name> and <root>/<path-basename>), and any descendant deeper
+	// than <root>/<segment>/<leaf> (e.g. a subdirectory inside a live
+	// workspace). Flat <root>/<leaf> paths keep surfacing — git-discovered
+	// worktrees can legitimately live there — because destructive flows
+	// re-validate against the stricter per-project gate
+	// (isManagedWorkspaceChildPathForProject) and cannot delete them.
+	managedRoot := lexicalWorkspacePath(s.workspacesRoot)
 	wsRoot := lexicalWorkspacePath(ws.Root)
 	if managedRoot == "" || wsRoot == "" {
 		return false
 	}
-	return pathWithinAliases(workspacePathAliases(managedRoot), workspacePathAliases(wsRoot))
-}
-
-func (s *Service) managedProjectRoot() string {
-	base := strings.TrimSpace(s.workspacesRoot)
-	if base == "" {
-		return ""
+	inside := false
+	for _, base := range workspacePathAliases(managedRoot) {
+		for _, target := range workspacePathAliases(wsRoot) {
+			rel, ok := data.PathWithin(base, target)
+			// Reject the root itself and anything deeper than a grandchild.
+			if ok && rel != "." && filepath.Dir(filepath.Dir(rel)) == "." {
+				inside = true
+			}
+		}
 	}
-	return lexicalWorkspacePath(base)
+	if !inside {
+		return false
+	}
+	for _, container := range managedProjectRoots(managedRoot, data.NewProject(path)) {
+		for _, target := range workspacePathAliases(wsRoot) {
+			if rel, ok := data.PathWithin(container, target); ok && rel == "." {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *Service) pendingProjectRoot(project *data.Project) string {
@@ -97,13 +122,6 @@ func lexicalWorkspacePath(path string) string {
 	return cleaned
 }
 
-// pathWithin reports whether target is inside base, including base itself.
-// Contract: inclusive (rel == "." counts), lexical only, fail-closed.
-func pathWithin(base, target string) bool {
-	_, inside := data.PathWithin(base, target)
-	return inside
-}
-
 // pathWithinStrict reports whether target is strictly nested under base —
 // the base itself does not count. Use for destructive checks so a root can
 // never satisfy its own containment check.
@@ -111,10 +129,20 @@ func pathWithinStrict(base, target string) bool {
 	return data.PathStrictlyWithin(base, target)
 }
 
-func pathWithinAliases(baseAliases, targetAliases []string) bool {
+// pathWithinImmediateChild reports whether target is an immediate child of
+// base — strictly nested with exactly one path segment between them.
+// Destructive workspace checks use this form: amux creates workspaces only
+// as direct children of the managed project root, so a deeper descendant is
+// as untrusted as the root itself.
+func pathWithinImmediateChild(base, target string) bool {
+	rel, inside := data.PathWithin(base, target)
+	return inside && rel != "." && filepath.Dir(rel) == "."
+}
+
+func pathWithinAliasesStrict(baseAliases, targetAliases []string) bool {
 	for _, base := range baseAliases {
 		for _, target := range targetAliases {
-			if pathWithin(base, target) {
+			if pathWithinStrict(base, target) {
 				return true
 			}
 		}
@@ -122,10 +150,10 @@ func pathWithinAliases(baseAliases, targetAliases []string) bool {
 	return false
 }
 
-func pathWithinAliasesStrict(baseAliases, targetAliases []string) bool {
+func pathWithinAliasesImmediateChild(baseAliases, targetAliases []string) bool {
 	for _, base := range baseAliases {
 		for _, target := range targetAliases {
-			if pathWithinStrict(base, target) {
+			if pathWithinImmediateChild(base, target) {
 				return true
 			}
 		}
