@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -66,5 +67,46 @@ func TestRunGitAllowFailureCtxMissingExecutable(t *testing.T) {
 	var execErr *exec.Error
 	if !errors.As(err, &execErr) && !errors.Is(err, exec.ErrNotFound) {
 		t.Fatalf("expected exec not-found cause, got %v", err)
+	}
+}
+
+// TestRunGitAllowFailureCtxExitZeroStderrIsSuccess pins the stderr gate: git
+// routinely warns on stderr while exiting 0 (unreadable ~/.gitconfig, stale
+// include.path, safe.directory chatter). A clean exit with stderr-only
+// output must return success — the pre-fix gate built an error from the
+// warning alone, refusing merges via liveMergeDrivers and erroring
+// GetUntrackedFileContent on machines that emit any routine warning.
+func TestRunGitAllowFailureCtxExitZeroStderrIsSuccess(t *testing.T) {
+	skipIfNoGit(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("shell alias is unix-specific")
+	}
+
+	repo := initRepo(t)
+	out, err := RunGitAllowFailureCtx(context.Background(), repo,
+		"-c", "alias.warn=!echo warning >&2", "warn")
+	if err != nil {
+		t.Fatalf("RunGitAllowFailureCtx() error = %v, want nil for exit-0 stderr warning", err)
+	}
+	if out != "" {
+		t.Fatalf("RunGitAllowFailureCtx() = %q, want empty stdout", out)
+	}
+}
+
+// TestRunGitAllowFailureCtxNonzeroExitStillErrorsOnStderr pins the other
+// half of the gate: a tolerated non-zero exit that produced only stderr is
+// still a real failure (e.g. `config --get-regexp` failing mid-parse), not a
+// silent empty result.
+func TestRunGitAllowFailureCtxNonzeroExitStillErrorsOnStderr(t *testing.T) {
+	skipIfNoGit(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("shell alias is unix-specific")
+	}
+
+	repo := initRepo(t)
+	_, err := RunGitAllowFailureCtx(context.Background(), repo,
+		"-c", "alias.fail=!echo failure >&2; exit 3", "fail")
+	if err == nil {
+		t.Fatal("RunGitAllowFailureCtx() error = nil, want error for non-zero exit with stderr")
 	}
 }
