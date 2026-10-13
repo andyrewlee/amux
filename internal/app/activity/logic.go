@@ -432,7 +432,7 @@ func capturePanesConcurrent(names []string, opts tmux.Options, captureFn Capture
 		go func() {
 			defer wg.Done()
 			for name := range jobs {
-				content, ok := captureFn(name, CaptureTail, opts)
+				content, ok := capturePaneSafe(captureFn, name, CaptureTail, opts)
 				mu.Lock()
 				results[name] = paneCaptureResult{content: content, ok: ok}
 				mu.Unlock()
