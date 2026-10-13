@@ -267,3 +267,44 @@ func TestActivityScan_ParallelCaptureFailureDecays(t *testing.T) {
 		}
 	}
 }
+
+// TestActivityScan_FallbackCapturePanicDegradesToFailure proves a panicking
+// captureFn inside the worker pool cannot crash the process: the panicking
+// session records a capture failure (decay/inactive) while sibling captures
+// complete normally. Before the recover wrap this panic escaped an
+// unprotected goroutine and killed the binary outright.
+func TestActivityScan_FallbackCapturePanicDegradesToFailure(t *testing.T) {
+	sessions := []TaggedSession{
+		taglessRunningSession("sess-panic", "ws-panic"),
+		taglessRunningSession("sess-ok", "ws-ok"),
+	}
+	info := map[string]SessionInfo{
+		"sess-panic": {WorkspaceID: "ws-panic", Status: "running"},
+		"sess-ok":    {WorkspaceID: "ws-ok", Status: "running"},
+	}
+	states := map[string]*SessionState{}
+
+	captureFn := func(name string, _ int, _ tmux.Options) (string, bool) {
+		if name == "sess-panic" {
+			panic("capture-pane exploded")
+		}
+		return "pane-" + name, true
+	}
+
+	// The call returning at all is the primary assertion.
+	active, updated, _ := ActiveWorkspaceIDsFromTagsWithRemoved(info, sessions, nil, states, tmux.Options{}, captureFn, tmux.ContentHash)
+
+	st := updated["sess-panic"]
+	if st == nil || st.Initialized || st.Score != 0 {
+		t.Fatalf("panicking session must record a capture failure, got %+v", st)
+	}
+	if active["ws-panic"] {
+		t.Fatalf("panicking session must not mark its workspace active")
+	}
+	if ok := updated["sess-ok"]; ok == nil || !ok.Initialized || ok.Score != ScoreThreshold {
+		t.Fatalf("healthy session must capture normally, got %+v", ok)
+	}
+	if !active["ws-ok"] {
+		t.Fatalf("healthy session's workspace must be active")
+	}
+}
