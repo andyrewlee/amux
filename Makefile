@@ -140,7 +140,7 @@ ci:
 ci-tmux-matrix:
 	bash scripts/ci_tmux_matrix.sh
 
-# fuzz runs the three fuzz targets for FUZZ_TIME each — without this gate the
+# fuzz runs the fuzz targets for FUZZ_TIME each — without this gate the
 # corpus never mutates (the seeds alone run inside `make test`). vterm is the
 # most fuzz-worthy surface in the repo: a hand-rolled stateful parser on
 # arbitrary PTY bytes. Part of ci-nightly; not devcheck/pre-push (soak-class).
@@ -149,6 +149,7 @@ fuzz:
 	go test -fuzz=FuzzANSIParser -fuzztime=$(FUZZ_TIME) ./internal/vterm
 	go test -fuzz=FuzzRenderInvariant -fuzztime=$(FUZZ_TIME) ./internal/vterm
 	go test -fuzz=FuzzParseStatusPorcelain -fuzztime=$(FUZZ_TIME) ./internal/git
+	go test -fuzz=FuzzParseWorktreeList -fuzztime=$(FUZZ_TIME) ./internal/git
 
 # ci-nightly mirrors the former nightly workflow: a full-tree race run plus
 # the soak workload. Heavy — for pre-landing confidence, not every commit.
