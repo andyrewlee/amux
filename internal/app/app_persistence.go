@@ -196,9 +196,10 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 	if len(snapshots) == 0 {
 		return nil
 	}
-	return func() tea.Msg {
-		var failedIDs []string
-		for _, snap := range snapshots {
+	var failedIDs []string
+	completed := 0
+	save := func() tea.Msg {
+		for i, snap := range snapshots {
 			_, err := a.persistOneTabSnapshot(snap)
 			if err != nil {
 				logging.Error("Failed to save workspace tabs: %v", err)
@@ -207,12 +208,29 @@ func (a *App) handlePersistDebounce(msg persistDebounceMsg) tea.Cmd {
 				// message so handlePersistSaveFailed can re-dirty safely.
 				failedIDs = append(failedIDs, snap.wsID)
 			}
+			// Advance only after the call returns: on a panic, completed is
+			// the panicking snapshot's index, so the fallback below marks
+			// exactly the panicking + unattempted snapshots failed —
+			// snapshots committed before the panic must not be re-dirtied.
+			completed = i + 1
 		}
 		if len(failedIDs) == 0 {
 			return nil
 		}
 		return persistSaveFailedMsg{workspaceIDs: failedIDs}
 	}
+	// The dirty markers were already cleared on the Update loop, so a panic
+	// mid-batch must still produce a typed failure — a generic producer-panic
+	// message would leave the cleared markers permanently dropped.
+	return panicAsMsg(save, func(err error) tea.Msg {
+		for _, snap := range snapshots[completed:] {
+			failedIDs = append(failedIDs, snap.wsID)
+		}
+		if len(failedIDs) == 0 {
+			return nil
+		}
+		return persistSaveFailedMsg{workspaceIDs: failedIDs}
+	})
 }
 
 // handlePersistSaveFailed re-marks workspaces dirty after their debounced save
