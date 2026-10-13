@@ -1,7 +1,6 @@
 package workspacesvc
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,14 +20,10 @@ func TestDeleteWorkspaceRejectsStaleCleanupForManagedProjectRoot(t *testing.T) {
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
 
+	removeCalls := 0
 	mock := &testutil.FakeGitOps{
 		RemoveWorkspaceFunc: func(repoPath, gotWorkspacePath string) error {
-			if repoPath != projectPath {
-				t.Fatalf("repoPath = %q, want %q", repoPath, projectPath)
-			}
-			if gotWorkspacePath != workspacePath {
-				t.Fatalf("workspacePath = %q, want %q", gotWorkspacePath, workspacePath)
-			}
+			removeCalls++
 			return git.ErrUnregisteredWorkspacePath
 		},
 	}
@@ -47,8 +42,11 @@ func TestDeleteWorkspaceRejectsStaleCleanupForManagedProjectRoot(t *testing.T) {
 	if failed.Err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(failed.Err, git.ErrUnregisteredWorkspacePath) {
-		t.Fatalf("expected unregistered workspace error, got %v", failed.Err)
+	// The strict managed-child gate must reject the managed project root
+	// before any git call — the path is the container of every workspace
+	// for this project, never a deletable workspace itself.
+	if removeCalls != 0 {
+		t.Fatalf("RemoveWorkspace calls = %d, want 0 (gate must reject before git)", removeCalls)
 	}
 	if _, err := os.Stat(workspacePath); err != nil {
 		t.Fatalf("expected managed project root to remain on disk, err=%v", err)

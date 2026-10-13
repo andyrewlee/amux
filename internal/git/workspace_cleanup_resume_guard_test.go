@@ -256,7 +256,7 @@ func TestRemoveWorkspaceTimeoutCancelsRetryFingerprintWithinRecoveryBudget(t *te
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
-		case "worktree remove " + workspacePath + " --force":
+		case "worktree remove --force -- " + workspacePath:
 			<-ctx.Done()
 			return "", errors.Join(context.DeadlineExceeded, ctx.Err())
 		default:

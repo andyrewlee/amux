@@ -87,7 +87,7 @@ func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea
 		if projectPath == "" || data.NormalizePath(ws.Repo) != projectPath {
 			return fail("validate_repo_match", fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path))
 		}
-		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
+		if !isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, ws.Root) {
 			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
 
@@ -206,7 +206,7 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		if projectPath == "" || data.NormalizePath(ws.Repo) != projectPath {
 			return fail("validate_repo_match", fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path))
 		}
-		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
+		if !isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, ws.Root) {
 			return fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 		}
 		branch := ws.Branch

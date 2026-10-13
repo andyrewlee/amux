@@ -37,7 +37,7 @@ func TestRemoveWorkspaceTimeoutReturnsPendingErrorWhenUnregisterRetryIsDeferred(
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
-		case "worktree remove " + workspacePath + " --force":
+		case "worktree remove --force -- " + workspacePath:
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), context.DeadlineExceeded)
 		case "rev-parse --git-common-dir":
 			return "", errWorkspaceCleanupRepoUnavailable

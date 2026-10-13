@@ -145,7 +145,7 @@ func (s *Service) CreateWorkspace(project *data.Project, name, base string, assi
 		}
 		ws.Assistant = selectedAssistant
 
-		if !isManagedWorkspacePathForProject(s.workspacesRoot, project, workspacePath) {
+		if !isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, workspacePath) {
 			return messages.WorkspaceCreateFailed{
 				Workspace: ws,
 				Err:       fmt.Errorf("workspace path %s is outside managed project root", workspacePath),
@@ -369,7 +369,7 @@ func (s *Service) validateWorkspaceDeleteInputs(
 		)
 	}
 
-	if !isManagedWorkspacePathForProject(s.workspacesRoot, project, ws.Root) {
+	if !isManagedWorkspaceChildPathForProject(s.workspacesRoot, project, ws.Root) {
 		return "", fail("validate_managed_root", fmt.Errorf("workspace root %s is outside managed project root", ws.Root))
 	}
 	return projectPath, nil
