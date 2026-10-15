@@ -12,6 +12,12 @@ package app
 // mark anyway — a false clear at worst allows one duplicate read
 // (idempotent). The asymmetry is deliberate: a duplicate refresh is cheap;
 // a permanently frozen indicator is not.
+//
+// Overlap caveat: clearing scanInFlight while a scan genuinely runs
+// permits a second concurrent scan — tolerable ONLY because missBySession
+// is mutex-guarded (tmuxActivityState.missMu). Never add another
+// goroutine-side mutable field to the scan path without the same
+// protection.
 func (a *App) resetAdvisoryLatchesAfterPanic() {
 	clear(a.gitStatusInFlight)
 	a.runScriptStatusInFlight = false

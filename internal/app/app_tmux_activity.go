@@ -367,6 +367,8 @@ func (a *App) fetchAndSyncActivitySessionStates(
 		return nil, nil, nil, err
 	}
 	// Mutates infoBySession so IsRunningSession sees corrected statuses.
+	a.tmuxActivity.missMu.Lock()
+	defer a.tmuxActivity.missMu.Unlock()
 	if a.tmuxActivity.missBySession == nil {
 		a.tmuxActivity.missBySession = make(map[string]int)
 	}
