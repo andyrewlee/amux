@@ -13,6 +13,7 @@
 # inside app) lives in `make test-race-tmux` —
 # keep any new real-tmux package in BOTH the default and --exclude-app sets.
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
 filter='/internal/(tmux|e2e|pty|ui/sidebar)(/.*)?$'
 case "${1:-}" in
@@ -26,5 +27,9 @@ case "${1:-}" in
 		exit 2
 		;;
 esac
+if [[ $# -gt 1 ]]; then
+	echo "usage: $0 [--exclude-app]" >&2
+	exit 2
+fi
 
 go list ./... | grep -v -E "$filter"
