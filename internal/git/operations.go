@@ -63,11 +63,14 @@ const noHooksPath = "/dev/null"
 // on conflicting attributed files — they cannot be flag-neutralized because
 // driver names are arbitrary, so MergeWorkspaceBranch enumerates configured
 // drivers and refuses when the target tree attributes any of them (see
-// merge.go). NOT neutralized: repo .gitattributes clean/smudge/process
-// filter drivers and diff textconv/external-diff drivers named in-tree.
-// Diff/browse read paths pass --no-ext-diff/--no-textconv per call site
-// instead (see diff.go); there is no single git-wide flag to disable all
-// attribute-driven filter drivers, so that vector is a documented residual.
+// merge.go). Filter drivers (filter.<name>.clean/smudge/process, repo
+// .gitattributes clean/smudge/process named in-tree) get the same
+// enumeration+refusal treatment at every mutation-capable call site —
+// worktree add, add -A, merge (see filter_drivers.go); only repo-LOCAL
+// config is enumerated, so the user's own global lfs install is unaffected.
+// NOT neutralized: diff textconv/external-diff drivers named in-tree —
+// diff/browse read paths pass --no-ext-diff/--no-textconv per call site
+// instead (see diff.go).
 func hardenedGitArgs(args []string) []string {
 	if allowRepoGitHooks {
 		return args

@@ -12,6 +12,7 @@ import (
 // expires (a checkout killed by the timeout) and records all other git calls.
 func stubTimedOutWorktreeAdd(t *testing.T, failFirstAddWith error) *[]string {
 	t.Helper()
+	stubFilterDriverGate(t)
 	origRunGitCtx, origAddTimeout := runGitCtx, worktreeAddTimeout
 	t.Cleanup(func() { runGitCtx, worktreeAddTimeout = origRunGitCtx, origAddTimeout })
 	worktreeAddTimeout = 10 * time.Millisecond

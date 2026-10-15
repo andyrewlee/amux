@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"os/exec"
 	"testing"
 
@@ -30,4 +31,14 @@ func initRepo(t *testing.T) string {
 // tests that need a default branch whose name is not a plain identifier.
 func initRepoWithBranch(t *testing.T, branch string) string {
 	return testutil.InitRepoWithBranch(t, branch)
+}
+
+// stubFilterDriverGate stands down the mutation-site filter-driver refusal —
+// tests that fake runGitCtx must call it, since the gate execs git directly
+// for its enumeration and would otherwise escape the fake.
+func stubFilterDriverGate(t *testing.T) {
+	t.Helper()
+	prev := filterDriverGate
+	filterDriverGate = func(context.Context, string, string) error { return nil }
+	t.Cleanup(func() { filterDriverGate = prev })
 }
