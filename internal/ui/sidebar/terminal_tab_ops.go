@@ -8,6 +8,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -108,7 +109,6 @@ func (m *TerminalModel) CloseActiveTab() tea.Cmd {
 // reassign these.
 var (
 	closeSessionHasClientsFn = tmux.SessionHasClients
-	closeKillSessionFn       = tmux.KillSession
 	closeSessionSleep        = time.Sleep
 	closeSessionPollDeadline = 1200 * time.Millisecond
 )
@@ -125,7 +125,7 @@ func closeSessionIfUnattached(sessionName string, opts tmux.Options) tea.Cmd {
 				return nil
 			}
 			if !hasClients {
-				if err := closeKillSessionFn(sessionName, opts); err != nil {
+				if err := ptyio.KillSessionFn(sessionName, opts); err != nil {
 					// Background cleanup after close — the user already
 					// detached, so Warn (not Error), but the leak must not be
 					// invisible.

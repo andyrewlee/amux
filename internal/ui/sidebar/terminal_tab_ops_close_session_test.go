@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // swapCloseSessionSeams installs fakes for closeSessionIfUnattached's seam
@@ -22,17 +23,17 @@ import (
 func swapCloseSessionSeams(t *testing.T, hasClients func(string, tmux.Options) (bool, error), kill func(string, tmux.Options) error) {
 	t.Helper()
 	prevHasClients := closeSessionHasClientsFn
-	prevKill := closeKillSessionFn
+	prevKill := ptyio.KillSessionFn
 	prevSleep := closeSessionSleep
 	prevDeadline := closeSessionPollDeadline
 	t.Cleanup(func() {
 		closeSessionHasClientsFn = prevHasClients
-		closeKillSessionFn = prevKill
+		ptyio.KillSessionFn = prevKill
 		closeSessionSleep = prevSleep
 		closeSessionPollDeadline = prevDeadline
 	})
 	closeSessionHasClientsFn = hasClients
-	closeKillSessionFn = kill
+	ptyio.KillSessionFn = kill
 	closeSessionSleep = func(time.Duration) {}
 	closeSessionPollDeadline = 0
 }

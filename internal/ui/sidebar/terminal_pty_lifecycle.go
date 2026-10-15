@@ -143,7 +143,7 @@ func (m *TerminalModel) StartPTYReaders() tea.Cmd {
 			if tab == nil {
 				continue
 			}
-			if ts := tab.State; ts != nil && ts.State.ReaderStalled(&ts.mu, ptyReaderStallTimeout) {
+			if ts := tab.State; ts != nil && ts.State.ReaderStalled(&ts.mu, ptyio.PtyReaderStallTimeout) {
 				logging.Warn("Sidebar PTY reader stalled for workspace %s tab %s; restarting", wsID, tab.ID)
 				m.stopPTYReader(ts)
 			}

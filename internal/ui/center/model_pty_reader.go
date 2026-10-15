@@ -9,7 +9,7 @@ import (
 )
 
 func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration) {
-	quiet := ptyFlushQuiet
+	quiet := ptyio.PtyFlushQuiet
 	maxInterval := ptyFlushMaxInterval
 
 	// Snapshot terminal state under lock, then release before the load-sampling call.

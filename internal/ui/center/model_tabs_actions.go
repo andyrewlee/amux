@@ -6,6 +6,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // closeCurrentTab closes the current tab
@@ -85,7 +86,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 	// detaches the client while the script keeps running.
 	if sessionName != "" && !tab.DetachOnly {
 		killCmd := func() tea.Msg {
-			if err := killSessionFn(sessionName, tmuxOpts); err != nil {
+			if err := ptyio.KillSessionFn(sessionName, tmuxOpts); err != nil {
 				// Log-only: the tab is already closed, so a toast would be
 				// noise — but the leaked session can be rediscovered as a
 				// zombie tab, and a surviving pane can fail a later worktree

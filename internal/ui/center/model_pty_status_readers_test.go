@@ -4,6 +4,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // StartPTYReaders only spawns a real PTY read goroutine when a tab is both
@@ -61,7 +63,7 @@ func TestStartPTYReaders(t *testing.T) {
 		// ReaderActive with a heartbeat older than the stall timeout triggers the
 		// stall branch, which calls stopPTYReader (clearing ReaderActive and
 		// zeroing the heartbeat). Running stays false so no new goroutine spawns.
-		stale := time.Now().Add(-(ptyReaderStallTimeout + time.Second)).UnixNano()
+		stale := time.Now().Add(-(ptyio.PtyReaderStallTimeout + time.Second)).UnixNano()
 		tab := &Tab{ID: TabID("stalled"), Assistant: "claude", Workspace: ws}
 		tab.ReaderActive = true
 		atomic.StoreInt64(&tab.Heartbeat, stale)

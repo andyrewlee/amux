@@ -299,7 +299,7 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 				if tab.Terminal != nil {
 					parserResetPending = tab.parserResetPending
 					actorWritesPending = tab.actorWritesPending
-					maxChunk := ptyFlushChunkSize
+					maxChunk := ptyio.PtyFlushChunkSize
 					if isActive {
 						maxChunk = ptyFlushChunkSizeActive
 					}

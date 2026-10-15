@@ -3,6 +3,7 @@ package sidebar
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -32,7 +33,7 @@ func TestFlushTimingForUsesTheGivenTerminal(t *testing.T) {
 			quiet, maxInterval, ptyFlushQuietAlt, ptyFlushMaxAlt)
 	}
 
-	if quiet, _ := m.flushTimingFor(selected.State); quiet != ptyFlushQuiet {
-		t.Fatalf("selected non-alt terminal timed as %v, want %v", quiet, ptyFlushQuiet)
+	if quiet, _ := m.flushTimingFor(selected.State); quiet != ptyio.PtyFlushQuiet {
+		t.Fatalf("selected non-alt terminal timed as %v, want %v", quiet, ptyio.PtyFlushQuiet)
 	}
 }

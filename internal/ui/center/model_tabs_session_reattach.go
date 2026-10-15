@@ -21,7 +21,6 @@ import (
 var (
 	sessionStateForFn       = tmux.SessionStateFor
 	sessionOwnedFn          = ptyio.SessionOwned
-	killSessionFn           = tmux.KillSession
 	capturePaneFn           = tmux.CapturePane
 	createAgentWithConfigFn = func(
 		manager *appPty.AgentManager,
@@ -288,7 +287,7 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		// The subsequent CreateAgentWithConfig uses `new-session -Ads` which is
 		// atomic (attach-if-exists, create-if-not), providing an additional
 		// safety net in the unlikely event of cleanup lag.
-		if err := killSessionFn(sessionName, tmuxOpts); err != nil {
+		if err := ptyio.KillSessionFn(sessionName, tmuxOpts); err != nil {
 			// new-session -Ads below reattaches the survivor when the kill
 			// failed — a restart that silently keeps the old session must be
 			// diagnosable.

@@ -45,7 +45,7 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 		tab.resetActivityANSIState()
 		var backoff time.Duration
 		shouldRestart := withMuVal(&tab.mu, func() bool {
-			restart, b := tab.State.DecidePTYRestartLocked(termAlive, ptyRestartWindow, ptyRestartMax)
+			restart, b := tab.State.DecidePTYRestartLocked(termAlive, ptyio.PtyRestartWindow, ptyio.PtyRestartMax)
 			backoff = b
 			if !restart {
 				tab.markDetachedLocked()

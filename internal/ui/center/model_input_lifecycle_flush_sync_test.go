@@ -32,9 +32,9 @@ const (
 // quiet branch instead (the other three would fail loudly).
 func syncFlushTab(t *testing.T, id, pending string) (*Model, *Tab, string) {
 	t.Helper()
-	if ptyFlushQuietElapsed <= ptyFlushQuiet || ptyFlushQuietElapsed <= ptyFlushQuietAlt {
+	if ptyFlushQuietElapsed <= ptyio.PtyFlushQuiet || ptyFlushQuietElapsed <= ptyFlushQuietAlt {
 		t.Fatalf("ptyFlushQuietElapsed %v must exceed both quiet periods (%v, %v)",
-			ptyFlushQuietElapsed, ptyFlushQuiet, ptyFlushQuietAlt)
+			ptyFlushQuietElapsed, ptyio.PtyFlushQuiet, ptyFlushQuietAlt)
 	}
 	if ptyFlushQuietElapsed >= ptyFlushMaxInterval {
 		t.Fatalf("ptyFlushQuietElapsed %v must stay under the flush ceiling %v",
