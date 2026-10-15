@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -21,6 +22,20 @@ func TestUpdatePanicClearsAdvisoryLatches(t *testing.T) {
 		gitStatusInFlight: map[string]bool{
 			"/tmp/repo/ws": true,
 		},
+		gitStatusPending: map[string]bool{
+			"/tmp/repo/ws": true,
+		},
+		gitStatusPendingFull: map[string]bool{
+			"/tmp/repo/ws": true,
+		},
+		pendingWorkspaceCreate: pendingWorkspaceCreateState{
+			project: &data.Project{Name: "repo", Path: "/repo"},
+			name:    "staged",
+		},
+		pendingLaunchTask: pendingLaunchTaskState{
+			assistant: "claude",
+			workspace: &data.Workspace{Name: "ws", Repo: "/repo", Root: "/repo/ws"},
+		},
 		runScriptStatusInFlight: true,
 		upgradeRunning:          true,
 	}
@@ -36,6 +51,18 @@ func TestUpdatePanicClearsAdvisoryLatches(t *testing.T) {
 	}
 	if len(a.gitStatusInFlight) != 0 {
 		t.Fatalf("gitStatusInFlight still latched: %v", a.gitStatusInFlight)
+	}
+	if len(a.gitStatusPending) != 0 {
+		t.Fatalf("gitStatusPending still latched: %v", a.gitStatusPending)
+	}
+	if len(a.gitStatusPendingFull) != 0 {
+		t.Fatalf("gitStatusPendingFull still latched: %v", a.gitStatusPendingFull)
+	}
+	if a.pendingWorkspaceCreate != (pendingWorkspaceCreateState{}) {
+		t.Fatal("pendingWorkspaceCreate still armed — a stale handoff survives panics")
+	}
+	if a.pendingLaunchTask != (pendingLaunchTaskState{}) {
+		t.Fatal("pendingLaunchTask still armed — a stale handoff survives panics")
 	}
 	if a.runScriptStatusInFlight {
 		t.Fatal("runScriptStatusInFlight still latched")
@@ -72,5 +99,65 @@ func TestResetAdvisoryLatchesAfterPanic_LeavesObligationMarks(t *testing.T) {
 	}
 	if !a.tmuxActivity.rescanPending {
 		t.Fatal("rescanPending cleared — a queued rescan must stay owed")
+	}
+}
+
+// TestResetAdvisoryLatchesAfterPanic_AbandonsBulk covers the wedge: a panic
+// inside advanceBulk strands headID + queue forever, rejecting every later
+// bulk op. The reset must abandon the batch — clearing the dashboard marks
+// finishBulk would have dropped — while bulkFinished's empty-headID gate
+// keeps the in-flight head op's late completion from corrupting a future
+// batch.
+func TestResetAdvisoryLatchesAfterPanic_AbandonsBulk(t *testing.T) {
+	a := newBulkTestApp()
+	targets := []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}
+	// Arm the state a mid-advanceBulk panic leaves: head op in flight, one
+	// target still queued, all marks lit on the dashboard.
+	a.bulk = bulkOpState{
+		kind:    bulkOpShelve,
+		queue:   targets[1:],
+		markIDs: []string{targets[0].markID, targets[1].markID},
+		headID:  targets[0].markID,
+		total:   2,
+	}
+	a.dashboard.MarkWorkspaceIDs(a.bulk.markIDs)
+	if a.dashboard.MarkedCount() != 2 {
+		t.Fatalf("fixture marks = %d, want 2", a.dashboard.MarkedCount())
+	}
+
+	a.resetAdvisoryLatchesAfterPanic()
+
+	if a.bulk.active() {
+		t.Fatal("wedged bulk batch survived the panic reset")
+	}
+	if got := a.dashboard.MarkedCount(); got != 0 {
+		t.Fatalf("dashboard marks = %d after abandoned batch, want 0", got)
+	}
+	// The in-flight head op's late completion must not corrupt anything:
+	// headID was cleared with the batch, so bulkFinished ignores it.
+	if cmd := a.bulkFinished(targets[0].workspace, true); cmd != nil {
+		t.Fatal("orphaned head completion produced a cmd against the cleared batch")
+	}
+	// And a fresh batch can start — the wedge is actually gone.
+	if cmd := a.startBulkOp(bulkOpShelve, targets); cmd == nil {
+		t.Fatal("post-reset bulk op rejected — the wedge is still armed")
+	}
+}
+
+// TestResetAdvisoryLatchesAfterPanic_PreservesMutationMarks is the negative
+// pin: lifecycle mutation marks serialize worktree add/remove, so a false
+// clear admits concurrent mutation — strictly worse than a wedge. The reset
+// must leave them alone (they are NOT idempotent read marks like the rest).
+func TestResetAdvisoryLatchesAfterPanic_PreservesMutationMarks(t *testing.T) {
+	a := newBulkTestApp()
+	ws := makeBulkTarget("pinned").workspace
+	if !a.markWorkspaceMutationInFlight(ws, true) {
+		t.Fatal("fixture mark did not take")
+	}
+
+	a.resetAdvisoryLatchesAfterPanic()
+
+	if !a.isWorkspaceMutationInFlight(string(ws.ID())) {
+		t.Fatal("mutation mark cleared by the panic reset — a concurrent lifecycle op can now interleave")
 	}
 }
