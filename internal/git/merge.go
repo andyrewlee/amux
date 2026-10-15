@@ -153,7 +153,11 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 	// down along with the rest of the hardening — opting into repo hooks is
 	// opting into repo trust.
 	if !allowRepoGitHooks {
-		if live, err := liveMergeDrivers(mergeCtx, repoPath); err != nil {
+		// Attributes are checked against BOTH the current index and the
+		// incoming commit's tree: a branch can carry .gitattributes that
+		// attribute a driver the current tree never names, and the merge
+		// writes files under the merged attribute stack.
+		if live, err := liveMergeDrivers(mergeCtx, repoPath, oid); err != nil {
 			return fmt.Errorf("merging %s: checking merge drivers: %w", branch, err)
 		} else if len(live) > 0 {
 			return fmt.Errorf("merging %s: refusing: configured merge driver %q is attributed to %s and would execute during the merge — merge manually after reviewing git config and .gitattributes", branch, live[0].driver, live[0].path)
@@ -162,7 +166,7 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 		// same delivered-.git exec surface the merge-driver check above
 		// closes. (refuseRepoFilterDrivers re-checks the opt-out itself;
 		// siting it here keeps both refusals adjacent.)
-		if err := filterDriverGate(mergeCtx, repoPath, "merging "+branch); err != nil {
+		if err := filterDriverGate(mergeCtx, repoPath, "merging "+branch, oid); err != nil {
 			return err
 		}
 	}
@@ -195,8 +199,9 @@ type mergeDriverAttribution struct {
 }
 
 // liveMergeDrivers returns every configured merge driver (<name> from
-// merge.<name>.driver) that at least one tracked path in the target tree
-// attributes via `merge=<name>` — the pairs a merge could actually execute.
+// merge.<name>.driver) that at least one tracked path — in the current
+// index or in any of refs' trees — attributes via `merge=<name>` — the
+// pairs a merge could actually execute.
 // Two enumerations bound the answer exactly: `git config --includes
 // --get-regexp` reads the merged config view across all scopes (including
 // include.path/includeIf chains) — wider than the filter gate's local-only
@@ -206,7 +211,7 @@ type mergeDriverAttribution struct {
 // stack (.gitattributes at every tree level plus info/attributes), so
 // unattributed driver names and unconfigured merge= values are correctly
 // ignored.
-func liveMergeDrivers(ctx context.Context, repoPath string) ([]mergeDriverAttribution, error) {
+func liveMergeDrivers(ctx context.Context, repoPath string, refs ...string) ([]mergeDriverAttribution, error) {
 	out, err := RunGitAllowFailureCtx(ctx, repoPath, "config", "--includes", "--get-regexp", `^merge\..*\.driver$`)
 	if err != nil {
 		return nil, err
@@ -226,34 +231,18 @@ func liveMergeDrivers(ctx context.Context, repoPath string) ([]mergeDriverAttrib
 		return nil, nil
 	}
 
-	pathsRaw, err := RunGitRawCtx(ctx, repoPath, "ls-files", "-z")
-	if err != nil {
-		return nil, err
-	}
-	var paths []string
-	for _, p := range strings.Split(string(pathsRaw), "\x00") {
-		if p != "" {
-			paths = append(paths, p)
-		}
-	}
-	if len(paths) == 0 {
-		return nil, nil
-	}
-
 	var live []mergeDriverAttribution
-	const checkAttrBatch = 200
-	for i := 0; i < len(paths); i += checkAttrBatch {
-		end := min(i+checkAttrBatch, len(paths))
-		args := append([]string{"check-attr", "-z", "merge", "--"}, paths[i:end]...)
-		raw, err := RunGitRawCtx(ctx, repoPath, args...)
+	seen := make(map[mergeDriverAttribution]struct{})
+	for _, ref := range append([]string{""}, refs...) {
+		pairs, err := attributedDriverPaths(ctx, repoPath, ref, "merge", configured)
 		if err != nil {
 			return nil, err
 		}
-		// -z output is path\0merge\0value\0 triples.
-		fields := strings.Split(string(raw), "\x00")
-		for j := 0; j+2 < len(fields); j += 3 {
-			if _, ok := configured[fields[j+2]]; ok {
-				live = append(live, mergeDriverAttribution{driver: fields[j+2], path: fields[j]})
+		for _, p := range pairs {
+			a := mergeDriverAttribution(p)
+			if _, dup := seen[a]; !dup {
+				seen[a] = struct{}{}
+				live = append(live, a)
 			}
 		}
 	}

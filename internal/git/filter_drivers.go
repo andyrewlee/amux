@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// filterDriverAttribution pairs a repo-local filter driver with a tracked
-// path whose attributes select it — a live repo-delivered exec binding.
+// filterDriverAttribution pairs a repo-local filter driver with a path whose
+// attributes select it — a live repo-delivered exec binding.
 type filterDriverAttribution struct {
 	driver string
 	path   string
@@ -16,22 +16,29 @@ type filterDriverAttribution struct {
 // filterDriverGate is the mutation-site filter-driver check — a var so
 // tests that fake runGitCtx can stand it down alongside the fake (the gate
 // execs git directly for its config/ls-files/check-attr enumeration and
-// would otherwise escape the fake entirely).
+// would otherwise escape the fake entirely). refs are additional tree-ish
+// sources whose attribute stacks also gate the operation — the commit a
+// `worktree add` checks out, the incoming commit of a merge — because the
+// current worktree's .gitattributes say nothing about paths attributed only
+// in the tree being written.
 var filterDriverGate = refuseRepoFilterDrivers
 
 // refuseRepoFilterDrivers runs the filter-driver refusal shared by every
-// mutation-capable git call site (worktree add, add -A, merge): a
-// repo-local filter.<name>.* driver attributed by a tracked path executes
-// its command during checkout or staging — arbitrary code execution under
-// the user's identity from bytes shipped inside a delivered .git, before
-// the .amux trust gate could even be presented. The AMUX_ALLOW_GIT_HOOKS=1
+// mutation-capable git call site (worktree add, add -A, merge, merge
+// --abort): a repo-local filter.<name>.* driver attributed by a path
+// executes its command during checkout or staging — arbitrary code
+// execution under the user's identity from bytes shipped inside a
+// delivered .git, before the .amux trust gate could even be presented.
+// Attribution is checked against the current index AND every ref's tree:
+// `worktree add <base>` and `git merge` apply the checked-out/incoming
+// tree's .gitattributes, not the current one. The AMUX_ALLOW_GIT_HOOKS=1
 // opt-out stands the guard down along with the rest of the hardening —
 // opting into repo hooks is opting into repo trust.
-func refuseRepoFilterDrivers(ctx context.Context, repoPath, op string) error {
+func refuseRepoFilterDrivers(ctx context.Context, repoPath, op string, refs ...string) error {
 	if allowRepoGitHooks {
 		return nil
 	}
-	live, err := liveFilterDrivers(ctx, repoPath)
+	live, err := liveFilterDrivers(ctx, repoPath, refs...)
 	if err != nil {
 		return fmt.Errorf("%s: checking filter drivers: %w", op, err)
 	}
@@ -52,11 +59,15 @@ func refuseRepoFilterDrivers(ctx context.Context, repoPath, op string) error {
 // extension) — and `--includes` resolves include chains a delivered .git
 // could hide drivers behind; the user's own global
 // config stays deliberately out of scope — a legitimate `git lfs install`
-// writes ~/.gitconfig and must not trip the gate. `git check-attr` applies
-// the real attribute stack (.gitattributes at every tree level plus
-// info/attributes), so unattributed driver names and unconfigured filter=
-// values are correctly ignored.
-func liveFilterDrivers(ctx context.Context, repoPath string) ([]filterDriverAttribution, error) {
+// writes ~/.gitconfig and must not trip the gate.
+//
+// Attribution is evaluated against the current index (`ls-files` +
+// `check-attr` applies the real attribute stack — .gitattributes at every
+// tree level plus info/attributes) AND against each refs tree via
+// `check-attr --source=<ref>` — the op being gated may write paths that
+// only the target tree attributes. Unattributed driver names and
+// unconfigured filter= values are correctly ignored in both.
+func liveFilterDrivers(ctx context.Context, repoPath string, refs ...string) ([]filterDriverAttribution, error) {
 	scope, err := filterConfigScope(ctx, repoPath)
 	if err != nil {
 		return nil, err
@@ -90,15 +101,53 @@ func liveFilterDrivers(ctx context.Context, repoPath string) ([]filterDriverAttr
 		return nil, nil
 	}
 
-	pathsRaw, err := RunGitRawCtx(ctx, repoPath, "ls-files", "-z")
+	var live []filterDriverAttribution
+	seen := make(map[filterDriverAttribution]struct{})
+	collect := func(pairs []filterDriverAttribution) {
+		for _, p := range pairs {
+			if _, dup := seen[p]; !dup {
+				seen[p] = struct{}{}
+				live = append(live, p)
+			}
+		}
+	}
+	idx, err := attributedDriverPaths(ctx, repoPath, "", "filter", configured)
 	if err != nil {
 		return nil, err
 	}
-	var paths []string
-	for _, p := range strings.Split(string(pathsRaw), "\x00") {
-		if p != "" {
-			paths = append(paths, p)
+	collect(idx)
+	for _, ref := range refs {
+		if ref == "" {
+			continue
 		}
+		pairs, err := attributedDriverPaths(ctx, repoPath, ref, "filter", configured)
+		if err != nil {
+			return nil, err
+		}
+		collect(pairs)
+	}
+	return live, nil
+}
+
+// attributedDriverPaths enumerates the paths attributing configured
+// drivers for the named attribute ("filter"/"merge"). ref == "" reads the
+// current index (`ls-files` + `check-attr`); a non-empty ref reads that
+// tree (`ls-tree -r` + `check-attr --source`) — covering drivers
+// attributed only by the tree an operation writes.
+func attributedDriverPaths(ctx context.Context, repoPath, ref, attr string, configured map[string]struct{}) ([]filterDriverAttribution, error) {
+	var paths []string
+	if ref == "" {
+		pathsRaw, err := RunGitRawCtx(ctx, repoPath, "ls-files", "-z")
+		if err != nil {
+			return nil, err
+		}
+		paths = splitZ(pathsRaw)
+	} else {
+		pathsRaw, err := RunGitRawCtx(ctx, repoPath, "ls-tree", "-r", "-z", "--name-only", ref)
+		if err != nil {
+			return nil, err
+		}
+		paths = splitZ(pathsRaw)
 	}
 	if len(paths) == 0 {
 		return nil, nil
@@ -108,7 +157,12 @@ func liveFilterDrivers(ctx context.Context, repoPath string) ([]filterDriverAttr
 	const checkAttrBatch = 200
 	for i := 0; i < len(paths); i += checkAttrBatch {
 		end := min(i+checkAttrBatch, len(paths))
-		args := append([]string{"check-attr", "-z", "filter", "--"}, paths[i:end]...)
+		args := []string{"check-attr", "-z"}
+		if ref != "" {
+			args = append(args, "--source="+ref)
+		}
+		args = append(args, attr, "--")
+		args = append(args, paths[i:end]...)
 		raw, err := RunGitRawCtx(ctx, repoPath, args...)
 		if err != nil {
 			return nil, err
@@ -122,4 +176,15 @@ func liveFilterDrivers(ctx context.Context, repoPath string) ([]filterDriverAttr
 		}
 	}
 	return live, nil
+}
+
+// splitZ parses NUL-separated output into non-empty entries.
+func splitZ(raw []byte) []string {
+	var out []string
+	for _, p := range strings.Split(string(raw), "\x00") {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

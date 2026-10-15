@@ -50,7 +50,7 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 	// Refuse before any checkout work: an attributed repo-local filter
 	// driver would execute during `worktree add`'s checkout below — before
 	// the workspace's own trust gate can exist. Runs once, not per retry.
-	if err := filterDriverGate(context.Background(), repoPath, "creating workspace"); err != nil {
+	if err := filterDriverGate(context.Background(), repoPath, "creating workspace", base); err != nil {
 		return false, err
 	}
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
@@ -170,7 +170,7 @@ func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
 // caller, never a silent recreation from a fabricated base.
 func AttachWorkspaceWorktree(repoPath, workspacePath, branch string) error {
 	// Same checkout-time exposure as CreateWorkspaceWithResult.
-	if err := filterDriverGate(context.Background(), repoPath, "attaching workspace"); err != nil {
+	if err := filterDriverGate(context.Background(), repoPath, "attaching workspace", branch); err != nil {
 		return err
 	}
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
