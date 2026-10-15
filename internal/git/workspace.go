@@ -47,6 +47,12 @@ func CreateWorkspace(repoPath, workspacePath, branch, base string) error {
 // false — the caller owns the worktree cleanup but not that ref, so a
 // rollback must not delete it. Errors always report false.
 func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (branchCreated bool, err error) {
+	// Refuse before any checkout work: an attributed repo-local filter
+	// driver would execute during `worktree add`'s checkout below — before
+	// the workspace's own trust gate can exist. Runs once, not per retry.
+	if err := filterDriverGate(context.Background(), repoPath, "creating workspace"); err != nil {
+		return false, err
+	}
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
 		return false, err
 	}
@@ -163,6 +169,10 @@ func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
 // `worktree add -b`: a missing branch is a hard error surfaced to the
 // caller, never a silent recreation from a fabricated base.
 func AttachWorkspaceWorktree(repoPath, workspacePath, branch string) error {
+	// Same checkout-time exposure as CreateWorkspaceWithResult.
+	if err := filterDriverGate(context.Background(), repoPath, "attaching workspace"); err != nil {
+		return err
+	}
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
 		return err
 	}

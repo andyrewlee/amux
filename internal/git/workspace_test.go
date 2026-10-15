@@ -173,6 +173,7 @@ func TestIsBranchAlreadyExistsError(t *testing.T) {
 }
 
 func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {
+	stubFilterDriverGate(t)
 	origRunGitCtx := runGitCtx
 	defer func() {
 		runGitCtx = origRunGitCtx
@@ -215,6 +216,7 @@ func TestCreateWorkspace_RetryUsesFreshContext(t *testing.T) {
 }
 
 func TestCreateWorkspaceClearsOrphanedCleanupMarker(t *testing.T) {
+	stubFilterDriverGate(t)
 	origRunGitCtx := runGitCtx
 	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
 	defer func() {
@@ -247,6 +249,7 @@ func TestCreateWorkspaceClearsOrphanedCleanupMarker(t *testing.T) {
 }
 
 func TestCreateWorkspaceRejectsMarkerWrittenBeforeRenameEvenIfLivePathIsRegistered(t *testing.T) {
+	stubFilterDriverGate(t)
 	origUnregisterWorktreeCtx := unregisterWorktreeCtx
 	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
 	defer func() {
@@ -290,6 +293,7 @@ func TestCreateWorkspaceRejectsMarkerWrittenBeforeRenameEvenIfLivePathIsRegister
 }
 
 func TestCreateWorkspaceRejectsReusedPathDuringPendingCleanup(t *testing.T) {
+	stubFilterDriverGate(t)
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
 	stagedPath := filepath.Join(workspaceRoot, ".pending-cleanup.amux-prune-1")
@@ -313,6 +317,7 @@ func TestCreateWorkspaceRejectsReusedPathDuringPendingCleanup(t *testing.T) {
 }
 
 func TestCreateWorkspaceRejectsMarkerWrittenBeforeRenameWhenLivePathNotRegistered(t *testing.T) {
+	stubFilterDriverGate(t)
 	origRunGitCtx := runGitCtx
 	defer func() {
 		runGitCtx = origRunGitCtx
@@ -351,6 +356,7 @@ func TestCreateWorkspaceRejectsMarkerWrittenBeforeRenameWhenLivePathNotRegistere
 }
 
 func TestCreateWorkspaceRejectsLegacyUnregisterMarkerWithoutRepoPath(t *testing.T) {
+	stubFilterDriverGate(t)
 	origRunGitCtx := runGitCtx
 	origUnregisterWorktreeCtx := unregisterWorktreeCtx
 	defer func() {
@@ -381,6 +387,7 @@ func TestCreateWorkspaceRejectsLegacyUnregisterMarkerWithoutRepoPath(t *testing.
 }
 
 func TestCreateWorkspaceRejectsLegacyPendingCleanupMarkerWhenPathExists(t *testing.T) {
+	stubFilterDriverGate(t)
 	origRunGitCtx := runGitCtx
 	defer func() {
 		runGitCtx = origRunGitCtx
@@ -408,6 +415,7 @@ func TestCreateWorkspaceRejectsLegacyPendingCleanupMarkerWhenPathExists(t *testi
 }
 
 func TestCreateWorkspaceRejectsReusedPathDuringDeferredUnregisterRecovery(t *testing.T) {
+	stubFilterDriverGate(t)
 	origRunGitCtx := runGitCtx
 	origUnregisterWorktreeCtx := unregisterWorktreeCtx
 	defer func() {

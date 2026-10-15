@@ -65,8 +65,10 @@ Variables injected **into** agents (`AMUX_WORKSPACE_*`, `AMUX_PORT`,
 `AMUX_PORT_RANGE`) and the debugging surface (`AMUX_LOG_LEVEL`,
 `AMUX_PTY_TRACE`, `AMUX_PPROF`, `AMUX_DEBUG_SIGNALS`, `AMUX_PROFILE*`,
 `AMUX_ENABLE_OSC52_CLIPBOARD`, `AMUX_MAX_ATTACHED_*`, `AMUX_ALLOW_GIT_HOOKS`)
-are documented in the README's environment section, which also covers the
-custom env layering — repo `env` (trust-gated, **scripts only**) < project
+are documented in the README's environment section — including the repo-local
+`filter.*` driver refusal that `AMUX_ALLOW_GIT_HOOKS=1` opts out of. The same
+section covers the custom env layering — repo `env` (trust-gated, **scripts
+only**) < project
 env (`~/.amux/project-env.json`, press `E`) < workspace env (press `e`).
 Interactive sessions (agents, sidebar terminals) get the injected vars plus
 the project and workspace layers — never repo `env`, even when trusted — and

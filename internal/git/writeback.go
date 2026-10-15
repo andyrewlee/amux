@@ -43,6 +43,11 @@ func CommitAll(ctx context.Context, workspaceRoot, message string) error {
 	ctx, cancel := context.WithTimeout(ctx, commitTimeout)
 	defer cancel()
 
+	// `add -A` runs attributed clean filters — refuse a repo-local driver
+	// binding before staging executes it.
+	if err := filterDriverGate(ctx, workspaceRoot, "staging changes"); err != nil {
+		return err
+	}
 	if _, err := RunGitCtx(ctx, workspaceRoot, "add", "-A"); err != nil {
 		return fmt.Errorf("staging changes: %w", err)
 	}

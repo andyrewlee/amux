@@ -427,6 +427,18 @@ Residual race: between the ownership check and the tmux client command's own
 closing that window needs the ownership test inside the generated tmux shell
 script and is documented rather than implemented.
 
+The repository itself is the other side of the boundary: amux treats a
+delivered `.git` as hostile. Every git invocation runs with repo hooks,
+`core.fsmonitor`, and GPG signing neutralized and inherited `GIT_*` state
+dropped. Repo-configured drivers that would execute code during amux's own
+git operations are refused rather than run: an attributed `merge.*.driver`
+blocks the merge, and a repo-local `filter.*` driver (`clean`/`smudge`/
+`process`) attributed by the tree blocks workspace create/attach, `add -A`
+writeback, and merges, naming the driver in the refusal. Only `--local`
+config is enumerated, so globally configured filters (git-lfs's clean/smudge)
+are unaffected; `AMUX_ALLOW_GIT_HOOKS=1` is the single opt-out for repos the
+user does trust.
+
 ## Port reservations (durable registry)
 
 Every workspace gets `AMUX_PORT`/`AMUX_PORT_RANGE` from a durable registry at

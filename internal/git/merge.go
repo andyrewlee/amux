@@ -158,6 +158,13 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 		} else if len(live) > 0 {
 			return fmt.Errorf("merging %s: refusing: repo-configured merge driver %q is attributed to %s and would execute during the merge — merge manually after reviewing .git/config and .gitattributes", branch, live[0].driver, live[0].path)
 		}
+		// Filter drivers execute during the merge's checkout writes — the
+		// same delivered-.git exec surface the merge-driver check above
+		// closes. (refuseRepoFilterDrivers re-checks the opt-out itself;
+		// siting it here keeps both refusals adjacent.)
+		if err := filterDriverGate(mergeCtx, repoPath, "merging "+branch); err != nil {
+			return err
+		}
 	}
 
 	if _, err := RunGitCtx(mergeCtx, repoPath, "merge", "--no-ff", "--", oid); err != nil {
