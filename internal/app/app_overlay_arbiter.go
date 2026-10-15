@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 )
@@ -163,7 +164,7 @@ func (a *App) presentWorkspaceOverlay(ws *data.Workspace, build func(live *data.
 // resolveBulkTargets as the drain-time fence: a fully-loaded set whose
 // membership drifted while queued invalidates the whole open, since the
 // typed count and row list were computed from the request-time set.
-func (a *App) presentBulkTargetsDialog(targets []bulkTarget, shelved bool, build func(resolved []bulkTarget)) {
+func (a *App) presentBulkTargetsDialog(targets []bulkops.Target, shelved bool, build func(resolved []bulkops.Target)) {
 	required := a.bulkTargetsRequired(targets, shelved)
 	a.requestOverlayOpen(func() {
 		resolved, ok := a.resolveBulkTargets(targets, shelved, required)

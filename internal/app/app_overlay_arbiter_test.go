@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -307,9 +308,9 @@ func TestResolveBulkTargetsRejectsMissingMember(t *testing.T) {
 	wsGone := &data.Workspace{Name: "ws-gone", Repo: "/repo", Root: "/repo/ws-gone"}
 	a.projects = []data.Project{{Path: "/repo", Workspaces: []data.Workspace{*wsLive}}}
 
-	targets := []bulkTarget{
-		{project: &a.projects[0], workspace: wsLive, markID: string(wsLive.MetadataID())},
-		{project: &a.projects[0], workspace: wsGone, markID: string(wsGone.MetadataID())},
+	targets := []bulkops.Target{
+		{Project: &a.projects[0], Workspace: wsLive, MarkID: string(wsLive.MetadataID())},
+		{Project: &a.projects[0], Workspace: wsGone, MarkID: string(wsGone.MetadataID())},
 	}
 	if _, ok := a.resolveBulkTargets(targets, false, true); ok {
 		t.Fatal("expected the set to reject when one member left the loaded projects")
@@ -324,7 +325,7 @@ func TestResolveBulkTargetsRejectsMissingMember(t *testing.T) {
 	if !ok {
 		t.Fatal("expected the intact set to resolve")
 	}
-	if len(resolved) != 1 || resolved[0].workspace.Name != "ws-live" {
+	if len(resolved) != 1 || resolved[0].Workspace.Name != "ws-live" {
 		t.Fatalf("expected the live target re-resolved, got %+v", resolved)
 	}
 }

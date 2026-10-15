@@ -7,89 +7,39 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// bulkOpKind identifies which per-row lifecycle handler a bulk batch
-// drains through.
-type bulkOpKind int
-
-// NOTE: adding a new bulkOpKind must update the "Bulk Operations Flow"
-// section in MESSAGE_FLOW.md — it is the documented contract for this driver.
-const (
-	bulkOpShelve bulkOpKind = iota
-	bulkOpRestore
-	bulkOpPurge
-	bulkOpDelete
-)
-
-// verb is the summary word for the finished batch ("Shelved 3 of 4").
-func (k bulkOpKind) verb() string {
-	switch k {
-	case bulkOpRestore:
-		return "Restored"
-	case bulkOpPurge:
-		return "Purged"
-	case bulkOpDelete:
-		return "Deleted"
-	default:
-		return "Shelved"
-	}
-}
-
-// bulkTarget is one confirmed bulk-op item — the project travels with the
-// workspace because dashboard marks can span projects.
-type bulkTarget struct {
-	project   *data.Project
-	workspace *data.Workspace
-	markID    string // MetadataID — used to clear the dashboard mark at drain
-}
-
-// bulkOpState is the sequential bulk-op driver shared by shelve, restore,
-// purge, and delete. The queue drains one workspace at a time through the kind's
-// literal per-row handler — the same guarded, spinner-backed op a single
-// workspace runs — so worktree add/removals never run in parallel. headID
-// is the in-flight op's MetadataID: the matching completion message
-// advances the queue, while a foreign completion (a manual op
-// interleaving) is ignored and cannot corrupt the accounting.
-type bulkOpState struct {
-	kind      bulkOpKind
-	queue     []bulkTarget
-	markIDs   []string // every target's mark — cleared on the dashboard at drain
-	headID    string
-	total     int
-	succeeded int
-	failed    int
-}
-
-// active reports whether any batch is in progress.
-func (b bulkOpState) active() bool { return b.total > 0 }
-
-// activeFor reports whether a batch of the given kind is draining — used
-// to suppress that op's per-row toasts in favor of the batch summary at
-// drain without eating toasts from an unrelated kind.
-func (b bulkOpState) activeFor(kind bulkOpKind) bool {
-	return b.active() && b.kind == kind
-}
-
-// bulkTargetsFromItems converts the message's item list to driver targets,
-// dropping entries that can't run the per-row op anyway.
-func bulkTargetsFromItems(items []messages.BulkWorkspaceItem) []bulkTarget {
-	targets := make([]bulkTarget, 0, len(items))
-	for _, it := range items {
-		if it.Project == nil || it.Workspace == nil {
-			continue
-		}
-		targets = append(targets, bulkTarget{
-			project:   it.Project,
-			workspace: it.Workspace,
-			markID:    string(it.Workspace.MetadataID()),
-		})
-	}
-	return targets
+// initBulkDriver binds the bulk driver's seams to this App — the per-row
+// ops are the literal lifecycle handlers so a batch drains through the
+// same guarded, spinner-backed path a single op runs, and the summary
+// plus dashboard-mark clearing land through the real toast/dashboard.
+// Called by newAppShell; test fixtures wiring the same fields call it too.
+func (a *App) initBulkDriver() {
+	a.bulk = bulkops.New(bulkops.Seams{
+		Shelve: func(p *data.Project, ws *data.Workspace) []tea.Cmd {
+			return a.handleShelveWorkspace(messages.ShelveWorkspace{Project: p, Workspace: ws})
+		},
+		Restore: func(p *data.Project, ws *data.Workspace) []tea.Cmd {
+			return a.handleRestoreWorkspace(messages.RestoreWorkspace{Project: p, Workspace: ws})
+		},
+		// Live and shelved rows share the delete flow — the per-row
+		// handler already tolerates the absent worktree on purge.
+		Delete: func(p *data.Project, ws *data.Workspace) []tea.Cmd {
+			return a.handleDeleteWorkspace(messages.DeleteWorkspace{Project: p, Workspace: ws})
+		},
+		ClearMarks: func(ids []string) {
+			if a.dashboard != nil {
+				a.dashboard.ClearMarks(ids)
+			}
+		},
+		Warn:    func(msg string) tea.Cmd { return a.toast.ShowWarning(msg) },
+		Success: func(msg string) tea.Cmd { return a.toast.ShowSuccess(msg) },
+	})
 }
 
 // resolveBulkTargets re-resolves a queued bulk-open's captured targets
@@ -101,25 +51,25 @@ func bulkTargetsFromItems(items []messages.BulkWorkspaceItem) []bulkTarget {
 // — the typed count and row list were computed from the request-time set, so
 // presenting anyway would confirm a different operation than the user sees.
 // The user re-marks and retries.
-func (a *App) resolveBulkTargets(targets []bulkTarget, shelved, required bool) ([]bulkTarget, bool) {
-	resolved := make([]bulkTarget, 0, len(targets))
+func (a *App) resolveBulkTargets(targets []bulkops.Target, shelved, required bool) ([]bulkops.Target, bool) {
+	resolved := make([]bulkops.Target, 0, len(targets))
 	for _, t := range targets {
 		var ws *data.Workspace
 		var proj *data.Project
 		if shelved {
-			ws, proj = a.findShelvedWorkspaceAndProjectByID(string(t.workspace.ID()))
+			ws, proj = a.findShelvedWorkspaceAndProjectByID(string(t.Workspace.ID()))
 		} else {
-			ws, proj = a.findWorkspaceAndProjectByID(string(t.workspace.ID()))
+			ws, proj = a.findWorkspaceAndProjectByID(string(t.Workspace.ID()))
 		}
 		if ws == nil {
 			if !required {
 				resolved = append(resolved, t)
 				continue
 			}
-			logging.Debug("Dropping stale bulk overlay open: workspace %s no longer loaded", t.workspace.Name)
+			logging.Debug("Dropping stale bulk overlay open: workspace %s no longer loaded", t.Workspace.Name)
 			return nil, false
 		}
-		resolved = append(resolved, bulkTarget{project: proj, workspace: ws, markID: t.markID})
+		resolved = append(resolved, bulkops.Target{Project: proj, Workspace: ws, MarkID: t.MarkID})
 	}
 	return resolved, true
 }
@@ -127,13 +77,13 @@ func (a *App) resolveBulkTargets(targets []bulkTarget, shelved, required bool) (
 // bulkTargetsRequired reports whether every captured target is loaded at
 // request time — shelved matching resolveBulkTargets' lookup — and is the
 // required flag it expects.
-func (a *App) bulkTargetsRequired(targets []bulkTarget, shelved bool) bool {
+func (a *App) bulkTargetsRequired(targets []bulkops.Target, shelved bool) bool {
 	for _, t := range targets {
 		var ws *data.Workspace
 		if shelved {
-			ws, _ = a.findShelvedWorkspaceAndProjectByID(string(t.workspace.ID()))
+			ws, _ = a.findShelvedWorkspaceAndProjectByID(string(t.Workspace.ID()))
 		} else {
-			ws, _ = a.findWorkspaceAndProjectByID(string(t.workspace.ID()))
+			ws, _ = a.findWorkspaceAndProjectByID(string(t.Workspace.ID()))
 		}
 		if ws == nil {
 			return false
@@ -146,14 +96,14 @@ func (a *App) bulkTargetsRequired(targets []bulkTarget, shelved bool) bool {
 // the marked shelve set — the bulk counterpart of
 // handleShowShelveWorkspaceDialog.
 func (a *App) handleShowBulkShelveWorkspaceDialog(msg messages.ShowBulkShelveWorkspaceDialog) {
-	targets := bulkTargetsFromItems(msg.Items)
+	targets := bulkops.TargetsFromItems(msg.Items)
 	if len(targets) == 0 {
 		return
 	}
 	if a.dialogOpen() {
 		return
 	}
-	a.presentBulkTargetsDialog(targets, false, func(targets []bulkTarget) {
+	a.presentBulkTargetsDialog(targets, false, func(targets []bulkops.Target) {
 		a.dlg.bulkTargets = targets
 		a.dialog = common.NewConfirmDialog(
 			DialogBulkShelveWorkspace,
@@ -171,14 +121,14 @@ func (a *App) handleShowBulkShelveWorkspaceDialog(msg messages.ShowBulkShelveWor
 // handleShowBulkRestoreWorkspaceDialog opens the confirm dialog for the
 // marked shelved set — the bulk counterpart of a shelved row's Enter.
 func (a *App) handleShowBulkRestoreWorkspaceDialog(msg messages.ShowBulkRestoreWorkspaceDialog) {
-	targets := bulkTargetsFromItems(msg.Items)
+	targets := bulkops.TargetsFromItems(msg.Items)
 	if len(targets) == 0 {
 		return
 	}
 	if a.dialogOpen() {
 		return
 	}
-	a.presentBulkTargetsDialog(targets, true, func(targets []bulkTarget) {
+	a.presentBulkTargetsDialog(targets, true, func(targets []bulkops.Target) {
 		a.dlg.bulkTargets = targets
 		a.dialog = common.NewConfirmDialog(
 			DialogBulkRestoreWorkspace,
@@ -200,14 +150,14 @@ func (a *App) handleShowBulkRestoreWorkspaceDialog(msg messages.ShowBulkRestoreW
 // exact number, and the result handler re-verifies before the drain
 // starts.
 func (a *App) handleShowBulkPurgeWorkspaceDialog(msg messages.ShowBulkPurgeWorkspaceDialog) {
-	targets := bulkTargetsFromItems(msg.Items)
+	targets := bulkops.TargetsFromItems(msg.Items)
 	if len(targets) == 0 {
 		return
 	}
 	if a.dialogOpen() {
 		return
 	}
-	a.presentBulkTargetsDialog(targets, true, func(targets []bulkTarget) {
+	a.presentBulkTargetsDialog(targets, true, func(targets []bulkops.Target) {
 		a.dlg.bulkTargets = targets
 		want := strconv.Itoa(len(targets))
 		a.dialog = common.NewInputDialog(
@@ -233,14 +183,14 @@ func (a *App) handleShowBulkPurgeWorkspaceDialog(msg messages.ShowBulkPurgeWorks
 // and settings — the same op a single delete runs — so it shares purge's
 // typed-count gate rather than the shelve/restore plain confirm.
 func (a *App) handleShowBulkDeleteWorkspaceDialog(msg messages.ShowBulkDeleteWorkspaceDialog) {
-	targets := bulkTargetsFromItems(msg.Items)
+	targets := bulkops.TargetsFromItems(msg.Items)
 	if len(targets) == 0 {
 		return
 	}
 	if a.dialogOpen() {
 		return
 	}
-	a.presentBulkTargetsDialog(targets, false, func(targets []bulkTarget) {
+	a.presentBulkTargetsDialog(targets, false, func(targets []bulkops.Target) {
 		a.dlg.bulkTargets = targets
 		want := strconv.Itoa(len(targets))
 		a.dialog = common.NewInputDialog(
@@ -264,11 +214,11 @@ func (a *App) handleShowBulkDeleteWorkspaceDialog(msg messages.ShowBulkDeleteWor
 // bulkConfirmBody lists the marked workspace names — the bulk version of
 // the single op's "what happens" copy. Names are capped so a large fleet
 // doesn't overflow the dialog.
-func bulkConfirmBody(action string, targets []bulkTarget, detail string) string {
+func bulkConfirmBody(action string, targets []bulkops.Target, detail string) string {
 	const maxListed = 8
 	names := make([]string, 0, len(targets))
 	for _, t := range targets {
-		names = append(names, t.workspace.Name)
+		names = append(names, t.Workspace.Name)
 	}
 	shown := names
 	if len(shown) > maxListed {
@@ -286,7 +236,7 @@ func dialogResultBulkShelveWorkspace(a *App, _ common.DialogResult, dlg dialogCo
 	if len(dlg.bulkTargets) == 0 {
 		return nil
 	}
-	return a.startBulkOp(bulkOpShelve, dlg.bulkTargets)
+	return a.bulk.Start(bulkops.Shelve, dlg.bulkTargets)
 }
 
 // dialogResultBulkRestoreWorkspace starts the restore drain on confirm.
@@ -294,7 +244,7 @@ func dialogResultBulkRestoreWorkspace(a *App, _ common.DialogResult, dlg dialogC
 	if len(dlg.bulkTargets) == 0 {
 		return nil
 	}
-	return a.startBulkOp(bulkOpRestore, dlg.bulkTargets)
+	return a.bulk.Start(bulkops.Restore, dlg.bulkTargets)
 }
 
 // dialogResultBulkPurgeWorkspace re-verifies the typed count before the
@@ -307,7 +257,7 @@ func dialogResultBulkPurgeWorkspace(a *App, result common.DialogResult, dlg dial
 	if strings.TrimSpace(result.Value) != strconv.Itoa(len(dlg.bulkTargets)) {
 		return a.toast.ShowWarning("Purge canceled — the count did not match")
 	}
-	return a.startBulkOp(bulkOpPurge, dlg.bulkTargets)
+	return a.bulk.Start(bulkops.Purge, dlg.bulkTargets)
 }
 
 // dialogResultBulkDeleteWorkspace re-verifies the typed count before the
@@ -319,101 +269,5 @@ func dialogResultBulkDeleteWorkspace(a *App, result common.DialogResult, dlg dia
 	if strings.TrimSpace(result.Value) != strconv.Itoa(len(dlg.bulkTargets)) {
 		return a.toast.ShowWarning("Delete canceled — the count did not match")
 	}
-	return a.startBulkOp(bulkOpDelete, dlg.bulkTargets)
-}
-
-// startBulkOp initializes the batch and kicks the first op. A second
-// batch while one drains is rejected, not queued — overwriting the state
-// would orphan the in-flight op's headID and run two drains in parallel.
-func (a *App) startBulkOp(kind bulkOpKind, targets []bulkTarget) tea.Cmd {
-	if a.bulk.active() {
-		logging.Warn("Bulk op rejected: a batch is already draining")
-		return a.toast.ShowWarning("A bulk operation is already running")
-	}
-	markIDs := make([]string, 0, len(targets))
-	for _, t := range targets {
-		markIDs = append(markIDs, t.markID)
-	}
-	a.bulk = bulkOpState{kind: kind, queue: targets, markIDs: markIDs, total: len(targets)}
-	return a.advanceBulk()
-}
-
-// advanceBulk pops the next target and drives it through the kind's
-// literal per-row handler. A guard rejection returns no cmds — that
-// target is counted failed and skipped immediately rather than stalling
-// the drain. An empty queue means the batch is done: summarize and clear
-// marks.
-func (a *App) advanceBulk() tea.Cmd {
-	b := &a.bulk
-	for len(b.queue) > 0 {
-		next := b.queue[0]
-		b.queue = b.queue[1:]
-		b.headID = string(next.workspace.MetadataID())
-		var cmds []tea.Cmd
-		switch b.kind {
-		case bulkOpRestore:
-			cmds = a.handleRestoreWorkspace(messages.RestoreWorkspace{
-				Project:   next.project,
-				Workspace: next.workspace,
-			})
-		case bulkOpPurge, bulkOpDelete:
-			// Live and shelved rows share the delete flow — the per-row
-			// handler already tolerates the absent worktree on purge.
-			cmds = a.handleDeleteWorkspace(messages.DeleteWorkspace{
-				Project:   next.project,
-				Workspace: next.workspace,
-			})
-		default: // bulkOpShelve
-			cmds = a.handleShelveWorkspace(messages.ShelveWorkspace{
-				Project:   next.project,
-				Workspace: next.workspace,
-			})
-		}
-		if len(cmds) == 0 {
-			// Rejected by the lifecycle guard (already in another phase)
-			// — count and move on; no completion will arrive for it.
-			b.headID = ""
-			b.failed++
-			continue
-		}
-		return common.SafeBatch(cmds...)
-	}
-	return a.finishBulk()
-}
-
-// bulkFinished records the in-flight op's completion and advances. The ws
-// must match the queue head — a completion for any other workspace (a
-// manual op interleaving with the batch) belongs to that flow and is left
-// to its own accounting.
-func (a *App) bulkFinished(ws *data.Workspace, ok bool) tea.Cmd {
-	b := &a.bulk
-	if b.headID == "" || ws == nil || string(ws.MetadataID()) != b.headID {
-		return nil
-	}
-	b.headID = ""
-	if ok {
-		b.succeeded++
-	} else {
-		b.failed++
-	}
-	return a.advanceBulk()
-}
-
-// finishBulk emits the batch summary and clears the batch members'
-// dashboard marks — the rows they pointed at are shelved, restored, or
-// purged (or failed) now.
-func (a *App) finishBulk() tea.Cmd {
-	b := a.bulk
-	if b.total == 0 {
-		return nil
-	}
-	a.bulk = bulkOpState{}
-	if a.dashboard != nil {
-		a.dashboard.ClearMarks(b.markIDs)
-	}
-	verb := b.kind.verb()
-	if b.failed > 0 {
-		return a.toast.ShowWarning(fmt.Sprintf("%s %d of %d — %d failed", verb, b.succeeded, b.total, b.failed))
-	}
-	return a.toast.ShowSuccess(fmt.Sprintf("%s %d of %d", verb, b.succeeded, b.total))
+	return a.bulk.Start(bulkops.Delete, dlg.bulkTargets)
 }

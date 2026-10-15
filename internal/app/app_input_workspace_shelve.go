@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
@@ -70,7 +71,7 @@ func (a *App) handleWorkspaceShelved(msg messages.WorkspaceShelved) []tea.Cmd {
 	cmds = append(cmds, a.loadProjects())
 	// A bulk batch member's completion advances the queue to the next
 	// workspace; foreign shelve completions leave the batch untouched.
-	if cmd := a.bulkFinished(msg.Workspace, true); cmd != nil {
+	if cmd := a.bulk.Finished(msg.Workspace, true); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return cmds
@@ -113,7 +114,7 @@ func (a *App) finishWorkspaceShelved(ws *data.Workspace, stampedIDs []string) []
 	}
 	// Per-row toasts are suppressed while a bulk shelve is draining — the
 	// batch emits one summary toast at the end instead of N row toasts.
-	if !a.bulk.activeFor(bulkOpShelve) {
+	if !a.bulk.ActiveFor(bulkops.Shelve) {
 		if cmd := a.toast.ShowSuccess(fmt.Sprintf("Shelved %s — branch and settings kept", ws.Name)); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -145,7 +146,7 @@ func (a *App) handleWorkspaceShelveFailed(msg messages.WorkspaceShelveFailed) te
 	if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "shelving workspace"), msg.Err, ""); errCmd != nil {
 		cmds = append(cmds, errCmd)
 	}
-	if cmd := a.bulkFinished(msg.Workspace, false); cmd != nil {
+	if cmd := a.bulk.Finished(msg.Workspace, false); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return common.SafeBatch(cmds...)
@@ -191,7 +192,7 @@ func (a *App) handleWorkspaceRestored(msg messages.WorkspaceRestored) []tea.Cmd 
 		}
 	}
 	cmds = append(cmds, a.loadProjects())
-	if cmd := a.bulkFinished(msg.Workspace, true); cmd != nil {
+	if cmd := a.bulk.Finished(msg.Workspace, true); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return cmds
@@ -212,7 +213,7 @@ func (a *App) handleWorkspaceRestoreSkipped(msg messages.WorkspaceRestoreSkipped
 		cmds = append(cmds, cmd)
 	}
 	cmds = append(cmds, a.loadProjects())
-	if cmd := a.bulkFinished(msg.Workspace, true); cmd != nil {
+	if cmd := a.bulk.Finished(msg.Workspace, true); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return cmds
@@ -222,7 +223,7 @@ func (a *App) handleWorkspaceRestoreSkipped(msg messages.WorkspaceRestoreSkipped
 // bulk restore drains, since the batch emits one summary toast at the end
 // instead of N row toasts (same rule as shelve).
 func (a *App) restoredToastCmd(ws *data.Workspace) tea.Cmd {
-	if a.bulk.activeFor(bulkOpRestore) {
+	if a.bulk.ActiveFor(bulkops.Restore) {
 		return nil
 	}
 	return a.toast.ShowSuccess("Restored " + ws.Name)
@@ -246,7 +247,7 @@ func (a *App) handleWorkspaceRestoreFailed(msg messages.WorkspaceRestoreFailed) 
 	if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "restoring workspace"), msg.Err, ""); errCmd != nil {
 		cmds = append(cmds, errCmd)
 	}
-	if cmd := a.bulkFinished(msg.Workspace, false); cmd != nil {
+	if cmd := a.bulk.Finished(msg.Workspace, false); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return common.SafeBatch(cmds...)

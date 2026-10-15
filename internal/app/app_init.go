@@ -62,6 +62,7 @@ func newAppShell(cfg *config.Config) *App {
 		maxAttachedAgentTabs:    maxAttachedAgentTabsFromEnv(),
 		maxAttachedTerminalTabs: maxAttachedTerminalTabsFromEnv(),
 	}
+	app.initBulkDriver()
 	app.styles = common.DefaultStyles()
 	// Propagate styles to all components (they may have been created with a
 	// different current theme). filePicker is nil at construction, so its
