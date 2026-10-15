@@ -4,77 +4,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 )
-
-func TestHandleKeyboardEnhancements_StoresMsgAndReportsCapabilities(t *testing.T) {
-	tests := []struct {
-		name             string
-		flags            int
-		wantDisambiguate bool
-		wantEventTypes   bool
-	}{
-		{
-			name:             "no enhancements",
-			flags:            0,
-			wantDisambiguate: false,
-			wantEventTypes:   false,
-		},
-		{
-			name:             "disambiguation only",
-			flags:            int(ansi.KittyDisambiguateEscapeCodes),
-			wantDisambiguate: true,
-			wantEventTypes:   false,
-		},
-		{
-			name:             "event types implies disambiguation",
-			flags:            int(ansi.KittyReportEventTypes),
-			wantDisambiguate: true,
-			wantEventTypes:   true,
-		},
-		{
-			name:             "all kitty flags",
-			flags:            int(ansi.KittyAllFlags),
-			wantDisambiguate: true,
-			wantEventTypes:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			app := &App{}
-			msg := tea.KeyboardEnhancementsMsg{Flags: tt.flags}
-
-			app.handleKeyboardEnhancements(msg)
-
-			if app.keyboardEnhancements.Flags != tt.flags {
-				t.Fatalf("expected stored flags %d, got %d", tt.flags, app.keyboardEnhancements.Flags)
-			}
-			if got := app.keyboardEnhancements.SupportsKeyDisambiguation(); got != tt.wantDisambiguate {
-				t.Fatalf("disambiguation: got %t want %t", got, tt.wantDisambiguate)
-			}
-			if got := app.keyboardEnhancements.SupportsEventTypes(); got != tt.wantEventTypes {
-				t.Fatalf("event types: got %t want %t", got, tt.wantEventTypes)
-			}
-		})
-	}
-}
-
-func TestHandleKeyboardEnhancements_OverwritesPreviousMsg(t *testing.T) {
-	app := &App{keyboardEnhancements: tea.KeyboardEnhancementsMsg{Flags: int(ansi.KittyAllFlags)}}
-
-	app.handleKeyboardEnhancements(tea.KeyboardEnhancementsMsg{Flags: 0})
-
-	if app.keyboardEnhancements.Flags != 0 {
-		t.Fatalf("expected later msg to overwrite earlier flags, got %d", app.keyboardEnhancements.Flags)
-	}
-	if app.keyboardEnhancements.SupportsKeyDisambiguation() {
-		t.Fatal("expected disambiguation false after overwrite with empty flags")
-	}
-}
 
 func TestHandleWindowSize_UpdatesDimensionsReadyAndLayout(t *testing.T) {
 	h := newCenterHarness(nil, HarnessOptions{Width: 80, Height: 24, Tabs: 1})

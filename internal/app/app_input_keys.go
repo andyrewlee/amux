@@ -145,7 +145,6 @@ func (a *App) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (a *App) handleKeyboardEnhancements(msg tea.KeyboardEnhancementsMsg) {
-	a.keyboardEnhancements = msg
 	logging.Info("Keyboard enhancements: disambiguation=%t event_types=%t", msg.SupportsKeyDisambiguation(), msg.SupportsEventTypes())
 }
 
