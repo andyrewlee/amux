@@ -69,9 +69,19 @@ func (a *App) rearmCmdForPanic(msg tea.Msg) tea.Cmd {
 		if a.center != nil {
 			return a.center.RearmForPanic(msg)
 		}
-	case messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart:
+	case messages.SidebarPTYFlush, messages.SidebarPTYStopped, messages.SidebarPTYRestart,
+		messages.SidebarSelectionScrollTick:
 		if a.sidebarTerminal != nil {
 			return a.sidebarTerminal.RearmForPanic(msg)
+		}
+	default:
+		// Unexported center chain types (selectionScrollTick) can't be
+		// named in a case clause — delegate everything unhandled to the
+		// center model's own RearmForPanic, which self-filters to nil for
+		// anything it doesn't arm. Exported center types keep their
+		// explicit case above.
+		if a.center != nil {
+			return a.center.RearmForPanic(msg)
 		}
 	}
 	return nil

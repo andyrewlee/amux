@@ -114,6 +114,15 @@ func TestRearmCmdForPanic_MapsPeriodicChains(t *testing.T) {
 		{"sidebar pty flush (delegated)", messages.SidebarPTYFlush{}, false},
 		{"sidebar pty stopped (delegated)", messages.SidebarPTYStopped{}, false},
 		{"sidebar pty restart (delegated)", messages.SidebarPTYRestart{}, false},
+		// Routed through the sidebar delegation case — nil here because the
+		// fixture's sidebarTerminal is nil; live-chain rearm proven by
+		// sidebar's TestRearmForPanic_SidebarSelectionScrollTickRearms.
+		{"sidebar selection scroll tick (delegated)", messages.SidebarSelectionScrollTick{}, false},
+		// center.selectionScrollTick is unexported — this package can't
+		// construct it for a row. It reaches RearmForPanic via the switch's
+		// default delegation; live-chain rearm proven by center's
+		// TestRearmForPanic_SelectionScrollTickRearms and the actor-side
+		// TestRearmActorChainAfterPanic_SelectionTickReemits.
 		{"key press", tea.KeyPressMsg{}, false},
 		{"window size", tea.WindowSizeMsg{}, false},
 		{"error", messages.Error{}, false},
@@ -153,6 +162,7 @@ func TestRearmCmdForPanic_NilSafeOnUnconfiguredApp(t *testing.T) {
 		messages.SidebarPTYFlush{},
 		messages.SidebarPTYStopped{},
 		messages.SidebarPTYRestart{},
+		messages.SidebarSelectionScrollTick{},
 		tea.KeyPressMsg{},
 		nil,
 	} {

@@ -252,6 +252,55 @@ func TestRearmCmdForPanic_ClassifiesEveryDispatchedMessage(t *testing.T) {
 			t.Errorf("%s classified non-periodic but rearmCmdForPanic armed a chain", row.name)
 		}
 	}
+
+	// Classified-vs-mapped cross-check: every chain=true row must be an
+	// explicit case in rearmCmdForPanic's switch. The switch's default
+	// delegates to center.RearmForPanic — which self-filters to nil for
+	// anything not a center chain — so a chain row that drifts out of the
+	// case list silently stops rearming (exactly how the sidebar selection
+	// tick shipped unrouted). Unexported center chain types can't appear
+	// in this registry and are covered by the default + center's own
+	// completeness test.
+	mapped := rearmCaseTypeNames(t)
+	for _, row := range rearmChainClassification {
+		if !row.chain {
+			continue
+		}
+		if !mapped[row.name] {
+			t.Errorf("%s classified chain=true but has no case in rearmCmdForPanic — it would never rearm", row.name)
+		}
+	}
+}
+
+// rearmCaseTypeNames extracts the message types explicitly cased in
+// rearmCmdForPanic's `switch ... := msg.(type)` — the classified-vs-mapped
+// half of the completeness check. Model-delegated chains (sidebar, center
+// exports) are still explicit cases; only center's unexported types rely
+// on the default delegation.
+func rearmCaseTypeNames(t *testing.T) map[string]bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "app_rearm.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing app_rearm.go: %v", err)
+	}
+	names := map[string]bool{}
+	found := false
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != "rearmCmdForPanic" || fd.Body == nil {
+			continue
+		}
+		found = true
+		collectMsgSwitchCases(fd.Body, names)
+	}
+	if !found {
+		t.Fatal("rearmCmdForPanic not found in app_rearm.go")
+	}
+	if len(names) == 0 {
+		t.Fatal("no case types extracted — AST walker drifted from the source")
+	}
+	return names
 }
 
 // dispatchedMsgTypeNames extracts the type names routed by App.update's

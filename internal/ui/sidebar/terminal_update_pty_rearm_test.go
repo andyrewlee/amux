@@ -107,8 +107,43 @@ func TestRearmForPanic_SidebarStaleGenRestartSelfDrops(t *testing.T) {
 	}
 }
 
-// TestRearmForPanic_SidebarNonChainMessagesReturnNil pins the boundary: only
-// the three periodic chain types rearm — everything else maps to nil.
+// TestRearmForPanic_SidebarSelectionScrollTickRearms: the edge-hold
+// auto-scroll chain is self-rearming — a panic-dropped tick ends the
+// scroll for the rest of the drag, so a live chain must rearm with the
+// tab's current gen/seq.
+func TestRearmForPanic_SidebarSelectionScrollTickRearms(t *testing.T) {
+	m, ts, wsID, tabID := newRearmFixture(t)
+	ts.mu.Lock()
+	ts.selectionScroll.Active = true
+	ts.selectionScroll.ScrollDir = 1
+	ts.selectionScroll.Gen = 4
+	ts.selectionScroll.TickSeq = 7
+	ts.mu.Unlock()
+
+	cmd := m.RearmForPanic(messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID)})
+	if cmd == nil {
+		t.Fatal("expected a rearm tick for a live selection-scroll chain")
+	}
+	tick, ok := cmd().(messages.SidebarSelectionScrollTick)
+	if !ok {
+		t.Fatalf("rearm cmd produced %T, want messages.SidebarSelectionScrollTick", cmd())
+	}
+	if tick.Gen != 4 || tick.Seq != 7 {
+		t.Fatalf("rearmed tick = gen %d seq %d, want 4/7", tick.Gen, tick.Seq)
+	}
+}
+
+// TestRearmForPanic_SidebarSelectionScrollTickInactiveStaysNil: a dropped
+// tick on an already-stopped chain must not resurrect scrolling.
+func TestRearmForPanic_SidebarSelectionScrollTickInactiveStaysNil(t *testing.T) {
+	m, _, wsID, tabID := newRearmFixture(t)
+	if cmd := m.RearmForPanic(messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID)}); cmd != nil {
+		t.Fatal("inactive selection-scroll chain must not rearm")
+	}
+}
+
+// TestRearmForPanic_SidebarNonChainMessagesReturnNil pins the boundary:
+// only the periodic chain types rearm — everything else maps to nil.
 func TestRearmForPanic_SidebarNonChainMessagesReturnNil(t *testing.T) {
 	m, _, wsID, tabID := newRearmFixture(t)
 	for _, msg := range []tea.Msg{

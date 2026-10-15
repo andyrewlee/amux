@@ -168,3 +168,35 @@ func (m *Model) handleSelectionScrollTick(ev tabEvent) {
 		})
 	}
 }
+
+// rearmActorChainAfterPanic re-arms the selection edge-hold auto-scroll
+// chain when a tick event died to a panic mid-handler: while the pointer
+// sits still past the viewport edge, only the tick keeps the scroll
+// moving — no motion event re-arms it — so a dropped tick kills the chain
+// for the rest of the gesture. The emitted request carries the tab's
+// CURRENT gen/seq (the dropped event's seq is either consumed or stale),
+// mirroring Model.RearmForPanic's app-level path; HandleTick's seq check
+// makes a double-arm harmless. Runs on the actor goroutine from the
+// per-event recover.
+func (m *Model) rearmActorChainAfterPanic(ev tabEvent) {
+	if ev.kind != tabEventSelectionScrollTick || ev.tab == nil || ev.tab.isClosed() {
+		return
+	}
+	var gen, seq uint64
+	alive := withMuVal(&ev.tab.mu, func() bool {
+		if !ev.tab.selectionScroll.Active || ev.tab.selectionScroll.ScrollDir == 0 {
+			return false
+		}
+		gen, seq = ev.tab.selectionScroll.Gen, ev.tab.selectionScroll.TickSeq
+		return true
+	})
+	if !alive || m.msgSink == nil {
+		return
+	}
+	m.msgSink(selectionTickRequest{
+		workspaceID: ev.workspaceID,
+		tabID:       ev.tabID,
+		gen:         gen,
+		seq:         seq,
+	})
+}

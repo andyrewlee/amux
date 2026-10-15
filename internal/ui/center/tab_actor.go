@@ -218,6 +218,7 @@ func (m *Model) RunTabActor(ctx context.Context) error {
 					if r := recover(); r != nil {
 						logging.Error("tab actor event panic (kind %d, tab %s): %v\n%s", ev.kind, ev.tabID, r, debug.Stack())
 						m.reconcileActorEventPanic(ev)
+						m.rearmActorChainAfterPanic(ev)
 					}
 				}()
 				m.handleTabEvent(ev)
