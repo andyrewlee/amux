@@ -304,6 +304,12 @@ viewers' `/` search field treats a pasted newline as `enter`, accepting the
 first pasted line as the query — convenient when pasting a copied error
 line, surprising if the payload is multi-line.)
 
+Paste payloads bound for a *pane* (not a field) are sanitized before the
+bracketed-paste wrapper: CRLF normalizes to LF, newlines and tabs survive,
+and every other control rune is stripped — an embedded `\x1b[201~` cannot
+end bracketed mode early inside a 2004-honoring agent, so hostile
+clipboard content can't turn the remainder into live keystrokes.
+
 When a lifecycle script fails, `O` opens its captured output and `/`
 searches it — literal, case-insensitive, retained buffer only — which is
 usually the fastest way to find the error line an orchestrator needs to

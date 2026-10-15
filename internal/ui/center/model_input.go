@@ -63,7 +63,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			// Admission is synchronous and ordered; the writer stamps
 			// local-input timing after the PTY write actually happens so queue
 			// latency does not look like local echo.
-			payload := ansi.BracketedPasteStart + msg.Content + ansi.BracketedPasteEnd
+			payload := ansi.BracketedPasteStart + common.SanitizePanePaste(msg.Content) + ansi.BracketedPasteEnd
 			res, gen := m.admitTabInput(tab, payload, "Paste", true)
 			if res == tabInputNoTerminal {
 				return m, nil

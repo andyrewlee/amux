@@ -1,6 +1,7 @@
 package common
 
 import (
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -51,4 +52,57 @@ func TestFieldPasteFirstLinePolicy(t *testing.T) {
 			t.Fatalf("PasteFirstLine invalid bytes = %q, want %q", got, "a\ufffdb")
 		}
 	})
+}
+
+// TestSanitizePanePasteBreakout pins the exploit case: a clipboard payload
+// carrying an embedded paste-end marker would end bracketed mode inside a
+// 2004-honoring agent and turn the trailing bytes into keystrokes — the
+// sanitizer must leave no ESC byte (so no marker can survive) while keeping
+// the post-terminator text inside the paste as inert literal content.
+func TestSanitizePanePasteBreakout(t *testing.T) {
+	payload := "echo ok" + "\x1b[201~" + "\nrm -rf ~\r"
+	out := SanitizePanePaste(payload)
+	if strings.Contains(out, "\x1b") {
+		t.Fatalf("ESC byte survived sanitization: %q", out)
+	}
+	if strings.Contains(out, "\x1b[201~") || strings.Contains(out, "\x1b[200~") {
+		t.Fatalf("bracketed-paste marker survived: %q", out)
+	}
+	if !strings.Contains(out, "rm -rf ~") {
+		t.Fatalf("post-terminator text should stay inside the paste, got %q", out)
+	}
+	// The wrapped payload must differ from the raw input — the red-check
+	// for the call sites (raw msg.Content would carry the ESC through).
+	if out == payload {
+		t.Fatal("sanitizer was a no-op")
+	}
+}
+
+// TestSanitizePanePastePolicy pins the byte policy: CRLF/lone-CR normalize
+// to LF, tabs and newlines survive, every other C0/C1/DEL control rune is
+// dropped, and printable UTF-8 (emoji incl. ZWJ sequences, CJK) passes
+// through untouched.
+func TestSanitizePanePastePolicy(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"crlf normalizes", "a\r\nb\rc", "a\nb\nc"},
+		{"tab and newline kept", "x\ty\nz", "x\ty\nz"},
+		{"c0 stripped", "a\x07b\x01c", "abc"},
+		{"del stripped", "a\x7fb", "ab"},
+		{"c1 stripped", "a\u0085b\u009bc", "abc"},
+		{"utf8 kept", "héllo 世界 👨\u200d💻", "héllo 世界 👨\u200d💻"},
+		{"empty", "", ""},
+		{"only controls", "\x00\x1f\u009f", ""},
+		{"invalid utf8 replaced", "a\xffb", "a�b"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := SanitizePanePaste(tc.input); got != tc.want {
+				t.Fatalf("SanitizePanePaste(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
 }

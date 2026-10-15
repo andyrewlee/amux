@@ -191,7 +191,7 @@ func (m *TerminalModel) handlePaste(msg tea.PasteMsg) (*TerminalModel, tea.Cmd) 
 	// Admission only: the binding's writer goroutine owns SendString, so a
 	// stalled PTY can never park Update on ptyFile.Write.
 	text := msg.Content
-	bracketedText := ansi.BracketedPasteStart + text + ansi.BracketedPasteEnd
+	bracketedText := ansi.BracketedPasteStart + common.SanitizePanePaste(text) + ansi.BracketedPasteEnd
 	tab := m.getActiveTab()
 	var tabID TerminalTabID
 	if tab != nil {
