@@ -113,7 +113,7 @@ func TestHandleTmuxTabsSyncResult_SaveAndDeleteMarkAreAtomic(t *testing.T) {
 	}
 }
 
-func (s *blockingWorkspaceStore) SetScripts(data.WorkspaceID, data.ScriptsConfig, string) error {
+func (s *blockingWorkspaceStore) SetScripts(data.WorkspaceID, data.ScriptsConfig, data.ScriptMode) error {
 	return nil
 }
 

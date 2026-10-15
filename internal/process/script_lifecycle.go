@@ -116,7 +116,7 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	}
 
 	// Check for existing process in non-concurrent mode
-	if ws.ScriptMode == "nonconcurrent" {
+	if ws.ScriptMode == data.ScriptModeNonconcurrent {
 		if err := r.Stop(ws); !isBenignStopError(err) {
 			return nil, err
 		}

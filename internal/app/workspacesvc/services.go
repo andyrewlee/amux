@@ -44,7 +44,7 @@ type WorkspaceStore interface {
 	Delete(id data.WorkspaceID) error
 	Rename(id data.WorkspaceID, newName string) error
 	SetEnv(id data.WorkspaceID, env map[string]string) error
-	SetScripts(id data.WorkspaceID, scripts data.ScriptsConfig, mode string) error
+	SetScripts(id data.WorkspaceID, scripts data.ScriptsConfig, mode data.ScriptMode) error
 	MarkDeleting(id data.WorkspaceID) error
 	IsDeleting(id data.WorkspaceID) bool
 	ClearDeleting(id data.WorkspaceID) error

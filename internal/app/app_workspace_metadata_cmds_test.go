@@ -44,7 +44,7 @@ func (s *gatedWorkspaceStore) SetEnv(id data.WorkspaceID, env map[string]string)
 	return s.WorkspaceStore.SetEnv(id, env)
 }
 
-func (s *gatedWorkspaceStore) SetScripts(id data.WorkspaceID, scripts data.ScriptsConfig, mode string) error {
+func (s *gatedWorkspaceStore) SetScripts(id data.WorkspaceID, scripts data.ScriptsConfig, mode data.ScriptMode) error {
 	s.gate()
 	return s.WorkspaceStore.SetScripts(id, scripts, mode)
 }

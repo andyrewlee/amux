@@ -157,7 +157,7 @@ func (s *WorkspaceStore) load(id WorkspaceID, applyDefaults bool) (*Workspace, e
 		Runtime:        normalizeRuntime(raw.Runtime),
 		Assistant:      raw.Assistant,
 		Scripts:        raw.Scripts,
-		ScriptMode:     raw.ScriptMode,
+		ScriptMode:     ScriptMode(raw.ScriptMode),
 		Env:            raw.Env,
 		OpenTabs:       raw.OpenTabs,
 		ActiveTabIndex: raw.ActiveTabIndex,
@@ -376,9 +376,10 @@ func (s *WorkspaceStore) applyWorkspaceDefaults(ws *Workspace) {
 	if ws.Assistant == "" {
 		ws.Assistant = s.ResolvedDefaultAssistant()
 	}
-	if ws.ScriptMode == "" {
-		ws.ScriptMode = "nonconcurrent"
-	}
+	// Load-side normalization: only the two known values survive — anything
+	// else (garbage, a forward-versioned mode, a hand edit) becomes the safe
+	// nonconcurrent default, matching the write-side rule.
+	ws.ScriptMode = NormalizeScriptMode(ws.ScriptMode)
 	if ws.Env == nil {
 		ws.Env = make(map[string]string)
 	}

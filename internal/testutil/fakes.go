@@ -141,7 +141,7 @@ type FakeWorkspaceStore struct {
 	DeleteFunc                   func(id data.WorkspaceID) error
 	RenameFunc                   func(id data.WorkspaceID, newName string) error
 	SetEnvFunc                   func(id data.WorkspaceID, env map[string]string) error
-	SetScriptsFunc               func(id data.WorkspaceID, scripts data.ScriptsConfig, mode string) error
+	SetScriptsFunc               func(id data.WorkspaceID, scripts data.ScriptsConfig, mode data.ScriptMode) error
 	MarkDeletingFunc             func(id data.WorkspaceID) error
 	IsDeletingFunc               func(id data.WorkspaceID) bool
 	ClearDeletingFunc            func(id data.WorkspaceID) error
@@ -281,7 +281,7 @@ func (f *FakeWorkspaceStore) SetEnv(id data.WorkspaceID, env map[string]string) 
 	return nil
 }
 
-func (f *FakeWorkspaceStore) SetScripts(id data.WorkspaceID, scripts data.ScriptsConfig, mode string) error {
+func (f *FakeWorkspaceStore) SetScripts(id data.WorkspaceID, scripts data.ScriptsConfig, mode data.ScriptMode) error {
 	if f.SetScriptsFunc != nil {
 		return f.SetScriptsFunc(id, scripts, mode)
 	}

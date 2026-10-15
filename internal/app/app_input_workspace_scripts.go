@@ -30,7 +30,7 @@ func (a *App) handleShowWorkspaceScriptsDialog(msg messages.ShowWorkspaceScripts
 		a.overlays.scripts = common.NewScriptsDialog(
 			ws.Scripts.Setup, ws.Scripts.Run,
 			ws.Scripts.Archive, ws.Scripts.OnDone,
-			ws.ScriptMode,
+			string(ws.ScriptMode),
 		)
 		a.overlays.scripts.SetSize(a.width, a.height)
 		a.overlays.scripts.Show()
@@ -56,7 +56,7 @@ func (a *App) handleScriptsDialogResult(res common.ScriptsDialogResult) tea.Cmd 
 
 	// The flock-backed save runs off-loop; handleWorkspaceScriptsSaved
 	// applies the in-memory reflect once the store confirms.
-	return a.saveWorkspaceScriptsAsync(ws, scripts, mode)
+	return a.saveWorkspaceScriptsAsync(ws, scripts, data.ScriptMode(mode))
 }
 
 // projectEnvReadyMsg delivers the seeded project env map — ForRepo is an

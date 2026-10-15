@@ -29,7 +29,7 @@ type renameWorkspaceResultMsg struct {
 type workspaceScriptsSavedMsg struct {
 	workspace *data.Workspace
 	scripts   data.ScriptsConfig
-	mode      string
+	mode      data.ScriptMode
 	err       error
 }
 
@@ -61,7 +61,7 @@ func (a *App) renameWorkspaceAsync(ws *data.Workspace, name string) tea.Cmd {
 }
 
 // saveWorkspaceScriptsAsync runs the scripts transaction off-loop.
-func (a *App) saveWorkspaceScriptsAsync(ws *data.Workspace, scripts data.ScriptsConfig, mode string) tea.Cmd {
+func (a *App) saveWorkspaceScriptsAsync(ws *data.Workspace, scripts data.ScriptsConfig, mode data.ScriptMode) tea.Cmd {
 	if a.workspaceService == nil || ws == nil {
 		return nil
 	}
@@ -121,7 +121,7 @@ func (a *App) handleWorkspaceScriptsSaved(msg workspaceScriptsSavedMsg) tea.Cmd 
 	}
 	if a.activeWorkspace != nil && msg.workspace != nil && a.activeWorkspace.Root == msg.workspace.Root {
 		a.activeWorkspace.Scripts = msg.scripts
-		a.activeWorkspace.ScriptMode = msg.mode
+		a.activeWorkspace.ScriptMode = data.NormalizeScriptMode(msg.mode)
 	}
 	name := ""
 	if msg.workspace != nil {

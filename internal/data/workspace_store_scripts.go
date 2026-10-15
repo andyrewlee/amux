@@ -6,10 +6,8 @@ import "fmt"
 // persisting them. Same Tier-1 load-fresh-then-save shape as SetEnv/Rename, so
 // a possibly-stale in-memory Workspace (e.g. one captured when the scripts
 // dialog opened) cannot clobber a field another in-flight operation changed.
-func (s *WorkspaceStore) SetScripts(id WorkspaceID, scripts ScriptsConfig, mode string) error {
-	if mode != "concurrent" {
-		mode = "nonconcurrent"
-	}
+func (s *WorkspaceStore) SetScripts(id WorkspaceID, scripts ScriptsConfig, mode ScriptMode) error {
+	mode = NormalizeScriptMode(mode)
 	err := s.Update(id, func(ws *Workspace) (bool, error) {
 		if ws.Scripts == scripts && ws.ScriptMode == mode {
 			return false, nil

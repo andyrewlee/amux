@@ -403,3 +403,50 @@ func TestWorkspaceStore_ListAll_ByRepoMatchesListByRepo(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkspaceStore_LoadNormalizesUnknownScriptMode pins the safety
+// invariant: any unrecognized persisted script_mode (a forward-versioned
+// mode, a hand-edited file, corruption) loads as nonconcurrent — the
+// permissive direction (concurrent runs) must never be reached through an
+// unknown value.
+func TestWorkspaceStore_LoadNormalizesUnknownScriptMode(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	for _, tc := range []struct {
+		name   string
+		stored string
+		want   ScriptMode
+	}{
+		{"bogus value", `"bogus"`, ScriptModeNonconcurrent},
+		{"forward-versioned mode", `"ask"`, ScriptModeNonconcurrent},
+		{"empty string", `""`, ScriptModeNonconcurrent},
+		{"missing key", ``, ScriptModeNonconcurrent},
+		{"concurrent survives", `"concurrent"`, ScriptModeConcurrent},
+		{"nonconcurrent survives", `"nonconcurrent"`, ScriptModeNonconcurrent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := &Workspace{Name: "ws-" + tc.name, Repo: "/repo", Root: "/root/" + tc.name}
+			id := ws.ID()
+			dir := filepath.Join(root, string(id))
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatalf("MkdirAll() error = %v", err)
+			}
+			modeLine := ""
+			if tc.stored != "" {
+				modeLine = `, "script_mode": ` + tc.stored
+			}
+			doc := `{"name": "` + ws.Name + `", "repo": "/repo", "root": "/root/x", "branch": "main"` + modeLine + `}`
+			if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(doc), 0o644); err != nil {
+				t.Fatalf("WriteFile() error = %v", err)
+			}
+			loaded, err := store.Load(id)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if loaded.ScriptMode != tc.want {
+				t.Fatalf("stored %s loaded as %q, want %q", tc.stored, loaded.ScriptMode, tc.want)
+			}
+		})
+	}
+}

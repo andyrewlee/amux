@@ -139,7 +139,7 @@ func newHostedWorkspace(t *testing.T, mode string) *data.Workspace {
 		Name:       "ws",
 		Root:       t.TempDir(),
 		Repo:       t.TempDir(),
-		ScriptMode: mode,
+		ScriptMode: data.ScriptMode(mode),
 		Scripts: data.ScriptsConfig{
 			Run: "make dev",
 		},

@@ -81,7 +81,7 @@ type Workspace struct {
 
 	// Scripts
 	Scripts    ScriptsConfig `json:"scripts"`
-	ScriptMode string        `json:"script_mode"`
+	ScriptMode ScriptMode    `json:"script_mode"`
 
 	// Environment
 	Env map[string]string `json:"env"`
@@ -223,7 +223,7 @@ func NewWorkspace(name, branch, base, repo, root string) *Workspace {
 		Created:    time.Now(),
 		Runtime:    RuntimeLocalWorktree,
 		Assistant:  DefaultAssistant,
-		ScriptMode: "nonconcurrent",
+		ScriptMode: ScriptModeNonconcurrent,
 		Env:        make(map[string]string),
 	}
 }
@@ -254,4 +254,28 @@ func (w Workspace) Clone() Workspace {
 		copy(out.OpenTabs, w.OpenTabs)
 	}
 	return out
+}
+
+// ScriptMode is a workspace's script-run concurrency policy. The string is
+// the persisted workspace.json value — kept identical for backwards compat.
+type ScriptMode string
+
+const (
+	// ScriptModeNonconcurrent stops a running script before starting a new
+	// one — the default and the safe direction.
+	ScriptModeNonconcurrent ScriptMode = "nonconcurrent"
+	// ScriptModeConcurrent allows overlapping script runs.
+	ScriptModeConcurrent ScriptMode = "concurrent"
+)
+
+// NormalizeScriptMode maps any unrecognized persisted value to
+// nonconcurrent — an unknown or forward-versioned mode must never silently
+// enable concurrent runs (the permissive direction for the
+// stop-before-start safety invariant). The rule matches the write-side
+// normalization in SetScripts.
+func NormalizeScriptMode(s ScriptMode) ScriptMode {
+	if s == ScriptModeConcurrent {
+		return ScriptModeConcurrent
+	}
+	return ScriptModeNonconcurrent
 }
