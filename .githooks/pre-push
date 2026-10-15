@@ -18,7 +18,7 @@ fi
 if [[ -n "${AMUX_SKIP_HARNESS:-}" ]]; then
   echo "amux pre-push: skipping harness (AMUX_SKIP_HARNESS set)"
 else
-  center_args=(${AMUX_HARNESS_CENTER_ARGS:---mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1 --payload-bytes=128})
+  center_args=(${AMUX_HARNESS_CENTER_ARGS:---mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1 --payload-bytes=128 --assert-min-visible=100})
 
   echo "amux pre-push: running headless UI harness (center)..."
   go run ./cmd/amux-harness "${center_args[@]}"
@@ -37,7 +37,13 @@ else
 fi
 
 echo "amux pre-push: running tests..."
-go test ./internal/e2e -count=1
+e2e_output="$(mktemp)"
+if ! go test ./internal/e2e -count=1 -v >"$e2e_output" 2>&1; then
+  cat "$e2e_output"
+  rm -f "$e2e_output"
+  exit 1
+fi
+cat "$e2e_output"
 
 # Every test in internal/e2e calls t.Skip when tmux is missing/unusable, so the
 # `go test` above can go green having exercised nothing. Apply the project's
@@ -59,7 +65,19 @@ fi
 if [[ "$e2e_validated" -eq 0 ]]; then
   echo "amux pre-push: WARNING: e2e tests SKIPPED — tmux unusable, push not validated end-to-end" >&2
   echo "amux pre-push: run inside a usable tmux and \`make verify-loop\` to exercise input/send end-to-end." >&2
+else
+  # tmux works, so the three close-loop input tests must have actually
+  # PASSed — a rename/skip must not read as green. This PASS list mirrors
+  # `make verify-loop`'s assertion (Makefile); keep both in sync.
+  for t in TestCloseLoopKeystrokeDeliveryToRawAgent TestFakeAgentRecordsRawCarriageReturn TestCloseLoopSidebarControlKeysReachRawProcess; do
+    if ! grep -qE -- "--- PASS: $t[ (]" "$e2e_output"; then
+      echo "amux pre-push: $t did not PASS (missing, renamed, or skipped) — the e2e leg is vacuous" >&2
+      rm -f "$e2e_output"
+      exit 1
+    fi
+  done
 fi
+rm -f "$e2e_output"
 
 if [[ -n "${AMUX_SKIP_TESTS:-}" ]]; then
   echo "amux pre-push: skipping unit-test sweep (AMUX_SKIP_TESTS set)"

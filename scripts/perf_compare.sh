@@ -24,7 +24,13 @@ run_preset() {
 
   echo "Running $name preset..."
   local out
-  out=$(make "$target")
+  # Guard the capture: under `set -e` a failing make would otherwise abort
+  # the script with $out never printed — losing the failure's stdout.
+  if ! out=$(make "$target"); then
+    echo "$out"
+    echo "make $target failed for the $name preset" >&2
+    exit 1
+  fi
   echo "$out"
 
   local p95

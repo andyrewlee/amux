@@ -1,6 +1,7 @@
 /amux
 /amux-harness
 /tmp/
+/dist/
 .gemini-clipboard/
 /.cache/
 

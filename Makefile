@@ -45,6 +45,7 @@ build:
 PREFIX ?= /usr/local
 install: build
 	@dest="$(PREFIX)/bin"; \
+	mkdir -p "$$dest" 2>/dev/null || sudo -n mkdir -p "$$dest" 2>/dev/null || true; \
 	if [ -w "$$dest" ]; then \
 		install -m 755 $(BINARY_NAME) "$$dest/$(BINARY_NAME)"; \
 		echo "installed $$dest/$(BINARY_NAME)"; \
@@ -81,7 +82,9 @@ test-race:
 # integration tests in app/pty — they need a real tmux server and run under
 # -race here (the former tmux-e2e CI job's race leg). Without tmux they skip.
 # Keep this list coupled to the exclusion filter in scripts/test_pkgs.sh and
-# the tmux-skip-check package list below.
+# the tmux-skip-check package list below. Note ./internal/app also races in
+# test-race's default filter — the overlap is deliberate: this leg exercises
+# app's real-tmux tests, which skip entirely in the no-tmux leg.
 test-race-tmux:
 	go test -race -count=1 ./internal/tmux/... ./internal/e2e/... ./internal/app ./internal/pty/... ./internal/ui/sidebar/...
 
@@ -92,12 +95,11 @@ test-race-tmux:
 soak:
 	go test -tags=soak ./internal/app -run TestSoakHarnessPTY -count=1 -timeout 20m
 
-# tidy-check fails when go.mod/go.sum are
-# not tidy. Note it runs `go mod tidy`, so an untidy module is rewritten in
-# your working tree — inspect `git diff go.mod go.sum` on failure.
+# tidy-check fails when go.mod/go.sum are not tidy. `go mod tidy -diff`
+# (Go >= 1.23) prints the needed diff and exits nonzero without writing —
+# the check never mutates the working tree.
 tidy-check:
-	go mod tidy
-	git diff --exit-code go.mod go.sum
+	go mod tidy -diff
 
 # govulncheck scans for known vulnerabilities. GOVULNCHECK_VERSION is the
 # single source for the pin.
@@ -154,7 +156,7 @@ fuzz:
 # ci-nightly mirrors the former nightly workflow: a full-tree race run plus
 # the soak workload. Heavy — for pre-landing confidence, not every commit.
 ci-nightly:
-	go test -race ./... -timeout 30m
+	STRICT_TMUX=1 go test -race -count=1 ./... -timeout 30m
 	$(MAKE) soak
 	$(MAKE) fuzz
 	@# Informational pin-staleness report — never fails.
@@ -311,6 +313,13 @@ doctor:
 	else \
 		echo "FAIL bash: not installed (gate scripts and lint-config-drift require it)"; fail=1; \
 	fi; \
+	if command -v mktemp >/dev/null 2>&1; then echo "ok   mktemp present"; else echo "warn mktemp not found — verify-loop and pre-push capture gate output with it"; fi; \
+	if command -v comm >/dev/null 2>&1; then echo "ok   comm present"; else echo "warn comm not found — lint-config-drift's config comparison needs it"; fi; \
+	for f in .githooks/pre-commit .githooks/pre-push; do \
+		if [ -f "$$f" ] && [ ! -x "$$f" ]; then \
+			echo "warn $$f: not executable — a non-executable hook silently skips its gates"; \
+		fi; \
+	done; \
 	execbit=1; \
 	for f in scripts/*.sh; do \
 		if [ ! -x "$$f" ]; then \
@@ -322,7 +331,7 @@ doctor:
 	echo "doctor: environment looks good"
 
 bench:
-	go test -bench=. -benchmem ./internal/ui/compositor/ -run=^$$
+	go test -bench=. -benchmem ./internal/ui/... ./internal/vterm/ -run=^$$
 
 harness-center:
 	go run ./cmd/amux-harness -mode center -tabs 16 -hot-tabs 2 -payload-bytes 64 -frames $(HARNESS_FRAMES) -warmup $(HARNESS_WARMUP) -width $(HARNESS_WIDTH) -height $(HARNESS_HEIGHT)

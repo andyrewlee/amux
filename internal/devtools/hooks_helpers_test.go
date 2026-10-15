@@ -78,6 +78,18 @@ fi
 if [ -n "${STUB_FAIL_GO:-}" ]; then
   case " $* " in *" $STUB_FAIL_GO "*) exit 1;; esac
 fi
+# The e2e leg greps its captured output for the close-loop PASS lines —
+# emit them so a passing stub run satisfies the anti-vacuity assert.
+# STUB_GO_QUIET_E2E suppresses them to simulate a vacuous e2e pass.
+case " $* " in
+  *" ./internal/e2e "*)
+    if [ -z "${STUB_GO_QUIET_E2E:-}" ]; then
+      printf '%s\n' \
+        '--- PASS: TestCloseLoopKeystrokeDeliveryToRawAgent (0.01s)' \
+        '--- PASS: TestFakeAgentRecordsRawCarriageReturn (0.01s)' \
+        '--- PASS: TestCloseLoopSidebarControlKeysReachRawProcess (0.01s)'
+    fi;;
+esac
 exit 0
 `)
 	// tmux is always stubbed: on CI /usr/bin/tmux exists in PATH, so omitting

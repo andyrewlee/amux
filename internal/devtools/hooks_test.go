@@ -222,6 +222,12 @@ func TestHookRetainedGatesFail(t *testing.T) {
 			"pre-push race smoke failure fails the push", "pre-push",
 			map[string]string{"STUB_FAIL_GO": "-race"},
 		},
+		{
+			// e2e exits 0 with no close-loop PASS lines — the vacuity
+			// assert must still fail the push.
+			"pre-push vacuous e2e run fails the push", "pre-push",
+			map[string]string{"STUB_GO_QUIET_E2E": "1"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
