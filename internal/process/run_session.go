@@ -49,6 +49,25 @@ type RunSessionFinder interface {
 	FindDetailed(workspaceID string) ([]RunSessionRef, error)
 }
 
+// RunSessionState is one hosted run session's status snapshot — the Status
+// tuple as a value for batched status queries.
+type RunSessionState struct {
+	Exists   bool
+	Alive    bool
+	ExitCode int
+}
+
+// RunSessionStatusBatcher is the optional batched-status capability a
+// RunSessionHost may implement: one query answering Status for every named
+// session instead of one subprocess per name — runSessionsHosted's 3s poll
+// goes from O(sessions) tmux calls to O(1). A name absent from the returned
+// map means the session does not exist (it vanished between the find and
+// the status read). runSessionsHosted falls back to the per-session Status
+// loop for hosts without it.
+type RunSessionStatusBatcher interface {
+	StatusAll(names []string) (map[string]RunSessionState, error)
+}
+
 type RunSessionHost interface {
 	// Ensure starts a detached session named name running cmd in workDir with
 	// env; a no-op when the session already exists.
@@ -324,22 +343,45 @@ func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (sessions []RunSess
 		r.markRunSessionSwept(ws)
 	}
 	found, err := r.findRunSessionRefs(ws)
-	if err != nil {
+	if err != nil || len(found) == 0 {
 		return nil, false, -1
 	}
-	if len(found) > 0 {
-		r.markRunSessionSeen(ws)
+	r.markRunSessionSeen(ws)
+	var states map[string]RunSessionState
+	if batcher, ok := r.runHost.(RunSessionStatusBatcher); ok {
+		names := make([]string, 0, len(found))
+		for _, ref := range found {
+			names = append(names, ref.Name)
+		}
+		// One status query for the whole session set — the 3s poll pays O(1)
+		// subprocesses instead of one per session. A batch failure is the same
+		// failure mode as the find above failing: report empty, don't retry
+		// serially.
+		states, err = batcher.StatusAll(names)
+		if err != nil {
+			return nil, false, -1
+		}
+	} else {
+		// Hosts without the batch capability keep the per-session loop.
+		states = make(map[string]RunSessionState, len(found))
+		for _, ref := range found {
+			exists, alive, exitCode, serr := r.runHost.Status(ref.Name)
+			if serr != nil || !exists {
+				continue
+			}
+			states[ref.Name] = RunSessionState{Exists: true, Alive: alive, ExitCode: exitCode}
+		}
 	}
 	for _, ref := range found {
-		exists, alive, exitCode, err := r.runHost.Status(ref.Name)
-		if err != nil || !exists {
+		st := states[ref.Name]
+		if !st.Exists {
 			continue
 		}
 		sessions = append(sessions, ref)
-		if alive {
+		if st.Alive {
 			anyAlive = true
-		} else if exitCode != -1 {
-			lastExit = exitCode
+		} else if st.ExitCode != -1 {
+			lastExit = st.ExitCode
 		}
 	}
 	return sessions, anyAlive, lastExit

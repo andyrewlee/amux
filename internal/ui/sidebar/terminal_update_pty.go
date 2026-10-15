@@ -101,6 +101,8 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 	var rearm bool
 	var delay time.Duration
 	var deferred bool
+	var failedReq sidebarWriteReq
+	var queueFull bool
 	withMu(&ts.mu, func() {
 		quiet, maxInterval := m.flushTimingForLocked(ts)
 		delay, deferred = ts.State.FlushGate(now, quiet, maxInterval)
@@ -108,7 +110,11 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 			chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
 			req := sidebarWriteReq{chunk: chunk, workspaceID: wsID, tabID: string(tabID)}
 			if !m.enqueueSidebarWriteLocked(ts, req) {
-				pendingClip = drainSidebarWriteQueueLocked(ts, req)
+				// The backpressure fallback runs after this hold releases:
+				// draining cap+1 chunks under one acquisition is the stall
+				// this split removes. The rejected request still applies
+				// after every older queued one.
+				failedReq, queueFull = req, true
 			}
 			rearm = ts.State.RearmFlush(now, nil)
 			// The take above (and RearmFlush's drain truncation) shrank the
@@ -120,6 +126,9 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		return common.SafeTick(delay, func(t time.Time) tea.Msg {
 			return messages.SidebarPTYFlush{WorkspaceID: wsID, TabID: msg.TabID}
 		})
+	}
+	if queueFull {
+		pendingClip = drainSidebarWriteQueue(ts, failedReq)
 	}
 	m.drainSidebarClipboard(pendingClip)
 	if !rearm {
@@ -151,20 +160,29 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 		return nil
 	}
 	termAlive := ts.Terminal != nil && !ts.Terminal.IsClosed()
-	withMu(&ts.mu, func() {
-		// Stream-end ordering: every still-queued writer request precedes the
-		// buffered chunks, and the held noise tail follows all of them — the
-		// tail must not parse ahead of stream bytes. Synchronous on purpose:
-		// this drain belongs to the dead stream and must be ordered before a
-		// restart's VTerm swap, so it does not go through the writer queue.
-		drainSidebarWriterQueueLocked(ts)
-		for len(ts.PendingOutput) > 0 {
+	// Stream-end ordering: every still-queued writer request precedes the
+	// buffered chunks, and the held noise tail follows all of them — the
+	// tail must not parse ahead of stream bytes. Synchronous on purpose:
+	// this drain belongs to the dead stream and must be ordered before a
+	// restart's VTerm swap, so it does not go through the writer queue.
+	// Split into per-request and per-chunk holds: the backlog is unbounded
+	// (up to ptyMaxBufferedBytes), but no single ts.mu acquisition is.
+	drainSidebarWriterQueue(ts, false)
+	for {
+		drained := true
+		withMu(&ts.mu, func() {
 			chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
 			if len(chunk) == 0 {
-				break
+				return
 			}
+			drained = false
 			applySidebarWriteLocked(ts, sidebarWriteReq{chunk: chunk, workspaceID: wsID, tabID: string(tabID)}, true)
+		})
+		if drained {
+			break
 		}
+	}
+	withMu(&ts.mu, func() {
 		ts.pendingBufferedBytes = len(ts.PendingOutput)
 		if ts.VTerm != nil && len(ts.NoiseTrailing) > 0 {
 			applySidebarWriteLocked(ts, sidebarWriteReq{drainTrailing: true}, false)

@@ -103,12 +103,13 @@ func TestSidebarWriteIntegrity(t *testing.T) {
 		if accepted != sidebarWriteQueueCap {
 			t.Fatalf("queue accepted %d requests, want exactly cap %d", accepted, sidebarWriteQueueCap)
 		}
-		// The rejected newest request goes through the synchronous fallback:
-		// every older queued request applies first, then it does — all under
-		// the same hold the paused worker is waiting for.
-		failed := sidebarWriteReq{chunk: []byte("FAILED"), workspaceID: "ws", tabID: "t"}
-		drainSidebarWriteQueueLocked(ts, failed)
 		ts.mu.Unlock()
+
+		// The rejected newest request goes through the synchronous fallback:
+		// every older queued request applies first, then it does — across
+		// per-request holds while the paused worker waits for the mutex.
+		failed := sidebarWriteReq{chunk: []byte("FAILED"), workspaceID: "ws", tabID: "t"}
+		drainSidebarWriteQueue(ts, failed)
 
 		close(release)
 		screen := renderSidebarScreen(ts)
@@ -151,9 +152,9 @@ func TestSidebarWriteIntegrity(t *testing.T) {
 				t.Fatalf("request %d rejected before cap", i)
 			}
 		}
-		failed := sidebarWriteReq{chunk: []byte{'\x82', '\xac', '!'}, workspaceID: "ws", tabID: "t"}
-		drainSidebarWriteQueueLocked(ts, failed)
 		ts.mu.Unlock()
+		failed := sidebarWriteReq{chunk: []byte{'\x82', '\xac', '!'}, workspaceID: "ws", tabID: "t"}
+		drainSidebarWriteQueue(ts, failed)
 		close(release)
 
 		screen := renderSidebarScreen(ts)
