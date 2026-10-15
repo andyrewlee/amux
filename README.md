@@ -32,7 +32,7 @@ amux is a terminal UI for running multiple coding agents in parallel with a work
 
 ## Prerequisites
 
-amux requires [tmux](https://github.com/tmux/tmux) (minimum 3.2). Each agent runs in its own tmux session for terminal isolation and persistence.
+amux requires [tmux](https://github.com/tmux/tmux) (minimum 3.2) and [git](https://git-scm.com) — workspaces are git worktrees, so a directory that is not inside a git repository cannot host one. Each agent runs in its own tmux session for terminal isolation and persistence.
 
 The install script verifies release signatures with [minisign](https://jedisct1.github.io/minisign/) — install it first, or set `AMUX_ALLOW_UNVERIFIED=1` to proceed with checksum-only verification. The Homebrew and `go install` paths don't need it.
 
@@ -157,6 +157,10 @@ chords, to the hosted shell):
   the center pane, a half page in a sidebar terminal); the mouse wheel
   scrolls whichever pane the pointer is over (`Shift`+wheel forces amux
   scrollback even when the hosted app claims the wheel).
+- Left-drag selects text in a center terminal tab; releasing copies the
+  selection to the system clipboard (the same selection-drag works while
+  scrolled into scrollback). The hosted app never sees the drag — selection
+  is amux-side, so it works over agents that capture mouse input too.
 
 Dashboard rows (workspace/project/shelved list):
 

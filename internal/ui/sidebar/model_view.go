@@ -251,7 +251,7 @@ func (m *ChangesModel) helpLines(contentWidth int) []string {
 	items := []string{
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
-		m.helpItem("enter/o", "open"),
+		m.helpItem("enter/space/o", "open"),
 		m.helpItem("c", "commit"),
 		m.helpItem("b", "vs base"),
 		m.helpItem("e", "env"),
@@ -260,6 +260,7 @@ func (m *ChangesModel) helpLines(contentWidth int) []string {
 		m.helpItem("r", "run script"),
 		m.helpItem("R", "run output"),
 		m.helpItem("O", "script output"),
+		m.helpItem("u", "rerun setup"),
 		m.helpItem("i", "status"),
 		m.helpItem("/", "filter"),
 		m.helpItem("g", "refresh"),

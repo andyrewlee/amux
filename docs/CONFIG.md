@@ -24,8 +24,8 @@ each config section and the environment variables amux honors.
 |----------------------|--------|--------------------------------------------------------------------------------|
 | `show_keymap_hints`  | bool   | Show keybinding hints in the UI. Default `false`.                              |
 | `theme`              | string | Theme ID. Default `"gruvbox"`.                                                 |
-| `tmux_server`        | string | tmux server (`-L` socket) name for amux's sessions. Empty = tmux default.       |
-| `tmux_config`        | string | Path to a tmux config file (`-f`). Empty = tmux default.                       |
+| `tmux_server`        | string | tmux server (`-L` socket) name for amux's sessions. Empty = `"amux"` — a dedicated server socket, deliberately separate from your default tmux server (plain `tmux ls` will not show amux's sessions; use `tmux -L amux ls`). |
+| `tmux_config`        | string | Path to a tmux config file (`-f`). Empty = `/dev/null` — amux sessions deliberately ignore your tmux config so user settings cannot break workspace terminals. |
 | `tmux_sync_interval` | string | Duration between tmux session reconciliations (e.g. `"30s"`). Default `7s`; minimum `500ms` — lower values are clamped up. |
 | `notify_on_done`     | bool   | Ring the terminal bell when an agent finishes. Default `false`.                 |
 | `viewer_command`     | string | Shell command the file viewer tab runs as `<command> -- <file>` (e.g. `nvim`, `less -R`). Default `"vim"`. Expects a TUI program — a GUI command opens nothing visible in the pane. |
@@ -105,7 +105,8 @@ The rest:
 | `AMUX_TMUX_SYNC_INTERVAL` | Same as `ui.tmux_sync_interval`.                                                           |
 | `AMUX_LOG_RETENTION_DAYS` | Days of `~/.amux/logs` retention. Default 14.                                              |
 | `AMUX_PPROF_ALLOW_REMOTE` | With `AMUX_PPROF` set, bind pprof on all interfaces instead of loopback. Off by default because pprof endpoints expose internals — set `=1` only on trusted networks. |
-| `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output (harness/perf-check use).                               |
+| `AMUX_PERF_TEST`          | `=1` enables the opt-in perf scenario tests in `internal/ui/center` (skipped otherwise; test-only). |
+| `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output from `AMUX_PERF_TEST` runs (test-only; defaults to the OS temp dir). |
 | `AMUX_E2E_BIN`            | Path to a prebuilt binary for `internal/e2e` tests (test-only).                            |
 
 `AMUX_SKIP_LINT` and `AMUX_SKIP_HARNESS` are contributor git-hook flags, not

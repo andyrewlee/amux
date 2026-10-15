@@ -12,7 +12,10 @@ keep Bubble Tea, tmux, and PTY state consistent.
   watchers, and kick off update checks.
 
 2. Message Pump
-- The Bubble Tea update loop is the single writer for UI state.
+- The Bubble Tea update loop is the single writer for UI state, with one
+  named exception: the center tab actor is a second writer for per-tab
+  terminal state, serialized under `tab.mu` (and mirrored by the sidebar's
+  `ts.mu`-guarded writer queue).
 - Long-running work must run in `tea.Cmd` goroutines and return a message.
 - PTY output and background workers enqueue messages through the external
   message pump which preserves ordering and applies critical backpressure.
@@ -65,6 +68,47 @@ This makes PTY delivery observable, debounced, and safe for UI state.
   read lock inside the guarded write deadlocks behind a queued writer.
 - Discovery merges on-disk worktrees into the metadata store; metadata is
   authoritative for UI state even when a workspace directory is missing.
+
+## Panic Recovery
+
+A panic must never freeze a subsystem for the rest of the session. The
+contract has five layers:
+
+- **Update/View recover.** `App.Update` (`app_input.go`) and `App.View`
+  (`app_view.go`) wrap their bodies in recover: the panic is logged with a
+  stack, `a.err` is set (surfaced through the error overlay), and the frame
+  cache is invalidated. The dropped cmd set is then partially rebuilt:
+  periodic chains re-arm only in tail position, so a panic before the tail
+  kills the chain for the session. `rearmCmdForPanic` (`app_rearm.go`) maps
+  each periodic-chain message to its starter command, mirroring the
+  handler's own tail semantics (stale-token guards included); per-tab PTY
+  chains delegate to each model's `RearmForPanic`. Every dispatched
+  message must be classified — `TestRearmCmdForPanic_ClassifiesEveryDispatchedMessage`
+  walks the dispatch table and fails on an unclassified type.
+- **Advisory-latch reset.** `resetAdvisoryLatchesAfterPanic`
+  (`app_panic_latches.go`) clears single-flight marks the panicking Update
+  armed for cmds that never ran (git status, run-script status, upgrade,
+  tmux activity scan), aborts staged dialog handoffs
+  (`clearPendingHandoffs`), and abandons any in-flight bulk batch
+  (`a.bulk.Abandon`). The function documents deliberate exclusions —
+  lifecycle mutation marks, pending-launch picks, obligation markers —
+  where a false clear admits concurrency or strands user intent, both
+  worse than a stranded flag.
+- **Cmd-level panic boundaries.** `common.SafeCmd`/`SafeBatch` confine a
+  cmd panic to a `messages.Error`; single-flight producers instead wrap
+  with `panicAsMsg`/`wrapLifecycleCmd` (`app_panic_results.go`,
+  `app_lifecycle_cmd.go`) so the panic emits the producer's own typed
+  failure — releasing the in-flight guard and advancing a bulk drain,
+  neither of which a bare `messages.Error` would do.
+- **Actor per-event recover.** The center tab actor wraps each event in
+  its own recover (`tab_actor.go`): a panicking event is logged and
+  dropped rather than killing the actor goroutine, then
+  `reconcileActorEventPanic` cleans per-event state and
+  `rearmActorChainAfterPanic` restarts the chain the event drives.
+- **`withMu` discipline.** Pane-mutex sections run through `withMu`/
+  `withMuVal` (`internal/ui/{center,sidebar}/mutex_guard.go`) — the
+  deferred unlock means a panic cannot leave `tab.mu`/`ts.mu` held, which
+  would deadlock the actor restart and every later reader.
 
 ## Invariants
 
