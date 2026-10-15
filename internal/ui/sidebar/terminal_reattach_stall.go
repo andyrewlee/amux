@@ -73,15 +73,16 @@ func (m *TerminalModel) SweepStalledReattaches() tea.Cmd {
 				continue
 			}
 			ts := tab.State
-			ts.mu.Lock()
-			stalled := ts.Reattach.Sweep(now, ts.Running)
-			if stalled {
-				// Invalidate the expired attempt's epoch, not just its lock:
-				// the abandoned attach may still complete, and its result
-				// must be rejected even before the retry begins.
-				ts.invalidateReattachLocked()
-			}
-			ts.mu.Unlock()
+			stalled := withMuVal(&ts.mu, func() bool {
+				if ts.Reattach.Sweep(now, ts.Running) {
+					// Invalidate the expired attempt's epoch, not just its lock:
+					// the abandoned attach may still complete, and its result
+					// must be rejected even before the retry begins.
+					ts.invalidateReattachLocked()
+					return true
+				}
+				return false
+			})
 			if stalled {
 				logging.Warn("Sidebar terminal attach for tab %s produced no outcome within %s; releasing reattach lock", tab.ID, ptyio.ReattachStallTimeout)
 			}

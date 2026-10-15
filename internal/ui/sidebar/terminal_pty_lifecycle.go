@@ -186,24 +186,26 @@ func (m *TerminalModel) teardownTabState(ts *TerminalState, reason string) (sess
 		return ""
 	}
 	m.stopPTYReader(ts)
-	ts.mu.Lock()
-	sessionName = ts.SessionName
-	if ts.Terminal != nil {
-		closeTerminalForSidebar(ts.Terminal, reason)
-	}
-	// An attach in flight for this tab must not apply after teardown: bump
-	// the epoch so its late result is rejected and its client closed.
-	ts.invalidateReattachLocked()
-	// The tab is going away: the writer stream's queued requests are
-	// obsolete — stop discards them and fences the epoch.
-	retiredWriter := ts.stopSidebarWriterLocked()
-	// Same for the input binding: queued keypresses belong to the dead
-	// terminal — retire fences them and any late failure report.
-	retiredInput := ts.retireSidebarInputWriterLocked()
-	ts.Running = false
-	ts.RestartBackoff = 0
-	ts.pendingBufferedBytes = 0
-	ts.mu.Unlock()
+	var retiredWriter *sidebarWriterStream
+	var retiredInput *sidebarInputWriter
+	withMu(&ts.mu, func() {
+		sessionName = ts.SessionName
+		if ts.Terminal != nil {
+			closeTerminalForSidebar(ts.Terminal, reason)
+		}
+		// An attach in flight for this tab must not apply after teardown: bump
+		// the epoch so its late result is rejected and its client closed.
+		ts.invalidateReattachLocked()
+		// The tab is going away: the writer stream's queued requests are
+		// obsolete — stop discards them and fences the epoch.
+		retiredWriter = ts.stopSidebarWriterLocked()
+		// Same for the input binding: queued keypresses belong to the dead
+		// terminal — retire fences them and any late failure report.
+		retiredInput = ts.retireSidebarInputWriterLocked()
+		ts.Running = false
+		ts.RestartBackoff = 0
+		ts.pendingBufferedBytes = 0
+	})
 	joinSidebarWriter(retiredWriter)
 	// The terminal was closed under ts.mu above, so a send blocked inside
 	// it has already unblocked — safe to join here.
@@ -225,25 +227,31 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 		return
 	}
 	m.stopPTYReader(ts)
-	ts.mu.Lock()
-	// Invalidate any in-flight attach so its late outcome cannot resurrect a
-	// detached tab; a user detach is a decision the attach must not reverse.
-	ts.invalidateReattachLocked()
-	// The detached VTerm keeps its history, so requests already accepted by
-	// the stream finish in order here — the same bounded drain the fallback
-	// performs — before the stream buffers reset.
-	clip := drainSidebarWriterQueueLocked(ts)
-	retiredWriter := ts.stopSidebarWriterLocked()
-	retiredInput := ts.retireSidebarInputWriterLocked()
-	term := ts.Terminal
-	ts.Terminal = nil
-	ts.Running = false
-	ts.Detached = true
-	ts.UserDetached = userInitiated
-	ts.PendingOutput = nil
-	ts.pendingBufferedBytes = 0
-	ts.NoiseTrailing = nil
-	ts.mu.Unlock()
+	var (
+		clip          []byte
+		retiredWriter *sidebarWriterStream
+		retiredInput  *sidebarInputWriter
+		term          *pty.Terminal
+	)
+	withMu(&ts.mu, func() {
+		// Invalidate any in-flight attach so its late outcome cannot resurrect a
+		// detached tab; a user detach is a decision the attach must not reverse.
+		ts.invalidateReattachLocked()
+		// The detached VTerm keeps its history, so requests already accepted by
+		// the stream finish in order here — the same bounded drain the fallback
+		// performs — before the stream buffers reset.
+		clip = drainSidebarWriterQueueLocked(ts)
+		retiredWriter = ts.stopSidebarWriterLocked()
+		retiredInput = ts.retireSidebarInputWriterLocked()
+		term = ts.Terminal
+		ts.Terminal = nil
+		ts.Running = false
+		ts.Detached = true
+		ts.UserDetached = userInitiated
+		ts.PendingOutput = nil
+		ts.pendingBufferedBytes = 0
+		ts.NoiseTrailing = nil
+	})
 	joinSidebarWriter(retiredWriter)
 	if term != nil {
 		closeTerminalForSidebar(term, "detach")

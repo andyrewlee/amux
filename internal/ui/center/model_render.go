@@ -37,38 +37,38 @@ func (m *Model) View() string {
 		b.WriteString(m.renderEmpty())
 	} else if activeIdx < len(tabs) {
 		tab := tabs[activeIdx]
-		tab.mu.Lock()
-		if tab.DiffViewer != nil {
-			// Sync focus state with center pane focus
-			tab.DiffViewer.SetFocused(m.focused)
-			// Render native diff viewer
-			b.WriteString(tab.DiffViewer.View())
-		} else if tab.Terminal != nil {
-			// Keep cursor state in sync at render time too; Focus/Blur also set
-			// this eagerly to avoid stale frames during fast pane switches.
-			tab.Terminal.ShowCursor = m.focused
-			snap := compositor.NewVTermSnapshot(tab.Terminal, m.focused)
-			if snap != nil {
-				if m.isChatTabLocked(tab) {
-					applyScrolledChatHistoryViewLocked(tab.Terminal, snap)
+		withMu(&tab.mu, func() {
+			if tab.DiffViewer != nil {
+				// Sync focus state with center pane focus
+				tab.DiffViewer.SetFocused(m.focused)
+				// Render native diff viewer
+				b.WriteString(tab.DiffViewer.View())
+			} else if tab.Terminal != nil {
+				// Keep cursor state in sync at render time too; Focus/Blur also set
+				// this eagerly to avoid stale frames during fast pane switches.
+				tab.Terminal.ShowCursor = m.focused
+				snap := compositor.NewVTermSnapshot(tab.Terminal, m.focused)
+				if snap != nil {
+					if m.isChatTabLocked(tab) {
+						applyScrolledChatHistoryViewLocked(tab.Terminal, snap)
+					}
+					b.WriteString(compositor.RenderSnapshotWithCanvas(
+						nil,
+						snap,
+						snap.Width,
+						snap.Height,
+						vterm.Color{Type: vterm.ColorDefault},
+						vterm.Color{Type: vterm.ColorDefault},
+					))
+				} else {
+					b.WriteString(tab.Terminal.Render())
 				}
-				b.WriteString(compositor.RenderSnapshotWithCanvas(
-					nil,
-					snap,
-					snap.Width,
-					snap.Height,
-					vterm.Color{Type: vterm.ColorDefault},
-					vterm.Color{Type: vterm.ColorDefault},
-				))
-			} else {
-				b.WriteString(tab.Terminal.Render())
-			}
 
-			if status := m.terminalStatusLineLocked(tab); status != "" {
-				b.WriteString("\n" + status)
+				if status := m.terminalStatusLineLocked(tab); status != "" {
+					b.WriteString("\n" + status)
+				}
 			}
-		}
-		tab.mu.Unlock()
+		})
 	}
 
 	// Help bar with styled keys (prefix mode)
@@ -140,12 +140,12 @@ func (m *Model) TabBarVersion() uint64 {
 	fp = common.FoldFingerprint(fp, uint64(m.getActiveTabIdx()+1))
 	fp = common.FoldFingerprint(fp, m.stylesRev)
 	for _, tab := range tabs {
-		tab.mu.Lock()
-		fp = common.FoldFingerprintString(fp, string(tab.ID))
-		fp = common.FoldFingerprintBool(fp, tab.Detached || !tab.Running)
-		fp = common.FoldFingerprintBool(fp, m.isChatTabLocked(tab))
-		fp = common.FoldFingerprintBool(fp, isTabVisiblyActiveLocked(tab, now))
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			fp = common.FoldFingerprintString(fp, string(tab.ID))
+			fp = common.FoldFingerprintBool(fp, tab.Detached || !tab.Running)
+			fp = common.FoldFingerprintBool(fp, m.isChatTabLocked(tab))
+			fp = common.FoldFingerprintBool(fp, isTabVisiblyActiveLocked(tab, now))
+		})
 	}
 	return fp
 }

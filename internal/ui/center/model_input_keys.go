@@ -11,6 +11,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/diff"
 )
 
 func (m *Model) updateKeyPress(msg tea.KeyPressMsg) (*Model, tea.Cmd) {
@@ -67,9 +68,9 @@ func (m *Model) clearSelectionOnType(tabs []*Tab, activeIdx int) {
 }
 
 func (m *Model) forwardKeyToActiveTab(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd) {
-	tab.mu.Lock()
-	dv := tab.DiffViewer
-	tab.mu.Unlock()
+	dv := withMuVal(&tab.mu, func() *diff.Model {
+		return tab.DiffViewer
+	})
 	if dv != nil {
 		return m.handleDiffViewerKey(msg, tab)
 	}
@@ -83,12 +84,9 @@ func (m *Model) handleDiffViewerKey(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.
 	// While the viewer's `/` query field owns input, the tab-level chords
 	// stand down — ctrl+w deletes a word of the query, it must not close
 	// the tab mid-typing.
-	searching := false
-	tab.mu.Lock()
-	if tab.DiffViewer != nil {
-		searching = tab.DiffViewer.Searching()
-	}
-	tab.mu.Unlock()
+	searching := withMuVal(&tab.mu, func() bool {
+		return tab.DiffViewer != nil && tab.DiffViewer.Searching()
+	})
 	if !searching {
 		if key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+w"))) {
 			return m, m.closeCurrentTab()

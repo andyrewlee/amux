@@ -102,11 +102,11 @@ func (m *Model) SetStyles(styles common.Styles) {
 			if tab == nil {
 				continue
 			}
-			tab.mu.Lock()
-			if tab.DiffViewer != nil {
-				tab.DiffViewer.SetStyles(styles)
-			}
-			tab.mu.Unlock()
+			withMu(&tab.mu, func() {
+				if tab.DiffViewer != nil {
+					tab.DiffViewer.SetStyles(styles)
+				}
+			})
 		}
 	}
 }
@@ -147,16 +147,16 @@ func (m *Model) SetSize(width, height int) {
 	// Update all terminals across all workspaces
 	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
-			tab.mu.Lock()
-			if tab.Terminal != nil {
-				if tab.Terminal.Width != termWidth || tab.Terminal.Height != termHeight {
-					tab.Terminal.Resize(termWidth, termHeight)
+			withMu(&tab.mu, func() {
+				if tab.Terminal != nil {
+					if tab.Terminal.Width != termWidth || tab.Terminal.Height != termHeight {
+						tab.Terminal.Resize(termWidth, termHeight)
+					}
 				}
-			}
-			if tab.DiffViewer != nil {
-				tab.DiffViewer.SetSize(viewerWidth, viewerHeight)
-			}
-			tab.mu.Unlock()
+				if tab.DiffViewer != nil {
+					tab.DiffViewer.SetSize(viewerWidth, viewerHeight)
+				}
+			})
 			m.resizePTY(tab, termHeight, termWidth)
 		}
 	}
@@ -214,20 +214,20 @@ func (m *Model) Close() {
 			closing = append(closing, tab)
 			tab.markClosing()
 			m.stopPTYReader(tab)
-			tab.mu.Lock()
-			if tab.ptyTraceFile != nil {
-				_ = tab.ptyTraceFile.Close()
-				tab.ptyTraceFile = nil
-				tab.ptyTraceClosed = true
-			}
-			tab.resetPTYStateLocked()
-			tab.DiffViewer = nil
-			tab.Terminal = nil
-			tab.ResetSnapshotCache()
-			tab.Workspace = nil
-			tab.Running = false
-			tab.retireTabInputWriterLocked()
-			tab.mu.Unlock()
+			withMu(&tab.mu, func() {
+				if tab.ptyTraceFile != nil {
+					_ = tab.ptyTraceFile.Close()
+					tab.ptyTraceFile = nil
+					tab.ptyTraceClosed = true
+				}
+				tab.resetPTYStateLocked()
+				tab.DiffViewer = nil
+				tab.Terminal = nil
+				tab.ResetSnapshotCache()
+				tab.Workspace = nil
+				tab.Running = false
+				tab.retireTabInputWriterLocked()
+			})
 			tab.markClosed()
 		}
 	}

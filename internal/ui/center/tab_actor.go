@@ -29,13 +29,16 @@ package center
 
 import (
 	"context"
+	"runtime/debug"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
+	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/diff"
 )
 
 type tabEventKind int
@@ -207,7 +210,18 @@ func (m *Model) RunTabActor(ctx context.Context) error {
 			return nil
 		case ev := <-m.tabEvents:
 			m.noteTabActorHeartbeat()
-			m.handleTabEvent(ev)
+			// Per-event recover: a panicking event is dropped instead of
+			// killing the actor goroutine (and, through the supervisor
+			// restart, deadlocking on whatever the panic left behind).
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logging.Error("tab actor event panic (kind %d, tab %s): %v\n%s", ev.kind, ev.tabID, r, debug.Stack())
+						m.reconcileActorEventPanic(ev)
+					}
+				}()
+				m.handleTabEvent(ev)
+			}()
 			if shouldPostTabActorRedraw(ev.kind) {
 				m.requestTabActorRedraw()
 			}
@@ -258,39 +272,39 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 
 func (m *Model) handleScrollBy(ev tabEvent) {
 	tab := ev.tab
-	tab.mu.Lock()
-	if tab.Terminal != nil && ev.delta != 0 {
-		m.scrollTerminalViewLocked(tab, ev.delta)
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		if tab.Terminal != nil && ev.delta != 0 {
+			m.scrollTerminalViewLocked(tab, ev.delta)
+		}
+	})
 }
 
 func (m *Model) handleScrollToBottom(ev tabEvent) {
 	tab := ev.tab
-	tab.mu.Lock()
-	if tab.Terminal != nil && tab.Terminal.IsScrolled() {
-		m.scrollTerminalToBottomLocked(tab)
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		if tab.Terminal != nil && tab.Terminal.IsScrolled() {
+			m.scrollTerminalToBottomLocked(tab)
+		}
+	})
 }
 
 func (m *Model) handleScrollPage(ev tabEvent) {
 	tab := ev.tab
-	tab.mu.Lock()
-	if tab.Terminal != nil && ev.scrollPage != 0 {
-		delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 4)
-		m.scrollTerminalViewLocked(tab, delta*ev.scrollPage)
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		if tab.Terminal != nil && ev.scrollPage != 0 {
+			delta := common.ScrollDeltaForHeight(tab.Terminal.Height, 4)
+			m.scrollTerminalViewLocked(tab, delta*ev.scrollPage)
+		}
+	})
 }
 
 func (m *Model) handleScrollToTop(ev tabEvent) {
 	tab := ev.tab
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		m.scrollTerminalToTopLocked(tab)
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		if tab.Terminal != nil {
+			m.scrollTerminalToTopLocked(tab)
+		}
+	})
 }
 
 func (m *Model) handleDiffInput(ev tabEvent) {
@@ -301,15 +315,16 @@ func (m *Model) handleDiffInput(ev tabEvent) {
 }
 
 func (m *Model) updateDiffViewer(tab *Tab, msg tea.Msg) tea.Cmd {
-	tab.mu.Lock()
-	dv := tab.DiffViewer
-	if dv == nil {
-		tab.mu.Unlock()
-		return nil
-	}
-	newDV, cmd := dv.Update(msg)
-	tab.DiffViewer = newDV
-	tab.mu.Unlock()
+	var cmd tea.Cmd
+	withMu(&tab.mu, func() {
+		dv := tab.DiffViewer
+		if dv == nil {
+			return
+		}
+		var newDV *diff.Model
+		newDV, cmd = dv.Update(msg)
+		tab.DiffViewer = newDV
+	})
 	return cmd
 }
 
@@ -326,19 +341,21 @@ func (m *Model) sendMouseToTerminal(tab *Tab, data string, tabID TabID, workspac
 	if tab == nil || data == "" {
 		return
 	}
-	tab.mu.Lock()
-	agent := tab.Agent
-	closed := tab.isClosed()
-	tab.mu.Unlock()
+	var agent *appPty.Agent
+	var closed bool
+	withMu(&tab.mu, func() {
+		agent = tab.Agent
+		closed = tab.isClosed()
+	})
 	if closed || agent == nil || agent.Terminal == nil {
 		return
 	}
 	m.tracePTYInput(tab, []byte(data))
 	if err := agent.Terminal.SendString(data); err != nil {
 		logging.Error("Mouse input failed for tab %s: %v", tab.ID, err)
-		tab.mu.Lock()
-		tab.markDetachedLocked()
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			tab.markDetachedLocked()
+		})
 		if m.msgSink != nil {
 			m.msgSink(TabInputFailed{TabID: tabID, WorkspaceID: workspaceID, Err: err})
 		}

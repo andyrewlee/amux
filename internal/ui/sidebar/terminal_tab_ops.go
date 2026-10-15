@@ -175,10 +175,9 @@ func (m *TerminalModel) WriteToTerminal(data []byte) {
 	if ts == nil {
 		return
 	}
-	ts.mu.Lock()
-	vt := ts.VTerm
-	if vt != nil {
-		vt.Write(data)
-	}
-	ts.mu.Unlock()
+	withMu(&ts.mu, func() {
+		if ts.VTerm != nil {
+			ts.VTerm.Write(data)
+		}
+	})
 }

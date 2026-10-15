@@ -276,15 +276,15 @@ func (w *tabInputWriter) deliver(req tabInputRequest) bool {
 func (w *tabInputWriter) complete(req tabInputRequest) {
 	tab := w.tab
 	refresh := false
-	tab.mu.Lock()
-	if tab.tabInput.writer == w {
-		w.queuedBytes -= len(req.data)
-		if req.echo {
-			recordLocalInputEchoWindowLocked(tab, req.data, time.Now())
-			refresh = w.m.isChatTabLocked(tab)
+	withMu(&tab.mu, func() {
+		if tab.tabInput.writer == w {
+			w.queuedBytes -= len(req.data)
+			if req.echo {
+				recordLocalInputEchoWindowLocked(tab, req.data, time.Now())
+				refresh = w.m.isChatTabLocked(tab)
+			}
 		}
-	}
-	tab.mu.Unlock()
+	})
 	if refresh && w.m.msgSink != nil {
 		w.m.msgSink(PTYCursorRefresh{WorkspaceID: req.wsID, TabID: req.tabID, InputGeneration: w.gen})
 	}
@@ -298,12 +298,13 @@ func (w *tabInputWriter) complete(req tabInputRequest) {
 // and dropped, and must not detach, toast, or stamp the replacement binding.
 func (w *tabInputWriter) fail(req tabInputRequest, err error) {
 	tab := w.tab
-	tab.mu.Lock()
-	current := tab.tabInput.writer == w
-	if current {
-		tab.tabInput.failed = true
-	}
-	tab.mu.Unlock()
+	current := withMuVal(&tab.mu, func() bool {
+		if tab.tabInput.writer == w {
+			tab.tabInput.failed = true
+			return true
+		}
+		return false
+	})
 	if !current {
 		logging.Debug("dropping stale %s failure for tab %s (input gen %d): %v", req.label, tab.ID, w.gen, err)
 		return
@@ -358,10 +359,11 @@ func (t *Tab) joinRetiredInputWriters() {
 	if t == nil {
 		return
 	}
-	t.mu.Lock()
-	retired := t.tabInput.retired
-	t.tabInput.retired = nil
-	t.mu.Unlock()
+	retired := withMuVal(&t.mu, func() []*tabInputWriter {
+		retired := t.tabInput.retired
+		t.tabInput.retired = nil
+		return retired
+	})
 	for _, w := range retired {
 		w.join()
 	}

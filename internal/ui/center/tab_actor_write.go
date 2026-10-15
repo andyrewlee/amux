@@ -22,12 +22,18 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		initialTask    string
 		taskGen        uint64
 	)
-	tab.mu.Lock()
-	staleWrite := ev.writeEpoch != tab.actorWriteEpoch
-	if !staleWrite && tab.Terminal != nil {
-		filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip, pendingBell, initialTask, taskGen = m.applyActorWriteLocked(tab, ev, processedBytes)
-	}
-	tab.mu.Unlock()
+	staleWrite := false
+	withMu(&tab.mu, func() {
+		staleWrite = ev.writeEpoch != tab.actorWriteEpoch
+		if !staleWrite && tab.Terminal != nil {
+			// The breadcrumb lets reconcileActorEventPanic tell whether this
+			// event's apply began (accounting consumed at apply top) or the
+			// event died before reaching it (accounting still owned).
+			tab.actorApplyInFlight = true
+			filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip, pendingBell, initialTask, taskGen = m.applyActorWriteLocked(tab, ev, processedBytes)
+			tab.actorApplyInFlight = false
+		}
+	})
 	if staleWrite {
 		return
 	}
@@ -42,11 +48,11 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		// missing binding drops it like a detached tab would.
 		res, _ := m.admitTabInputBound(tab, ev.workspaceID, taskGen, initialTask+"\r", "InitialTask", true)
 		if res == tabInputRejectedFull {
-			tab.mu.Lock()
-			if tab.tabInput.gen == taskGen && !tab.isClosed() && !tab.Detached && tab.Terminal != nil {
-				tab.pendingInitialTask = initialTask
-			}
-			tab.mu.Unlock()
+			withMu(&tab.mu, func() {
+				if tab.tabInput.gen == taskGen && !tab.isClosed() && !tab.Detached && tab.Terminal != nil {
+					tab.pendingInitialTask = initialTask
+				}
+			})
 		}
 	}
 	if pendingBell && m.msgSink != nil {
@@ -87,6 +93,20 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 // clipboard payload captured from an OSC 52 write (to be drained off the lock)
 // plus the pending-bell flag for the same off-lock drain.
 func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int) (filteredLen int, filterApplied, suppressRedraw, requestFlush bool, tagSessionName string, tagTimestamp int64, pendingClip []byte, pendingBell bool, initialTask string, taskGen uint64) {
+	// Consume the enqueue accounting first: once the apply starts, this event
+	// owns nothing — reconcileActorEventPanic treats "apply started" as
+	// settled, so a panic mid-write cannot leak a phantom pending count.
+	if tab.actorWritesPending > 0 {
+		tab.actorWritesPending--
+	}
+	if tab.actorQueuedBytes >= processedBytes {
+		tab.actorQueuedBytes -= processedBytes
+	} else {
+		tab.actorQueuedBytes = 0
+	}
+	if tab.testApplyHook != nil {
+		tab.testApplyHook()
+	}
 	// The enqueue preview already ran the noise filter against the queued
 	// carry chain, and every non-actor mutation of NoiseTrailing coincides with
 	// an actorWriteEpoch bump (stale-drop above) or happens while no write is
@@ -116,14 +136,6 @@ func (m *Model) applyActorWriteLocked(tab *Tab, ev tabEvent, processedBytes int)
 	// Activity state intentionally tracks visible terminal mutations only.
 	// Noise-only chunks are filtered above and must not update activity tags.
 	tagSessionName, tagTimestamp, _ = m.noteVisibleActivityLockedWithOutput(tab, ev.hasMoreBuffered, ev.visibleSeq, output)
-	if tab.actorWritesPending > 0 {
-		tab.actorWritesPending--
-	}
-	if tab.actorQueuedBytes >= processedBytes {
-		tab.actorQueuedBytes -= processedBytes
-	} else {
-		tab.actorQueuedBytes = 0
-	}
 	catchUpBefore, catchUpAfter := tab.settlePTYBytesLocked(processedBytes)
 	suppressRedraw = catchUpBefore && catchUpAfter
 	if tab.actorWritesPending == 0 {
@@ -188,37 +200,67 @@ func recoverFailedActorSend(
 ) (chunkToApply []byte, hasMore, rebuffered, dropWrite bool) {
 	hasMore = hasMoreBuffered
 	syncFallbackChunkSize := 0
-	tab.mu.Lock()
-	switch {
-	case tab.actorWriteEpoch == prevEpoch && tab.actorWritesPending > 0:
-		tab.actorWritesPending--
-		if tab.actorQueuedBytes >= len(chunk) {
-			tab.actorQueuedBytes -= len(chunk)
-		} else {
-			tab.actorQueuedBytes = 0
-		}
+	withMu(&tab.mu, func() {
 		switch {
-		case tab.isClosed():
+		case tab.actorWriteEpoch == prevEpoch && tab.actorWritesPending > 0:
+			tab.actorWritesPending--
+			if tab.actorQueuedBytes >= len(chunk) {
+				tab.actorQueuedBytes -= len(chunk)
+			} else {
+				tab.actorQueuedBytes = 0
+			}
+			switch {
+			case tab.isClosed():
+				dropWrite = true
+			case tab.actorWritesPending > 0:
+				rebuffered = true
+				tab.restoreActorCarryLocked(prevCarry, prevNoiseTrailing)
+				tab.prependPendingOutputLocked(chunk)
+			case catchUp && len(chunk) > ptyFlushChunkSizeActive:
+				syncFallbackChunkSize = ptyFlushChunkSizeActive
+				tab.restoreActorCarryLocked(prevCarry, prevNoiseTrailing)
+				tab.prependPendingOutputLocked(chunk[syncFallbackChunkSize:])
+				hasMore = len(tab.PendingOutput) > 0
+			}
+		case tab.actorWriteEpoch != prevEpoch || tab.isClosed():
 			dropWrite = true
-		case tab.actorWritesPending > 0:
-			rebuffered = true
-			tab.restoreActorCarryLocked(prevCarry, prevNoiseTrailing)
-			tab.prependPendingOutputLocked(chunk)
-		case catchUp && len(chunk) > ptyFlushChunkSizeActive:
-			syncFallbackChunkSize = ptyFlushChunkSizeActive
-			tab.restoreActorCarryLocked(prevCarry, prevNoiseTrailing)
-			tab.prependPendingOutputLocked(chunk[syncFallbackChunkSize:])
-			hasMore = len(tab.PendingOutput) > 0
 		}
-	case tab.actorWriteEpoch != prevEpoch || tab.isClosed():
-		dropWrite = true
-	}
-	tab.mu.Unlock()
+	})
 	chunkToApply = chunk
 	if syncFallbackChunkSize > 0 {
 		chunkToApply = chunk[:syncFallbackChunkSize]
 	}
 	return chunkToApply, hasMore, rebuffered, dropWrite
+}
+
+// reconcileActorEventPanic undoes the enqueue accounting of a write event that
+// died to a panic before its apply could consume it. An epoch-bumped (stale)
+// write was already settled by the bump, and an apply that started consumed
+// the accounting at apply top — actorApplyInFlight marks that transition. Runs
+// on the actor goroutine from the per-event recover.
+func (m *Model) reconcileActorEventPanic(ev tabEvent) {
+	if ev.kind != tabEventWriteOutput || ev.tab == nil {
+		return
+	}
+	withMu(&ev.tab.mu, func() {
+		if ev.tab.actorApplyInFlight {
+			// The apply started: it consumed this event's accounting (and died
+			// holding the flag, since a clean return clears it).
+			ev.tab.actorApplyInFlight = false
+			return
+		}
+		if ev.writeEpoch != ev.tab.actorWriteEpoch || ev.tab.Terminal == nil {
+			return
+		}
+		if ev.tab.actorWritesPending > 0 {
+			ev.tab.actorWritesPending--
+		}
+		if ev.tab.actorQueuedBytes >= len(ev.output) {
+			ev.tab.actorQueuedBytes -= len(ev.output)
+		} else {
+			ev.tab.actorQueuedBytes = 0
+		}
+	})
 }
 
 // restoreActorCarryLocked restores the actor queued parser carry / noise trailing

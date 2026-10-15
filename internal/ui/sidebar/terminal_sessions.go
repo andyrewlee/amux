@@ -83,11 +83,11 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 		if session.Attach {
 			var epoch uint64
 			if tab.State != nil {
-				tab.State.mu.Lock()
-				if tab.State.beginReattachLocked() {
-					epoch = tab.State.reattachEpoch
-				}
-				tab.State.mu.Unlock()
+				withMu(&tab.State.mu, func() {
+					if tab.State.beginReattachLocked() {
+						epoch = tab.State.reattachEpoch
+					}
+				})
 			}
 			if epoch != 0 {
 				cmds = append(cmds, m.attachToSession(ws, tabID, session.Name, session.DetachExisting, "reattach", epoch))

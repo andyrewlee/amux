@@ -29,7 +29,11 @@ var sidebarRearmChainClassification = []struct {
 	{"tea.MouseWheelMsg", zeroMsg[tea.MouseWheelMsg](), false},
 	{"tea.PasteMsg", zeroMsg[tea.PasteMsg](), false},
 	{"tea.KeyPressMsg", zeroMsg[tea.KeyPressMsg](), false},
-	{"messages.SidebarSelectionScrollTick", zeroMsg[messages.SidebarSelectionScrollTick](), false},
+	// chain=true is required: stationary edge-hold auto-scroll is a
+	// self-rearming chain — no pointer motion can re-fire the tick while the
+	// pointer sits still, so a dropped tick ends the scroll forever unless
+	// RearmForPanic emits the next one.
+	{"messages.SidebarSelectionScrollTick", zeroMsg[messages.SidebarSelectionScrollTick](), true},
 	{"messages.SidebarPTYOutput", zeroMsg[messages.SidebarPTYOutput](), false},
 	{"messages.SidebarPTYFlush", zeroMsg[messages.SidebarPTYFlush](), true},
 	{"messages.SidebarPTYStopped", zeroMsg[messages.SidebarPTYStopped](), true},

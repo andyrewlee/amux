@@ -229,9 +229,9 @@ func recordLocalInputEchoWindow(tab *Tab, data string, now time.Time) {
 	if tab == nil {
 		return
 	}
-	tab.mu.Lock()
-	recordLocalInputEchoWindowLocked(tab, data, now)
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		recordLocalInputEchoWindowLocked(tab, data, now)
+	})
 }
 
 // recordLocalInputEchoWindowLocked is the tab.mu-held form: the input writer's

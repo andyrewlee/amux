@@ -24,20 +24,20 @@ func (m *Model) CleanupWorkspace(ws *data.Workspace, stampedIDs []string) {
 			closing = append(closing, tab)
 			tab.markClosing()
 			m.stopPTYReader(tab)
-			tab.mu.Lock()
-			if tab.ptyTraceFile != nil {
-				_ = tab.ptyTraceFile.Close()
-				tab.ptyTraceFile = nil
-				tab.ptyTraceClosed = true
-			}
-			tab.resetPTYStateLocked()
-			tab.DiffViewer = nil
-			tab.Terminal = nil
-			tab.ResetSnapshotCache()
-			tab.Workspace = nil
-			tab.Running = false
-			tab.retireTabInputWriterLocked()
-			tab.mu.Unlock()
+			withMu(&tab.mu, func() {
+				if tab.ptyTraceFile != nil {
+					_ = tab.ptyTraceFile.Close()
+					tab.ptyTraceFile = nil
+					tab.ptyTraceClosed = true
+				}
+				tab.resetPTYStateLocked()
+				tab.DiffViewer = nil
+				tab.Terminal = nil
+				tab.ResetSnapshotCache()
+				tab.Workspace = nil
+				tab.Running = false
+				tab.retireTabInputWriterLocked()
+			})
 			tab.markClosed()
 		}
 		m.tabs.DeleteWorkspace(wsID)

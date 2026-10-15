@@ -23,9 +23,7 @@ func (m *Model) HasRunningAgents() bool {
 			if !m.isChatTab(tab) {
 				continue
 			}
-			tab.mu.Lock()
-			running := tab.Running
-			tab.mu.Unlock()
+			running := withMuVal(&tab.mu, func() bool { return tab.Running })
 			if running {
 				return true
 			}
@@ -65,8 +63,12 @@ func (m *Model) isTabActiveAt(tab *Tab, now time.Time) bool {
 	if !tab.mu.TryLock() {
 		return atomic.LoadUint32(&tab.activeBit) == 1
 	}
-	active := m.isChatTabLocked(tab) && isTabVisiblyActiveLocked(tab, now)
-	tab.mu.Unlock()
+	// TryLock already holds the mutex; the deferred unlock keeps a panic in
+	// the predicate from wedging the tab.
+	active := func() bool {
+		defer tab.mu.Unlock()
+		return m.isChatTabLocked(tab) && isTabVisiblyActiveLocked(tab, now)
+	}()
 	if active {
 		atomic.StoreUint32(&tab.activeBit, 1)
 	} else {
@@ -86,8 +88,10 @@ func (m *Model) isTabCursorOutputActiveAt(tab *Tab, now time.Time) bool {
 	if !tab.mu.TryLock() {
 		return atomic.LoadUint32(&tab.cursorActiveBit) == 1
 	}
-	active := m.isChatTabLocked(tab) && isTabCursorOutputActiveLocked(tab, now)
-	tab.mu.Unlock()
+	active := func() bool {
+		defer tab.mu.Unlock()
+		return m.isChatTabLocked(tab) && isTabCursorOutputActiveLocked(tab, now)
+	}()
 	if active {
 		atomic.StoreUint32(&tab.cursorActiveBit, 1)
 	} else {
@@ -172,13 +176,14 @@ func (m *Model) GetRunningWorkspaceRoots() []string {
 			if !m.isChatTab(tab) {
 				continue
 			}
-			tab.mu.Lock()
-			isRunning := tab.Running
+			var isRunning bool
 			var root string
-			if tab.Workspace != nil {
-				root = tab.Workspace.Root
-			}
-			tab.mu.Unlock()
+			withMu(&tab.mu, func() {
+				isRunning = tab.Running
+				if tab.Workspace != nil {
+					root = tab.Workspace.Root
+				}
+			})
 			if isRunning && root != "" {
 				running = append(running, root)
 				break // Only need one per workspace
@@ -216,9 +221,7 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
-			tab.mu.Lock()
-			readerActive := tab.ReaderActive
-			tab.mu.Unlock()
+			readerActive := withMuVal(&tab.mu, func() bool { return tab.ReaderActive })
 			if readerActive {
 				lastBeat := atomic.LoadInt64(&tab.Heartbeat)
 				if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {

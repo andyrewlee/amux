@@ -1,6 +1,8 @@
 package sidebar
 
 import (
+	"time"
+
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -39,11 +41,13 @@ func (m *TerminalModel) EnforceAttachedTerminalTabLimit(maxAttached int) []Detac
 				continue
 			}
 			ts := tab.State
-			ts.mu.Lock()
-			attached := ts.Running && !ts.Detached
-			inFlight := ts.Reattach.InFlight
-			lastOutput := ts.LastOutputAt
-			ts.mu.Unlock()
+			var attached, inFlight bool
+			var lastOutput time.Time
+			withMu(&ts.mu, func() {
+				attached = ts.Running && !ts.Detached
+				inFlight = ts.Reattach.InFlight
+				lastOutput = ts.LastOutputAt
+			})
 			if !attached {
 				continue
 			}

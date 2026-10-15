@@ -140,12 +140,21 @@ type tabActivityState struct {
 // accounting and the parser carry/reset flow (see model_tab_phase.go for how
 // parserResetPending gates flushing).
 type tabActorWriteState struct {
-	parserResetPending       bool
-	actorWritesPending       int
-	actorQueuedBytes         int
-	actorWriteEpoch          uint64
+	parserResetPending bool
+	actorWritesPending int
+	actorQueuedBytes   int
+	actorWriteEpoch    uint64
+	// actorApplyInFlight marks that the write event currently being handled
+	// has started its apply (and so already consumed its enqueue accounting).
+	// reconcileActorEventPanic reads it to avoid double-decrementing after a
+	// panic mid-apply; a clean apply clears it.
+	actorApplyInFlight       bool
 	actorQueuedCarry         vterm.ParserCarryState
 	actorQueuedNoiseTrailing []byte
+	// testApplyHook, when set, runs inside applyActorWriteLocked after the
+	// enqueue accounting is consumed — the panic tests' injection point.
+	// Only tests on a tab they own set it; production leaves nil.
+	testApplyHook func()
 	// pendingInitialTask is the launch-time task queued for the agent: sent
 	// once, verbatim + "\r", on the first write pass after the vterm observes
 	// a private-mode set (the agent's input loop is live). Cleared on reset
@@ -207,10 +216,12 @@ func (t *Tab) consumeActivityVisibility(data []byte) bool {
 	if t == nil || len(data) == 0 {
 		return false
 	}
-	t.mu.Lock()
-	visible, next := hasVisiblePTYOutput(data, t.activityANSIState)
-	t.activityANSIState = next
-	t.mu.Unlock()
+	var visible bool
+	withMu(&t.mu, func() {
+		var next ansiActivityState
+		visible, next = hasVisiblePTYOutput(data, t.activityANSIState)
+		t.activityANSIState = next
+	})
 	return visible
 }
 
@@ -218,9 +229,9 @@ func (t *Tab) resetActivityANSIState() {
 	if t == nil {
 		return
 	}
-	t.mu.Lock()
-	t.activityANSIState = ansiActivityText
-	t.mu.Unlock()
+	withMu(&t.mu, func() {
+		t.activityANSIState = ansiActivityText
+	})
 }
 
 func (t *Tab) setPostWriteVisible(visible bool) {
@@ -417,10 +428,10 @@ func (m *Model) markTabFocused(wsID string, idx int) {
 	if tab == nil || tab.isClosed() {
 		return
 	}
-	tab.mu.Lock()
-	tab.lastFocusedAt = time.Now()
-	tab.backgroundPTYPressureSince = time.Time{}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		tab.lastFocusedAt = time.Now()
+		tab.backgroundPTYPressureSince = time.Time{}
+	})
 }
 
 func (m *Model) noteTabsChanged() {

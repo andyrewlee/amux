@@ -57,7 +57,10 @@ var rearmChainClassification = []struct {
 	{"sidebar.SidebarTerminalReattachFailed", zeroMsg[sidebar.SidebarTerminalReattachFailed](), false},
 	{"sidebar.SidebarTabWritten", zeroMsg[sidebar.SidebarTabWritten](), false},
 	{"sidebar.SidebarInputFailed", zeroMsg[sidebar.SidebarInputFailed](), false},
-	{"messages.SidebarSelectionScrollTick", zeroMsg[messages.SidebarSelectionScrollTick](), false},
+	// chain=true is required: the sidebar's stationary edge-hold scroll is a
+	// self-rearming chain — only the tick keeps it moving while the pointer
+	// sits still, so a panic-dropped tick ends the scroll unless rearmed.
+	{"messages.SidebarSelectionScrollTick", zeroMsg[messages.SidebarSelectionScrollTick](), true},
 	{"messages.OpenFileInVim", zeroMsg[messages.OpenFileInVim](), false},
 	{"messages.BranchChangesLoaded", zeroMsg[messages.BranchChangesLoaded](), false},
 	{"messages.AheadBehindLoaded", zeroMsg[messages.AheadBehindLoaded](), false},

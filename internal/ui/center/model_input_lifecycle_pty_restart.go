@@ -19,35 +19,39 @@ func (m *Model) updatePTYStopped(msg PTYStopped) tea.Cmd {
 	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYStopped")
 	if tab != nil {
 		msg.WorkspaceID = wsID
-		tab.mu.Lock()
-		stale := tab.State.ReaderGen != msg.Gen
-		tab.mu.Unlock()
+		var stale bool
+		withMu(&tab.mu, func() {
+			stale = tab.State.ReaderGen != msg.Gen
+		})
 		if stale {
 			logging.Debug("Dropping stale PTYStopped for tab %s: a newer reader already runs", msg.TabID)
 			return nil
 		}
 		termAlive := tab.Agent != nil && tab.Agent.Terminal != nil && !tab.Agent.Terminal.IsClosed()
 		m.stopPTYReader(tab)
-		tab.mu.Lock()
-		if tab.Terminal != nil && len(tab.NoiseTrailing) > 0 {
-			trailing := ptyio.DrainKnownPTYNoiseTrailing(&tab.NoiseTrailing)
-			flushDone := perf.Time("pty_flush")
-			tab.Terminal.Write(trailing)
-			flushDone()
-			perf.Count("pty_flush_bytes", int64(len(trailing)))
-			tagSessionName, _, _ = m.noteVisibleActivityLocked(tab, false, tab.pendingVisibleSeq)
-		}
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			if tab.Terminal != nil && len(tab.NoiseTrailing) > 0 {
+				trailing := ptyio.DrainKnownPTYNoiseTrailing(&tab.NoiseTrailing)
+				flushDone := perf.Time("pty_flush")
+				tab.Terminal.Write(trailing)
+				flushDone()
+				perf.Count("pty_flush_bytes", int64(len(trailing)))
+				tagSessionName, _, _ = m.noteVisibleActivityLocked(tab, false, tab.pendingVisibleSeq)
+			}
+		})
 		if tagSessionName != "" {
 			m.markActivityTagForFlush(tagSessionName)
 		}
 		tab.resetActivityANSIState()
-		tab.mu.Lock()
-		shouldRestart, backoff := tab.State.DecidePTYRestartLocked(termAlive, ptyRestartWindow, ptyRestartMax)
-		if !shouldRestart {
-			tab.markDetachedLocked()
-		}
-		tab.mu.Unlock()
+		var backoff time.Duration
+		shouldRestart := withMuVal(&tab.mu, func() bool {
+			restart, b := tab.State.DecidePTYRestartLocked(termAlive, ptyRestartWindow, ptyRestartMax)
+			backoff = b
+			if !restart {
+				tab.markDetachedLocked()
+			}
+			return restart
+		})
 		switch {
 		case shouldRestart:
 			tabID := msg.TabID
@@ -78,18 +82,19 @@ func (m *Model) updatePTYRestart(msg PTYRestart) tea.Cmd {
 	if tab == nil {
 		return nil
 	}
-	tab.mu.Lock()
-	stale := tab.State.ReaderGen != msg.Gen
-	tab.mu.Unlock()
+	var stale bool
+	withMu(&tab.mu, func() {
+		stale = tab.State.ReaderGen != msg.Gen
+	})
 	if stale {
 		logging.Debug("Dropping stale PTYRestart for tab %s: a newer reader already runs", msg.TabID)
 		return nil
 	}
 	tab.resetActivityANSIState()
 	if tab.Agent == nil || tab.Agent.Terminal == nil || tab.Agent.Terminal.IsClosed() {
-		tab.mu.Lock()
-		tab.RestartBackoff = 0
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			tab.RestartBackoff = 0
+		})
 		return nil
 	}
 	if cmd := m.startPTYReader(wsID, tab); cmd != nil {
