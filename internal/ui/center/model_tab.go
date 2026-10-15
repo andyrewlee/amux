@@ -155,6 +155,10 @@ type tabActorWriteState struct {
 	// enqueue accounting is consumed — the panic tests' injection point.
 	// Only tests on a tab they own set it; production leaves nil.
 	testApplyHook func()
+	// testPostApplyHook, when set, runs at the top of handleWriteOutput's
+	// post-apply window (after apply, before admission/drain) — the panic
+	// tests' injection point for the window actorApplyInFlight covers.
+	testPostApplyHook func()
 	// pendingInitialTask is the launch-time task queued for the agent: sent
 	// once, verbatim + "\r", on the first write pass after the vterm observes
 	// a private-mode set (the agent's input loop is live). Cleared on reset

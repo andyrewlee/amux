@@ -209,3 +209,48 @@ func TestSelectionScrollTick_Rearm(t *testing.T) {
 		t.Fatal("rearmed tick rejected by the live chain")
 	}
 }
+
+// TestActorWritePanic_PostApplyPanicKeepsLaterAccounting is the plan-085
+// regression: a write event whose apply SUCCEEDED but whose post-apply work
+// (admission, msgSink, clip drain) panicked must not let reconcile decrement
+// the enqueue accounting again — the clamping decrement would silently eat
+// the NEXT queued write's pending count (pending==0 drives drain/finalize).
+// Two queued writes make the second decrement observable.
+func TestActorWritePanic_PostApplyPanicKeepsLaterAccounting(t *testing.T) {
+	m := newTestModel()
+	tab := &Tab{ID: "t", Terminal: vterm.New(80, 24)}
+	chunk1, chunk2 := []byte("first"), []byte("second")
+	ev1 := newPanicWriteEvent(tab, "ws", chunk1)
+	ev2 := newPanicWriteEvent(tab, "ws", chunk2)
+	if tab.actorWritesPending != 2 || tab.actorQueuedBytes != len(chunk1)+len(chunk2) {
+		t.Fatalf("enqueue accounting = (%d, %d), want (2, %d)", tab.actorWritesPending, tab.actorQueuedBytes, len(chunk1)+len(chunk2))
+	}
+
+	tab.testPostApplyHook = func() { panic("injected post-apply panic") }
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				m.reconcileActorEventPanic(ev1)
+			}
+		}()
+		m.handleWriteOutput(ev1)
+	}()
+
+	// ev1's apply consumed its own accounting (pending 2→1); reconcile must
+	// see the in-flight breadcrumb (set through post-apply) and leave ev2's
+	// accounting alone.
+	if tab.actorWritesPending != 1 || tab.actorQueuedBytes != len(chunk2) {
+		t.Fatalf("post-apply panic double-decremented: accounting = (%d, %d), want (1, %d)",
+			tab.actorWritesPending, tab.actorQueuedBytes, len(chunk2))
+	}
+	if tab.actorApplyInFlight {
+		t.Fatal("reconcile left the apply breadcrumb set")
+	}
+
+	// ev2 applies cleanly once the hook is disarmed.
+	tab.testPostApplyHook = nil
+	m.handleWriteOutput(ev2)
+	if tab.actorWritesPending != 0 || tab.actorQueuedBytes != 0 {
+		t.Fatalf("accounting after clean drain = (%d, %d), want (0, 0)", tab.actorWritesPending, tab.actorQueuedBytes)
+	}
+}
