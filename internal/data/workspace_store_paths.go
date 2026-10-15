@@ -164,7 +164,7 @@ func workspaceMetadataQuality(ws *Workspace) int {
 	if strings.TrimSpace(ws.Assistant) != "" {
 		score++
 	}
-	if strings.TrimSpace(ws.ScriptMode) != "" {
+	if strings.TrimSpace(string(ws.ScriptMode)) != "" {
 		score++
 	}
 	if strings.TrimSpace(ws.Runtime) != "" {

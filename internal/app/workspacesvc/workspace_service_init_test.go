@@ -293,6 +293,6 @@ func TestNewWorkspaceServiceWiring(t *testing.T) {
 	}
 }
 
-func (f *fakeAssistantStore) SetScripts(data.WorkspaceID, data.ScriptsConfig, string) error {
+func (f *fakeAssistantStore) SetScripts(data.WorkspaceID, data.ScriptsConfig, data.ScriptMode) error {
 	return nil
 }

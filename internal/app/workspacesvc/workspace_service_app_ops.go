@@ -36,7 +36,7 @@ func (s *Service) SetWorkspaceEnv(ws *data.Workspace, env map[string]string) err
 
 // SetWorkspaceScripts replaces the workspace's script overrides and mode
 // under its persisted store key.
-func (s *Service) SetWorkspaceScripts(ws *data.Workspace, scripts data.ScriptsConfig, mode string) error {
+func (s *Service) SetWorkspaceScripts(ws *data.Workspace, scripts data.ScriptsConfig, mode data.ScriptMode) error {
 	if s == nil || s.store == nil || ws == nil {
 		return errWorkspaceStoreUnavailable
 	}
