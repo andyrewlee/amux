@@ -98,10 +98,29 @@ func (h *startReaderHarness) stopErrs() []error {
 	return out
 }
 
+// gatedChunkReader emits chunk on its first Read, then blocks until gate
+// closes and returns io.EOF — a reader whose lifetime the test controls.
+// Unlike scriptedReader (one chunk then instant EOF), it cannot unwind and
+// run MarkReaderStopped before the post-start asserts observe a live reader.
+type gatedChunkReader struct {
+	gate  chan struct{}
+	chunk []byte
+	sent  atomic.Bool
+}
+
+func (g *gatedChunkReader) Read(p []byte) (int, error) {
+	if g.sent.CompareAndSwap(false, true) {
+		return copy(p, g.chunk), nil
+	}
+	<-g.gate
+	return 0, io.EOF
+}
+
 func TestStartReaderRunsAndMarksStopped(t *testing.T) {
 	var mu sync.Mutex
 	st := &State{}
-	h := newStartReaderHarness(&scriptedReader{chunks: [][]byte{[]byte("hello")}})
+	gate := make(chan struct{})
+	h := newStartReaderHarness(&gatedChunkReader{gate: gate, chunk: []byte("hello")})
 
 	st.StartReader(&mu, h.opts)
 
@@ -121,6 +140,8 @@ func TestStartReaderRunsAndMarksStopped(t *testing.T) {
 	}
 	mu.Unlock()
 
+	// Release the reader: it forwards the chunk, hits EOF, and unwinds.
+	close(gate)
 	h.waitForward(t)
 
 	if got := string(h.outputBytes()); got != "hello" {

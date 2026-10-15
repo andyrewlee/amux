@@ -199,7 +199,7 @@ func gitBranchList(t *testing.T, repo, pattern string) string {
 	t.Helper()
 	cmd := exec.Command("git", "branch", "--list", pattern)
 	cmd.Dir = repo
-	cmd.Env = stripGitEnv(os.Environ())
+	cmd.Env = stripTestEnv(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git branch --list %q: %v\n%s", pattern, err, out)
