@@ -28,14 +28,20 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		if !staleWrite && tab.Terminal != nil {
 			// The breadcrumb lets reconcileActorEventPanic tell whether this
 			// event's apply began (accounting consumed at apply top) or the
-			// event died before reaching it (accounting still owned).
+			// event died before reaching it (accounting still owned). It
+			// stays set through ALL post-apply work below — admission,
+			// msgSink, clip drain — and is cleared by this handler's last
+			// statement: a panic in the post-apply window must still read
+			// "accounting consumed", or reconcile decrements a second time.
 			tab.actorApplyInFlight = true
 			filteredLen, filterApplied, suppressRedraw, requestFlush, tagSessionName, _, pendingClip, pendingBell, initialTask, taskGen = m.applyActorWriteLocked(tab, ev, processedBytes)
-			tab.actorApplyInFlight = false
 		}
 	})
 	if staleWrite {
 		return
+	}
+	if tab.testPostApplyHook != nil {
+		tab.testPostApplyHook()
 	}
 	if initialTask != "" {
 		// First write after the agent emitted a private-mode set: the input
@@ -82,6 +88,13 @@ func (m *Model) handleWriteOutput(ev tabEvent) {
 		// redraw would rebuild an identical app frame.
 		m.msgSink(PTYCursorRefresh{WorkspaceID: ev.workspaceID, TabID: ev.tabID})
 	}
+	// Last statement: the apply breadcrumb must cover the whole post-apply
+	// window, so it clears here under the mutex like its other accesses. NOT
+	// a defer: a deferred clear would run during unwind before the recover's
+	// reconcile and reopen the double-decrement this flag exists to close.
+	// Only this event's apply can have set it — a stale-write return and a
+	// Terminal==nil path never reach the set.
+	withMu(&tab.mu, func() { tab.actorApplyInFlight = false })
 }
 
 // applyActorWriteLocked writes an actor-queued output chunk to the terminal,
@@ -236,8 +249,11 @@ func recoverFailedActorSend(
 // reconcileActorEventPanic undoes the enqueue accounting of a write event that
 // died to a panic before its apply could consume it. An epoch-bumped (stale)
 // write was already settled by the bump, and an apply that started consumed
-// the accounting at apply top — actorApplyInFlight marks that transition. Runs
-// on the actor goroutine from the per-event recover.
+// the accounting at apply top — actorApplyInFlight marks that transition and
+// stays set through the whole post-apply window (cleared by the handler's
+// last statement), so a post-apply panic also reads "accounting consumed"
+// rather than decrementing a second time. Runs on the actor goroutine from
+// the per-event recover.
 func (m *Model) reconcileActorEventPanic(ev tabEvent) {
 	if ev.kind != tabEventWriteOutput || ev.tab == nil {
 		return
