@@ -133,10 +133,13 @@ func (m *Model) rows() *visualRows {
 }
 
 // invalidateRows drops the row layout — callers that replace or clear the
-// diff use it so a recycled pointer can never alias a stale layout.
+// diff use it so a recycled pointer can never alias a stale layout. The
+// stripped-line cache shares the diff-pointer key, so it drops here too.
 func (m *Model) invalidateRows() {
 	m.rowsValid = false
 	m.rowsCache = visualRows{}
+	m.strippedLines = nil
+	m.strippedLinesFor = nil
 }
 
 // buildVisualRows renders every source line into its display rows: one

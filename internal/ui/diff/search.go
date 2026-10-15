@@ -172,6 +172,27 @@ func (m *Model) scrollToMatch() {
 	m.scroll = m.clampScroll(matchRow - height/2)
 }
 
+// strippedContent returns each source line's ANSI-stripped text, cached for
+// the loaded diff so a query edit does not re-strip (and re-allocate) every
+// line. The cache is keyed on the diff pointer; invalidateRows drops it
+// alongside the row layout.
+func (m *Model) strippedContent() []string {
+	if m.diff == nil {
+		return nil
+	}
+	if m.strippedLinesFor != m.diff {
+		stripped := make([]string, len(m.diff.Lines))
+		for i, line := range m.diff.Lines {
+			// Same reason buildVisualRows strips: repo-controlled bytes must
+			// not reach search styling with their escapes intact either.
+			stripped[i] = ansi.Strip(line.Content)
+		}
+		m.strippedLines = stripped
+		m.strippedLinesFor = m.diff
+	}
+	return m.strippedLines
+}
+
 // recomputeMatches scans the diff's source lines for the query — literal,
 // case-insensitive substring over the stripped Content (so +/- markers and
 // @@ headers match as written). Rune spans are recorded on the stripped
@@ -188,8 +209,7 @@ func (m *Model) recomputeMatches() {
 		return
 	}
 	search := common.NewLiteralSearch(m.query)
-	for li, line := range m.diff.Lines {
-		text := ansi.Strip(line.Content)
+	for li, text := range m.strippedContent() {
 		for _, span := range search.RuneSpans(text) {
 			m.matches = append(m.matches, diffMatch{lineIdx: li, startRune: span.Start, endRune: span.End})
 		}

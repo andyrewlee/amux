@@ -105,13 +105,10 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		data := res.Data
 		isChat := m.isChatTab(tab)
 		var activityData []byte
-		activityState := ansiActivityText
-		activityStateSet := false
+		activitySeedFromTrim := false
 		if isChat {
-			// The overflow rescan + activityData slicing exist only for the
-			// chat-tab ANSI-activity tracker — skip both for non-chat tabs so
-			// a flooded non-chat tab doesn't pay an O(≤8MiB) byte scan per
-			// output message for a discarded result.
+			// The activityData slicing exists only for the chat-tab
+			// ANSI-activity tracker — skip it for non-chat tabs.
 			activityData = data
 			if res.Overflowed {
 				chunkStart := res.PrevPendingLen
@@ -123,13 +120,19 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 						activityData = data[dropFromMsg:]
 					}
 				}
-				activityPrefixLen := len(tab.PendingOutput) - len(activityData)
-				if activityPrefixLen < 0 {
-					activityPrefixLen = 0
-				}
-				_, activityState = hasVisiblePTYOutput(tab.PendingOutput[:activityPrefixLen], ansiActivityText)
-				perf.Count("pty_overflow_rescan", 1)
-				activityStateSet = true
+				// The trim boundary is always parser-clean: retained bytes
+				// begin in text (TrimOverflow only cuts at text/ESC-safe
+				// points, or drops everything and carries the in-flight
+				// sequence into the next append). Seed the new-bytes scan
+				// from text instead of rescanning the retained prefix (up
+				// to the full buffer cap) to reconstruct the activity state
+				// at activityData's interior start. When retained old bytes
+				// do sit ahead of activityData the true interior state may
+				// differ — the error only over-counts visibility
+				// (mid-sequence bytes read as text), the safe direction for
+				// an activity tracker.
+				perf.Count("pty_overflow_carry_seed", 1)
+				activitySeedFromTrim = true
 			}
 		}
 		perf.Count("pty_output_bytes", int64(len(msg.Data)))
@@ -143,8 +146,8 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 					tab.bootstrapActivity = false
 					tab.bootstrapLastOutputAt = time.Time{}
 				}
-				if activityStateSet {
-					tab.activityANSIState = activityState
+				if activitySeedFromTrim {
+					tab.activityANSIState = ansiActivityText
 				}
 			})
 			hasVisibleOutput := tab.consumeActivityVisibility(activityData)

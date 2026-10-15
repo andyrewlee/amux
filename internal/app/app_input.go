@@ -46,12 +46,16 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 
 // frameInvalidatedBy identifies messages whose Update work may change the
 // composed frame directly. Raw PTY output only buffers bytes, and PTY flushes
-// are covered by the active vterm versions in the full-frame cache key. Keeping
-// these high-frequency messages render-neutral prevents inactive tabs and
-// flush scheduling from rebuilding an unchanged screen.
+// are covered by the active vterm versions in the full-frame cache key.
+// PTYCursorRefresh only recomputes the active chat tab's time-windowed cursor
+// policy — the ActivityVersion bits it can flip (local-input window,
+// cursor-trust window) are part of that key, so its expiry drifts the key
+// exactly like a flush does. Keeping these high-frequency messages
+// render-neutral prevents inactive tabs and flush scheduling from rebuilding
+// an unchanged screen.
 func frameInvalidatedBy(msg tea.Msg) bool {
 	switch msg.(type) {
-	case center.PTYOutput, center.PTYFlush,
+	case center.PTYOutput, center.PTYFlush, center.PTYCursorRefresh,
 		messages.SidebarPTYOutput, messages.SidebarPTYFlush:
 		return false
 	default:

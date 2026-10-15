@@ -192,6 +192,7 @@ type tabFrameProbeState struct {
 	frameTitleVer   uint64 // atomic
 	activeBit       uint32 // atomic — last isTabVisiblyActiveLocked result
 	cursorActiveBit uint32 // atomic — last isTabCursorOutputActiveLocked result
+	recentInputBit  uint32 // atomic — last recentLocalChatInputLocked result
 }
 
 func (t *Tab) isClosed() bool {

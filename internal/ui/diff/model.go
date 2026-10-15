@@ -69,10 +69,18 @@ type Model struct {
 	rowsKey   visualRowsKey
 	rowsValid bool
 	rowsBuilt int
+
+	// strippedLines memoizes ansi.Strip(line.Content) for the loaded diff so
+	// recomputeMatches does not re-strip every source line on each query
+	// keystroke. Keyed on the diff pointer — a new load (or a recycled
+	// pointer after invalidateRows) rebuilds it lazily.
+	strippedLines    []string
+	strippedLinesFor *git.DiffResult
 }
 
 // diffViewKey captures every input View() reads: the loaded data pointers,
 // scroll/hunk position, wrap/focus flags, dimensions, and styles revision.
+// ContentVersion folds the same set — keep the two field lists in sync.
 type diffViewKey struct {
 	diff          *git.DiffResult
 	errStr        string

@@ -24,6 +24,7 @@ func formatScrollPos(offset, total int) string {
 // View renders the center pane
 func (m *Model) View() string {
 	defer perf.Time("center_view")()
+	m.viewBuilds++
 	var b strings.Builder
 
 	// Tab bar
@@ -218,6 +219,12 @@ func (m *Model) markHelpDirty() {
 // instrumentation for the compose-time skip gate; not for production use.
 func (m *Model) HelpBuildCount() uint64 {
 	return m.helpBuilds
+}
+
+// ViewBuildCount reports how many times View has been invoked. Test
+// instrumentation for the compose-time diff gate; not for production use.
+func (m *Model) ViewBuildCount() uint64 {
+	return m.viewBuilds
 }
 
 func (m *Model) helpItem(key, desc string) string {

@@ -319,6 +319,32 @@ func (m *Model) HasDiffViewer() bool {
 	return tab.DiffViewer != nil
 }
 
+// ActiveDiffContentVersion fingerprints every input the active tab's diff
+// viewer renders — see diff.Model.ContentVersion — so the compose path can
+// gate the whole string build for a stable diff. The viewer's focus flag is
+// one of those inputs and View() syncs it from m.focused at render time, so
+// this accessor applies the same sync first — otherwise the recorded
+// fingerprint would lag the settled state by one frame and force a second
+// build. Reports ok=false when the active tab has no diff viewer.
+func (m *Model) ActiveDiffContentVersion() (uint64, bool) {
+	tabs := m.getTabs()
+	activeIdx := m.getActiveTabIdx()
+	if len(tabs) == 0 || activeIdx >= len(tabs) {
+		return 0, false
+	}
+	tab := tabs[activeIdx]
+	if tab.isClosed() {
+		return 0, false
+	}
+	tab.mu.Lock()
+	defer tab.mu.Unlock()
+	if tab.DiffViewer == nil {
+		return 0, false
+	}
+	tab.DiffViewer.SetFocused(m.focused)
+	return tab.DiffViewer.ContentVersion(), true
+}
+
 // HasActiveTerminal reports whether the active tab has a terminal viewport.
 func (m *Model) HasActiveTerminal() bool {
 	tabs := m.getTabs()

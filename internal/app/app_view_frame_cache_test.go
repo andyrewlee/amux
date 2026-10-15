@@ -6,8 +6,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/diff"
 )
 
 func newFrameCacheHarness(t *testing.T, tabs int) *Harness {
@@ -141,6 +143,7 @@ func TestFrameInvalidatedBy_HighFrequencyPTYMessagesAreNeutral(t *testing.T) {
 	neutral := []tea.Msg{
 		center.PTYOutput{},
 		center.PTYFlush{},
+		center.PTYCursorRefresh{},
 		messages.SidebarPTYOutput{},
 		messages.SidebarPTYFlush{},
 	}
@@ -218,5 +221,48 @@ func TestFullFrameCache_InvalidationBypassesCoalescing(t *testing.T) {
 	}
 	if got := h.app.renderCache.frame.coalesced; got != 0 {
 		t.Fatalf("invalidation path counted a coalesced serve: %d", got)
+	}
+}
+
+// frameNudgeMsg invalidates the frame without touching any pane state — the
+// control signal for pane-gate tests.
+type frameNudgeMsg struct{}
+
+// TestCenterDiffGate_ReusesStableDiff proves a frame rebuild over an
+// unchanged diff tab skips center.View entirely: the diff fingerprint folds
+// every input updateDiffViewer mutates (scroll/search/wrap included), so only
+// a real diff-state change may rebuild the pane.
+func TestCenterDiffGate_ReusesStableDiff(t *testing.T) {
+	h := newFrameCacheHarness(t, 1)
+	ws := h.tabs[0].Workspace
+	dv := diff.New(ws, &git.Change{Path: "main.go", Kind: git.ChangeModified}, git.DiffModeUnstaged, 80, 24)
+	h.app.center.AddTab(&center.Tab{
+		ID:         center.TabID("tab-diff"),
+		Name:       "Diff: main.go",
+		Workspace:  ws,
+		DiffViewer: dv,
+	})
+	h.app.center.SelectTab(1)
+
+	_ = h.app.view()
+	builds := h.app.center.ViewBuildCount()
+	if builds == 0 {
+		t.Fatal("first diff frame did not build center.View")
+	}
+
+	// Frame-invalidating message with unchanged diff state: the pane rebuild
+	// is gated off even though the full frame rebuilt.
+	_, _ = h.app.Update(frameNudgeMsg{})
+	_ = h.app.view()
+	if got := h.app.center.ViewBuildCount(); got != builds {
+		t.Fatalf("stable diff rebuilt center.View: %d -> %d", builds, got)
+	}
+
+	// A diff-state mutation moves the fingerprint and forces the rebuild.
+	dv.SetSize(81, 24)
+	_, _ = h.app.Update(frameNudgeMsg{})
+	_ = h.app.view()
+	if got := h.app.center.ViewBuildCount(); got != builds+1 {
+		t.Fatalf("diff mutation did not rebuild center.View: %d -> %d", builds, got)
 	}
 }

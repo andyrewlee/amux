@@ -100,6 +100,51 @@ func (m *Model) isTabCursorOutputActiveAt(tab *Tab, now time.Time) bool {
 	return active
 }
 
+// isTabRecentLocalInputAt is the local-input half of the cursor-policy probe:
+// the exact composite TerminalLayerWithCursorOwner consults, with the same
+// TryLock discipline — a contended tab is mid-mutation, so the last-published
+// bit is the honest answer.
+func (m *Model) isTabRecentLocalInputAt(tab *Tab, now time.Time) bool {
+	if tab == nil || tab.isClosed() {
+		return false
+	}
+	if !tab.mu.TryLock() {
+		return atomic.LoadUint32(&tab.recentInputBit) == 1
+	}
+	recent := func() bool {
+		defer tab.mu.Unlock()
+		return m.isChatTabLocked(tab) && recentLocalChatInputLocked(tab, now)
+	}()
+	if recent {
+		atomic.StoreUint32(&tab.recentInputBit, 1)
+	} else {
+		atomic.StoreUint32(&tab.recentInputBit, 0)
+	}
+	return recent
+}
+
+// recentLocalChatInputLocked computes the local-input predicate exactly as
+// TerminalLayerWithCursorOwner uses it: recent prompt editing or a recent
+// submit whose echo the assistant has not visibly consumed yet. Caller holds
+// tab.mu.
+func recentLocalChatInputLocked(tab *Tab, now time.Time) bool {
+	recent := isRecentPromptEditInput(tab.lastPromptInputAt, tab.lastPromptSubmitAt, now) ||
+		isRecentSubmitPromptBeforeOutput(tab.lastPromptSubmitAt, tab.lastVisibleOutput, now)
+	if !recent &&
+		tab.Terminal != nil &&
+		isRecentLocalChatInput(tab.lastPromptSubmitAt, now) &&
+		(!tab.stableCursorSet ||
+			isNearbySubmitPromptCursor(
+				tab.stableCursorX,
+				tab.stableCursorY,
+				tab.Terminal.CursorX,
+				tab.Terminal.CursorY,
+			)) {
+		recent = true
+	}
+	return recent
+}
+
 func isTabVisiblyActiveLocked(tab *Tab, now time.Time) bool {
 	if tab == nil || tab.Detached || !tab.Running {
 		return false
@@ -275,17 +320,19 @@ func (m *Model) VisibleTerminalVersions() (content, title uint64) {
 
 // ActivityVersion fingerprints the frame inputs the center derives from tab
 // activity rather than from terminal content: the tab bar's per-tab working
-// highlight (bits 0..62, current workspace order) and the active chat tab's
-// cursor-trust window (bit 63). Both are time-based, and the PTY paths that move
-// them - buffered output, actor writes - never touch a vterm version, so App's
-// full-frame cache keys on this to avoid holding a stale frame. Tabs past the
-// 63rd get no bit; the tab bar cannot show that many at once anyway.
+// highlight (bits 0..61, current workspace order) and, for the active chat
+// tab, the two time-based cursor-policy inputs that a PTYCursorRefresh expiry
+// recomputes without a vterm version bump — the local-input window (bit 62)
+// and the cursor-trust window (bit 63). PTY paths that move them - buffered
+// output, actor writes, refresh expiry - never touch a vterm version, so
+// App's full-frame cache keys on this to avoid holding a stale frame. Tabs
+// past the 62nd get no bit; the tab bar cannot show that many at once anyway.
 func (m *Model) ActivityVersion() uint64 {
 	tabs := m.getTabs()
 	now := time.Now()
 	var fingerprint uint64
 	for i, tab := range tabs {
-		if i >= 63 {
+		if i >= 62 {
 			break
 		}
 		if m.isTabActiveAt(tab, now) {
@@ -293,7 +340,11 @@ func (m *Model) ActivityVersion() uint64 {
 		}
 	}
 	if activeIdx := m.getActiveTabIdx(); activeIdx >= 0 && activeIdx < len(tabs) {
-		if m.isTabCursorOutputActiveAt(tabs[activeIdx], now) {
+		active := tabs[activeIdx]
+		if m.isTabRecentLocalInputAt(active, now) {
+			fingerprint |= 1 << 62
+		}
+		if m.isTabCursorOutputActiveAt(active, now) {
 			fingerprint |= 1 << 63
 		}
 	}
@@ -332,20 +383,13 @@ func (m *Model) TerminalLayerWithCursorOwner(cursorOwner bool) *compositor.VTerm
 	if isChat && showCursor && !tab.Terminal.AltScreen {
 		visibleOutputActive = isTabVisiblyActiveLocked(tab, now)
 		cursorOutputActive = isTabCursorOutputActiveLocked(tab, now)
-		recentLocalInput = isRecentPromptEditInput(tab.lastPromptInputAt, tab.lastPromptSubmitAt, now) ||
-			isRecentSubmitPromptBeforeOutput(tab.lastPromptSubmitAt, tab.lastVisibleOutput, now)
-		if !recentLocalInput &&
-			isRecentLocalChatInput(tab.lastPromptSubmitAt, now) &&
-			(!tab.stableCursorSet ||
-				isNearbySubmitPromptCursor(
-					tab.stableCursorX,
-					tab.stableCursorY,
-					tab.Terminal.CursorX,
-					tab.Terminal.CursorY,
-				)) {
-			recentLocalInput = true
-		}
+		recentLocalInput = recentLocalChatInputLocked(tab, now)
 		restrictCursor = !recentLocalInput && (visibleOutputActive || cursorOutputActive)
+	}
+	if recentLocalInput {
+		atomic.StoreUint32(&tab.recentInputBit, 1)
+	} else {
+		atomic.StoreUint32(&tab.recentInputBit, 0)
 	}
 	// Cache key: (version, showCursor, recentLocalInput, restrictCursor) for chat
 	// tabs. Both recent local input and recent PTY activity can change cursor
