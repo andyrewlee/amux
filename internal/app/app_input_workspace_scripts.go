@@ -19,12 +19,18 @@ func (a *App) handleShowWorkspaceScriptsDialog(msg messages.ShowWorkspaceScripts
 	if msg.Workspace == nil {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
-		a.overlays.scriptsWorkspace = msg.Workspace
+		a.clearPendingWorkspaceCreate()
+		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
+		a.overlays.scriptsWorkspace = ws
 		a.overlays.scripts = common.NewScriptsDialog(
-			msg.Workspace.Scripts.Setup, msg.Workspace.Scripts.Run,
-			msg.Workspace.Scripts.Archive, msg.Workspace.Scripts.OnDone,
-			msg.Workspace.ScriptMode,
+			ws.Scripts.Setup, ws.Scripts.Run,
+			ws.Scripts.Archive, ws.Scripts.OnDone,
+			ws.ScriptMode,
 		)
 		a.overlays.scripts.SetSize(a.width, a.height)
 		a.overlays.scripts.Show()
@@ -88,6 +94,11 @@ func (a *App) handleProjectEnvReady(msg projectEnvReadyMsg) {
 		return
 	}
 	a.requestOverlayOpen(func() {
+		// Drain-time staleness: a later fetch bumped projectEnvSeq while
+		// this open sat queued — the superseded seed must not present.
+		if msg.seq != a.overlays.projectEnvSeq {
+			return
+		}
 		a.overlays.projectEnvRepo = msg.repo
 		a.overlays.projectEnv = common.NewEnvDialog(filterReservedEnv(msg.seed))
 		a.overlays.projectEnv.SetScope(common.EnvScopeProject)

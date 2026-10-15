@@ -193,13 +193,18 @@ func (a *App) handleShowScriptOutput(msg messages.ShowScriptOutput) tea.Cmd {
 	if content == "" {
 		return a.toast.ShowInfo("No lifecycle script output for " + msg.Workspace.Name)
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestRunOutputOpen(func() {
-		a.overlays.runOutputWorkspace = msg.Workspace
+		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
+		a.overlays.runOutputWorkspace = ws
 		a.overlays.runOutputAttachable = false
 		a.overlays.runOutputReleaseCount = 0
 		a.overlays.runOutputUntrustable = false
 		a.overlays.runOutputToken++
-		a.overlays.runOutput = common.NewOutputDialog("Script output — "+msg.Workspace.Name, content)
+		a.overlays.runOutput = common.NewOutputDialog("Script output — "+ws.Name, content)
 		a.overlays.runOutput.SetSearchable(true)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()
