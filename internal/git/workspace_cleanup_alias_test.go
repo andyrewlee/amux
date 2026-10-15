@@ -11,12 +11,7 @@ import (
 )
 
 func TestRemoveWorkspaceRejectsMarkerlessManagedAliasStaleWorkspace(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo-real-name")
 	workspacePath := filepath.Join(t.TempDir(), ".amux", "workspaces", "project-name-drift", "feature")
@@ -27,13 +22,13 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedAliasStaleWorkspace(t *testing.T
 		t.Fatalf("WriteFile(file.txt) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		t.Fatal("expected alias stale workspace to be returned to caller for scoped cleanup")
 		return nil
 	}
@@ -51,12 +46,7 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedAliasStaleWorkspace(t *testing.T
 }
 
 func TestRemoveWorkspaceRejectsGitBearingManagedStaleWorkspace(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo-real-name")
 	workspacePath := filepath.Join(t.TempDir(), ".amux", "workspaces", "repo-real-name", "feature")
@@ -74,13 +64,13 @@ func TestRemoveWorkspaceRejectsGitBearingManagedStaleWorkspace(t *testing.T) {
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected .git-bearing managed stale workspace to be rejected before cleanup delete")
 		return nil
 	}
@@ -98,12 +88,7 @@ func TestRemoveWorkspaceRejectsGitBearingManagedStaleWorkspace(t *testing.T) {
 }
 
 func TestRemoveWorkspaceUnregistersDanglingGitPointerStaleWorkspace(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo-real-name")
 	workspacePath := filepath.Join(t.TempDir(), ".amux", "workspaces", "repo-real-name", "delete")
@@ -117,13 +102,13 @@ func TestRemoveWorkspaceUnregistersDanglingGitPointerStaleWorkspace(t *testing.T
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected dangling-pointer unregister to leave directory removal to the caller")
 		return nil
 	}
@@ -144,12 +129,7 @@ func TestRemoveWorkspaceUnregistersDanglingGitPointerStaleWorkspace(t *testing.T
 }
 
 func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderSymlinkRootAlias(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -171,13 +151,13 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderSymlinkRootAlias(t
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		t.Fatal("expected symlink-root stale workspace to be returned to caller for scoped cleanup")
 		return nil
 	}
@@ -195,12 +175,7 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderSymlinkRootAlias(t
 }
 
 func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredSymlinkRoot(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	tmp := t.TempDir()
 	realRoot := filepath.Join(tmp, "real-workspaces")
@@ -216,13 +191,13 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredSymlinkR
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		t.Fatal("expected symlink-root stale workspace to be returned to caller for scoped cleanup")
 		return nil
 	}
@@ -240,12 +215,7 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredSymlinkR
 }
 
 func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredRootEnv(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	customRoot := filepath.Join(t.TempDir(), "custom-workspaces")
 	t.Setenv(config.WorkspacesRootEnvVar, customRoot)
@@ -256,13 +226,13 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredRootEnv(
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		t.Fatal("expected configured-root stale workspace to be returned to caller for scoped cleanup")
 		return nil
 	}
@@ -280,12 +250,7 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredRootEnv(
 }
 
 func TestRemoveWorkspaceLookupFailureDoesNotCleanupDifferentRepoUnderManagedRoot(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	customRoot := filepath.Join(t.TempDir(), "custom-workspaces")
 	t.Setenv(config.WorkspacesRootEnvVar, customRoot)
@@ -296,13 +261,13 @@ func TestRemoveWorkspaceLookupFailureDoesNotCleanupDifferentRepoUnderManagedRoot
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", context.DeadlineExceeded
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		t.Fatal("expected different-repo stale workspace to be returned to caller for scoped cleanup")
 		return nil
 	}
@@ -320,10 +285,7 @@ func TestRemoveWorkspaceLookupFailureDoesNotCleanupDifferentRepoUnderManagedRoot
 }
 
 func TestRemoveWorkspaceResumesPendingCleanupAcrossWorkspaceRootAliases(t *testing.T) {
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -356,7 +318,7 @@ func TestRemoveWorkspaceResumesPendingCleanupAcrossWorkspaceRootAliases(t *testi
 	}
 
 	var removedPath string
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		removedPath = path
 		return os.RemoveAll(path)
 	}
@@ -378,14 +340,7 @@ func TestRemoveWorkspaceResumesPendingCleanupAcrossWorkspaceRootAliases(t *testi
 }
 
 func TestRemoveWorkspacePreservesPendingUnregisterWhenAdminDirLookupMisses(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo")
 	commonGitDir := filepath.Join(repoPath, ".git")
@@ -410,7 +365,7 @@ func TestRemoveWorkspacePreservesPendingUnregisterWhenAdminDirLookupMisses(t *te
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "rev-parse --git-common-dir":
 			if gotRepoPath != repoPath {
@@ -427,8 +382,8 @@ func TestRemoveWorkspacePreservesPendingUnregisterWhenAdminDirLookupMisses(t *te
 			return "", nil
 		}
 	}
-	unregisterWorktreeCtx = unregisterWorktreeAdminDirWithContext
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.unregisterWorktreeCtx = unregisterWorktreeAdminDirWithContext
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected staged cleanup delete to be skipped when unregister lookup misses")
 		return nil
 	}

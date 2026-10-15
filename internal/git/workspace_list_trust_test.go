@@ -31,12 +31,11 @@ func TestWorktreeListPaths_LiteralBytes(t *testing.T) {
 // TrimSpace reader registered the trimmed spelling, disagreeing with
 // parseWorktreeList's literal path and wedging deletes of such paths.
 func TestIsRegisteredWorktreeCtx_WhitespacePathAgreesWithParser(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() { runGitCtx = origRunGitCtx }()
+	stubOps(t)
 
 	paddedPath := "/tmp/ws/padded "
 	output := "worktree " + paddedPath + "\nHEAD abc123\ndetached\n\n"
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return output, nil
 	}
 
@@ -58,12 +57,11 @@ func TestIsRegisteredWorktreeCtx_WhitespacePathAgreesWithParser(t *testing.T) {
 // `--` before the path operand so a path beginning with `-` is never parsed
 // as an option.
 func TestRemoveWorkspace_ArgvTerminator(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() { runGitCtx = origRunGitCtx }()
+	stubOps(t)
 
 	workspacePath := "-forged"
 	var removeArgs []string
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		switch args[1] {
 		case "list":
 			return "worktree " + workspacePath + "\nHEAD abc\ndetached\n\n", nil

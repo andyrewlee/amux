@@ -8,9 +8,8 @@ import (
 )
 
 func TestBuildRemoveWorkspaceCommandWindows(t *testing.T) {
-	orig := removeWorkspacePathGOOS
-	defer func() { removeWorkspacePathGOOS = orig }()
-	removeWorkspacePathGOOS = "windows"
+	stubOps(t)
+	ops.removeWorkspacePathGOOS = "windows"
 
 	const workspacePath = "/target/workspace path"
 	cmd := buildRemoveWorkspaceCommand(context.Background(), workspacePath)
@@ -47,9 +46,8 @@ func TestBuildRemoveWorkspaceCommandWindows(t *testing.T) {
 }
 
 func TestBuildRemoveWorkspaceCommandUnix(t *testing.T) {
-	orig := removeWorkspacePathGOOS
-	defer func() { removeWorkspacePathGOOS = orig }()
-	removeWorkspacePathGOOS = "linux"
+	stubOps(t)
+	ops.removeWorkspacePathGOOS = "linux"
 
 	cmd := buildRemoveWorkspaceCommand(context.Background(), "/target/ws")
 

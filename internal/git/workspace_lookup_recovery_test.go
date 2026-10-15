@@ -12,14 +12,7 @@ import (
 )
 
 func TestRemoveWorkspaceLookupFailureMissingGitPreservesUnregisterRecoveryForManagedPath(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspacesRoot := filepath.Join(t.TempDir(), "workspaces")
 	t.Setenv(config.WorkspacesRootEnvVar, workspacesRoot)
@@ -32,13 +25,13 @@ func TestRemoveWorkspaceLookupFailureMissingGitPreservesUnregisterRecoveryForMan
 		t.Fatalf("WriteFile(file.txt) error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return "", context.DeadlineExceeded
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		return errors.New("unregister failed")
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected cleanup delete to wait for unregister recovery")
 		return nil
 	}
@@ -73,12 +66,7 @@ func TestRemoveWorkspaceLookupFailureMissingGitPreservesUnregisterRecoveryForMan
 }
 
 func TestRemoveWorkspaceLookupFailureMissingGitRejectsUnrelatedManagedAncestorOutsideConfiguredRoot(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspacesRoot := filepath.Join(t.TempDir(), "configured-workspaces")
 	t.Setenv(config.WorkspacesRootEnvVar, workspacesRoot)
@@ -91,10 +79,10 @@ func TestRemoveWorkspaceLookupFailureMissingGitRejectsUnrelatedManagedAncestorOu
 		t.Fatalf("WriteFile(file.txt) error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return "", context.DeadlineExceeded
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected unrelated managed-ancestor path to be returned to caller")
 		return nil
 	}
@@ -117,12 +105,7 @@ func TestRemoveWorkspaceLookupFailureMissingGitRejectsUnrelatedManagedAncestorOu
 }
 
 func TestRemoveWorkspaceLookupFailureMissingGitRejectsDefaultRootWhenCustomRootConfigured(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -136,10 +119,10 @@ func TestRemoveWorkspaceLookupFailureMissingGitRejectsDefaultRootWhenCustomRootC
 		t.Fatalf("WriteFile(file.txt) error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return "", context.DeadlineExceeded
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected default-root path to be returned to caller when a custom root is configured")
 		return nil
 	}
@@ -162,12 +145,7 @@ func TestRemoveWorkspaceLookupFailureMissingGitRejectsDefaultRootWhenCustomRootC
 }
 
 func TestRemoveWorkspaceRejectsMarkerlessWorkspaceOutsideManagedRoots(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	tmp := t.TempDir()
 	t.Setenv("HOME", filepath.Join(tmp, "home"))
@@ -178,13 +156,13 @@ func TestRemoveWorkspaceRejectsMarkerlessWorkspaceOutsideManagedRoots(t *testing
 		t.Fatalf("MkdirAll(workspacePath) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected unrelated markerless workspace path to be returned to caller")
 		return nil
 	}

@@ -11,10 +11,7 @@ import (
 )
 
 func TestWorktreeAdminDirForWorkspaceResolvesRelativeGitdirPaths(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo")
 	commonGitDir := filepath.Join(repoPath, ".git")
@@ -37,7 +34,7 @@ func TestWorktreeAdminDirForWorkspaceResolvesRelativeGitdirPaths(t *testing.T) {
 		t.Fatalf("WriteFile(gitdirFile) error = %v", err)
 	}
 
-	runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
 		if dir != repoPath {
 			t.Fatalf("repo path = %q, want %q", dir, repoPath)
 		}
@@ -60,10 +57,7 @@ func TestWorktreeAdminDirForWorkspaceResolvesRelativeGitdirPaths(t *testing.T) {
 }
 
 func TestRemoveWorkspaceRejectsMissingGitDirWhenWorktreeListFailsAndPathRemains(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "orphaned-workspace")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
@@ -73,7 +67,7 @@ func TestRemoveWorkspaceRejectsMissingGitDirWhenWorktreeListFailsAndPathRemains(
 		t.Fatalf("WriteFile(file.txt) error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return "", context.DeadlineExceeded
 	}
 
@@ -90,14 +84,7 @@ func TestRemoveWorkspaceRejectsMissingGitDirWhenWorktreeListFailsAndPathRemains(
 }
 
 func TestRemoveWorkspaceRecoversNoFingerprintMarkerWhenRetryMetadataRemains(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo")
 	commonGitDir := filepath.Join(repoPath, ".git")
@@ -125,7 +112,7 @@ func TestRemoveWorkspaceRecoversNoFingerprintMarkerWhenRetryMetadataRemains(t *t
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
 		if gotRepoPath != repoPath {
 			t.Fatalf("repo path = %q, want %q", gotRepoPath, repoPath)
 		}
@@ -136,7 +123,7 @@ func TestRemoveWorkspaceRecoversNoFingerprintMarkerWhenRetryMetadataRemains(t *t
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(_ context.Context, gotRepoPath, gotWorkspacePath string) error {
+	ops.unregisterWorktreeCtx = func(_ context.Context, gotRepoPath, gotWorkspacePath string) error {
 		unregisterCalls++
 		if gotRepoPath != repoPath {
 			t.Fatalf("unregister repo path = %q, want %q", gotRepoPath, repoPath)
@@ -146,7 +133,7 @@ func TestRemoveWorkspaceRecoversNoFingerprintMarkerWhenRetryMetadataRemains(t *t
 		}
 		return nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		if path != stagedPath {
 			t.Fatalf("cleanup path = %q, want %q", path, stagedPath)
 		}
@@ -171,12 +158,7 @@ func TestRemoveWorkspaceRecoversNoFingerprintMarkerWhenRetryMetadataRemains(t *t
 }
 
 func TestRemoveWorkspaceRejectsReappearedLivePathWhileStagedCleanupExists(t *testing.T) {
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -198,11 +180,11 @@ func TestRemoveWorkspaceRejectsReappearedLivePathWhileStagedCleanupExists(t *tes
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected reappeared live path to be rejected before unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected reappeared live path to be rejected before staged cleanup delete")
 		return nil
 	}
@@ -217,12 +199,7 @@ func TestRemoveWorkspaceRejectsReappearedLivePathWhileStagedCleanupExists(t *tes
 }
 
 func TestRemoveWorkspaceDefersUnregisterWhenOriginalRepoIsGone(t *testing.T) {
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "missing-repo")
 	workspaceRoot := t.TempDir()
@@ -240,11 +217,11 @@ func TestRemoveWorkspaceDefersUnregisterWhenOriginalRepoIsGone(t *testing.T) {
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		unregisterCalls++
 		return errWorkspaceCleanupRepoUnavailable
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		if path != stagedPath {
 			t.Fatalf("cleanup path = %q, want %q", path, stagedPath)
 		}
@@ -296,7 +273,7 @@ func TestRemoveWorkspaceDefersUnregisterWhenOriginalRepoIsGone(t *testing.T) {
 		t.Fatal("expected unregister to remain pending after repeated repo-unavailable retry")
 	}
 
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		unregisterCalls++
 		return nil
 	}
@@ -309,10 +286,7 @@ func TestRemoveWorkspaceDefersUnregisterWhenOriginalRepoIsGone(t *testing.T) {
 }
 
 func TestRemoveWorkspaceClearsMarkerWhenCleanupPathIsAlreadyGone(t *testing.T) {
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -326,7 +300,7 @@ func TestRemoveWorkspaceClearsMarkerWhenCleanupPathIsAlreadyGone(t *testing.T) {
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		unregisterCalls++
 		return nil
 	}
@@ -343,10 +317,7 @@ func TestRemoveWorkspaceClearsMarkerWhenCleanupPathIsAlreadyGone(t *testing.T) {
 }
 
 func TestRemoveWorkspaceRejectsMarkerCleanupPathOutsideWorkspaceParent(t *testing.T) {
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -362,7 +333,7 @@ func TestRemoveWorkspaceRejectsMarkerCleanupPathOutsideWorkspaceParent(t *testin
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected unexpected cleanup path to be rejected before delete")
 		return nil
 	}
@@ -377,24 +348,13 @@ func TestRemoveWorkspaceRejectsMarkerCleanupPathOutsideWorkspaceParent(t *testin
 }
 
 func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origWorktreeTimeout := worktreeTimeout
-	origWorktreeRecoveryReserve := worktreeRecoveryReserve
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		worktreeTimeout = origWorktreeTimeout
-		worktreeRecoveryReserve = origWorktreeRecoveryReserve
-	}()
+	stubOps(t)
 
-	worktreeTimeout = 100 * time.Millisecond
-	// Recovery budget is worktreeTimeout+reserve; keep the reserve large so
+	ops.worktreeTimeout = 100 * time.Millisecond
+	// Recovery budget is ops.worktreeTimeout+reserve; keep the reserve large so
 	// fsync'd staging work can't outrun it on a loaded host — the test's
 	// subject is that recovery gets a *fresh* ctx, not the budget's size.
-	worktreeRecoveryReserve = 5 * time.Second
+	ops.worktreeRecoveryReserve = 5 * time.Second
 
 	workspacePath := filepath.Join(t.TempDir(), "timeout-fresh-recovery")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -405,7 +365,7 @@ func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
 	}
 
 	var removeDeadline time.Time
-	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
@@ -423,10 +383,10 @@ func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
 		}
 	}
 
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		return nil
 	}
-	removeWorkspacePathCtx = func(ctx context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(ctx context.Context, path string) error {
 		deadline, ok := ctx.Deadline()
 		if !ok {
 			t.Fatal("expected recovery cleanup context to have a deadline")

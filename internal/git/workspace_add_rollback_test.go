@@ -12,14 +12,13 @@ import (
 // expires (a checkout killed by the timeout) and records all other git calls.
 func stubTimedOutWorktreeAdd(t *testing.T, failFirstAddWith error) *[]string {
 	t.Helper()
+	stubOps(t)
 	stubFilterDriverGate(t)
-	origRunGitCtx, origAddTimeout := runGitCtx, worktreeAddTimeout
-	t.Cleanup(func() { runGitCtx, worktreeAddTimeout = origRunGitCtx, origAddTimeout })
-	worktreeAddTimeout = 10 * time.Millisecond
+	ops.worktreeAddTimeout = 10 * time.Millisecond
 
 	var calls []string
 	adds := 0
-	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		if len(args) >= 2 && args[0] == "worktree" && args[1] == "add" {
 			adds++
 			if adds == 1 && failFirstAddWith != nil {
@@ -76,10 +75,9 @@ func TestAttachWorkspaceRollsBackTimedOutAdd(t *testing.T) {
 }
 
 func TestCreateWorkspaceNonTimeoutFailureSkipsRollback(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() { runGitCtx = origRunGitCtx }()
+	stubOps(t)
 	call := 0
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		call++
 		if call > 1 {
 			t.Fatalf("unexpected git call %q after a non-timeout failure", strings.Join(args, " "))

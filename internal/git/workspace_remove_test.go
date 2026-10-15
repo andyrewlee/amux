@@ -11,13 +11,10 @@ import (
 )
 
 func TestRemoveWorkspaceMissingPathIsIdempotent(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "already-gone")
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return "", nil
 	}
 
@@ -27,10 +24,7 @@ func TestRemoveWorkspaceMissingPathIsIdempotent(t *testing.T) {
 }
 
 func TestRemoveWorkspaceRejectsUnregisteredExistingDirectory(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "stale-ws")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
@@ -40,7 +34,7 @@ func TestRemoveWorkspaceRejectsUnregisteredExistingDirectory(t *testing.T) {
 		t.Fatalf("WriteFile(file.txt) error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return "", nil
 	}
 
@@ -57,17 +51,12 @@ func TestRemoveWorkspaceRejectsUnregisteredExistingDirectory(t *testing.T) {
 }
 
 func TestRemoveWorkspaceRejectsUnsafeUnregisteredExistingDirectory(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected unregistered path to be left alone before recursive delete")
 		return nil
 	}
@@ -82,14 +71,7 @@ func TestRemoveWorkspaceRejectsUnsafeUnregisteredExistingDirectory(t *testing.T)
 }
 
 func TestRemoveWorkspaceTimeoutPersistsHiddenCleanupAndRetriesDirectly(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "timeout-hidden-cleanup")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
@@ -102,7 +84,7 @@ func TestRemoveWorkspaceTimeoutPersistsHiddenCleanupAndRetriesDirectly(t *testin
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
-	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
@@ -115,14 +97,14 @@ func TestRemoveWorkspaceTimeoutPersistsHiddenCleanupAndRetriesDirectly(t *testin
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		unregisterCalls++
 		return nil
 	}
 
 	var stagedPath string
 	removeCalls := 0
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		removeCalls++
 		if !strings.Contains(filepath.Base(path), ".timeout-hidden-cleanup.amux-prune-") {
 			t.Fatalf("cleanup path = %q, want hidden staged path", path)
@@ -167,7 +149,7 @@ func TestRemoveWorkspaceTimeoutPersistsHiddenCleanupAndRetriesDirectly(t *testin
 		t.Fatal("expected unregister to remain pending until hidden cleanup finishes")
 	}
 
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		if path != stagedPath {
 			t.Fatalf("retry cleanup path = %q, want %q", path, stagedPath)
 		}
@@ -186,14 +168,7 @@ func TestRemoveWorkspaceTimeoutPersistsHiddenCleanupAndRetriesDirectly(t *testin
 }
 
 func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "timeout-unregister-retry")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -206,7 +181,7 @@ func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *test
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
-	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
@@ -219,7 +194,7 @@ func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *test
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		unregisterCalls++
 		if unregisterCalls == 1 {
 			return errors.New("unregister failed")
@@ -227,7 +202,7 @@ func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *test
 		return nil
 	}
 
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected cleanup to wait until unregister succeeds")
 		return nil
 	}
@@ -260,7 +235,7 @@ func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *test
 		t.Fatalf("expected workspace path to remain absent, err=%v", err)
 	}
 
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		if path != state.CleanupPath {
 			t.Fatalf("retry cleanup path = %q, want %q", path, state.CleanupPath)
 		}
@@ -279,14 +254,7 @@ func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *test
 }
 
 func TestRemoveWorkspaceRetryUsesCurrentRepoPathWhenItOwnsAdminDir(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	repoAPath := filepath.Join(t.TempDir(), "repo-a")
 	repoBPath := filepath.Join(t.TempDir(), "repo-b")
@@ -313,7 +281,7 @@ func TestRemoveWorkspaceRetryUsesCurrentRepoPathWhenItOwnsAdminDir(t *testing.T)
 		t.Fatalf("WriteFile(gitdir) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
 		if strings.Join(args, " ") != "rev-parse --git-common-dir" {
 			t.Fatalf("unexpected git args %q", strings.Join(args, " "))
 		}
@@ -328,7 +296,7 @@ func TestRemoveWorkspaceRetryUsesCurrentRepoPathWhenItOwnsAdminDir(t *testing.T)
 		}
 	}
 
-	unregisterWorktreeCtx = func(_ context.Context, repoPath, gotWorkspacePath string) error {
+	ops.unregisterWorktreeCtx = func(_ context.Context, repoPath, gotWorkspacePath string) error {
 		if repoPath != repoBPath {
 			t.Fatalf("unregister repo path = %q, want %q", repoPath, repoBPath)
 		}
@@ -337,7 +305,7 @@ func TestRemoveWorkspaceRetryUsesCurrentRepoPathWhenItOwnsAdminDir(t *testing.T)
 		}
 		return nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		if path != stagedPath {
 			t.Fatalf("cleanup path = %q, want %q", path, stagedPath)
 		}
@@ -353,10 +321,7 @@ func TestRemoveWorkspaceRetryUsesCurrentRepoPathWhenItOwnsAdminDir(t *testing.T)
 }
 
 func TestRemoveWorkspaceRejectsLegacyUnregisterMarkerWithoutRepoPath(t *testing.T) {
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -364,7 +329,7 @@ func TestRemoveWorkspaceRejectsLegacyUnregisterMarkerWithoutRepoPath(t *testing.
 	if err := os.WriteFile(markerPath, []byte("u:/tmp/staged\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(markerPath) error = %v", err)
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected repo-less legacy marker to fail before unregister")
 		return nil
 	}
@@ -379,12 +344,7 @@ func TestRemoveWorkspaceRejectsLegacyUnregisterMarkerWithoutRepoPath(t *testing.
 }
 
 func TestRemoveWorkspaceRejectsLegacyPendingCleanupMarkerWhenPathExists(t *testing.T) {
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -393,11 +353,11 @@ func TestRemoveWorkspaceRejectsLegacyPendingCleanupMarkerWhenPathExists(t *testi
 	if err := os.WriteFile(prunedWorkspaceRetryMarkerPath(workspacePath), []byte("pruned workspace cleanup pending\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(markerPath) error = %v", err)
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected legacy pending cleanup marker to fail before unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected legacy pending cleanup marker to preserve the live workspace path")
 		return nil
 	}
@@ -412,12 +372,7 @@ func TestRemoveWorkspaceRejectsLegacyPendingCleanupMarkerWhenPathExists(t *testi
 }
 
 func TestRemoveWorkspaceRejectsMarkerWrittenBeforeRenameEvenIfLivePathIsRegistered(t *testing.T) {
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -435,11 +390,11 @@ func TestRemoveWorkspaceRejectsMarkerWrittenBeforeRenameEvenIfLivePathIsRegister
 	}); err != nil {
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected same-path registered workspace to be rejected before unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected same-path registered workspace to be rejected before cleanup delete")
 		return nil
 	}
@@ -454,10 +409,7 @@ func TestRemoveWorkspaceRejectsMarkerWrittenBeforeRenameEvenIfLivePathIsRegister
 }
 
 func TestRemoveWorkspaceRejectsMarkerWrittenBeforeRenameWhenLivePathNotRegistered(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -472,7 +424,7 @@ func TestRemoveWorkspaceRejectsMarkerWrittenBeforeRenameWhenLivePathNotRegistere
 	}); err != nil {
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
-	runGitCtx = func(ctx context.Context, repoPath string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, repoPath string, args ...string) (string, error) {
 		if repoPath != "/tmp/repo" {
 			t.Fatalf("repo path = %q, want %q", repoPath, "/tmp/repo")
 		}

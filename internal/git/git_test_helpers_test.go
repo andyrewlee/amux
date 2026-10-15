@@ -33,12 +33,23 @@ func initRepoWithBranch(t *testing.T, branch string) string {
 	return testutil.InitRepoWithBranch(t, branch)
 }
 
+// stubOps snapshots the seam struct for a test: override fields on ops freely
+// after calling it — Cleanup restores the whole surface, so no field's fake
+// can leak into a following test. It composes with helpers that stub
+// individual fields (each snapshots independently). Overriding tests must not
+// use t.Parallel: ops is shared mutable state.
+func stubOps(t *testing.T) seamOps {
+	t.Helper()
+	saved := ops
+	t.Cleanup(func() { ops = saved })
+	return saved
+}
+
 // stubFilterDriverGate stands down the mutation-site filter-driver refusal —
-// tests that fake runGitCtx must call it, since the gate execs git directly
+// tests that fake ops.runGitCtx must call it, since the gate execs git directly
 // for its enumeration and would otherwise escape the fake.
 func stubFilterDriverGate(t *testing.T) {
 	t.Helper()
-	prev := filterDriverGate
-	filterDriverGate = func(context.Context, string, string, ...string) error { return nil }
-	t.Cleanup(func() { filterDriverGate = prev })
+	stubOps(t)
+	ops.filterDriverGate = func(context.Context, string, string, ...string) error { return nil }
 }

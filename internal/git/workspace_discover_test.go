@@ -123,8 +123,7 @@ func TestDeleteBranch(t *testing.T) {
 // TestDeleteBranchClassifiesUnderlyingError confirms the structured git error
 // (exit code + stderr) flows back unchanged to the caller.
 func TestDeleteBranchClassifiesUnderlyingError(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() { runGitCtx = origRunGitCtx }()
+	stubOps(t)
 
 	wantErr := &Error{
 		Command:  "branch -D -- feature",
@@ -134,7 +133,7 @@ func TestDeleteBranchClassifiesUnderlyingError(t *testing.T) {
 		Err:      errors.New("exit status 1"),
 	}
 	var gotArgs []string
-	runGitCtx = func(_ context.Context, dir string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, dir string, args ...string) (string, error) {
 		if dir != "/tmp/repo" {
 			t.Fatalf("dir = %q, want %q", dir, "/tmp/repo")
 		}
@@ -238,11 +237,10 @@ func TestDiscoverWorkspaces(t *testing.T) {
 // TestDiscoverWorkspacesPropagatesGitError confirms a git failure is returned
 // verbatim (and as nil workspaces) without being parsed into an empty slice.
 func TestDiscoverWorkspacesPropagatesGitError(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() { runGitCtx = origRunGitCtx }()
+	stubOps(t)
 
 	wantErr := errors.New("boom: worktree list failed")
-	runGitCtx = func(_ context.Context, dir string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, dir string, args ...string) (string, error) {
 		if dir != "/tmp/project" {
 			t.Fatalf("dir = %q, want %q", dir, "/tmp/project")
 		}
@@ -265,10 +263,9 @@ func TestDiscoverWorkspacesPropagatesGitError(t *testing.T) {
 // end against canned porcelain output, decoupling field-mapping coverage from
 // the host git's exact path reporting.
 func TestDiscoverWorkspacesParsesStubbedOutput(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	defer func() { runGitCtx = origRunGitCtx }()
+	stubOps(t)
 
-	runGitCtx = func(_ context.Context, _ string, _ ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, _ ...string) (string, error) {
 		return `worktree /home/user/myrepo
 HEAD abc123
 branch refs/heads/main

@@ -53,7 +53,7 @@ var filterNeutralCache = struct {
 // neutralized — config reads execute no filters, and the enumeration below
 // goes through the same runners (the skip is the recursion guard).
 func neutralizeGitArgs(ctx context.Context, dir string, args []string) ([]string, error) {
-	if allowRepoGitHooks || len(args) == 0 || args[0] == "config" {
+	if ops.allowRepoGitHooks || len(args) == 0 || args[0] == "config" {
 		return args, nil
 	}
 	overrides, err := neutralizingFilterArgs(ctx, dir)

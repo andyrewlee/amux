@@ -164,7 +164,7 @@ func removeWorkspacePathWithContext(ctx context.Context, workspacePath string) e
 }
 
 func buildRemoveWorkspaceCommand(ctx context.Context, workspacePath string) *exec.Cmd {
-	switch removeWorkspacePathGOOS {
+	switch ops.removeWorkspacePathGOOS {
 	case "windows":
 		cmd := exec.CommandContext(
 			ctx,

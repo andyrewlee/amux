@@ -11,12 +11,7 @@ import (
 )
 
 func TestRemoveWorkspaceRecoversMarkerWrittenBeforeRenameWithMatchingFingerprint(t *testing.T) {
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -44,11 +39,11 @@ func TestRemoveWorkspaceRecoversMarkerWrittenBeforeRenameWithMatchingFingerprint
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		unregisterCalls++
 		return nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		if path != stagedPath {
 			t.Fatalf("cleanup path = %q, want %q", path, stagedPath)
 		}
@@ -73,12 +68,7 @@ func TestRemoveWorkspaceRecoversMarkerWrittenBeforeRenameWithMatchingFingerprint
 }
 
 func TestRemoveWorkspaceRejectsRecreatedWorktreeEvenWhenGitRefLooksTheSame(t *testing.T) {
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -127,11 +117,11 @@ func TestRemoveWorkspaceRejectsRecreatedWorktreeEvenWhenGitRefLooksTheSame(t *te
 		t.Fatalf("Chtimes(.git) error = %v", err)
 	}
 
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected recreated worktree to be rejected before unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected recreated worktree to be rejected before cleanup delete")
 		return nil
 	}
@@ -169,12 +159,7 @@ func TestWorkspaceCleanupRetryFingerprintRejectsEscapingGitSymlink(t *testing.T)
 }
 
 func TestRemoveWorkspaceRejectsNoFingerprintMarkerWhenRetryMetadataFingerprintMismatches(t *testing.T) {
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -201,11 +186,11 @@ func TestRemoveWorkspaceRejectsNoFingerprintMarkerWhenRetryMetadataFingerprintMi
 		t.Fatalf("WriteFile(replacement.txt) error = %v", err)
 	}
 
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected mismatched marker-only recovery to be rejected before unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected mismatched marker-only recovery to be rejected before cleanup delete")
 		return nil
 	}
@@ -226,23 +211,10 @@ func TestRemoveWorkspaceRejectsNoFingerprintMarkerWhenRetryMetadataFingerprintMi
 }
 
 func TestRemoveWorkspaceTimeoutCancelsRetryFingerprintWithinRecoveryBudget(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origWorktreeTimeout := worktreeTimeout
-	origWorktreeRecoveryReserve := worktreeRecoveryReserve
-	origWorkspaceCleanupRetryFingerprintCtx := workspaceCleanupRetryFingerprintCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		worktreeTimeout = origWorktreeTimeout
-		worktreeRecoveryReserve = origWorktreeRecoveryReserve
-		workspaceCleanupRetryFingerprintCtx = origWorkspaceCleanupRetryFingerprintCtx
-	}()
+	stubOps(t)
 
-	worktreeTimeout = 40 * time.Millisecond
-	worktreeRecoveryReserve = 20 * time.Millisecond
+	ops.worktreeTimeout = 40 * time.Millisecond
+	ops.worktreeRecoveryReserve = 20 * time.Millisecond
 
 	workspacePath := filepath.Join(t.TempDir(), "timeout-fingerprint")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -252,7 +224,7 @@ func TestRemoveWorkspaceTimeoutCancelsRetryFingerprintWithinRecoveryBudget(t *te
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
-	runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
@@ -264,17 +236,17 @@ func TestRemoveWorkspaceTimeoutCancelsRetryFingerprintWithinRecoveryBudget(t *te
 			return "", nil
 		}
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected recovery to stop before staged cleanup delete when fingerprinting times out")
 		return nil
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected recovery to stop before unregister when fingerprinting times out")
 		return nil
 	}
 
 	fingerprintCalls := 0
-	workspaceCleanupRetryFingerprintCtx = func(ctx context.Context, path string) (string, error) {
+	ops.workspaceCleanupRetryFingerprintCtx = func(ctx context.Context, path string) (string, error) {
 		fingerprintCalls++
 		if path != workspacePath {
 			t.Fatalf("workspacePath = %q, want %q", path, workspacePath)

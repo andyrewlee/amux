@@ -139,6 +139,7 @@ func TestRemoveWorkspaceAlreadyRemovedExternallyIsIdempotent(t *testing.T) {
 }
 
 func TestRemoveWorkspaceTimeoutFallsBackToPrune(t *testing.T) {
+	savedOps := stubOps(t)
 	skipIfNoGit(t)
 	repo := initRepo(t)
 
@@ -147,13 +148,8 @@ func TestRemoveWorkspaceTimeoutFallsBackToPrune(t *testing.T) {
 		t.Fatalf("CreateWorkspace() error = %v", err)
 	}
 
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
-
 	removeCalls := 0
-	runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
 		if dir == repo &&
 			len(args) == 5 &&
 			args[0] == "worktree" &&
@@ -164,7 +160,7 @@ func TestRemoveWorkspaceTimeoutFallsBackToPrune(t *testing.T) {
 			removeCalls++
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), context.DeadlineExceeded)
 		}
-		return origRunGitCtx(ctx, dir, args...)
+		return savedOps.runGitCtx(ctx, dir, args...)
 	}
 
 	if err := RemoveWorkspace(repo, workspacePath); err != nil {
@@ -187,6 +183,7 @@ func TestRemoveWorkspaceTimeoutFallsBackToPrune(t *testing.T) {
 }
 
 func TestRemoveWorkspaceTimeoutWithMissingGitDirStillPrunes(t *testing.T) {
+	savedOps := stubOps(t)
 	skipIfNoGit(t)
 	repo := initRepo(t)
 
@@ -196,13 +193,8 @@ func TestRemoveWorkspaceTimeoutWithMissingGitDirStillPrunes(t *testing.T) {
 		t.Fatalf("CreateWorkspace() error = %v", err)
 	}
 
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
-
 	removeCalls := 0
-	runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
 		if dir == repo &&
 			len(args) == 5 &&
 			args[0] == "worktree" &&
@@ -216,7 +208,7 @@ func TestRemoveWorkspaceTimeoutWithMissingGitDirStillPrunes(t *testing.T) {
 			}
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), context.DeadlineExceeded)
 		}
-		return origRunGitCtx(ctx, dir, args...)
+		return savedOps.runGitCtx(ctx, dir, args...)
 	}
 
 	if err := RemoveWorkspace(repo, workspacePath); err != nil {
@@ -239,6 +231,7 @@ func TestRemoveWorkspaceTimeoutWithMissingGitDirStillPrunes(t *testing.T) {
 }
 
 func TestRemoveWorkspaceTimeoutDoesNotUnregisterOtherMissingWorktrees(t *testing.T) {
+	savedOps := stubOps(t)
 	skipIfNoGit(t)
 	repo := initRepo(t)
 
@@ -256,12 +249,7 @@ func TestRemoveWorkspaceTimeoutDoesNotUnregisterOtherMissingWorktrees(t *testing
 		t.Fatalf("RemoveAll(otherPath) error = %v", err)
 	}
 
-	origRunGitCtx := runGitCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-	}()
-
-	runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
+	ops.runGitCtx = func(ctx context.Context, dir string, args ...string) (string, error) {
 		if dir == repo &&
 			len(args) == 4 &&
 			args[0] == "worktree" &&
@@ -270,7 +258,7 @@ func TestRemoveWorkspaceTimeoutDoesNotUnregisterOtherMissingWorktrees(t *testing
 			args[3] == "--force" {
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), context.DeadlineExceeded)
 		}
-		return origRunGitCtx(ctx, dir, args...)
+		return savedOps.runGitCtx(ctx, dir, args...)
 	}
 
 	if err := RemoveWorkspace(repo, targetPath); err != nil {

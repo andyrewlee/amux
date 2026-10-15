@@ -24,13 +24,6 @@ const defaultGitTimeout = 5 * time.Second
 // hang.
 const gitOutputDrainDelay = 500 * time.Millisecond
 
-var runGitCommandAfterWaitHook func()
-
-// allowRepoGitHooks, when true, disables the hook/fsmonitor hardening so users
-// who rely on repo hooks (e.g. git-lfs post-checkout smudge) can opt back in.
-// Controlled by the AMUX_ALLOW_GIT_HOOKS environment variable, read once.
-var allowRepoGitHooks = os.Getenv("AMUX_ALLOW_GIT_HOOKS") == "1"
-
 // noHooksPath is the core.hooksPath value used to disable repo hooks. It must
 // be a non-empty path that can never hold a hook and can never be written to.
 //
@@ -72,7 +65,7 @@ const noHooksPath = "/dev/null"
 // diff/browse read paths pass --no-ext-diff/--no-textconv per call site
 // instead (see diff.go).
 func hardenedGitArgs(args []string) []string {
-	if allowRepoGitHooks {
+	if ops.allowRepoGitHooks {
 		return args
 	}
 	// core.hooksPath points git's hook lookup at noHooksPath so no repo hook is
@@ -367,8 +360,8 @@ func runGitCommand(ctx context.Context, cmd *exec.Cmd) (bool, error) {
 	}()
 	select {
 	case err := <-waitCh:
-		if runGitCommandAfterWaitHook != nil {
-			runGitCommandAfterWaitHook()
+		if ops.runGitCommandAfterWaitHook != nil {
+			ops.runGitCommandAfterWaitHook()
 		}
 		return killedByContext.Load(), err
 	case <-ctx.Done():
@@ -385,8 +378,8 @@ func runGitCommand(ctx context.Context, cmd *exec.Cmd) (bool, error) {
 			}
 		}
 		err := <-waitCh
-		if runGitCommandAfterWaitHook != nil {
-			runGitCommandAfterWaitHook()
+		if ops.runGitCommandAfterWaitHook != nil {
+			ops.runGitCommandAfterWaitHook()
 		}
 		if err == nil && killedByContext.Load() {
 			return true, ctx.Err()

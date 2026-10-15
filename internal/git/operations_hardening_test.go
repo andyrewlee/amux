@@ -18,10 +18,9 @@ import (
 // respect the 500-line file-length lint gate on operations_test.go.
 
 func TestHardenedGitArgs(t *testing.T) {
+	stubOps(t)
 	t.Run("default prepends hardening flags", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = false
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = false
 
 		args := []string{"status", "--porcelain"}
 		original := append([]string(nil), args...)
@@ -44,9 +43,7 @@ func TestHardenedGitArgs(t *testing.T) {
 	})
 
 	t.Run("default includes commit.gpgsign=false", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = false
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = false
 
 		got := hardenedGitArgs([]string{"commit", "-m", "msg"})
 		joined := strings.Join(got, "\x00")
@@ -56,9 +53,7 @@ func TestHardenedGitArgs(t *testing.T) {
 	})
 
 	t.Run("opt-in returns args unchanged", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = true
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = true
 
 		args := []string{"status", "--porcelain"}
 		got := hardenedGitArgs(args)
@@ -68,9 +63,7 @@ func TestHardenedGitArgs(t *testing.T) {
 	})
 
 	t.Run("opt-in also restores gpg-signing (no commit.gpgsign override)", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = true
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = true
 
 		got := hardenedGitArgs([]string{"commit", "-m", "msg"})
 		joined := strings.Join(got, "\x00")
@@ -107,14 +100,13 @@ func TestNoHooksPathIsUnwritable(t *testing.T) {
 // lfs-tracked repo must leave the worktree root clean while the lfs smudge
 // filter still runs.
 func TestCreateWorkspaceLeavesNoStrayLFSHooks(t *testing.T) {
+	stubOps(t)
 	skipIfNoGit(t)
 	if _, err := exec.LookPath("git-lfs"); err != nil {
 		t.Skip("git-lfs not installed")
 	}
 
-	prev := allowRepoGitHooks
-	allowRepoGitHooks = false
-	t.Cleanup(func() { allowRepoGitHooks = prev })
+	ops.allowRepoGitHooks = false
 
 	repo := initRepo(t)
 	runGit(t, repo, "lfs", "track", "*.bin")
@@ -171,15 +163,14 @@ func writePostCheckoutHookSentinel(t *testing.T, repo string) string {
 }
 
 func TestInternalGitRunDoesNotRunRepoHook(t *testing.T) {
+	stubOps(t)
 	skipIfNoGit(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("sh hook script is unix-specific")
 	}
 
 	t.Run("default suppresses repo post-checkout hook", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = false
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = false
 
 		repo := initRepo(t)
 		sentinel := writePostCheckoutHookSentinel(t, repo)
@@ -193,9 +184,7 @@ func TestInternalGitRunDoesNotRunRepoHook(t *testing.T) {
 	})
 
 	t.Run("opt-in re-enables repo post-checkout hook", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = true
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = true
 
 		repo := initRepo(t)
 		sentinel := writePostCheckoutHookSentinel(t, repo)
@@ -227,15 +216,14 @@ func writeGpgProgramSentinel(t *testing.T, repo string) string {
 }
 
 func TestInternalGitCommitDoesNotRunRepoGpgProgram(t *testing.T) {
+	stubOps(t)
 	skipIfNoGit(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("sh gpg-program script is unix-specific")
 	}
 
 	t.Run("default suppresses repo gpg.program on commit", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = false
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = false
 
 		repo := initRepo(t)
 		sentinel := writeGpgProgramSentinel(t, repo)
@@ -255,9 +243,7 @@ func TestInternalGitCommitDoesNotRunRepoGpgProgram(t *testing.T) {
 	})
 
 	t.Run("opt-in re-enables repo gpg.program on commit", func(t *testing.T) {
-		prev := allowRepoGitHooks
-		allowRepoGitHooks = true
-		t.Cleanup(func() { allowRepoGitHooks = prev })
+		ops.allowRepoGitHooks = true
 
 		repo := initRepo(t)
 		sentinel := writeGpgProgramSentinel(t, repo)

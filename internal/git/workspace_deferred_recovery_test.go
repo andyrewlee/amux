@@ -9,12 +9,7 @@ import (
 )
 
 func TestRemoveWorkspaceRejectsReusedPathDuringDeferredUnregisterRecovery(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "pending-cleanup")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -31,11 +26,11 @@ func TestRemoveWorkspaceRejectsReusedPathDuringDeferredUnregisterRecovery(t *tes
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		t.Fatal("expected RemoveWorkspace() to reject reused live path before git lookup")
 		return "", nil
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected RemoveWorkspace() to reject reused live path before unregister")
 		return nil
 	}
@@ -50,10 +45,7 @@ func TestRemoveWorkspaceRejectsReusedPathDuringDeferredUnregisterRecovery(t *tes
 }
 
 func TestRemoveWorkspacePreservesDeferredUnregisterWhenCleanupPathIsAlreadyGone(t *testing.T) {
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspaceRoot := t.TempDir()
 	workspacePath := filepath.Join(workspaceRoot, "pending-cleanup")
@@ -66,7 +58,7 @@ func TestRemoveWorkspacePreservesDeferredUnregisterWhenCleanupPathIsAlreadyGone(
 		t.Fatalf("writeWorkspaceCleanupState() error = %v", err)
 	}
 
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		return errWorkspaceCleanupRepoUnavailable
 	}
 

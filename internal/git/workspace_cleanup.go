@@ -87,7 +87,7 @@ func unregisterWorktreeAdminDirWithContext(ctx context.Context, repoPath, worksp
 	if !isSafeWorktreeAdminCleanupPath(commonGitDir, adminDir) {
 		return fmt.Errorf("refusing to remove unsafe worktree admin dir: %s", adminDir)
 	}
-	return removeWorkspacePathCtx(ctx, adminDir)
+	return ops.removeWorkspacePathCtx(ctx, adminDir)
 }
 
 func worktreeAdminDirForWorkspace(ctx context.Context, repoPath, workspacePath string) (string, string, error) {
@@ -142,7 +142,7 @@ func gitCommonDirWithContext(ctx context.Context, repoPath string) (string, erro
 	} else if err != nil {
 		return "", err
 	}
-	output, err := runGitCtx(ctx, repoPath, "rev-parse", "--git-common-dir")
+	output, err := ops.runGitCtx(ctx, repoPath, "rev-parse", "--git-common-dir")
 	if err != nil {
 		if isGitRepoUnavailableError(err) {
 			return "", errors.Join(errWorkspaceCleanupRepoUnavailable, err)
@@ -195,7 +195,7 @@ func canSkipUnregisterRetry(repoPath string, err error) bool {
 }
 
 func isRegisteredWorktreeCtx(ctx context.Context, repoPath, workspacePath string) (bool, error) {
-	output, err := runGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
+	output, err := ops.runGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
 	if err != nil {
 		return false, err
 	}
@@ -218,14 +218,14 @@ func isSafeWorktreeAdminCleanupPath(commonGitDir, adminDir string) bool {
 }
 
 func worktreeRemoveCommandTimeout() time.Duration {
-	return worktreeTimeout
+	return ops.worktreeTimeout
 }
 
 func worktreeRemoveRecoveryTimeout() time.Duration {
-	if worktreeRecoveryReserve <= 0 {
-		return worktreeTimeout
+	if ops.worktreeRecoveryReserve <= 0 {
+		return ops.worktreeTimeout
 	}
-	return worktreeTimeout + worktreeRecoveryReserve
+	return ops.worktreeTimeout + ops.worktreeRecoveryReserve
 }
 
 func cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath string) error {
