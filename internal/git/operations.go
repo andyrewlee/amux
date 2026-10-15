@@ -236,6 +236,13 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 // RunGitRawCtx executes a git command and returns raw bytes without trimming.
 // Use this for commands with -z output that use NUL separators.
 func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	return RunGitRawStdinCtx(ctx, dir, nil, args...)
+}
+
+// RunGitRawStdinCtx executes a git command with stdin fed from the given
+// bytes and returns raw stdout without trimming — for commands like
+// `check-attr --stdin` that stream bulk input over the pipe.
+func RunGitRawStdinCtx(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
@@ -244,6 +251,9 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 		return nil, err
 	}
 	cmd := newGitCmd(dir, args...)
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -191,5 +192,48 @@ func TestMerge_FilterDriverAllowedWithEnvOptOut(t *testing.T) {
 	// No attribution — even opted-in, prove the path proceeds on merit.
 	if err := MergeWorkspaceBranch(context.Background(), root, "feature"); err != nil {
 		t.Fatalf("opted-in merge with unattributed driver failed: %v", err)
+	}
+}
+
+// TestLiveFilterDrivers_BulkPathsPastBatchBoundary — the enumeration used
+// to batch check-attr at 200 paths per spawn; the --stdin rewrite must
+// still surface attributions sitting past that old boundary (and untracked
+// dirs full of uninteresting files must not crowd them out).
+func TestLiveFilterDrivers_BulkPathsPastBatchBoundary(t *testing.T) {
+	skipIfNoGit(t)
+	root := initRepo(t)
+
+	// 300 unattributed files push the attributed pair past the old
+	// 200-path batch boundary.
+	for i := 0; i < 300; i++ {
+		p := filepath.Join(root, "bulk", "f"+strconv.Itoa(i)+".txt")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := filepath.Join(root, "late", "attributed.bin")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, root, ".gitattributes", "*.bin filter=pwn\n", "attribute bin files")
+	runGit(t, root, "add", "-A")
+	runGit(t, root, "commit", "-qm", "bulk files")
+	runGit(t, root, "config", "--local", "filter.pwn.clean", "cat >/dev/null")
+
+	live, err := liveFilterDrivers(context.Background(), root)
+	if err != nil {
+		t.Fatalf("liveFilterDrivers: %v", err)
+	}
+	if len(live) != 1 {
+		t.Fatalf("live = %+v, want exactly the late/ attribution", live)
+	}
+	if live[0].driver != "pwn" || live[0].path != "late/attributed.bin" {
+		t.Fatalf("live[0] = %+v, want pwn @ late/attributed.bin", live[0])
 	}
 }
