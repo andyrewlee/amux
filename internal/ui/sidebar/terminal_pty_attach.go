@@ -24,7 +24,6 @@ var (
 	newPTYWithSizeFn            = pty.NewTmuxClientWithSize
 	capturePaneFn               = tmux.CapturePane
 	verifyTerminalSessionTagsFn = verifyTerminalSessionTags
-	restartKillSessionFn        = tmux.KillSession
 )
 
 func (m *TerminalModel) sessionBootstrapViewportSize() (int, int) {
@@ -222,7 +221,7 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	// detachState invalidates any in-flight attach before the new attempt
 	// begins, so its late result cannot overwrite the restarted terminal.
 	m.detachState(ts, false)
-	if err := restartKillSessionFn(sessionName, m.tmuxOpts); err != nil {
+	if err := ptyio.KillSessionFn(sessionName, m.tmuxOpts); err != nil {
 		// The attach path below is has-session||new-session, so a surviving
 		// session is silently reattached — a "restart" that wasn't must be
 		// diagnosable.

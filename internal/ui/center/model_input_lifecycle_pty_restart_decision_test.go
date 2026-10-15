@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // livePTYTab returns a center tab whose Agent.Terminal is a zero-value
@@ -35,11 +36,11 @@ func TestUpdatePTYStopped_RestartSchedulesTickUnderLimit(t *testing.T) {
 	tab := livePTYTab(TabID("tab-restart"), ws)
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
-	// Each of the first ptyRestartMax stops must schedule a restart tick and
+	// Each of the first ptyio.PtyRestartMax stops must schedule a restart tick and
 	// leave the tab attached. Backoff doubles until it saturates at the cap,
 	// so it must stay positive and non-decreasing across calls.
 	lastBackoff := time.Duration(-1) // sentinel below any real backoff
-	for i := 0; i < ptyRestartMax; i++ {
+	for i := 0; i < ptyio.PtyRestartMax; i++ {
 		cmd := m.updatePTYStopped(PTYStopped{WorkspaceID: wsID, TabID: tab.ID})
 		if cmd == nil {
 			t.Fatalf("call %d: expected a non-nil restart tick cmd while under the limit", i+1)
@@ -88,7 +89,7 @@ func TestUpdatePTYStopped_DetachesAfterRestartLimit(t *testing.T) {
 	m.tabs.ByWorkspace[wsID] = []*Tab{tab}
 
 	// Exhaust the restart budget; these all schedule ticks (not driven).
-	for i := 0; i < ptyRestartMax; i++ {
+	for i := 0; i < ptyio.PtyRestartMax; i++ {
 		if cmd := m.updatePTYStopped(PTYStopped{WorkspaceID: wsID, TabID: tab.ID}); cmd == nil {
 			t.Fatalf("call %d: expected restart tick while under the limit", i+1)
 		}
@@ -97,7 +98,7 @@ func TestUpdatePTYStopped_DetachesAfterRestartLimit(t *testing.T) {
 		t.Fatal("expected tab to remain attached up to the restart limit")
 	}
 
-	// One more stop within the window exceeds ptyRestartMax: the handler
+	// One more stop within the window exceeds ptyio.PtyRestartMax: the handler
 	// gives up, marks the tab detached, and emits TabStateChanged with no
 	// restart tick.
 	cmd := m.updatePTYStopped(PTYStopped{WorkspaceID: wsID, TabID: tab.ID})

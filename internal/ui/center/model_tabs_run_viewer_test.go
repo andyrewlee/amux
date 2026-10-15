@@ -91,7 +91,7 @@ func TestCreateRunViewerTab_NilArgs(t *testing.T) {
 func TestCloseTabAt_DetachOnlyNeverKills(t *testing.T) {
 	restoreReattachSeams(t)
 	var killed []string
-	killSessionFn = func(name string, _ tmux.Options) error {
+	ptyio.KillSessionFn = func(name string, _ tmux.Options) error {
 		killed = append(killed, name)
 		return nil
 	}

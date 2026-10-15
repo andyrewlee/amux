@@ -2,23 +2,12 @@ package center
 
 import (
 	"time"
-
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // Shared PTY tuning constants identical to the sidebar pane live in
-// internal/ui/ptyio (ptyio.PtyFlushQuiet etc.); they are aliased here so the
-// call sites keep their short package-local names.
-const (
-	ptyFlushQuiet         = ptyio.PtyFlushQuiet
-	ptyFlushChunkSize     = ptyio.PtyFlushChunkSize
-	ptyReadBufferSize     = ptyio.PtyReadBufferSize
-	ptyFrameInterval      = ptyio.PtyFrameInterval
-	ptyReaderStallTimeout = ptyio.PtyReaderStallTimeout
-	ptyRestartMax         = ptyio.PtyRestartMax
-	ptyRestartWindow      = ptyio.PtyRestartWindow
-)
-
+// internal/ui/ptyio and are referenced as ptyio.Pty* at the use sites — no
+// package-local aliases, so "where does policy live" is never in doubt.
+//
 // PTY constants
 const (
 	// Diverges from sidebar (50ms): center runs the steady-state flush ceiling

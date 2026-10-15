@@ -10,6 +10,10 @@ var (
 	ResizePaneToSizeFn       = tmux.ResizePaneToSize
 	CapturePaneFullDataFn    = tmux.CapturePaneFullData
 	CapturePaneHistoryDataFn = tmux.CapturePaneHistoryData
+	// KillSessionFn is the shared kill-session seam — center and sidebar
+	// previously carried per-path renames (killSessionFn,
+	// restartKillSessionFn, closeKillSessionFn) of this same target.
+	KillSessionFn = tmux.KillSession
 )
 
 // DefaultBootstrap builds a SessionBootstrap from the package's seam vars.

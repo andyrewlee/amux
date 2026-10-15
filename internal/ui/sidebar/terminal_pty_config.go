@@ -8,18 +8,8 @@ import (
 )
 
 // Shared PTY tuning constants identical to the center pane live in
-// internal/ui/ptyio (ptyio.PtyFlushQuiet etc.); they are aliased here so the
-// call sites keep their short package-local names.
-const (
-	ptyFlushQuiet         = ptyio.PtyFlushQuiet
-	ptyFlushChunkSize     = ptyio.PtyFlushChunkSize
-	ptyReadBufferSize     = ptyio.PtyReadBufferSize
-	ptyFrameInterval      = ptyio.PtyFrameInterval
-	ptyReaderStallTimeout = ptyio.PtyReaderStallTimeout
-	ptyRestartMax         = ptyio.PtyRestartMax
-	ptyRestartWindow      = ptyio.PtyRestartWindow
-)
-
+// internal/ui/ptyio and are referenced as ptyio.Pty* at the use sites — no
+// package-local aliases, so "where does policy live" is never in doubt.
 const (
 	// Diverges from center (48ms): the sidebar drives a single terminal, so it
 	// can afford a slightly looser flush ceiling than center's N-tab cadence.

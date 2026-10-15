@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -81,9 +82,9 @@ func TestSidebarStopDrain_OrderAndCompleteness(t *testing.T) {
 	// under its own hold, in order, after the queued writes.
 	ts.mu.Lock()
 	ts.PendingOutput = append(ts.PendingOutput, []byte("buf-head\r\n")...)
-	ts.PendingOutput = append(ts.PendingOutput, bytes.Repeat([]byte{'x'}, ptyFlushChunkSize)...)
+	ts.PendingOutput = append(ts.PendingOutput, bytes.Repeat([]byte{'x'}, ptyio.PtyFlushChunkSize)...)
 	ts.PendingOutput = append(ts.PendingOutput, []byte("\r\nbuf-mid\r\n")...)
-	ts.PendingOutput = append(ts.PendingOutput, bytes.Repeat([]byte{'x'}, ptyFlushChunkSize)...)
+	ts.PendingOutput = append(ts.PendingOutput, bytes.Repeat([]byte{'x'}, ptyio.PtyFlushChunkSize)...)
 	ts.PendingOutput = append(ts.PendingOutput, []byte("\r\nbuf-tail\r\n")...)
 	ts.pendingBufferedBytes = len(ts.PendingOutput)
 	ts.mu.Unlock()

@@ -265,7 +265,7 @@ func TestUpdatePTYFlush_UsesBaseChunkForInactiveTab(t *testing.T) {
 		State: ptyio.State{
 			LastOutputAt:      time.Now().Add(-time.Second),
 			FlushPendingSince: time.Now().Add(-time.Second),
-			PendingOutput:     bytes.Repeat([]byte("x"), ptyFlushChunkSize+17),
+			PendingOutput:     bytes.Repeat([]byte("x"), ptyio.PtyFlushChunkSize+17),
 		},
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{active, inactive}
@@ -297,11 +297,11 @@ func TestUpdatePTYFlush_CatchUpHintIgnoredWhenTabIsNoLongerActive(t *testing.T) 
 		State: ptyio.State{
 			LastOutputAt:      time.Now().Add(-time.Second),
 			FlushPendingSince: time.Now().Add(-time.Second),
-			PendingOutput:     bytes.Repeat([]byte("x"), ptyFlushChunkSize+17),
+			PendingOutput:     bytes.Repeat([]byte("x"), ptyio.PtyFlushChunkSize+17),
 		},
 		catchUpPendingOutput: true,
-		catchUpTargetBytes:   ptyFlushChunkSize + 17,
-		ptyBytesReceived:     ptyFlushChunkSize + 17,
+		catchUpTargetBytes:   ptyio.PtyFlushChunkSize + 17,
+		ptyBytesReceived:     ptyio.PtyFlushChunkSize + 17,
 	}
 	m.tabs.ByWorkspace[wsID] = []*Tab{active, inactive}
 	m.tabs.ActiveByWorkspace[wsID] = 0

@@ -107,7 +107,7 @@ func (m *TerminalModel) handlePTYFlush(msg messages.SidebarPTYFlush) tea.Cmd {
 		quiet, maxInterval := m.flushTimingForLocked(ts)
 		delay, deferred = ts.State.FlushGate(now, quiet, maxInterval)
 		if !deferred && len(ts.PendingOutput) > 0 && ts.VTerm != nil {
-			chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
+			chunk := ts.State.TakeFlushChunkLocked(ptyio.PtyFlushChunkSize)
 			req := sidebarWriteReq{chunk: chunk, workspaceID: wsID, tabID: string(tabID)}
 			if !m.enqueueSidebarWriteLocked(ts, req) {
 				// The backpressure fallback runs after this hold releases:
@@ -171,7 +171,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	for {
 		drained := true
 		withMu(&ts.mu, func() {
-			chunk := ts.State.TakeFlushChunkLocked(ptyFlushChunkSize)
+			chunk := ts.State.TakeFlushChunkLocked(ptyio.PtyFlushChunkSize)
 			if len(chunk) == 0 {
 				return
 			}
@@ -192,7 +192,7 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	var backoff time.Duration
 	var shouldRestart bool
 	withMu(&ts.mu, func() {
-		shouldRestart, backoff = ts.State.DecidePTYRestartLocked(termAlive, ptyRestartWindow, ptyRestartMax)
+		shouldRestart, backoff = ts.State.DecidePTYRestartLocked(termAlive, ptyio.PtyRestartWindow, ptyio.PtyRestartMax)
 		if !shouldRestart {
 			ts.Running = false
 			// Mark as detached (tmux session may still be alive)

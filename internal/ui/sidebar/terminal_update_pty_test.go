@@ -143,11 +143,11 @@ func TestHandlePTYStopped_RestartBackoffSchedulesTickAndGrows(t *testing.T) {
 	state := liveTerminalState()
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
-	// Each of the first ptyRestartMax calls must schedule a restart tick and
+	// Each of the first ptyio.PtyRestartMax calls must schedule a restart tick and
 	// leave the terminal attached (not detached). Backoff must grow each time
 	// until it reaches the cap.
 	lastBackoff := -1 // sentinel below any real backoff
-	for i := 0; i < ptyRestartMax; i++ {
+	for i := 0; i < ptyio.PtyRestartMax; i++ {
 		cmd := m.handlePTYStopped(messages.SidebarPTYStopped{
 			WorkspaceID: wsID,
 			TabID:       string(tabID),
@@ -182,7 +182,7 @@ func TestHandlePTYStopped_DetachesAfterRestartLimit(t *testing.T) {
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
 
 	// Exhaust the restart budget; these all schedule ticks.
-	for i := 0; i < ptyRestartMax; i++ {
+	for i := 0; i < ptyio.PtyRestartMax; i++ {
 		if cmd := m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID)}); cmd == nil {
 			t.Fatalf("call %d: expected restart tick while under the limit", i+1)
 		}
@@ -191,7 +191,7 @@ func TestHandlePTYStopped_DetachesAfterRestartLimit(t *testing.T) {
 		t.Fatal("expected terminal to remain attached up to the restart limit")
 	}
 
-	// One more stop within the window exceeds ptyRestartMax: the FSM gives up
+	// One more stop within the window exceeds ptyio.PtyRestartMax: the FSM gives up
 	// and marks the terminal detached with no restart scheduled.
 	cmd := m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID)})
 	if cmd != nil {

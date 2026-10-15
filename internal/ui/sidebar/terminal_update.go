@@ -10,6 +10,7 @@ import (
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/common"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // flushTimingFor returns the flush timing for a specific terminal. Callers must
@@ -20,7 +21,7 @@ import (
 // a slower cadence (see ptyio.FlushDelay).
 func (m *TerminalModel) flushTimingFor(ts *TerminalState) (time.Duration, time.Duration) {
 	if ts == nil {
-		return ptyFlushQuiet, ptyFlushMaxInterval
+		return ptyio.PtyFlushQuiet, ptyFlushMaxInterval
 	}
 
 	ts.mu.Lock()
@@ -36,7 +37,7 @@ func (m *TerminalModel) flushTimingForLocked(ts *TerminalState) (time.Duration, 
 	if ts.VTerm != nil && ts.VTerm.AltScreen {
 		return ptyFlushQuietAlt, ptyFlushMaxAlt
 	}
-	return ptyFlushQuiet, ptyFlushMaxInterval
+	return ptyio.PtyFlushQuiet, ptyFlushMaxInterval
 }
 
 // Init initializes the terminal model

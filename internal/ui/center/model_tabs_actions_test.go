@@ -11,6 +11,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // newActionsModel wires a model to an active workspace with the supplied tabs so
@@ -170,7 +171,7 @@ func TestCloseTabAt_LogsKillFailure(t *testing.T) {
 	defer logging.Close()
 
 	restoreReattachSeams(t)
-	killSessionFn = func(string, tmux.Options) error {
+	ptyio.KillSessionFn = func(string, tmux.Options) error {
 		return errors.New("tmux server gone")
 	}
 

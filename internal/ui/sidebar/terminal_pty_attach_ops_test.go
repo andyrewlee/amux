@@ -192,11 +192,11 @@ func TestRestartActiveTab_LogsKillFailure(t *testing.T) {
 	}
 	defer logging.Close()
 
-	oldKill := restartKillSessionFn
-	restartKillSessionFn = func(string, tmux.Options) error {
+	oldKill := ptyio.KillSessionFn
+	ptyio.KillSessionFn = func(string, tmux.Options) error {
 		return errors.New("tmux server gone")
 	}
-	t.Cleanup(func() { restartKillSessionFn = oldKill })
+	t.Cleanup(func() { ptyio.KillSessionFn = oldKill })
 
 	m := NewTerminalModel()
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")

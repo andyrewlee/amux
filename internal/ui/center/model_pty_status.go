@@ -9,6 +9,7 @@ import (
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 const tabActiveWindow = 2 * time.Second
@@ -266,13 +267,9 @@ func (m *Model) StartPTYReaders() tea.Cmd {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
-			readerActive := withMuVal(&tab.mu, func() bool { return tab.ReaderActive })
-			if readerActive {
-				lastBeat := atomic.LoadInt64(&tab.Heartbeat)
-				if lastBeat > 0 && time.Since(time.Unix(0, lastBeat)) > ptyReaderStallTimeout {
-					logging.Warn("PTY reader stalled for tab %s; restarting", tab.ID)
-					m.stopPTYReader(tab)
-				}
+			if tab.ReaderStalled(&tab.mu, ptyio.PtyReaderStallTimeout) {
+				logging.Warn("PTY reader stalled for tab %s; restarting", tab.ID)
+				m.stopPTYReader(tab)
 			}
 			_ = m.startPTYReader(wtID, tab)
 		}

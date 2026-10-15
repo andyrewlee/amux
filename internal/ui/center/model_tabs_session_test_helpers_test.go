@@ -21,7 +21,7 @@ func restoreReattachSeams(t *testing.T) {
 	oldSessionStateFor := sessionStateForFn
 	oldSessionOwned := sessionOwnedFn
 	oldProbeSession := ptyio.ProbeSessionFn
-	oldKillSession := killSessionFn
+	oldKillSession := ptyio.KillSessionFn
 	oldResizePaneToSize := ptyio.ResizePaneToSizeFn
 	oldCapturePaneFullData := ptyio.CapturePaneFullDataFn
 	oldCapturePaneHistoryData := ptyio.CapturePaneHistoryDataFn
@@ -36,7 +36,7 @@ func restoreReattachSeams(t *testing.T) {
 		sessionStateForFn = oldSessionStateFor
 		sessionOwnedFn = oldSessionOwned
 		ptyio.ProbeSessionFn = oldProbeSession
-		killSessionFn = oldKillSession
+		ptyio.KillSessionFn = oldKillSession
 		ptyio.ResizePaneToSizeFn = oldResizePaneToSize
 		ptyio.CapturePaneFullDataFn = oldCapturePaneFullData
 		ptyio.CapturePaneHistoryDataFn = oldCapturePaneHistoryData

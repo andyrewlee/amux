@@ -7,6 +7,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 // TestReattachActiveTab_DeadSessionRefused pins the dead-session policy that
@@ -17,7 +18,7 @@ import (
 func TestReattachActiveTab_DeadSessionRefused(t *testing.T) {
 	restoreReattachSeams(t)
 	killCalls := 0
-	killSessionFn = func(string, tmux.Options) error {
+	ptyio.KillSessionFn = func(string, tmux.Options) error {
 		killCalls++
 		return nil
 	}
