@@ -18,6 +18,9 @@ type fakeRunSessionHost struct {
 	findErr   error
 	ensureErr error
 	findExtra []string // names Find returns that sessions lacks (vanished)
+	// statusCalls counts per-session Status probes — batch-capable hosts
+	// must not spend one per session on the sweep.
+	statusCalls int
 	// onCreate runs inside Create before the collision check — a test seam
 	// that claims the candidate name first to force the retry path.
 	onCreate func(host *fakeRunSessionHost, name string)
@@ -72,6 +75,7 @@ func (f *fakeRunSessionHost) Create(name, workDir, cmd string, env []string, met
 }
 
 func (f *fakeRunSessionHost) Status(name string) (exists, alive bool, exitCode int, err error) {
+	f.statusCalls++
 	s, ok := f.sessions[name]
 	if !ok {
 		return false, false, -1, nil
@@ -131,6 +135,30 @@ func (f *fakeRunSessionHost) die(name string, exitCode int) {
 		s.alive = false
 		s.exitCode = exitCode
 	}
+}
+
+// batchRunSessionHost wraps the fake with the optional
+// RunSessionStatusBatcher capability: tests pin the single-query contract
+// (one StatusAll per sweep, zero per-session probes) and can inject batch
+// errors.
+type batchRunSessionHost struct {
+	*fakeRunSessionHost
+	statusAllCalls int
+	statusAllErr   error
+}
+
+func (b *batchRunSessionHost) StatusAll(names []string) (map[string]RunSessionState, error) {
+	b.statusAllCalls++
+	if b.statusAllErr != nil {
+		return nil, b.statusAllErr
+	}
+	out := make(map[string]RunSessionState, len(names))
+	for _, name := range names {
+		if s, ok := b.sessions[name]; ok {
+			out[name] = RunSessionState{Exists: true, Alive: s.alive, ExitCode: s.exitCode}
+		}
+	}
+	return out, nil
 }
 
 func newHostedWorkspace(t *testing.T, mode string) *data.Workspace {

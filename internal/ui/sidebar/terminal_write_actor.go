@@ -41,6 +41,10 @@ import (
 //     latency at that limit. Both paths funnel through
 //     applySidebarWriteLocked under the same mutex so their orders cannot
 //     diverge.
+//  6. No ts.mu hold spans more than one request or one chunk of parse work.
+//     The fallback and the stop-path backlog drain split across holds — safe
+//     because the Update goroutine is the queue's only producer, so between
+//     holds only the worker can pop and ordering cannot drift.
 
 // sidebarWriteReq is one unit of writer work for a sidebar tab. The stream
 // queue is the serialization point: all VTerm mutations funnel through the
@@ -236,9 +240,11 @@ func (m *TerminalModel) runSidebarWriter(ts *TerminalState, w *sidebarWriterStre
 
 // drainSidebarWriterQueueLocked applies every request still queued on the
 // stream in order. Lifecycle paths use it to finish retained old-history
-// work before resetting stream state (a bounded drain — the queue caps at
-// sidebarWriteQueueCap). Caller holds ts.mu; returns the freshest non-nil
-// clipboard payload across the drained writes.
+// work inside the commit hold that resets stream state (a bounded drain —
+// the queue caps at sidebarWriteQueueCap, and detach is a one-shot event, not
+// a steady-state tick). Update-goroutine drains use drainSidebarWriterQueue
+// instead: same ordering, one request per hold. Caller holds ts.mu; returns
+// the freshest non-nil clipboard payload across the drained writes.
 func drainSidebarWriterQueueLocked(ts *TerminalState) (clip []byte) {
 	w := ts.writer
 	if w == nil {
@@ -256,33 +262,56 @@ func drainSidebarWriterQueueLocked(ts *TerminalState) (clip []byte) {
 	return clip
 }
 
-// drainSidebarWriteQueueLocked is the queue-full fallback: it applies every
-// buffered request in dequeue order, then the request that failed to
-// enqueue. Dequeue and apply both happen under the caller's ts.mu hold —
-// identical to the worker's serialization — so the fallback can never parse
-// a newer chunk ahead of an older queued one. Bytes are never dropped; the
-// fallback costs on-loop parse work — the pre-actor behavior — only while
-// the writer is a full queue behind. Caller holds ts.mu. Returns the
-// freshest non-nil clipboard payload seen across the drained writes.
-func drainSidebarWriteQueueLocked(ts *TerminalState, failed sidebarWriteReq) (clip []byte) {
-	w := ts.writer
-	if w != nil {
-		for len(w.reqs) > 0 {
+// drainSidebarWriterQueue pops and applies one queued request per ts.mu hold
+// until the stream's queue is empty — the bounded companion of
+// drainSidebarWriterQueueLocked for callers that do NOT already hold the
+// mutex. Callers run on the Update goroutine, the stream's only producer, so
+// the queue can only shrink between holds (the worker pops concurrently) and
+// the loop exits after at most sidebarWriteQueueCap holds. moreFollows
+// reports that the caller applies further work after the drain — a rejected
+// request or buffered chunks — so the last queued apply must not release the
+// held noise tail. Returns the freshest non-nil clipboard payload seen.
+func drainSidebarWriterQueue(ts *TerminalState, moreFollows bool) (clip []byte) {
+	for {
+		done := true
+		withMu(&ts.mu, func() {
+			w := ts.writer
+			if w == nil || len(w.reqs) == 0 {
+				return
+			}
+			done = false
 			req := w.reqs[0]
 			w.reqs[0] = sidebarWriteReq{}
 			w.reqs = w.reqs[1:]
-			// The failed request still waits to apply — held noise must not
-			// flush at an idle boundary that is not actually idle yet.
-			more := len(w.reqs) > 0 || len(failed.chunk) > 0 || failed.drainTrailing || ts.pendingBufferedBytes > 0
+			more := len(w.reqs) > 0 || moreFollows || ts.pendingBufferedBytes > 0
 			if c, _ := applySidebarWriteLocked(ts, req, more); c != nil {
 				clip = c
 			}
+		})
+		if done {
+			return clip
 		}
 	}
-	more := ts.pendingBufferedBytes > 0
-	if c, _ := applySidebarWriteLocked(ts, failed, more); c != nil {
-		clip = c
-	}
+}
+
+// drainSidebarWriteQueue is the queue-full fallback for callers that do NOT
+// hold ts.mu: it drains the stream queue one request per hold, then applies
+// the request that failed to enqueue under a final hold once the queue is
+// empty. Byte order is identical to drainSidebarWriteQueueLocked — dequeue
+// and apply still share each hold, the Update goroutine is the queue's only
+// producer, and between holds only the worker can pop — so nothing can
+// interleave ahead of failed. Bytes are never dropped; the fallback still
+// pays on-loop parse work while the writer is a full queue behind, but no
+// single ts.mu acquisition now spans more than one chunk. Returns the
+// freshest non-nil clipboard payload seen across the drained writes.
+func drainSidebarWriteQueue(ts *TerminalState, failed sidebarWriteReq) (clip []byte) {
+	clip = drainSidebarWriterQueue(ts, len(failed.chunk) > 0 || failed.drainTrailing)
+	withMu(&ts.mu, func() {
+		more := ts.pendingBufferedBytes > 0
+		if c, _ := applySidebarWriteLocked(ts, failed, more); c != nil {
+			clip = c
+		}
+	})
 	return clip
 }
 

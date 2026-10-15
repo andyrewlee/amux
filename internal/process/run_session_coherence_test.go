@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -133,6 +134,64 @@ func TestRunSessionsHosted_PostRestartSweep(t *testing.T) {
 	}
 	if _, alive, _ := runner.runSessionsHosted(ws); !alive {
 		t.Fatal("session lost again after rediscovery — seen-set should keep the sweep open")
+	}
+}
+
+// TestRunSessionsHosted_BatchedStatusQuery pins the sweep's O(1) query
+// contract: a host offering RunSessionStatusBatcher gets exactly one
+// StatusAll call regardless of session count — never a per-session Status
+// probe — and a vanished name filters out the same way it did serially.
+func TestRunSessionsHosted_BatchedStatusQuery(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	host := &batchRunSessionHost{fakeRunSessionHost: newFakeRunSessionHost()}
+	runner.SetRunHost(host)
+	ws := newHostedWorkspace(t, "concurrent")
+	wsID := string(ws.MetadataID())
+	base := "amux-ws-" + wsID + "-run"
+
+	for i, name := range []string{base, base + "-2"} {
+		host.sessions[name] = &fakeRunSession{
+			alive:    true,
+			exitCode: -1,
+			meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: int64(100 + i)},
+		}
+	}
+	host.sessions[base+"-3"] = &fakeRunSession{
+		alive:    false,
+		exitCode: 7,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 300},
+	}
+	// A name the find returned that is gone by status time — the batch maps
+	// absent names to missing entries, the same !exists skip the serial loop
+	// made.
+	host.findExtra = []string{base + "-vanished"}
+
+	sessions, alive, lastExit := runner.runSessionsHosted(ws)
+	if host.statusAllCalls != 1 {
+		t.Fatalf("StatusAll calls = %d, want exactly one batched query", host.statusAllCalls)
+	}
+	if host.statusCalls != 0 {
+		t.Fatalf("per-session Status ran %d times despite the batch capability", host.statusCalls)
+	}
+	if len(sessions) != 3 {
+		t.Fatalf("sessions = %d, want 3 (the vanished name filtered)", len(sessions))
+	}
+	if !alive {
+		t.Fatal("live sessions not reported")
+	}
+	if lastExit != 7 {
+		t.Fatalf("lastExit = %d, want the dead session's 7", lastExit)
+	}
+
+	// A batch error surfaces as an empty result — consistent with the find
+	// error path — not a silent serial retry.
+	host.statusAllErr = errors.New("tmux down")
+	sessions, alive, lastExit = runner.runSessionsHosted(ws)
+	if sessions != nil || alive || lastExit != -1 {
+		t.Fatalf("batch error got %v/%v/%d, want empty/false/-1", sessions, alive, lastExit)
+	}
+	if host.statusCalls != 0 {
+		t.Fatalf("batch error fell back to per-session Status (%d calls)", host.statusCalls)
 	}
 }
 

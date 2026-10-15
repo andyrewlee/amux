@@ -23,9 +23,10 @@ func newTmuxRunSessionHost(opts tmux.Options, instanceID string) *tmuxRunSession
 }
 
 var (
-	_ process.RunSessionHost    = (*tmuxRunSessionHost)(nil)
-	_ process.RunSessionCreator = (*tmuxRunSessionHost)(nil)
-	_ process.RunSessionFinder  = (*tmuxRunSessionHost)(nil)
+	_ process.RunSessionHost          = (*tmuxRunSessionHost)(nil)
+	_ process.RunSessionCreator       = (*tmuxRunSessionHost)(nil)
+	_ process.RunSessionFinder        = (*tmuxRunSessionHost)(nil)
+	_ process.RunSessionStatusBatcher = (*tmuxRunSessionHost)(nil)
 )
 
 func (h *tmuxRunSessionHost) Ensure(name, workDir, cmd string, env []string, meta process.RunSessionMeta) error {
@@ -59,6 +60,40 @@ func (h *tmuxRunSessionHost) sessionTags(meta process.RunSessionMeta) tmux.Sessi
 
 func (h *tmuxRunSessionHost) Status(name string) (exists, alive bool, exitCode int, err error) {
 	return tmux.RunSessionStatus(name, h.opts)
+}
+
+// StatusAll answers Status for every named session with one batched
+// list-panes enumeration (tmux.AllSessionStates) instead of one
+// display-message probe per name. Live sessions resolve entirely from the
+// batch. A dead session's exit code is the one datum the enumeration does
+// not carry — pane_dead_status and the pre-3.3 remain-on-exit banner both
+// live behind RunSessionStatus — so only sessions whose active pane is dead
+// pay a per-session probe, keeping the all-live poll at one subprocess.
+func (h *tmuxRunSessionHost) StatusAll(names []string) (map[string]process.RunSessionState, error) {
+	states, err := tmux.AllSessionStates(h.opts)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]process.RunSessionState, len(names))
+	for _, name := range names {
+		st, ok := states[name]
+		if !ok {
+			continue
+		}
+		if !st.ActivePaneLive {
+			// Dead active pane — or a false negative on pane flags either way
+			// corrected by the probe: RunSessionStatus asks the same question
+			// of the session's current window and adds the exit code.
+			exists, alive, exitCode, serr := tmux.RunSessionStatus(name, h.opts)
+			if serr != nil || !exists {
+				continue
+			}
+			out[name] = process.RunSessionState{Exists: true, Alive: alive, ExitCode: exitCode}
+			continue
+		}
+		out[name] = process.RunSessionState{Exists: true, Alive: true, ExitCode: -1}
+	}
+	return out, nil
 }
 
 func (h *tmuxRunSessionHost) Kill(name string) error {
