@@ -39,6 +39,6 @@ func initRepoWithBranch(t *testing.T, branch string) string {
 func stubFilterDriverGate(t *testing.T) {
 	t.Helper()
 	prev := filterDriverGate
-	filterDriverGate = func(context.Context, string, string) error { return nil }
+	filterDriverGate = func(context.Context, string, string, ...string) error { return nil }
 	t.Cleanup(func() { filterDriverGate = prev })
 }

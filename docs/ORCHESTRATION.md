@@ -433,9 +433,12 @@ delivered `.git` as hostile. Every git invocation runs with repo hooks,
 dropped. Repo-configured drivers that would execute code during amux's own
 git operations are refused rather than run: an attributed `merge.*.driver`
 blocks the merge, and a repo-configured `filter.*` driver (`clean`/`smudge`/
-`process`/`command`) attributed by the tree blocks workspace create/attach,
-`add -A` writeback, merges, and `merge --abort`, naming the driver in the
-refusal. Filter drivers are also neutralized on every git invocation —
+`process`/`command`) attributed by the current index OR the
+checked-out/incoming tree blocks workspace create/attach, `add -A`
+writeback, merges, and `merge --abort`, naming the driver in the refusal —
+`check-attr --source` reads the attribute stack of the tree a `worktree
+add` or merge actually writes, so a branch can not hide a binding behind a
+clean-looking current tree. Filter drivers are also neutralized on every git invocation —
 empty `-c filter.<name>.*=` overrides suppress any driver configured in
 repo-local config, its include chain, or `config.worktree` — because read
 paths like `git status`/`git diff` execute clean filters on stat-dirty
