@@ -128,6 +128,13 @@ func (a *App) handleRunOutputOpened(msg runOutputOpenedMsg) tea.Cmd {
 		return a.toast.ShowInfo("No run output for " + msg.ws.Name)
 	}
 	a.requestRunOutputOpen(func() {
+		// The token can advance while this open sits queued (a second R
+		// press, a close, a script-output open) — re-check inside the
+		// closure per the overlay-arbiter contract, same as
+		// handleRunSessionsEnumerated's picker open.
+		if msg.token != a.overlays.runOutputToken {
+			return
+		}
 		a.overlays.runOutputWorkspace = msg.ws
 		a.overlays.runOutputSession = msg.session.Name
 		a.overlays.runOutputAttachable = true

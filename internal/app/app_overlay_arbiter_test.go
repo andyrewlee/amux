@@ -328,3 +328,63 @@ func TestResolveBulkTargetsRejectsMissingMember(t *testing.T) {
 		t.Fatalf("expected the live target re-resolved, got %+v", resolved)
 	}
 }
+
+// TestRunOutputOpened_StaleTokenQueuedOpenDropped: a run-output open queued
+// behind an overlay is superseded when the token advances before the drain —
+// presenting it would resurrect a closed viewer or overwrite a newer one.
+func TestRunOutputOpened_StaleTokenQueuedOpenDropped(t *testing.T) {
+	a := arbiterTestApp()
+	a.overlays.env = common.NewEnvDialog(nil)
+	a.overlays.env.Show()
+	a.overlays.runOutputToken = 5
+
+	a.handleRunOutputOpened(runOutputOpenedMsg{
+		token:   5,
+		ws:      &data.Workspace{Name: "ws-out"},
+		session: process.RunSessionEntry{Name: "run", Ordinal: 1, Alive: true},
+		content: "x",
+		alive:   false,
+	})
+	if len(a.pendingOverlayOpens) != 1 {
+		t.Fatalf("expected the viewer open queued, got %d", len(a.pendingOverlayOpens))
+	}
+
+	// A second R press (or close) before the queue drains.
+	a.overlays.runOutputToken = 6
+	a.overlays.env.Hide()
+	a.drainPendingOverlayOpens()
+
+	if a.overlays.runOutput != nil {
+		t.Fatal("superseded run-output open presented — the drain-time token check must drop it")
+	}
+	if a.overlays.runOutputWorkspace != nil {
+		t.Fatal("superseded open still bound runOutputWorkspace")
+	}
+}
+
+// TestRunOutputOpenedDrainsWhenCurrent: the queued viewer open with the live
+// token presents its dialog.
+func TestRunOutputOpenedDrainsWhenCurrent(t *testing.T) {
+	a := arbiterTestApp()
+	a.overlays.env = common.NewEnvDialog(nil)
+	a.overlays.env.Show()
+	a.overlays.runOutputToken = 5
+	ws := &data.Workspace{Name: "ws-out"}
+
+	a.handleRunOutputOpened(runOutputOpenedMsg{
+		token:   5,
+		ws:      ws,
+		session: process.RunSessionEntry{Name: "run", Ordinal: 1, Alive: true},
+		content: "x",
+		alive:   false,
+	})
+	a.overlays.env.Hide()
+	a.drainPendingOverlayOpens()
+
+	if a.overlays.runOutput == nil || !a.overlays.runOutput.Visible() {
+		t.Fatal("current-token viewer open did not present")
+	}
+	if a.overlays.runOutputWorkspace != ws {
+		t.Fatal("viewer open did not bind its workspace")
+	}
+}
