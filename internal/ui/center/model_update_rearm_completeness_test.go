@@ -57,7 +57,11 @@ var centerRearmChainClassification = []struct {
 	{"center.PTYStopped", zeroMsg[PTYStopped](), true},
 	{"center.PTYRestart", zeroMsg[PTYRestart](), true},
 	{"center.activityTagFlushDue", zeroMsg[activityTagFlushDue](), false},
-	{"center.selectionScrollTick", zeroMsg[selectionScrollTick](), false},
+	// chain=true is required: stationary edge-hold auto-scroll is a
+	// self-rearming chain — no pointer motion can re-fire the tick while the
+	// pointer sits still, so a dropped tick ends the scroll forever unless
+	// RearmForPanic emits the next one.
+	{"center.selectionScrollTick", zeroMsg[selectionScrollTick](), true},
 	{"center.diffResultMsg", zeroMsg[diffResultMsg](), false},
 }
 

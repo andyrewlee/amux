@@ -41,24 +41,24 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 		_ = m.agentManager.CloseAgent(tab.Agent)
 	}
 
-	tab.mu.Lock()
-	if tab.ptyTraceFile != nil {
-		_ = tab.ptyTraceFile.Close()
-		tab.ptyTraceFile = nil
-		tab.ptyTraceClosed = true
-	}
-	// Clean up viewers and release memory
-	// Note: tab.Agent is intentionally NOT niled here to avoid racing with
-	// tab_actor which reads it without locking. The agent is already closed
-	// via CloseAgent() above; leaving the pointer intact is safe.
-	tab.DiffViewer = nil
-	tab.Terminal = nil
-	tab.ResetSnapshotCache()
-	tab.Workspace = nil
-	tab.Running = false
-	tab.resetPTYStateLocked()
-	tab.retireTabInputWriterLocked()
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		if tab.ptyTraceFile != nil {
+			_ = tab.ptyTraceFile.Close()
+			tab.ptyTraceFile = nil
+			tab.ptyTraceClosed = true
+		}
+		// Clean up viewers and release memory
+		// Note: tab.Agent is intentionally NOT niled here to avoid racing with
+		// tab_actor which reads it without locking. The agent is already closed
+		// via CloseAgent() above; leaving the pointer intact is safe.
+		tab.DiffViewer = nil
+		tab.Terminal = nil
+		tab.ResetSnapshotCache()
+		tab.Workspace = nil
+		tab.Running = false
+		tab.resetPTYStateLocked()
+		tab.retireTabInputWriterLocked()
+	})
 	tab.markClosed()
 	tab.joinRetiredInputWriters()
 
@@ -133,11 +133,12 @@ func (m *Model) reattachActiveTabIfDetached() tea.Cmd {
 		return nil
 	}
 
-	tab.mu.Lock()
-	detached := tab.Detached
-	reattachInFlight := tab.Reattach.InFlight
-	hasDiffViewer := tab.DiffViewer != nil
-	tab.mu.Unlock()
+	var detached, reattachInFlight, hasDiffViewer bool
+	withMu(&tab.mu, func() {
+		detached = tab.Detached
+		reattachInFlight = tab.Reattach.InFlight
+		hasDiffViewer = tab.DiffViewer != nil
+	})
 	if !detached || reattachInFlight || hasDiffViewer {
 		return nil
 	}
@@ -229,14 +230,18 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 		if tab == nil {
 			continue
 		}
-		tab.mu.Lock()
-		running := tab.Running
-		detached := tab.Detached
-		sessionName := tab.SessionName
-		if sessionName == "" && tab.Agent != nil {
-			sessionName = tab.Agent.Session
-		}
-		tab.mu.Unlock()
+		var running, detached bool
+		var sessionName string
+		var createdAt int64
+		withMu(&tab.mu, func() {
+			running = tab.Running
+			detached = tab.Detached
+			sessionName = tab.SessionName
+			if sessionName == "" && tab.Agent != nil {
+				sessionName = tab.Agent.Session
+			}
+			createdAt = tab.createdAt
+		})
 		status := "stopped"
 		if detached {
 			status = "detached"
@@ -248,7 +253,7 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 			Name:        tab.Name,
 			SessionName: sessionName,
 			Status:      status,
-			CreatedAt:   tab.createdAt,
+			CreatedAt:   createdAt,
 		})
 	}
 	return result, m.getActiveTabIdx()
@@ -262,14 +267,18 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 		if tab == nil {
 			continue
 		}
-		tab.mu.Lock()
-		running := tab.Running
-		detached := tab.Detached
-		sessionName := tab.SessionName
-		if sessionName == "" && tab.Agent != nil {
-			sessionName = tab.Agent.Session
-		}
-		tab.mu.Unlock()
+		var running, detached bool
+		var sessionName string
+		var createdAt int64
+		withMu(&tab.mu, func() {
+			running = tab.Running
+			detached = tab.Detached
+			sessionName = tab.SessionName
+			if sessionName == "" && tab.Agent != nil {
+				sessionName = tab.Agent.Session
+			}
+			createdAt = tab.createdAt
+		})
 		status := "stopped"
 		if detached {
 			status = "detached"
@@ -281,7 +290,7 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 			Name:        tab.Name,
 			SessionName: sessionName,
 			Status:      status,
-			CreatedAt:   tab.createdAt,
+			CreatedAt:   createdAt,
 		})
 	}
 	return result, m.tabs.ActiveByWorkspace[wsID]

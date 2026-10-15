@@ -18,9 +18,9 @@ func (m *TerminalModel) TabBarVersion() uint64 {
 		fp = common.FoldFingerprintString(fp, tab.Name)
 		disconnected := false
 		if tab.State != nil {
-			tab.State.mu.Lock()
-			disconnected = tab.State.Detached || !tab.State.Running
-			tab.State.mu.Unlock()
+			disconnected = withMuVal(&tab.State.mu, func() bool {
+				return tab.State.Detached || !tab.State.Running
+			})
 		}
 		fp = common.FoldFingerprintBool(fp, tab.State == nil)
 		fp = common.FoldFingerprintBool(fp, disconnected)
@@ -64,9 +64,8 @@ func (m *TerminalModel) HelpVersion() uint64 {
 	ts := m.getTerminal()
 	fp = common.FoldFingerprintBool(fp, ts != nil)
 	if ts != nil {
-		ts.mu.Lock()
-		fp = common.FoldFingerprintBool(fp, ts.VTerm != nil)
-		ts.mu.Unlock()
+		hasVTerm := withMuVal(&ts.mu, func() bool { return ts.VTerm != nil })
+		fp = common.FoldFingerprintBool(fp, hasVTerm)
 	}
 	return fp
 }

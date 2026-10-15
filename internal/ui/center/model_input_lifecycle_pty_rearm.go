@@ -50,6 +50,31 @@ func (m *Model) RearmForPanic(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		return rearmPTYRestartTick(t.WorkspaceID, t.TabID, t.Gen)
+	case selectionScrollTick:
+		tab, wsID := m.resolveTabForResult(t.WorkspaceID, t.TabID, "selection scroll rearm")
+		if tab == nil || tab.isClosed() {
+			return nil
+		}
+		// Edge-hold auto-scroll is a self-rearming chain: while the pointer
+		// sits still past the viewport edge, only the tick keeps it moving —
+		// no motion event can re-arm it, so a dropped tick kills the scroll
+		// unless rearmed. The emitted tick carries the tab's CURRENT gen/seq
+		// (not the dropped msg's): HandleTick consumed that seq already.
+		var gen, seq uint64
+		alive := withMuVal(&tab.mu, func() bool {
+			if !tab.selectionScroll.Active || tab.selectionScroll.ScrollDir == 0 {
+				return false
+			}
+			gen, seq = tab.selectionScroll.Gen, tab.selectionScroll.TickSeq
+			return true
+		})
+		if !alive {
+			return nil
+		}
+		tabID := t.TabID
+		return common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
+			return selectionScrollTick{WorkspaceID: wsID, TabID: tabID, Gen: gen, Seq: seq}
+		})
 	}
 	return nil
 }

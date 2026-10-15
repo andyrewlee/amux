@@ -255,55 +255,57 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 		tabID := existing.ID
 		tab := existing
 		m.stopPTYReader(tab)
-		tab.mu.Lock()
-		oldAgent := tab.Agent
-		createdTerminal := false
-		if tab.Terminal == nil {
-			tab.Terminal = vterm.New(initialCols, initialRows)
-			createdTerminal = true
-		}
-		tab.Assistant = msg.Assistant
-		if tab.Terminal != nil {
-			// Do not reset parser state when reusing an existing terminal here.
-			// pendingOutput may still contain continuation bytes queued under the
-			// current parser carry, and recreate must preserve that continuity until
-			// buffered output is explicitly reconciled.
-			tab.Terminal.AllowAltScreenScrollback = true
-			m.applyTerminalCursorPolicyLocked(tab)
-			if msg.CaptureFullPane {
-				// A full tmux pane snapshot supersedes any preserved local PTY
-				// backlog for this terminal state.
-				tab.PendingOutput = nil
-				ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
-			} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
-				ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
-			} else if m.width > 0 && m.height > 0 {
-				ptyio.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
+		var oldAgent *appPty.Agent
+		var inputGen uint64
+		withMu(&tab.mu, func() {
+			oldAgent = tab.Agent
+			createdTerminal := false
+			if tab.Terminal == nil {
+				tab.Terminal = vterm.New(initialCols, initialRows)
+				createdTerminal = true
 			}
-		}
-		if tab.Name == "" {
-			tab.Name = displayName
-		}
-		tab.Workspace = msg.Workspace
-		tab.Agent = msg.Agent
-		tab.SessionName = msg.Agent.Session
-		tab.markAttachedLocked()
-		tab.resetActorWriteStateLocked()
-		// Queue the launch task for the post-readiness send — assigned after
-		// the actor-state reset, which clears it on reattach.
-		if msg.Task != "" {
-			tab.pendingInitialTask = msg.Task
-		}
-		m.applyTerminalCursorPolicyLocked(tab)
-		if tab.createdAt == 0 {
-			tab.createdAt = now.Unix()
-		}
-		if tab.lastFocusedAt.IsZero() {
-			tab.lastFocusedAt = now
-		}
-		resetChatCursorActivityStateLocked(tab)
-		inputGen := tab.inputGenLocked()
-		tab.mu.Unlock()
+			tab.Assistant = msg.Assistant
+			if tab.Terminal != nil {
+				// Do not reset parser state when reusing an existing terminal here.
+				// pendingOutput may still contain continuation bytes queued under the
+				// current parser carry, and recreate must preserve that continuity until
+				// buffered output is explicitly reconciled.
+				tab.Terminal.AllowAltScreenScrollback = true
+				m.applyTerminalCursorPolicyLocked(tab)
+				if msg.CaptureFullPane {
+					// A full tmux pane snapshot supersedes any preserved local PTY
+					// backlog for this terminal state.
+					tab.PendingOutput = nil
+					ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
+				} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
+					ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+				} else if m.width > 0 && m.height > 0 {
+					ptyio.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
+				}
+			}
+			if tab.Name == "" {
+				tab.Name = displayName
+			}
+			tab.Workspace = msg.Workspace
+			tab.Agent = msg.Agent
+			tab.SessionName = msg.Agent.Session
+			tab.markAttachedLocked()
+			tab.resetActorWriteStateLocked()
+			// Queue the launch task for the post-readiness send — assigned after
+			// the actor-state reset, which clears it on reattach.
+			if msg.Task != "" {
+				tab.pendingInitialTask = msg.Task
+			}
+			m.applyTerminalCursorPolicyLocked(tab)
+			if tab.createdAt == 0 {
+				tab.createdAt = now.Unix()
+			}
+			if tab.lastFocusedAt.IsZero() {
+				tab.lastFocusedAt = now
+			}
+			resetChatCursorActivityStateLocked(tab)
+			inputGen = tab.inputGenLocked()
+		})
 		tab.resetActivityANSIState()
 		if oldAgent != nil && oldAgent != msg.Agent {
 			// Closing the terminal unblocks the retired writer's in-flight

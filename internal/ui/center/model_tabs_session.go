@@ -8,6 +8,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
+	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -41,23 +42,25 @@ func (m *Model) detachTab(tab *Tab, index int) tea.Cmd {
 // kind, otherwise the tab would sit "running" on a dead PTY with its input
 // latch stuck rejecting every keystroke.
 func (m *Model) detachTabCore(tab *Tab, index int) tea.Cmd {
-	tab.mu.Lock()
-	alreadyDetached := tab.Detached
-	hasAgent := tab.Agent != nil
-	tab.mu.Unlock()
+	var alreadyDetached, hasAgent bool
+	withMu(&tab.mu, func() {
+		alreadyDetached = tab.Detached
+		hasAgent = tab.Agent != nil
+	})
 	if alreadyDetached && !hasAgent {
 		return nil
 	}
 	m.stopPTYReader(tab)
-	tab.mu.Lock()
-	tab.markDetachedEndingReattachLocked()
-	tab.resetPTYStateLocked()
-	if tab.Agent != nil && tab.SessionName == "" {
-		tab.SessionName = tab.Agent.Session
-	}
-	agent := tab.Agent
-	tab.Agent = nil
-	tab.mu.Unlock()
+	var agent *appPty.Agent
+	withMu(&tab.mu, func() {
+		tab.markDetachedEndingReattachLocked()
+		tab.resetPTYStateLocked()
+		if tab.Agent != nil && tab.SessionName == "" {
+			tab.SessionName = tab.Agent.Session
+		}
+		agent = tab.Agent
+		tab.Agent = nil
+	})
 	if agent != nil {
 		// Closing the terminal unblocks any in-flight input write, so the
 		// retired writer's join returns promptly.
@@ -116,9 +119,9 @@ func (m *Model) DetachTabForInputFailure(wsID string, tabID TabID, gen uint64) (
 	if tab == nil {
 		return nil, gen == 0
 	}
-	tab.mu.Lock()
-	current := gen == 0 || tab.tabInput.gen == gen
-	tab.mu.Unlock()
+	current := withMuVal(&tab.mu, func() bool {
+		return gen == 0 || tab.tabInput.gen == gen
+	})
 	if !current {
 		return nil, false
 	}
@@ -197,9 +200,9 @@ func (m *Model) flushActiveTabBacklogCmd() tea.Cmd {
 	if tab == nil || tab.isClosed() {
 		return nil
 	}
-	tab.mu.Lock()
-	catchUpReady := tab.latchCatchUpLocked()
-	tab.mu.Unlock()
+	catchUpReady := withMuVal(&tab.mu, func() bool {
+		return tab.latchCatchUpLocked()
+	})
 	if !catchUpReady {
 		return nil
 	}
@@ -223,10 +226,11 @@ func (m *Model) autoReattachActiveTabOnSelection() tea.Cmd {
 	if tab == nil {
 		return nil
 	}
-	tab.mu.Lock()
-	detached := tab.Detached
-	reattachInFlight := tab.Reattach.InFlight
-	tab.mu.Unlock()
+	var detached, reattachInFlight bool
+	withMu(&tab.mu, func() {
+		detached = tab.Detached
+		reattachInFlight = tab.Reattach.InFlight
+	})
 	// Automatic flows stay silent: ReattachActiveTab reports an in-flight
 	// reattach to the user, which is right for a keypress and noise for a tab
 	// switch.

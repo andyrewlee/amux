@@ -62,24 +62,24 @@ func (m *TerminalModel) handleTerminalCreated(msg SidebarTerminalCreated) tea.Cm
 	)
 	currentWidth, currentHeight = m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
 	if ts != nil {
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			if msg.CaptureFullPane {
-				ptyio.RestorePaneCapture(ts.VTerm, msg.SessionRestoreCapture, currentWidth, currentHeight)
-				ts.lastWidth = currentWidth
-				ts.lastHeight = currentHeight
-			} else if len(msg.ScrollbackCapture) > 0 {
-				ptyio.RestoreScrollbackCapture(
-					ts.VTerm,
-					msg.ScrollbackCapture,
-					msg.CaptureCols,
-					msg.CaptureRows,
-					currentWidth,
-					currentHeight,
-				)
+		withMu(&ts.mu, func() {
+			if ts.VTerm != nil {
+				if msg.CaptureFullPane {
+					ptyio.RestorePaneCapture(ts.VTerm, msg.SessionRestoreCapture, currentWidth, currentHeight)
+					ts.lastWidth = currentWidth
+					ts.lastHeight = currentHeight
+				} else if len(msg.ScrollbackCapture) > 0 {
+					ptyio.RestoreScrollbackCapture(
+						ts.VTerm,
+						msg.ScrollbackCapture,
+						msg.CaptureCols,
+						msg.CaptureRows,
+						currentWidth,
+						currentHeight,
+					)
+				}
 			}
-		}
-		ts.mu.Unlock()
+		})
 	}
 	if msg.CaptureFullPane {
 		m.refreshTerminalSize()
@@ -106,89 +106,81 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	}
 	ts := tab.State
 	termWidth, termHeight := m.sessionRestoreLiveSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows)
-	ts.mu.Lock()
-	if !ts.reattachAttemptCurrentLocked(msg.Epoch) {
-		// A newer attempt owns the tab now (or the attempt was invalidated by
-		// detach/teardown/sweep). Applying this would overwrite the newer
-		// attachment; release the orphaned client instead. If the incoming
-		// pointer somehow is the accepted client (a duplicated result), never
-		// close it out from under the live terminal.
-		current := ts.Terminal
-		ts.mu.Unlock()
+	var (
+		currentTerm   *pty.Terminal
+		superseded    bool
+		emptyTerminal bool
+		retiredWriter *sidebarWriterStream
+		retiredInput  *sidebarInputWriter
+		obsolete      *pty.Terminal
+	)
+	withMu(&ts.mu, func() {
+		if !ts.reattachAttemptCurrentLocked(msg.Epoch) {
+			// A newer attempt owns the tab now (or the attempt was invalidated by
+			// detach/teardown/sweep). Applying this would overwrite the newer
+			// attachment; release the orphaned client instead. If the incoming
+			// pointer somehow is the accepted client (a duplicated result), never
+			// close it out from under the live terminal.
+			currentTerm = ts.Terminal
+			superseded = true
+			return
+		}
+		if msg.Terminal == nil {
+			// A current-attempt success with no terminal is a failed attach:
+			// release the attempt so the tab can be retried instead of wedging,
+			// and surface it like any other attach failure.
+			ts.Running = false
+			ts.finishReattachLocked()
+			emptyTerminal = true
+			return
+		}
+		// A distinct client still held from before this attempt (e.g. a terminal
+		// left over by a PTY-lost detach) is obsolete the moment the new client
+		// is accepted: stop the reader and close it outside the mutex below.
+		obsolete = ts.Terminal
+		if obsolete == msg.Terminal {
+			obsolete = nil
+		}
+		// The old writer stream ends here: its queued requests belong to the
+		// dead stream and must never apply to the restored VTerm — even when the
+		// VTerm pointer is reused. Stopping under this hold also bumps the
+		// stream epoch so the old writer's late completions fence out.
+		retiredWriter = ts.stopSidebarWriterLocked()
+		// The input binding ends only when its terminal is actually replaced:
+		// queued keypresses must never deliver to the replacement client, and
+		// the retired writer's late failure must not detach it. When obsolete
+		// is nil the client is kept (or was already gone), so the existing
+		// binding — and its queued input — stays valid.
+		if obsolete != nil {
+			retiredInput = ts.retireSidebarInputWriterLocked()
+		}
+		restoreSidebarVTermLocked(ts, msg, termWidth, termHeight)
+		ts.Terminal = msg.Terminal
+		ts.Running = true
+		ts.Detached = false
+		ts.UserDetached = false
+		ts.finishReattachLocked()
+		ts.SessionName = msg.SessionName
+		ts.PendingOutput = nil
+		ts.pendingBufferedBytes = 0
+		ts.NoiseTrailing = nil
+		ts.OverflowTrimCarry = vterm.ParserCarryState{}
+		ts.lastWidth = termWidth
+		ts.lastHeight = termHeight
+	})
+	if superseded {
 		logging.Warn("Dropping superseded sidebar attach result for tab %s (epoch %d)", tab.ID, msg.Epoch)
-		if msg.Terminal != nil && msg.Terminal != current {
+		if msg.Terminal != nil && msg.Terminal != currentTerm {
 			closeTerminalForSidebar(msg.Terminal, "superseded attach result")
 		}
 		return nil
 	}
-	if msg.Terminal == nil {
-		// A current-attempt success with no terminal is a failed attach:
-		// release the attempt so the tab can be retried instead of wedging,
-		// and surface it like any other attach failure.
-		ts.Running = false
-		ts.finishReattachLocked()
-		ts.mu.Unlock()
+	if emptyTerminal {
 		logging.Warn("Sidebar attach for tab %s returned no terminal; releasing attempt", tab.ID)
 		return func() tea.Msg {
 			return messages.Toast{Message: "Reattach failed: no terminal returned", Level: messages.ToastWarning}
 		}
 	}
-	// A distinct client still held from before this attempt (e.g. a terminal
-	// left over by a PTY-lost detach) is obsolete the moment the new client
-	// is accepted: stop the reader and close it outside the mutex below.
-	obsolete := ts.Terminal
-	if obsolete == msg.Terminal {
-		obsolete = nil
-	}
-	// The old writer stream ends here: its queued requests belong to the
-	// dead stream and must never apply to the restored VTerm — even when the
-	// VTerm pointer is reused. Stopping under this hold also bumps the
-	// stream epoch so the old writer's late completions fence out.
-	retiredWriter := ts.stopSidebarWriterLocked()
-	// The input binding ends only when its terminal is actually replaced:
-	// queued keypresses must never deliver to the replacement client, and
-	// the retired writer's late failure must not detach it. When obsolete
-	// is nil the client is kept (or was already gone), so the existing
-	// binding — and its queued input — stays valid.
-	var retiredInput *sidebarInputWriter
-	if obsolete != nil {
-		retiredInput = ts.retireSidebarInputWriterLocked()
-	}
-	if ts.VTerm == nil {
-		ts.VTerm = vterm.New(termWidth, termHeight)
-	}
-	if ts.VTerm != nil {
-		ts.VTerm.AllowAltScreenScrollback = true
-		if msg.CaptureFullPane {
-			ptyio.RestorePaneCapture(ts.VTerm, msg.SessionRestoreCapture, termWidth, termHeight)
-		} else {
-			if len(msg.ScrollbackCapture) > 0 && len(ts.VTerm.Scrollback) == 0 {
-				ptyio.RestoreScrollbackCapture(
-					ts.VTerm,
-					msg.ScrollbackCapture,
-					msg.CaptureCols,
-					msg.CaptureRows,
-					termWidth,
-					termHeight,
-				)
-			} else if ts.VTerm.Width != termWidth || ts.VTerm.Height != termHeight {
-				ts.VTerm.Resize(termWidth, termHeight)
-			}
-		}
-	}
-	ts.Terminal = msg.Terminal
-	ts.Running = true
-	ts.Detached = false
-	ts.UserDetached = false
-	ts.finishReattachLocked()
-	ts.SessionName = msg.SessionName
-	ts.PendingOutput = nil
-	ts.pendingBufferedBytes = 0
-	ts.NoiseTrailing = nil
-	ts.OverflowTrimCarry = vterm.ParserCarryState{}
-	ts.lastWidth = termWidth
-	ts.lastHeight = termHeight
-	ts.mu.Unlock()
 	joinSidebarWriter(retiredWriter)
 	if obsolete != nil {
 		// Stop the reader before closing the superseded client: the reader
@@ -215,24 +207,60 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 	return m.startPTYReader(wsID, tab.ID)
 }
 
+// restoreSidebarVTermLocked prepares the attach destination's VTerm: creates
+// it when missing, enables alt-screen scrollback, then replays the captured
+// pane or scrollback (resizing only when no capture applies). Caller holds
+// ts.mu.
+func restoreSidebarVTermLocked(ts *TerminalState, msg SidebarTerminalReattachResult, termWidth, termHeight int) {
+	if ts.VTerm == nil {
+		ts.VTerm = vterm.New(termWidth, termHeight)
+	}
+	if ts.VTerm == nil {
+		return
+	}
+	ts.VTerm.AllowAltScreenScrollback = true
+	if msg.CaptureFullPane {
+		ptyio.RestorePaneCapture(ts.VTerm, msg.SessionRestoreCapture, termWidth, termHeight)
+		return
+	}
+	if len(msg.ScrollbackCapture) > 0 && len(ts.VTerm.Scrollback) == 0 {
+		ptyio.RestoreScrollbackCapture(
+			ts.VTerm,
+			msg.ScrollbackCapture,
+			msg.CaptureCols,
+			msg.CaptureRows,
+			termWidth,
+			termHeight,
+		)
+		return
+	}
+	if ts.VTerm.Width != termWidth || ts.VTerm.Height != termHeight {
+		ts.VTerm.Resize(termWidth, termHeight)
+	}
+}
+
 // handleReattachFailed handles a failed reattach attempt.
 func (m *TerminalModel) handleReattachFailed(msg SidebarTerminalReattachFailed) tea.Cmd {
 	tab, _ := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "sidebar attach failure")
 	if tab != nil && tab.State != nil {
 		ts := tab.State
-		ts.mu.Lock()
-		if !ts.reattachAttemptCurrentLocked(msg.Epoch) {
-			// A stale attempt's failure says nothing about the newer one:
-			// no state change and no misleading failure toast.
-			ts.mu.Unlock()
+		current := true
+		withMu(&ts.mu, func() {
+			if !ts.reattachAttemptCurrentLocked(msg.Epoch) {
+				// A stale attempt's failure says nothing about the newer one:
+				// no state change and no misleading failure toast.
+				current = false
+				return
+			}
+			ts.Running = false
+			ts.finishReattachLocked()
+			if msg.Stopped {
+				ts.Detached = false
+			}
+		})
+		if !current {
 			return nil
 		}
-		ts.Running = false
-		ts.finishReattachLocked()
-		if msg.Stopped {
-			ts.Detached = false
-		}
-		ts.mu.Unlock()
 	}
 	action := msg.Action
 	if action == "" {

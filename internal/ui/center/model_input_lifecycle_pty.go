@@ -21,9 +21,10 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 	tab, wsID := m.resolveTabForResult(msg.WorkspaceID, msg.TabID, "PTYOutput")
 	if tab != nil && !tab.isClosed() {
 		msg.WorkspaceID = wsID
-		tab.mu.Lock()
-		stale := tab.State.ReaderGen != msg.Gen
-		tab.mu.Unlock()
+		var stale bool
+		withMu(&tab.mu, func() {
+			stale = tab.State.ReaderGen != msg.Gen
+		})
 		if stale {
 			logging.Debug("Dropping stale PTYOutput for tab %s: a newer reader already runs", msg.TabID)
 			return nil
@@ -48,42 +49,42 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 			SeedForTrim: func() vterm.ParserCarryState {
 				seed := vterm.ParserCarryState{}
 				if m.isTabActorReady() {
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						if tab.actorWritesPending > 0 {
-							if tab.parserResetPending {
-								seed = vterm.ParserCarryState{}
+					withMu(&tab.mu, func() {
+						if tab.Terminal != nil {
+							if tab.actorWritesPending > 0 {
+								if tab.parserResetPending {
+									seed = vterm.ParserCarryState{}
+								} else {
+									seed = tab.actorQueuedCarry
+									tab.parserResetPending = true
+								}
 							} else {
-								seed = tab.actorQueuedCarry
-								tab.parserResetPending = true
+								seed = tab.Terminal.ParserCarryState()
+								tab.Terminal.ResetParserState()
+								resetNow = true
 							}
-						} else {
-							seed = tab.Terminal.ParserCarryState()
+						}
+					})
+				} else {
+					withMu(&tab.mu, func() {
+						if tab.Terminal != nil {
+							if tab.actorWritesPending > 0 {
+								seed = tab.Terminal.ParserCarryState()
+								tab.settlePTYBytesLocked(tab.actorQueuedBytes)
+								tab.actorQueuedBytes = 0
+								tab.actorWriteEpoch++
+								tab.actorWritesPending = 0
+								tab.parserResetPending = false
+								tab.actorQueuedCarry = vterm.ParserCarryState{}
+								tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
+								tab.NoiseTrailing = nil
+							} else {
+								seed = tab.Terminal.ParserCarryState()
+							}
 							tab.Terminal.ResetParserState()
 							resetNow = true
 						}
-					}
-					tab.mu.Unlock()
-				} else {
-					tab.mu.Lock()
-					if tab.Terminal != nil {
-						if tab.actorWritesPending > 0 {
-							seed = tab.Terminal.ParserCarryState()
-							tab.settlePTYBytesLocked(tab.actorQueuedBytes)
-							tab.actorQueuedBytes = 0
-							tab.actorWriteEpoch++
-							tab.actorWritesPending = 0
-							tab.parserResetPending = false
-							tab.actorQueuedCarry = vterm.ParserCarryState{}
-							tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
-							tab.NoiseTrailing = nil
-						} else {
-							seed = tab.Terminal.ParserCarryState()
-						}
-						tab.Terminal.ResetParserState()
-						resetNow = true
-					}
-					tab.mu.Unlock()
+					})
 				}
 				return seed
 			},
@@ -135,23 +136,23 @@ func (m *Model) updatePTYOutput(msg PTYOutput) tea.Cmd {
 		now := time.Now()
 		tab.LastOutputAt = now
 		if isChat {
-			tab.mu.Lock()
-			if tab.bootstrapActivity &&
-				!tab.bootstrapLastOutputAt.IsZero() &&
-				now.Sub(tab.bootstrapLastOutputAt) >= bootstrapQuietGap {
-				tab.bootstrapActivity = false
-				tab.bootstrapLastOutputAt = time.Time{}
-			}
-			if activityStateSet {
-				tab.activityANSIState = activityState
-			}
-			tab.mu.Unlock()
+			withMu(&tab.mu, func() {
+				if tab.bootstrapActivity &&
+					!tab.bootstrapLastOutputAt.IsZero() &&
+					now.Sub(tab.bootstrapLastOutputAt) >= bootstrapQuietGap {
+					tab.bootstrapActivity = false
+					tab.bootstrapLastOutputAt = time.Time{}
+				}
+				if activityStateSet {
+					tab.activityANSIState = activityState
+				}
+			})
 			hasVisibleOutput := tab.consumeActivityVisibility(activityData)
 			if hasVisibleOutput {
-				tab.mu.Lock()
-				tab.pendingVisibleOutput = true
-				tab.pendingVisibleSeq++
-				tab.mu.Unlock()
+				withMu(&tab.mu, func() {
+					tab.pendingVisibleOutput = true
+					tab.pendingVisibleSeq++
+				})
 			}
 		}
 		if !tab.FlushScheduled {
@@ -182,33 +183,47 @@ func (m *Model) handleBackgroundPTYPressure(msg PTYOutput, tab *Tab) (detachCmd 
 
 	isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
 	now := time.Now()
-	tab.mu.Lock()
-	if tab.Detached && tab.discardDetachedPTYOutput {
-		tab.mu.Unlock()
+	var (
+		projectedBacklog int
+		pressureSince    time.Time
+		attached         bool
+		sessionName      string
+	)
+	earlyConsumed := false
+	earlyPass := false
+	withMu(&tab.mu, func() {
+		if tab.Detached && tab.discardDetachedPTYOutput {
+			earlyConsumed = true
+			return
+		}
+		if isActive {
+			tab.backgroundPTYPressureSince = time.Time{}
+			earlyPass = true
+			return
+		}
+
+		projectedBacklog = len(tab.PendingOutput) + len(msg.Data)
+		if projectedBacklog < ptyBackgroundDetachThreshold {
+			tab.backgroundPTYPressureSince = time.Time{}
+			earlyPass = true
+			return
+		}
+		if tab.backgroundPTYPressureSince.IsZero() {
+			tab.backgroundPTYPressureSince = now
+		}
+		pressureSince = tab.backgroundPTYPressureSince
+		attached = tab.Running && tab.Agent != nil
+		sessionName = tab.SessionName
+		if sessionName == "" && tab.Agent != nil {
+			sessionName = tab.Agent.Session
+		}
+	})
+	if earlyConsumed {
 		return nil, true
 	}
-	if isActive {
-		tab.backgroundPTYPressureSince = time.Time{}
-		tab.mu.Unlock()
+	if earlyPass {
 		return nil, false
 	}
-
-	projectedBacklog := len(tab.PendingOutput) + len(msg.Data)
-	if projectedBacklog < ptyBackgroundDetachThreshold {
-		tab.backgroundPTYPressureSince = time.Time{}
-		tab.mu.Unlock()
-		return nil, false
-	}
-	if tab.backgroundPTYPressureSince.IsZero() {
-		tab.backgroundPTYPressureSince = now
-	}
-	pressureSince := tab.backgroundPTYPressureSince
-	attached := tab.Running && tab.Agent != nil
-	sessionName := tab.SessionName
-	if sessionName == "" && tab.Agent != nil {
-		sessionName = tab.Agent.Session
-	}
-	tab.mu.Unlock()
 
 	// A single exceptionally large read must not pass through to the overflow
 	// path merely to wait out the grace period.
@@ -235,9 +250,9 @@ func (m *Model) handleBackgroundPTYPressure(msg PTYOutput, tab *Tab) (detachCmd 
 		if detachCmd == nil {
 			return nil, false
 		}
-		tab.mu.Lock()
-		tab.discardDetachedPTYOutput = true
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			tab.discardDetachedPTYOutput = true
+		})
 		return detachCmd, true
 	}
 	return nil, false
@@ -252,14 +267,15 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 	if tab != nil && !tab.isClosed() {
 		msg.WorkspaceID = wsID
 		isActive := m.isActiveTab(msg.WorkspaceID, msg.TabID)
-		tab.mu.Lock()
-		if !isActive {
-			tab.clearCatchUpLocked()
-		} else {
-			tab.expireCatchUpLocked()
-		}
-		catchUp := isActive && tab.catchUpActiveLocked()
-		tab.mu.Unlock()
+		var catchUp bool
+		withMu(&tab.mu, func() {
+			if !isActive {
+				tab.clearCatchUpLocked()
+			} else {
+				tab.expireCatchUpLocked()
+			}
+			catchUp = isActive && tab.catchUpActiveLocked()
+		})
 		quiet, maxInterval := m.flushTiming(tab, isActive)
 		if delay, deferred := tab.State.FlushGate(time.Now(), quiet, maxInterval); deferred {
 			tabID := msg.TabID
@@ -276,30 +292,30 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 			visibleSeq := uint64(0)
 			parserResetPending := false
 			actorWritesPending := 0
-			tab.mu.Lock()
-			if tab.Terminal != nil {
-				parserResetPending = tab.parserResetPending
-				actorWritesPending = tab.actorWritesPending
-				maxChunk := ptyFlushChunkSize
-				if isActive {
-					maxChunk = ptyFlushChunkSizeActive
-				}
-				if catchUp && m.isTabActorReady() {
-					if ptyFlushChunkSizeCatchUp > maxChunk {
-						maxChunk = ptyFlushChunkSizeCatchUp
+			withMu(&tab.mu, func() {
+				if tab.Terminal != nil {
+					parserResetPending = tab.parserResetPending
+					actorWritesPending = tab.actorWritesPending
+					maxChunk := ptyFlushChunkSize
+					if isActive {
+						maxChunk = ptyFlushChunkSizeActive
+					}
+					if catchUp && m.isTabActorReady() {
+						if ptyFlushChunkSizeCatchUp > maxChunk {
+							maxChunk = ptyFlushChunkSizeCatchUp
+						}
+					}
+					if !parserResetPending {
+						chunk = tab.State.TakeFlushChunkLocked(maxChunk)
+						if len(chunk) > 0 {
+							tab.pendingOutputBytes = len(tab.PendingOutput)
+							hasMoreBuffered = len(tab.PendingOutput) > 0
+							visibleSeq = tab.pendingVisibleSeq
+							writeOutput = true
+						}
 					}
 				}
-				if !parserResetPending {
-					chunk = tab.State.TakeFlushChunkLocked(maxChunk)
-					if len(chunk) > 0 {
-						tab.pendingOutputBytes = len(tab.PendingOutput)
-						hasMoreBuffered = len(tab.PendingOutput) > 0
-						visibleSeq = tab.pendingVisibleSeq
-						writeOutput = true
-					}
-				}
-			}
-			tab.mu.Unlock()
+			})
 			if parserResetPending {
 				if actorWritesPending > 0 && m.isTabActorReady() {
 					tab.FlushScheduled = true
@@ -314,33 +330,34 @@ func (m *Model) updatePTYFlush(msg PTYFlush) tea.Cmd {
 					}))
 					return common.SafeBatch(cmds...)
 				}
-				tab.mu.Lock()
-				if tab.Terminal != nil {
-					if actorWritesPending > 0 {
-						tab.settlePTYBytesLocked(tab.actorQueuedBytes)
-						tab.actorQueuedBytes = 0
-						tab.actorWriteEpoch++
-						tab.NoiseTrailing = nil
+				withMu(&tab.mu, func() {
+					if tab.Terminal != nil {
+						if actorWritesPending > 0 {
+							tab.settlePTYBytesLocked(tab.actorQueuedBytes)
+							tab.actorQueuedBytes = 0
+							tab.actorWriteEpoch++
+							tab.NoiseTrailing = nil
+						}
+						tab.Terminal.ResetParserState()
+						tab.activityANSIState = ansiActivityText
 					}
-					tab.Terminal.ResetParserState()
-					tab.activityANSIState = ansiActivityText
-				}
-				tab.parserResetPending = false
-				tab.actorWritesPending = 0
-				tab.actorQueuedCarry = vterm.ParserCarryState{}
-				tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
-				tab.mu.Unlock()
+					tab.parserResetPending = false
+					tab.actorWritesPending = 0
+					tab.actorQueuedCarry = vterm.ParserCarryState{}
+					tab.actorQueuedNoiseTrailing = tab.actorQueuedNoiseTrailing[:0]
+				})
 			}
 			if writeOutput && len(chunk) > 0 {
 				cmds = append(cmds, m.dispatchFlushChunk(tab, msg, chunk, hasMoreBuffered, visibleSeq, catchUp)...)
 			}
-			tab.mu.Lock()
-			catchUpStillActive := tab.catchUpActiveLocked()
-			tab.mu.Unlock()
+			var catchUpStillActive bool
+			withMu(&tab.mu, func() {
+				catchUpStillActive = tab.catchUpActiveLocked()
+			})
 			if tab.State.RearmFlush(time.Now(), func() {
-				tab.mu.Lock()
-				tab.pendingOutputBytes = 0
-				tab.mu.Unlock()
+				withMu(&tab.mu, func() {
+					tab.pendingOutputBytes = 0
+				})
 			}) {
 				tabID := msg.TabID
 				quietNext, _ := m.flushTiming(tab, isActive)
@@ -423,16 +440,16 @@ func (m *Model) dispatchFlushChunkViaActor(tab *Tab, msg PTYFlush, chunk []byte,
 // returns an optional cursor-refresh command and the activity tag to publish.
 func (m *Model) applyFlushChunkSync(tab *Tab, workspaceID string, chunk []byte, hasMoreBuffered bool, visibleSeq uint64, updateActorCarry bool) (cmd tea.Cmd, tagSessionName string, tagTimestamp int64) {
 	suppressRedraw := false
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		// applyPTYChunkLocked emits the per-flush processed/filtered counters.
-		_, suppressRedraw, tagSessionName, tagTimestamp = m.applyPTYChunkLocked(tab, chunk, hasMoreBuffered, visibleSeq)
-		if updateActorCarry {
-			tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
-			tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.NoiseTrailing...)
+	withMu(&tab.mu, func() {
+		if tab.Terminal != nil {
+			// applyPTYChunkLocked emits the per-flush processed/filtered counters.
+			_, suppressRedraw, tagSessionName, tagTimestamp = m.applyPTYChunkLocked(tab, chunk, hasMoreBuffered, visibleSeq)
+			if updateActorCarry {
+				tab.actorQueuedCarry = tab.Terminal.ParserCarryState()
+				tab.actorQueuedNoiseTrailing = append(tab.actorQueuedNoiseTrailing[:0], tab.NoiseTrailing...)
+			}
 		}
-	}
-	tab.mu.Unlock()
+	})
 	if !suppressRedraw {
 		cmd = m.scheduleChatCursorRefresh(tab, workspaceID, time.Now())
 	}

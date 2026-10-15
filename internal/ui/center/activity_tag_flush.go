@@ -29,14 +29,15 @@ func (m *Model) markActivityTagForFlush(sessionName string) {
 	if sessionName == "" {
 		return
 	}
-	m.activityTagsMu.Lock()
-	if m.pendingActivityTags == nil {
-		m.pendingActivityTags = make(map[string]struct{})
-	}
-	m.pendingActivityTags[sessionName] = struct{}{}
-	schedule := !m.activityTagFlushPending
-	m.activityTagFlushPending = true
-	m.activityTagsMu.Unlock()
+	var schedule bool
+	withMu(&m.activityTagsMu, func() {
+		if m.pendingActivityTags == nil {
+			m.pendingActivityTags = make(map[string]struct{})
+		}
+		m.pendingActivityTags[sessionName] = struct{}{}
+		schedule = !m.activityTagFlushPending
+		m.activityTagFlushPending = true
+	})
 	if !schedule || m.msgSink == nil {
 		return
 	}

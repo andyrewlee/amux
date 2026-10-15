@@ -129,11 +129,11 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 	}
 
 	delta := 0
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		delta = common.ScrollDeltaForHeight(tab.Terminal.Height, 8)
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		if tab.Terminal != nil {
+			delta = common.ScrollDeltaForHeight(tab.Terminal.Height, 8)
+		}
+	})
 	if delta == 0 {
 		return m, nil
 	}
@@ -169,11 +169,11 @@ func (m *Model) forwardMouseWheelToTerminal(msg tea.MouseWheelMsg, tab *Tab) boo
 	}
 
 	input := ""
-	tab.mu.Lock()
-	if tab.Terminal != nil {
-		input = mouseWheelInputSequence(tab.Terminal, msg.Button, termX, termY)
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		if tab.Terminal != nil {
+			input = mouseWheelInputSequence(tab.Terminal, msg.Button, termX, termY)
+		}
+	})
 	if input == "" {
 		return false
 	}
@@ -216,10 +216,9 @@ func (m *Model) getDiffViewer(tab *Tab) *diff.Model {
 	if tab == nil {
 		return nil
 	}
-	tab.mu.Lock()
-	dv := tab.DiffViewer
-	tab.mu.Unlock()
-	return dv
+	return withMuVal(&tab.mu, func() *diff.Model {
+		return tab.DiffViewer
+	})
 }
 
 func (m *Model) dispatchDiffInput(tab *Tab, msg tea.Msg) (bool, tea.Cmd) {

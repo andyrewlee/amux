@@ -109,26 +109,26 @@ func (m *TerminalModel) handleMouseClick(msg tea.MouseClickMsg) (*TerminalModel,
 	if msg.Button == tea.MouseLeft {
 		termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
 
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			ts.VTerm.ClearSelection()
-		}
-		ts.selectionScroll.Reset()
-		if inBounds && ts.VTerm != nil {
-			// Convert screen Y to absolute line number
-			absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
-			ts.Selection = common.SelectionState{
-				Active:    true,
-				StartX:    termX,
-				StartLine: absLine,
-				EndX:      termX,
-				EndLine:   absLine,
+		withMu(&ts.mu, func() {
+			if ts.VTerm != nil {
+				ts.VTerm.ClearSelection()
 			}
-			ts.VTerm.SetSelection(termX, absLine, termX, absLine, true, false)
-		} else {
-			ts.Selection = common.SelectionState{}
-		}
-		ts.mu.Unlock()
+			ts.selectionScroll.Reset()
+			if inBounds && ts.VTerm != nil {
+				// Convert screen Y to absolute line number
+				absLine := ts.VTerm.ScreenYToAbsoluteLine(termY)
+				ts.Selection = common.SelectionState{
+					Active:    true,
+					StartX:    termX,
+					StartLine: absLine,
+					EndX:      termX,
+					EndLine:   absLine,
+				}
+				ts.VTerm.SetSelection(termX, absLine, termX, absLine, true, false)
+			} else {
+				ts.Selection = common.SelectionState{}
+			}
+		})
 	}
 
 	return m, nil
@@ -153,31 +153,31 @@ func (m *TerminalModel) handleMouseMotion(msg tea.MouseMotionMsg) (*TerminalMode
 
 	var cmd tea.Cmd
 
-	ts.mu.Lock()
-	if ts.Selection.Active && ts.VTerm != nil {
-		needTick, gen, seq := common.DragSelect(
-			ts.VTerm,
-			&ts.Selection,
-			&ts.selectionScroll,
-			termX, termY, ts.VTerm.Width, ts.VTerm.Height,
-			&ts.selectionLastTermX,
-			ts.VTerm.ScrollViewAndNote,
-			ts.VTerm.ScreenYToAbsoluteLine,
-		)
+	withMu(&ts.mu, func() {
+		if ts.Selection.Active && ts.VTerm != nil {
+			needTick, gen, seq := common.DragSelect(
+				ts.VTerm,
+				&ts.Selection,
+				&ts.selectionScroll,
+				termX, termY, ts.VTerm.Width, ts.VTerm.Height,
+				&ts.selectionLastTermX,
+				ts.VTerm.ScrollViewAndNote,
+				ts.VTerm.ScreenYToAbsoluteLine,
+			)
 
-		// Start tick loop for continuous scrolling if needed
-		if needTick {
-			activeTab := m.getActiveTab()
-			if activeTab != nil {
-				wsID := m.workspaceID()
-				tabID := activeTab.ID
-				cmd = common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
-					return messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
-				})
+			// Start tick loop for continuous scrolling if needed
+			if needTick {
+				activeTab := m.getActiveTab()
+				if activeTab != nil {
+					wsID := m.workspaceID()
+					tabID := activeTab.ID
+					cmd = common.SafeTick(common.SelectionScrollTickInterval, func(time.Time) tea.Msg {
+						return messages.SidebarSelectionScrollTick{WorkspaceID: wsID, TabID: string(tabID), Gen: gen, Seq: seq}
+					})
+				}
 			}
 		}
-	}
-	ts.mu.Unlock()
+	})
 
 	return m, cmd
 }
@@ -197,20 +197,20 @@ func (m *TerminalModel) handleMouseRelease(msg tea.MouseReleaseMsg) (*TerminalMo
 		return m, nil
 	}
 
-	ts.mu.Lock()
-	text := ""
-	if ts.Selection.Active {
-		// Only copy if selection spans more than a single point
-		if ts.VTerm != nil &&
-			(ts.Selection.StartX != ts.Selection.EndX ||
-				ts.Selection.StartLine != ts.Selection.EndLine) {
-			text = ts.VTerm.SelectedText()
-			// Keep selection visible - don't clear it
+	var text string
+	withMu(&ts.mu, func() {
+		if ts.Selection.Active {
+			// Only copy if selection spans more than a single point
+			if ts.VTerm != nil &&
+				(ts.Selection.StartX != ts.Selection.EndX ||
+					ts.Selection.StartLine != ts.Selection.EndLine) {
+				text = ts.VTerm.SelectedText()
+				// Keep selection visible - don't clear it
+			}
+			ts.Selection.Active = false
+			ts.selectionScroll.Reset()
 		}
-		ts.Selection.Active = false
-		ts.selectionScroll.Reset()
-	}
-	ts.mu.Unlock()
+	})
 	common.CopyToClipboardWithLog(text, "sidebar selection")
 
 	return m, nil
@@ -230,23 +230,27 @@ func (m *TerminalModel) handleSelectionScrollTick(msg messages.SidebarSelectionS
 		return nil
 	}
 	ts := tab.State
-	ts.mu.Lock()
-	if !ts.Selection.Active || ts.VTerm == nil || !ts.selectionScroll.HandleTick(msg.Gen, msg.Seq) {
-		ts.mu.Unlock()
+	var nextSeq uint64
+	ok := false
+	withMu(&ts.mu, func() {
+		if !ts.Selection.Active || ts.VTerm == nil || !ts.selectionScroll.HandleTick(msg.Gen, msg.Seq) {
+			return
+		}
+		ok = true
+		common.SelectionScrollTickStep(
+			ts.VTerm,
+			&ts.Selection,
+			&ts.selectionScroll,
+			ts.VTerm.Height,
+			ts.selectionLastTermX,
+			ts.VTerm.ScrollViewAndNote,
+			ts.VTerm.ScreenYToAbsoluteLine,
+		)
+		nextSeq = ts.selectionScroll.TickSeq
+	})
+	if !ok {
 		return nil
 	}
-	common.SelectionScrollTickStep(
-		ts.VTerm,
-		&ts.Selection,
-		&ts.selectionScroll,
-		ts.VTerm.Height,
-		ts.selectionLastTermX,
-		ts.VTerm.ScrollViewAndNote,
-		ts.VTerm.ScreenYToAbsoluteLine,
-	)
-	nextSeq := ts.selectionScroll.TickSeq
-
-	ts.mu.Unlock()
 
 	wsID := msg.WorkspaceID
 	tabID := msg.TabID

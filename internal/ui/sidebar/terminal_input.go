@@ -6,6 +6,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/safego"
 )
 
@@ -254,12 +255,12 @@ func (m *TerminalModel) runSidebarInputWriter(ts *TerminalState, w *sidebarInput
 	for {
 		select {
 		case req := <-w.reqs:
-			ts.mu.Lock()
-			if req.counted {
-				w.queuedBytes -= len(req.data)
-			}
-			stale := req.gen != w.gen || w.stale.Load()
-			ts.mu.Unlock()
+			stale := withMuVal(&ts.mu, func() bool {
+				if req.counted {
+					w.queuedBytes -= len(req.data)
+				}
+				return req.gen != w.gen || w.stale.Load()
+			})
 			if stale {
 				continue
 			}
@@ -281,12 +282,13 @@ func (m *TerminalModel) runSidebarInputWriter(ts *TerminalState, w *sidebarInput
 // out), the failure is stale — logged and dropped rather than latching
 // state the replacement should not inherit.
 func (w *sidebarInputWriter) failSidebarInput(ts *TerminalState, m *TerminalModel, req sidebarInputReq, err error) {
-	ts.mu.Lock()
-	current := ts.input.writer == w
-	if current {
-		ts.input.failed = true
-	}
-	ts.mu.Unlock()
+	current := withMuVal(&ts.mu, func() bool {
+		if ts.input.writer == w {
+			ts.input.failed = true
+			return true
+		}
+		return false
+	})
 	err = fmt.Errorf("%s: %w", req.label, err)
 	if !current {
 		logging.Debug("Sidebar input write failed on a retired binding (ignored): %v", err)
@@ -331,26 +333,36 @@ func (m *TerminalModel) detachStateForInputGen(ts *TerminalState, gen uint64) {
 	// failure touches nothing, and once the check passes the detachment is
 	// inevitable — invalidateReattachLocked fences any in-flight attach so
 	// nothing after the unlock can resurrect this binding's reader.
-	ts.mu.Lock()
-	if ts.input.gen != gen {
-		ts.mu.Unlock()
+	var (
+		clip          []byte
+		retiredInput  *sidebarInputWriter
+		retiredWriter *sidebarWriterStream
+		term          *pty.Terminal
+		matched       bool
+	)
+	withMu(&ts.mu, func() {
+		if ts.input.gen != gen {
+			return
+		}
+		matched = true
+		// Mirror detachState: the detached VTerm keeps its history, so queued
+		// stream requests finish in order before the stream buffers reset.
+		ts.invalidateReattachLocked()
+		clip = drainSidebarWriterQueueLocked(ts)
+		retiredInput = ts.retireSidebarInputWriterLocked()
+		retiredWriter = ts.stopSidebarWriterLocked()
+		term = ts.Terminal
+		ts.Terminal = nil
+		ts.Running = false
+		ts.Detached = true
+		ts.UserDetached = false
+		ts.PendingOutput = nil
+		ts.pendingBufferedBytes = 0
+		ts.NoiseTrailing = nil
+	})
+	if !matched {
 		return
 	}
-	// Mirror detachState: the detached VTerm keeps its history, so queued
-	// stream requests finish in order before the stream buffers reset.
-	ts.invalidateReattachLocked()
-	clip := drainSidebarWriterQueueLocked(ts)
-	retiredInput := ts.retireSidebarInputWriterLocked()
-	retiredWriter := ts.stopSidebarWriterLocked()
-	term := ts.Terminal
-	ts.Terminal = nil
-	ts.Running = false
-	ts.Detached = true
-	ts.UserDetached = false
-	ts.PendingOutput = nil
-	ts.pendingBufferedBytes = 0
-	ts.NoiseTrailing = nil
-	ts.mu.Unlock()
 	// The reader belongs to the dead binding — stopping it after the commit
 	// can only quiesce the terminal that is already detached.
 	m.stopPTYReader(ts)

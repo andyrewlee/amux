@@ -9,6 +9,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
@@ -102,9 +103,9 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 		// A result with no agent cannot attach anything, but the reattach lock
 		// is still held: release it so the tab reads as detached and the user
 		// can retry instead of being stuck in REATTACHING forever.
-		tab.mu.Lock()
-		tab.markReattachFailedLocked(false)
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			tab.markReattachFailedLocked(false)
+		})
 		logging.Warn("Reattach for tab %s returned no agent; releasing reattach lock", msg.TabID)
 		return m, func() tea.Msg {
 			return messages.TabStateChanged{WorkspaceID: wsID, TabID: string(msg.TabID)}
@@ -115,9 +116,9 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	// live reattach/restart (reattachInFlight=true) still applies, but a
 	// user-detached tab is not silently resurrected. Release the freshly created
 	// agent/PTY so it does not leak.
-	tab.mu.Lock()
-	staleDetached := tab.Detached && !tab.Reattach.InFlight
-	tab.mu.Unlock()
+	staleDetached := withMuVal(&tab.mu, func() bool {
+		return tab.Detached && !tab.Reattach.InFlight
+	})
 	if staleDetached {
 		_ = m.agentManager.CloseAgent(msg.Agent)
 		return m, nil
@@ -126,40 +127,41 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 	captureCols := msg.Cols
 	cols, rows := m.sessionRestoreLiveSize(msg.CaptureFullPane, captureCols, captureRows)
 	initialCols, initialRows := ptyio.SessionSnapshotSize(msg.CaptureFullPane, msg.SnapshotCols, msg.SnapshotRows, cols, rows)
-	tab.mu.Lock()
-	createdTerminal := false
-	if tab.Terminal == nil {
-		tab.Terminal = vterm.New(initialCols, initialRows)
-		createdTerminal = true
-	}
-	if tab.Terminal != nil {
-		// Do not reset parser state when reusing an existing terminal here.
-		// pendingOutput may still contain continuation bytes queued under the
-		// current parser carry, and reconnect must preserve that continuity until
-		// buffered output is explicitly reconciled.
-		tab.Terminal.AllowAltScreenScrollback = true
-		m.applyTerminalCursorPolicyLocked(tab)
-		if msg.CaptureFullPane {
-			// The tmux snapshot is now the source of truth for the restored frame.
-			// Any preserved local PTY backlog may already be represented there and
-			// would duplicate on the next flush if we kept it alive.
-			tab.PendingOutput = nil
-			ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
-		} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
-			ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
-		} else if m.width > 0 && m.height > 0 {
-			ptyio.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
+	var inputGen uint64
+	withMu(&tab.mu, func() {
+		createdTerminal := false
+		if tab.Terminal == nil {
+			tab.Terminal = vterm.New(initialCols, initialRows)
+			createdTerminal = true
 		}
-	}
-	tab.Agent = msg.Agent
-	tab.SessionName = msg.Agent.Session
-	tab.markAttachedLocked()
-	resetChatCursorActivityStateLocked(tab)
-	tab.resetActorWriteStateLocked()
-	tab.bootstrapActivity = true
-	tab.bootstrapLastOutputAt = time.Now()
-	inputGen := tab.inputGenLocked()
-	tab.mu.Unlock()
+		if tab.Terminal != nil {
+			// Do not reset parser state when reusing an existing terminal here.
+			// pendingOutput may still contain continuation bytes queued under the
+			// current parser carry, and reconnect must preserve that continuity until
+			// buffered output is explicitly reconciled.
+			tab.Terminal.AllowAltScreenScrollback = true
+			m.applyTerminalCursorPolicyLocked(tab)
+			if msg.CaptureFullPane {
+				// The tmux snapshot is now the source of truth for the restored frame.
+				// Any preserved local PTY backlog may already be represented there and
+				// would duplicate on the next flush if we kept it alive.
+				tab.PendingOutput = nil
+				ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
+			} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
+				ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
+			} else if m.width > 0 && m.height > 0 {
+				ptyio.ResizeTerminalForSessionRestore(tab.Terminal, cols, rows)
+			}
+		}
+		tab.Agent = msg.Agent
+		tab.SessionName = msg.Agent.Session
+		tab.markAttachedLocked()
+		resetChatCursorActivityStateLocked(tab)
+		tab.resetActorWriteStateLocked()
+		tab.bootstrapActivity = true
+		tab.bootstrapLastOutputAt = time.Now()
+		inputGen = tab.inputGenLocked()
+	})
 	tab.resetActivityANSIState()
 	// The previous binding's writer was retired under the attach; join it now
 	// that the lock is free (its terminal is already dead or detached, so a
@@ -203,10 +205,10 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 		// about it and must not release its lock or toast over it.
 		return m, nil
 	}
-	tab.mu.Lock()
-	// A stopped reattach also clears Detached so the tab shows as stopped.
-	tab.markReattachFailedLocked(msg.Stopped)
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		// A stopped reattach also clears Detached so the tab shows as stopped.
+		tab.markReattachFailedLocked(msg.Stopped)
+	})
 	tab.joinRetiredInputWriters()
 	logging.Error("Reattach failed for tab %s: %v", msg.TabID, msg.Err)
 	action := msg.Action
@@ -238,9 +240,9 @@ func (m *Model) updatePtyTabReattachFailed(msg ptyTabReattachFailed) (*Model, te
 // as before rather than dropped, so the guard can only ever reject a message it
 // can positively identify as stale.
 func (m *Model) reattachSuperseded(tab *Tab, epoch uint64) (bool, uint64) {
-	tab.mu.Lock()
-	current := tab.reattachEpochLocked()
-	tab.mu.Unlock()
+	current := withMuVal(&tab.mu, func() uint64 {
+		return tab.reattachEpochLocked()
+	})
 	if epoch == 0 {
 		return false, current
 	}
@@ -269,15 +271,17 @@ func (m *Model) SweepStalledReattaches() tea.Cmd {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
-			tab.mu.Lock()
-			stuck := tab.Reattach.Sweep(now, tab.Running)
-			if stuck {
-				// Preserve the release action (not just the flag clear): the
-				// phase transition keeps Running/Detached consistent.
-				tab.markReattachFailedLocked(false)
-			}
-			tabID := tab.ID
-			tab.mu.Unlock()
+			var stuck bool
+			var tabID TabID
+			withMu(&tab.mu, func() {
+				stuck = tab.Reattach.Sweep(now, tab.Running)
+				if stuck {
+					// Preserve the release action (not just the flag clear): the
+					// phase transition keeps Running/Detached consistent.
+					tab.markReattachFailedLocked(false)
+				}
+				tabID = tab.ID
+			})
 			if !stuck {
 				continue
 			}
@@ -312,18 +316,19 @@ func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, t
 		return m, nil
 	}
 	m.stopPTYReader(tab)
-	tab.mu.Lock()
-	agent := tab.Agent
-	tab.Agent = nil
-	tab.mu.Unlock()
+	var agent *appPty.Agent
+	withMu(&tab.mu, func() {
+		agent = tab.Agent
+		tab.Agent = nil
+	})
 	if agent != nil {
 		// Closing the terminal unblocks any in-flight input write so the
 		// retired writer's join below returns.
 		_ = m.agentManager.CloseAgent(agent)
 	}
-	tab.mu.Lock()
-	tab.markStoppedLocked()
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		tab.markStoppedLocked()
+	})
 	tab.joinRetiredInputWriters()
 	tab.resetActivityANSIState()
 	return m, common.SafeBatch(func() tea.Msg {

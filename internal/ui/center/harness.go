@@ -29,9 +29,9 @@ func (t *Tab) WriteToTerminal(data []byte) {
 	if t == nil || t.Terminal == nil {
 		return
 	}
-	t.mu.Lock()
-	t.Terminal.Write(data)
-	t.mu.Unlock()
+	withMu(&t.mu, func() {
+		t.Terminal.Write(data)
+	})
 }
 
 // NoteVisibleOutput stamps the visible-activity clock the way the tab actor does
@@ -41,8 +41,8 @@ func (t *Tab) NoteVisibleOutput(at time.Time) {
 	if t == nil {
 		return
 	}
-	t.mu.Lock()
-	t.lastVisibleOutput = at
-	t.LastOutputAt = at
-	t.mu.Unlock()
+	withMu(&t.mu, func() {
+		t.lastVisibleOutput = at
+		t.LastOutputAt = at
+	})
 }

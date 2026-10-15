@@ -57,9 +57,9 @@ func (m *TerminalModel) renderTabBar() string {
 		name = common.SanitizeDisplayText(name, 256)
 		disconnected := false
 		if tab.State != nil {
-			tab.State.mu.Lock()
-			disconnected = tab.State.Detached || !tab.State.Running
-			tab.State.mu.Unlock()
+			disconnected = withMuVal(&tab.State.mu, func() bool {
+				return tab.State.Detached || !tab.State.Running
+			})
 		}
 
 		// Build tab content with close affordance
@@ -337,19 +337,21 @@ func (m *TerminalModel) View() string {
 			b.WriteString(placeholder)
 		}
 	} else {
-		ts.mu.Lock()
-		// Keep cursor state in sync at render time too; Focus/Blur also set
-		// this eagerly to avoid stale frames during fast pane switches.
-		ts.VTerm.ShowCursor = m.focused
-		// Use VTerm.Render() directly - it uses dirty line caching and delta styles
-		content := ts.VTerm.Render()
-		isScrolled := ts.VTerm.IsScrolled()
+		var content string
+		var isScrolled bool
 		var scrollInfo string
-		if isScrolled {
-			offset, total := ts.VTerm.GetScrollInfo()
-			scrollInfo = formatScrollPos(offset, total)
-		}
-		ts.mu.Unlock()
+		withMu(&ts.mu, func() {
+			// Keep cursor state in sync at render time too; Focus/Blur also set
+			// this eagerly to avoid stale frames during fast pane switches.
+			ts.VTerm.ShowCursor = m.focused
+			// Use VTerm.Render() directly - it uses dirty line caching and delta styles
+			content = ts.VTerm.Render()
+			isScrolled = ts.VTerm.IsScrolled()
+			if isScrolled {
+				offset, total := ts.VTerm.GetScrollInfo()
+				scrollInfo = formatScrollPos(offset, total)
+			}
+		})
 
 		b.WriteString(content)
 
@@ -419,18 +421,18 @@ func (m *TerminalModel) SetSize(width, height int) {
 				continue
 			}
 			ts := tab.State
-			ts.mu.Lock()
-			if ts.VTerm != nil && (ts.lastWidth != termWidth || ts.lastHeight != termHeight) {
-				ts.lastWidth = termWidth
-				ts.lastHeight = termHeight
-				ts.VTerm.Resize(termWidth, termHeight)
-				if ts.Terminal != nil {
-					if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
-						_ = setTerminalSizeFn(ts.Terminal, ptyRows, ptyCols)
+			withMu(&ts.mu, func() {
+				if ts.VTerm != nil && (ts.lastWidth != termWidth || ts.lastHeight != termHeight) {
+					ts.lastWidth = termWidth
+					ts.lastHeight = termHeight
+					ts.VTerm.Resize(termWidth, termHeight)
+					if ts.Terminal != nil {
+						if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
+							_ = setTerminalSizeFn(ts.Terminal, ptyRows, ptyCols)
+						}
 					}
 				}
-			}
-			ts.mu.Unlock()
+			})
 		}
 	}
 }

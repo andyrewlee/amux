@@ -112,9 +112,9 @@ func (m *TerminalModel) Update(msg tea.Msg) (*TerminalModel, tea.Cmd) {
 			break
 		}
 		ts := tab.State
-		ts.mu.Lock()
-		current := msg.epoch != 0 && ts.writeEpoch == msg.epoch
-		ts.mu.Unlock()
+		current := withMuVal(&ts.mu, func() bool {
+			return msg.epoch != 0 && ts.writeEpoch == msg.epoch
+		})
 		if !current {
 			break
 		}
@@ -166,14 +166,14 @@ func (m *TerminalModel) handleMouseWheel(msg tea.MouseWheelMsg) (*TerminalModel,
 	if ts == nil || ts.VTerm == nil {
 		return m, nil
 	}
-	ts.mu.Lock()
-	delta := common.ScrollDeltaForHeight(ts.VTerm.Height, 8) // ~12.5% of viewport
-	if msg.Button == tea.MouseWheelUp {
-		ts.VTerm.ScrollViewAndNote(delta)
-	} else if msg.Button == tea.MouseWheelDown {
-		ts.VTerm.ScrollViewAndNote(-delta)
-	}
-	ts.mu.Unlock()
+	withMu(&ts.mu, func() {
+		delta := common.ScrollDeltaForHeight(ts.VTerm.Height, 8) // ~12.5% of viewport
+		if msg.Button == tea.MouseWheelUp {
+			ts.VTerm.ScrollViewAndNote(delta)
+		} else if msg.Button == tea.MouseWheelDown {
+			ts.VTerm.ScrollViewAndNote(-delta)
+		}
+	})
 	return m, nil
 }
 
@@ -224,12 +224,12 @@ func (m *TerminalModel) handleKeyPress(msg tea.KeyPressMsg) (*TerminalModel, tea
 
 	// Handle explicit Cmd+C to copy current selection
 	if isCopyKey {
-		ts.mu.Lock()
-		text := ""
-		if ts.VTerm != nil && ts.VTerm.HasSelection() {
-			text = ts.VTerm.SelectedText()
-		}
-		ts.mu.Unlock()
+		var text string
+		withMu(&ts.mu, func() {
+			if ts.VTerm != nil && ts.VTerm.HasSelection() {
+				text = ts.VTerm.SelectedText()
+			}
+		})
 		common.CopyToClipboardWithLog(text, "Cmd+C sidebar")
 		return m, nil // Don't forward to terminal, don't clear selection
 	}
@@ -237,29 +237,29 @@ func (m *TerminalModel) handleKeyPress(msg tea.KeyPressMsg) (*TerminalModel, tea
 	// PgUp/PgDown for scrollback (these don't conflict with embedded TUIs)
 	switch msg.Key().Code {
 	case tea.KeyPgUp:
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			ts.VTerm.ScrollViewAndNote(common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
-		}
-		ts.mu.Unlock()
+		withMu(&ts.mu, func() {
+			if ts.VTerm != nil {
+				ts.VTerm.ScrollViewAndNote(common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
+			}
+		})
 		return m, nil
 
 	case tea.KeyPgDown:
-		ts.mu.Lock()
-		if ts.VTerm != nil {
-			ts.VTerm.ScrollViewAndNote(-common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
-		}
-		ts.mu.Unlock()
+		withMu(&ts.mu, func() {
+			if ts.VTerm != nil {
+				ts.VTerm.ScrollViewAndNote(-common.ScrollDeltaForHeight(ts.VTerm.Height, 2))
+			}
+		})
 		return m, nil
 	}
 
 	// If scrolled, any typing goes back to live and sends key
-	ts.mu.Lock()
-	if ts.VTerm != nil && ts.VTerm.IsScrolled() {
-		ts.VTerm.ScrollViewToBottom()
-		ts.VTerm.NoteSyncViewportInteraction()
-	}
-	ts.mu.Unlock()
+	withMu(&ts.mu, func() {
+		if ts.VTerm != nil && ts.VTerm.IsScrolled() {
+			ts.VTerm.ScrollViewToBottom()
+			ts.VTerm.NoteSyncViewportInteraction()
+		}
+	})
 
 	// Forward ALL keys to terminal (no Ctrl interceptions). Same admission
 	// contract as paste: Update never writes to the PTY itself.

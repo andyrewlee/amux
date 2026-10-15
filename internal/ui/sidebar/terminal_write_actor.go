@@ -1,6 +1,9 @@
 package sidebar
 
 import (
+	"runtime/debug"
+
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/perf"
 	"github.com/andyrewlee/amux/internal/safego"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
@@ -73,6 +76,10 @@ type sidebarWriterStream struct {
 	// on the worker — the integrity tests' pause point, outside the mutex.
 	// Only tests on a stream they installed set it; production leaves nil.
 	testPreLock func()
+	// testApplyHook, when set, runs inside the per-request critical section
+	// just before applySidebarWriteLocked — the panic tests' injection point.
+	// Only tests on a stream they installed set it; production leaves nil.
+	testApplyHook func()
 }
 
 // sidebarWriteQueueCap bounds enqueue buffering per tab. A full queue means
@@ -169,15 +176,50 @@ func (m *TerminalModel) runSidebarWriter(ts *TerminalState, w *sidebarWriterStre
 		if w.testPreLock != nil {
 			w.testPreLock()
 		}
-		ts.mu.Lock()
-		if w.stopped {
-			// The stream ended: queued requests die with it rather than
-			// applying to whatever state follows.
-			ts.mu.Unlock()
+		// Per-request recover: a panicking apply is dropped instead of killing
+		// the writer goroutine (and, through the supervisor restart, deadlocking
+		// on whatever the panic left behind). The request was already dequeued,
+		// so the panic drops that chunk — recovered and logged here.
+		var clip []byte
+		var wrote bool
+		var req sidebarWriteReq
+		step := func() (exit, wait bool) {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Error("sidebar writer panic (tab %s): %v\n%s", req.tabID, r, debug.Stack())
+					exit, wait = false, false
+				}
+			}()
+			ts.mu.Lock()
+			defer ts.mu.Unlock()
+			if w.stopped {
+				// The stream ended: queued requests die with it rather than
+				// applying to whatever state follows.
+				return true, false
+			}
+			if len(w.reqs) == 0 {
+				return false, true
+			}
+			req = w.reqs[0]
+			w.reqs[0] = sidebarWriteReq{} // release the chunk backing array
+			w.reqs = w.reqs[1:]
+			if req.epoch != w.epoch {
+				// A request stamped under a different stream epoch is obsolete:
+				// discard it before it reaches the parser.
+				return false, false
+			}
+			more := len(w.reqs) > 0 || ts.pendingBufferedBytes > 0
+			if w.testApplyHook != nil {
+				w.testApplyHook()
+			}
+			clip, wrote = applySidebarWriteLocked(ts, req, more)
+			return false, false
+		}
+		exit, wait := step()
+		if exit {
 			return
 		}
-		if len(w.reqs) == 0 {
-			ts.mu.Unlock()
+		if wait {
 			select {
 			case <-w.wake:
 			case <-w.stop:
@@ -185,18 +227,6 @@ func (m *TerminalModel) runSidebarWriter(ts *TerminalState, w *sidebarWriterStre
 			}
 			continue
 		}
-		req := w.reqs[0]
-		w.reqs[0] = sidebarWriteReq{} // release the chunk backing array
-		w.reqs = w.reqs[1:]
-		if req.epoch != w.epoch {
-			// A request stamped under a different stream epoch is obsolete:
-			// discard it before it reaches the parser.
-			ts.mu.Unlock()
-			continue
-		}
-		more := len(w.reqs) > 0 || ts.pendingBufferedBytes > 0
-		clip, wrote := applySidebarWriteLocked(ts, req, more)
-		ts.mu.Unlock()
 		if wrote && m.msgSink != nil {
 			m.msgSink(SidebarTabWritten{WorkspaceID: req.workspaceID, TabID: req.tabID, clip: clip, epoch: w.epoch})
 		}

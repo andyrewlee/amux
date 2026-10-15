@@ -13,16 +13,17 @@ func (m *Model) flushTiming(tab *Tab, active bool) (time.Duration, time.Duration
 	maxInterval := ptyFlushMaxInterval
 
 	// Snapshot terminal state under lock, then release before the load-sampling call.
-	tab.mu.Lock()
-	altScreen := tab.Terminal != nil && tab.Terminal.AltScreen
+	var altScreen bool
 	var termWidth, termHeight int
 	var pendingLen int
-	if tab.Terminal != nil {
-		termWidth = tab.Terminal.Width
-		termHeight = tab.Terminal.Height
-		pendingLen = len(tab.PendingOutput)
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		altScreen = tab.Terminal != nil && tab.Terminal.AltScreen
+		if tab.Terminal != nil {
+			termWidth = tab.Terminal.Width
+			termHeight = tab.Terminal.Height
+			pendingLen = len(tab.PendingOutput)
+		}
+	})
 
 	// Only use slower Alt timing for true AltScreen mode (full-screen TUIs).
 	// A DEC 2026 writer does not need slower flush timing — that just makes
@@ -89,9 +90,9 @@ func (m *Model) busyPTYTabCount(now time.Time) int {
 			if tab == nil || tab.isClosed() {
 				continue
 			}
-			tab.mu.Lock()
-			busy := tab.ReaderActive || len(tab.PendingOutput) > 0
-			tab.mu.Unlock()
+			busy := withMuVal(&tab.mu, func() bool {
+				return tab.ReaderActive || len(tab.PendingOutput) > 0
+			})
 			if busy {
 				count++
 			}

@@ -46,9 +46,9 @@ func (m *Model) renderTabBar() string {
 		name = common.SanitizeDisplayText(name, 256)
 
 		// Check if tab is disconnected (detached or stopped)
-		tab.mu.Lock()
-		tabDisconnected := tab.Detached || !tab.Running
-		tab.mu.Unlock()
+		tabDisconnected := withMuVal(&tab.mu, func() bool {
+			return tab.Detached || !tab.Running
+		})
 
 		// Add brand color indicator for agent tabs (not file viewers)
 		var indicator string

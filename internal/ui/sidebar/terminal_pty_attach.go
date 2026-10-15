@@ -164,17 +164,20 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 		return nil
 	}
 	ts := tab.State
-	ts.mu.Lock()
-	running := ts.Running
-	sessionName := ts.SessionName
-	began := !running && ts.beginReattachLocked()
-	if began {
-		// An explicit reattach is consent to attach again — the attempt's own
-		// outcome now owns clearing the flag.
-		ts.UserDetached = false
-	}
-	epoch := ts.reattachEpoch
-	ts.mu.Unlock()
+	var running, began bool
+	var sessionName string
+	var epoch uint64
+	withMu(&ts.mu, func() {
+		running = ts.Running
+		sessionName = ts.SessionName
+		began = !running && ts.beginReattachLocked()
+		if began {
+			// An explicit reattach is consent to attach again — the attempt's own
+			// outcome now owns clearing the flag.
+			ts.UserDetached = false
+		}
+		epoch = ts.reattachEpoch
+	})
 	if running {
 		return func() tea.Msg {
 			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
@@ -201,10 +204,12 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 		return nil
 	}
 	ts := tab.State
-	ts.mu.Lock()
-	running := ts.Running
-	sessionName := ts.SessionName
-	ts.mu.Unlock()
+	var running bool
+	var sessionName string
+	withMu(&ts.mu, func() {
+		running = ts.Running
+		sessionName = ts.SessionName
+	})
 	if running {
 		return func() tea.Msg {
 			return messages.Toast{Message: "Terminal is still running", Level: messages.ToastInfo}
@@ -223,10 +228,12 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 		// diagnosable.
 		logging.Error("Failed to kill tmux session %s during sidebar terminal restart: %v", sessionName, err)
 	}
-	ts.mu.Lock()
-	began := ts.beginReattachLocked()
-	epoch := ts.reattachEpoch
-	ts.mu.Unlock()
+	var began bool
+	var epoch uint64
+	withMu(&ts.mu, func() {
+		began = ts.beginReattachLocked()
+		epoch = ts.reattachEpoch
+	})
 	if !began {
 		return nil
 	}

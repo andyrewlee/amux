@@ -55,17 +55,21 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	if tab == nil || tab.Workspace == nil {
 		return nil
 	}
-	tab.mu.Lock()
-	running := tab.Running
-	detached := tab.Detached
-	reattachInFlight := tab.Reattach.InFlight
-	sessionName := tab.SessionName
-	canReattach := detached || !running
-	if canReattach && !reattachInFlight {
-		_ = tab.beginReattachLocked()
-	}
-	epoch := tab.reattachEpochLocked()
-	tab.mu.Unlock()
+	var running, detached, reattachInFlight bool
+	var sessionName string
+	var epoch uint64
+	canReattach := false
+	withMu(&tab.mu, func() {
+		running = tab.Running
+		detached = tab.Detached
+		reattachInFlight = tab.Reattach.InFlight
+		sessionName = tab.SessionName
+		canReattach = detached || !running
+		if canReattach && !reattachInFlight {
+			_ = tab.beginReattachLocked()
+		}
+		epoch = tab.reattachEpochLocked()
+	})
 	if !canReattach {
 		return nil
 	}
@@ -81,9 +85,9 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 		}
 	}
 	if m.config == nil || m.config.Assistants == nil {
-		tab.mu.Lock()
-		tab.endReattachLocked()
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			tab.endReattachLocked()
+		})
 		return func() tea.Msg {
 			return messages.Toast{
 				Message: "Tab cannot be reattached",
@@ -93,9 +97,9 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	}
 	assistantCfg, ok := m.config.Assistants[tab.Assistant]
 	if !ok {
-		tab.mu.Lock()
-		tab.endReattachLocked()
-		tab.mu.Unlock()
+		withMu(&tab.mu, func() {
+			tab.endReattachLocked()
+		})
 		return func() tea.Msg {
 			return messages.Toast{
 				Message: "Only assistant tabs can be reattached",
@@ -227,18 +231,21 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	tab.mu.Lock()
-	running := tab.Running
-	reattachInFlight := tab.Reattach.InFlight
-	sessionName := tab.SessionName
-	if sessionName == "" && tab.Agent != nil {
-		sessionName = tab.Agent.Session
-	}
-	if !running && !reattachInFlight {
-		_ = tab.beginReattachLocked()
-	}
-	epoch := tab.reattachEpochLocked()
-	tab.mu.Unlock()
+	var running, reattachInFlight bool
+	var sessionName string
+	var epoch uint64
+	withMu(&tab.mu, func() {
+		running = tab.Running
+		reattachInFlight = tab.Reattach.InFlight
+		sessionName = tab.SessionName
+		if sessionName == "" && tab.Agent != nil {
+			sessionName = tab.Agent.Session
+		}
+		if !running && !reattachInFlight {
+			_ = tab.beginReattachLocked()
+		}
+		epoch = tab.reattachEpochLocked()
+	})
 	if running {
 		return func() tea.Msg {
 			return messages.Toast{
@@ -257,11 +264,11 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 	}
 	m.stopPTYReader(tab)
 	var existingAgent *appPty.Agent
-	tab.mu.Lock()
-	existingAgent = tab.Agent
-	tab.Agent = nil
-	tab.retireTabInputWriterLocked()
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		existingAgent = tab.Agent
+		tab.Agent = nil
+		tab.retireTabInputWriterLocked()
+	})
 	if existingAgent != nil {
 		// Closing the terminal unblocks the retired writer's in-flight send.
 		_ = m.agentManager.CloseAgent(existingAgent)

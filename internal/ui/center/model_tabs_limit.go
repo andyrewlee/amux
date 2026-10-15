@@ -34,12 +34,16 @@ func (m *Model) EnforceAttachedAgentTabLimit(maxAttached int) ([]DetachedTabInfo
 			if tab == nil || tab.isClosed() || !m.isChatTab(tab) {
 				continue
 			}
-			tab.mu.Lock()
-			attached := !tab.Detached && tab.Running
-			lastFocused := tab.lastFocusedAt
-			createdAt := tab.createdAt
-			tabID := tab.ID
-			tab.mu.Unlock()
+			var attached bool
+			var lastFocused time.Time
+			var createdAt int64
+			var tabID TabID
+			withMu(&tab.mu, func() {
+				attached = !tab.Detached && tab.Running
+				lastFocused = tab.lastFocusedAt
+				createdAt = tab.createdAt
+				tabID = tab.ID
+			})
 			if !attached {
 				continue
 			}

@@ -85,9 +85,9 @@ func (m *Model) findOpenDiffTab(ws *data.Workspace, changePath string, mode git.
 		if tab == nil || tab.isClosed() {
 			continue
 		}
-		tab.mu.Lock()
-		dv := tab.DiffViewer
-		tab.mu.Unlock()
+		dv := withMuVal(&tab.mu, func() *diff.Model {
+			return tab.DiffViewer
+		})
 		if dv != nil && dv.MatchesSource(changePath, mode) {
 			return idx, tab
 		}
@@ -124,15 +124,15 @@ func (m *Model) reuseDiffTab(ws *data.Workspace, idx int, tab *Tab, change *git.
 	// goroutine's updateDiffViewer applies queued updates under the same lock,
 	// so reuse mutates the viewer there too. dv.Init() only captures state into
 	// a Cmd closure; the Cmd itself runs later on the Bubble Tea loop.
-	tab.mu.Lock()
-	dv := tab.DiffViewer
 	var initCmd tea.Cmd
-	if dv != nil {
-		wrapDiffResults(dv, wsID, tab.ID)
-		dv.ResetSource(ws, change, mode)
-		initCmd = dv.Init()
-	}
-	tab.mu.Unlock()
+	withMu(&tab.mu, func() {
+		dv := tab.DiffViewer
+		if dv != nil {
+			wrapDiffResults(dv, wsID, tab.ID)
+			dv.ResetSource(ws, change, mode)
+			initCmd = dv.Init()
+		}
+	})
 	if initCmd != nil {
 		cmds = append(cmds, initCmd)
 	}
