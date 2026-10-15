@@ -14,12 +14,12 @@
 # keep any new real-tmux package in BOTH the default and --exclude-app sets.
 set -euo pipefail
 
-filter='/internal/(tmux|e2e|pty|ui/sidebar)$'
+filter='/internal/(tmux|e2e|pty|ui/sidebar)(/.*)?$'
 case "${1:-}" in
 	"")
 		;;
 	--exclude-app)
-		filter='/internal/(tmux|e2e|app|pty|ui/sidebar)$'
+		filter='/internal/((tmux|e2e|pty|ui/sidebar)(/.*)?|app)$'
 		;;
 	*)
 		echo "usage: $0 [--exclude-app]" >&2

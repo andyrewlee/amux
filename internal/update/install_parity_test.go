@@ -47,7 +47,7 @@ func TestInstallScriptParity(t *testing.T) {
 		{"checksums file", `checksums.txt`, `name_template: "checksums.txt"`},
 		{"checksums signature", `checksums.txt.minisig`, `checksums.txt`},
 		{"binary+repo", `BINARY="amux"`, "andyrewlee"},
-		{"inner binary name", `mv "${TMP_DIR}/${BINARY}"`, "binary: amux"},
+		{"inner binary name", `"${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"`, "binary: amux"},
 		{"release URL base", `releases/download/${VERSION}`, ""},
 		{"tarball suffix", `.tar.gz`, "formats: [tar.gz]"},
 	} {

@@ -61,8 +61,8 @@ install: build
 test:
 	@packages=$$(./scripts/test_pkgs.sh --exclude-app) || exit 1; \
 	test -n "$$packages" || exit 1; \
-	echo "go test $$(printf '%s' "$$packages" | tr '\n' ' ')"; \
-	go test $$packages
+	echo "go test -count=1 $$(printf '%s' "$$packages" | tr '\n' ' ')"; \
+	go test -count=1 $$packages
 	@$(MAKE) --no-print-directory tmux-skip-check
 
 # test-race mirrors the former CI "Test (race)" step: `go test -race` over
@@ -74,8 +74,8 @@ test:
 # reasoning as verify-loop).
 test-race:
 	@filtered=$$(./scripts/test_pkgs.sh) || exit 1; \
-	echo "go test -race $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
-	go test -race $$filtered
+	echo "go test -race -count=1 $$(printf '%s' "$$filtered" | tr '\n' ' ')"; \
+	go test -race -count=1 $$filtered
 
 # test-race-tmux covers the packages test_pkgs.sh excludes plus the real-tmux
 # integration tests in app/pty — they need a real tmux server and run under
@@ -83,7 +83,7 @@ test-race:
 # Keep this list coupled to the exclusion filter in scripts/test_pkgs.sh and
 # the tmux-skip-check package list below.
 test-race-tmux:
-	go test -race -count=1 ./internal/tmux ./internal/e2e ./internal/app ./internal/pty ./internal/ui/sidebar
+	go test -race -count=1 ./internal/tmux/... ./internal/e2e/... ./internal/app ./internal/pty/... ./internal/ui/sidebar/...
 
 # soak runs the build-tagged sustained-workload test (PTY ingest + message
 # pump under load for minutes). Part of `make ci-nightly` — also run before
@@ -187,7 +187,7 @@ devcheck:
 # `-v` output and false-green (or false-fail STRICT_TMUX).
 tmux-skip-check:
 	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
-	if ! go test -count=1 ./internal/tmux ./internal/e2e ./internal/app ./internal/pty ./internal/ui/sidebar -v >"$$output" 2>&1; then \
+	if ! go test -count=1 ./internal/tmux/... ./internal/e2e/... ./internal/app ./internal/pty/... ./internal/ui/sidebar/... -v >"$$output" 2>&1; then \
 		cat "$$output"; \
 		exit 1; \
 	fi; \
@@ -306,6 +306,18 @@ doctor:
 	if command -v air >/dev/null 2>&1; then echo "ok   air present"; else echo "warn air not found — 'make dev' needs it (install with AIR_VERSION pin from Makefile)"; fi; \
 	if command -v curl >/dev/null 2>&1; then echo "ok   curl present"; else echo "warn curl not found — check-fmt-versions and install.sh need it"; fi; \
 	if command -v docker >/dev/null 2>&1; then echo "ok   docker present"; else echo "warn docker not found — 'make ci-tmux-matrix' needs it"; fi; \
+	if command -v bash >/dev/null 2>&1; then \
+		echo "ok   bash $$(bash -c 'echo $$BASH_VERSION' | cut -d. -f1-2)"; \
+	else \
+		echo "FAIL bash: not installed (gate scripts and lint-config-drift require it)"; fail=1; \
+	fi; \
+	execbit=1; \
+	for f in scripts/*.sh; do \
+		if [ ! -x "$$f" ]; then \
+			echo "FAIL $$f: not executable (Makefile invokes it as ./$$f)"; fail=1; execbit=0; \
+		fi; \
+	done; \
+	if [ "$$execbit" -eq 1 ]; then echo "ok   scripts/*.sh executable"; fi; \
 	if [ "$$fail" -ne 0 ]; then exit 1; fi; \
 	echo "doctor: environment looks good"
 
@@ -600,6 +612,8 @@ release-check: ci
 
 release-tag:
 	@test -n "$(VERSION)" || (echo "VERSION is required (e.g. VERSION=v0.0.5)" && exit 1)
+	@printf '%s' "$(VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$' || (echo "VERSION must be semver (e.g. v0.0.5)" && exit 1)
+	@git merge-base --is-ancestor HEAD origin/main || (echo "HEAD is not on origin/main — push before tagging (git fetch first if your origin/main is stale)" && exit 1)
 	@[ -z "$$(git status --porcelain)" ] || (echo "Working tree not clean (staged/unstaged/untracked). Commit or stash changes before tagging." && exit 1)
 	@git tag -a "$(VERSION)" -m "$(VERSION)"
 	@echo "Created tag $(VERSION)"

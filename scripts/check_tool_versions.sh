@@ -36,3 +36,6 @@ note air "$(mk_pin AIR_VERSION)" "$(go_latest github.com/air-verse/air)"
 pin="$(sed -n 's/^MINISIGN_VERSION="\(.*\)"$/\1/p' scripts/install_minisign.sh | head -1)"
 latest="$(gh_latest jedisct1/minisign)"
 note minisign "$pin" "$latest"
+
+pin="$(sed -n 's/.*MATRIX=(apt \([^) ]*\).*/\1/p' scripts/ci_tmux_matrix.sh | head -1)"
+note tmux-matrix "$pin" "$(gh_latest tmux/tmux)"
