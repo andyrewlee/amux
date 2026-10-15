@@ -255,9 +255,6 @@ type App struct {
 	// lifecycle holds workspace create/delete/persist bookkeeping.
 	lifecycle workspaceLifecycleState
 
-	// Terminal capabilities
-	keyboardEnhancements tea.KeyboardEnhancementsMsg
-
 	// Perf tracking
 	lastInputAt         time.Time
 	pendingInputLatency bool

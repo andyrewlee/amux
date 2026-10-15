@@ -4,8 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"time"
-
-	"github.com/andyrewlee/amux/internal/logging"
 )
 
 // UpsertFromDiscovery merges a discovered workspace into the store.
@@ -65,10 +63,7 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 	if err != nil {
 		return err
 	}
-	// Deferred via closure (not defer unlockRegistryFiles(lockFiles)) so that the
-	// rename path below can release the flock early and clear lockFiles, leaving
-	// nothing for this deferred call to double-unlock.
-	defer func() { unlockRegistryFiles(lockFiles) }()
+	defer unlockRegistryFiles(lockFiles)
 
 	// Reload under the lock so the merge applies to the freshest committed
 	// metadata, not the copy read before the lock was acquired. applyDefaults=false
@@ -115,41 +110,16 @@ func (s *WorkspaceStore) mergeDiscoveryLocked(discovered *Workspace, storedID Wo
 	merged.Shelved = false
 	s.applyWorkspaceDefaults(&merged)
 
-	newID := merged.ID()
-	if newID == storedID {
-		// Common case: discovery did not change Repo/Root, so the canonical ID is
-		// unchanged. Write in place while still holding the flock — the entire
-		// load-merge-save is atomic, eliminating the lost-update window.
-		if err := s.saveWorkspaceLocked(storedID, &merged); err != nil {
-			return err
-		}
-		// Reflect the live key onto the caller's object — a caller that keeps
-		// using `discovered` after the merge (env building, port reservation)
-		// otherwise sees a workspace with no stored identity at all.
-		discovered.storeID = storedID
-		return nil
-	}
-
-	// Rename case: Repo/Root changed, so the merged record lives under a new ID.
-	// Save acquires both id and oldID flocks (via storeID); release the storedID
-	// flock first to avoid re-locking the same file from this process (flock is
-	// per-open-fd and not reentrant), then save and clean up the old record.
-	merged.storeID = storedID
-	unlockRegistryFiles(lockFiles)
-	lockFiles = nil
-	if err := s.Save(&merged); err != nil {
+	// Identity is pinned by storedID: merged inherited stored.storeID (set
+	// above), so merged.ID() can only return storedID — the record always
+	// saves in place under the held flock, eliminating the lost-update
+	// window. A Repo/Root change updates the record's fields, never its key.
+	if err := s.saveWorkspaceLocked(storedID, &merged); err != nil {
 		return err
 	}
-	// Same live-key reflection as the in-place branch above.
-	discovered.storeID = merged.storeID
-	// Save may keep storedID when the "new" key is only normalization drift
-	// (the worktree dir's existence flipping NormalizePath's symlink
-	// resolution) — the old dir is the live record then, so only delete it
-	// when the record actually migrated to a different key.
-	if storedID != "" && merged.MetadataID() != storedID {
-		if err := s.Delete(storedID); err != nil {
-			logging.Warn("Failed to remove old workspace metadata %s: %v", storedID, err)
-		}
-	}
+	// Reflect the live key onto the caller's object — a caller that keeps
+	// using `discovered` after the merge (env building, port reservation)
+	// otherwise sees a workspace with no stored identity at all.
+	discovered.storeID = storedID
 	return nil
 }
