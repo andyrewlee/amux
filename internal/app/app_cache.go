@@ -212,6 +212,7 @@ type renderCacheState struct {
 	sidebarTopBorders       borderCache
 	sidebarBottomBorders    borderCache
 	centerContent           drawableCache
+	centerDiffGate          paneGate
 	centerTabBar            drawableCache
 	centerTabBarGate        paneGate
 	centerStatus            drawableCache

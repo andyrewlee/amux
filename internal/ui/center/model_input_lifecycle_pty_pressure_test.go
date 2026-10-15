@@ -174,8 +174,8 @@ func counterVal(counters []perf.CounterSnapshot, name string) int64 {
 	return 0
 }
 
-// The overflow rescan exists only for the chat-tab ANSI-activity tracker; a
-// flooded non-chat tab must not pay the O(<=8MiB) byte scan per message.
+// The overflow carry seeding exists only for the chat-tab ANSI-activity
+// tracker; a flooded non-chat tab must not pay any per-message activity work.
 func TestUpdatePTYOutput_OverflowRescanGatedToChatTabs(t *testing.T) {
 	restore := perf.EnableForTest()
 	defer restore()
@@ -193,7 +193,7 @@ func TestUpdatePTYOutput_OverflowRescanGatedToChatTabs(t *testing.T) {
 	ws := newTestWorkspace("ws", "/repo/ws")
 	wsID := string(ws.ID())
 
-	t.Run("non-chat tab skips rescan", func(t *testing.T) {
+	t.Run("non-chat tab skips the carry seed", func(t *testing.T) {
 		m := newTestModel()
 		tab := mkTab("viewer", ws) // not in cfg.Assistants -> not a chat tab
 		m.tabs.ByWorkspace[wsID] = []*Tab{tab}
@@ -202,12 +202,12 @@ func TestUpdatePTYOutput_OverflowRescanGatedToChatTabs(t *testing.T) {
 		perf.Snapshot()
 		_ = m.updatePTYOutput(PTYOutput{WorkspaceID: wsID, TabID: tab.ID, Data: []byte("more")})
 		_, counters := perf.Snapshot()
-		if v := counterVal(counters, "pty_overflow_rescan"); v != 0 {
-			t.Fatalf("pty_overflow_rescan = %d on a non-chat tab, want 0", v)
+		if v := counterVal(counters, "pty_overflow_carry_seed"); v != 0 {
+			t.Fatalf("pty_overflow_carry_seed = %d on a non-chat tab, want 0", v)
 		}
 	})
 
-	t.Run("chat tab still rescans and updates ANSI state", func(t *testing.T) {
+	t.Run("chat tab seeds the activity scan from the trim boundary", func(t *testing.T) {
 		m := newTestModel()
 		tab := mkTab("claude", ws) // registered chat assistant
 		m.tabs.ByWorkspace[wsID] = []*Tab{tab}
@@ -216,16 +216,14 @@ func TestUpdatePTYOutput_OverflowRescanGatedToChatTabs(t *testing.T) {
 		perf.Snapshot()
 		_ = m.updatePTYOutput(PTYOutput{WorkspaceID: wsID, TabID: tab.ID, Data: []byte("more")})
 		_, counters := perf.Snapshot()
-		if v := counterVal(counters, "pty_overflow_rescan"); v != 1 {
-			t.Fatalf("pty_overflow_rescan = %d on a chat tab, want 1", v)
+		if v := counterVal(counters, "pty_overflow_carry_seed"); v != 1 {
+			t.Fatalf("pty_overflow_carry_seed = %d on a chat tab, want 1", v)
 		}
 		tab.mu.Lock()
 		defer tab.mu.Unlock()
 		if tab.activityANSIState != ansiActivityText {
-			// Rescan must still feed the activity tracker on the chat path.
-			// (Pending bytes are all 'x' — visible text — so state stays
-			// ansiActivityText either way; the counter above is the real
-			// proof the scan ran. This just guards a state-obliteration bug.)
+			// The carry seed must still feed the activity tracker on the
+			// chat path (post-trim state begins at a text boundary).
 			t.Fatalf("activityANSIState = %v, want %v", tab.activityANSIState, ansiActivityText)
 		}
 	})

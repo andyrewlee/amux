@@ -6,6 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/compositor"
 )
 
@@ -65,6 +66,36 @@ func (a *App) composeCenterPane(canvas *lipgloss.Canvas, leftGutter, topGutter, 
 	// content every frame) reuses the same *StringDrawable and amortizes its
 	// one-time cell parse across frames instead of re-parsing on every compose.
 	a.renderCache.centerChrome.Invalidate()
+
+	// Diff tabs take the string path every frame; gate the whole build —
+	// center.View() (tab bar + diff + help + padding), the bordered-pane wrap,
+	// and the clamp — so a stable diff reuses the recorded drawable. The
+	// version folds every input the build reads: the diff content fingerprint
+	// (all of updateDiffViewer's mutable state), the center chrome versions,
+	// the pane focus the border color and SetFocused sync read, and the theme
+	// paneBorderColor reads.
+	if diffVer, ok := a.center.ActiveDiffContentVersion(); ok {
+		diffGate := &a.renderCache.centerDiffGate
+		diffGeom := [4]int{centerX, topGutter, centerWidth, centerHeight}
+		centerFocused := a.focusedPane == messages.PaneCenter
+		version := common.FoldFingerprint(diffVer, a.center.TabBarVersion())
+		version = common.FoldFingerprint(version, a.center.HelpVersion())
+		version = common.FoldFingerprintBool(version, centerFocused)
+		version = common.FoldFingerprintString(version, string(common.GetCurrentTheme().ID))
+		if !diffGate.clean(version, diffGeom) {
+			diffContent := a.center.View()
+			diffView := buildBorderedPane(diffContent, centerWidth, centerHeight, centerFocused)
+			rendered := a.renderCache.centerContent.get(clampPane(diffView, centerWidth, centerHeight), centerX, topGutter) != nil
+			diffGate.record(version, diffGeom, rendered)
+		}
+		if diffGate.rendered {
+			if diffDrawable := a.renderCache.centerContent.drawable; diffDrawable != nil {
+				canvas.Compose(diffDrawable)
+			}
+		}
+		return
+	}
+
 	var centerContent string
 	if a.center.HasTabs() {
 		centerContent = a.center.View()

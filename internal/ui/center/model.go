@@ -59,6 +59,7 @@ type Model struct {
 	stylesRev             uint64
 	tabBarBuilds          uint64 // TabBarView invocations; test instrumentation
 	statusLineBuilds      uint64 // ActiveTerminalStatusLine invocations
+	viewBuilds            uint64 // View invocations; test instrumentation
 	agentManager          *appPty.AgentManager
 	msgSink               func(tea.Msg)
 	msgSinkTry            func(tea.Msg) bool

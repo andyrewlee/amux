@@ -12,9 +12,8 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
-// View renders the diff viewer. The result is memoized on every render
-// input — a static diff tab composing each frame reuses the last build.
-func (m *Model) View() string {
+// viewKeyNow snapshots every input View() reads.
+func (m *Model) viewKeyNow() diffViewKey {
 	key := diffViewKey{
 		diff:          m.diff,
 		loading:       m.loading,
@@ -34,6 +33,45 @@ func (m *Model) View() string {
 	if m.err != nil {
 		key.errStr = m.err.Error()
 	}
+	return key
+}
+
+// ContentVersion fingerprints every input View() renders — the diffViewKey
+// fields plus the diff generation (loadID) and the change target — so the
+// app-level compose gate can skip the whole center-pane rebuild for a stable
+// diff. The fold must track viewKeyNow field-for-field; updateDiffViewer can
+// mutate any of them.
+func (m *Model) ContentVersion() uint64 {
+	k := m.viewKeyNow()
+	fp := common.FoldFingerprintBool(0, k.loading)
+	fp = common.FoldFingerprintString(fp, k.errStr)
+	fp = common.FoldFingerprint(fp, uint64(k.scroll))
+	fp = common.FoldFingerprint(fp, uint64(k.hunkIdx))
+	fp = common.FoldFingerprintBool(fp, k.wrap)
+	fp = common.FoldFingerprintBool(fp, k.focused)
+	fp = common.FoldFingerprint(fp, uint64(k.width))
+	fp = common.FoldFingerprint(fp, uint64(k.height))
+	fp = common.FoldFingerprint(fp, k.stylesRev)
+	fp = common.FoldFingerprintBool(fp, k.searching)
+	fp = common.FoldFingerprintString(fp, k.query)
+	fp = common.FoldFingerprint(fp, uint64(k.matchIdx))
+	fp = common.FoldFingerprintBool(fp, k.searchWrapped)
+	fp = common.FoldFingerprint(fp, uint64(k.matchCount))
+	// loadID advances on every diff load, so it stands in for the *DiffResult
+	// pointer — a new result can only arrive under a new generation.
+	fp = common.FoldFingerprint(fp, m.loadID)
+	if m.change != nil {
+		fp = common.FoldFingerprintString(fp, m.change.Path)
+		fp = common.FoldFingerprint(fp, uint64(m.change.Kind))
+	}
+	fp = common.FoldFingerprint(fp, uint64(m.mode))
+	return fp
+}
+
+// View renders the diff viewer. The result is memoized on every render
+// input — a static diff tab composing each frame reuses the last build.
+func (m *Model) View() string {
+	key := m.viewKeyNow()
 	if m.viewValid && m.viewKey == key {
 		return m.viewCache
 	}
