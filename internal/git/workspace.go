@@ -14,6 +14,10 @@ import (
 	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
+// These package-level vars are test seams — timeouts, runner indirections,
+// and filesystem hooks tests override to avoid real git/process work. As in
+// internal/ui/sidebar's seam block: tests that override any of them must not
+// use t.Parallel within this package.
 var (
 	worktreeTimeout = 30 * time.Second
 	// worktreeAddTimeout bounds `worktree add`, which checks out the whole

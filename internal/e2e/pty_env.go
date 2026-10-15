@@ -9,7 +9,8 @@ import (
 // childEnv assembles the environment for a PTY-launched amux. Order matters:
 // exec applies last-entry-wins, so the layered list is
 //
-//  1. the parent environment minus Git checkout overrides (stripGitEnv),
+//  1. the parent environment minus ambient knobs (stripTestEnv: Git
+//     checkout overrides, every AMUX_*, TMUX/TMUX_*),
 //  2. fixture defaults — HOME, TERM, profiling off,
 //  3. the workspaces root pinned under the fixture HOME, and finally
 //  4. explicit PTYOptions.Env entries.
@@ -21,7 +22,7 @@ import (
 // tests that deliberately relocate the root must point it at a test-owned
 // temporary directory.
 func childEnv(parent []string, home string, optEnv []string) []string {
-	env := append(stripGitEnv(parent),
+	env := append(stripTestEnv(parent),
 		"HOME="+home,
 		"TERM=xterm-256color",
 		"AMUX_PROFILE=0",

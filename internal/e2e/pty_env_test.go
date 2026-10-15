@@ -127,6 +127,43 @@ func TestPTYSessionEnv(t *testing.T) {
 		}
 	})
 
+	t.Run("ambient AMUX and TMUX keys strip; explicit optEnv survives", func(t *testing.T) {
+		env := childEnv([]string{
+			"AMUX_LOG_LEVEL=debug",
+			"AMUX_PPROF=127.0.0.1:6060",
+			"AMUX_ALLOW_GIT_HOOKS=1",
+			"AMUX_DEBUG_SIGNALS=1",
+			"AMUX_TMUX_SERVER=ambient-server",
+			"AMUX_FUTURE_KNOB=whatever", // a NEW AMUX_* key must default to stripped
+			"TMUX=/tmp/tmux-1000/default,1,2",
+			"TMUX_PANE=%3",
+			"TMUX_TMPDIR=/ambient",
+			"KEEP_ME=yes",
+		}, home, []string{
+			"AMUX_TMUX_SERVER=test-server",
+			"AMUX_TMUX_CONFIG=/dev/null",
+		})
+		for _, key := range []string{
+			"AMUX_LOG_LEVEL", "AMUX_PPROF", "AMUX_ALLOW_GIT_HOOKS",
+			"AMUX_DEBUG_SIGNALS", "AMUX_FUTURE_KNOB",
+			"TMUX", "TMUX_PANE", "TMUX_TMPDIR",
+		} {
+			if _, ok := envValue(env, key); ok {
+				t.Fatalf("%s survived strip", key)
+			}
+		}
+		// Explicit optEnv AMUX_* entries land after the strip and survive.
+		if got, _ := envValue(env, "AMUX_TMUX_SERVER"); got != "test-server" {
+			t.Fatalf("AMUX_TMUX_SERVER = %q, want explicit test-server", got)
+		}
+		if got, _ := envValue(env, "AMUX_TMUX_CONFIG"); got != "/dev/null" {
+			t.Fatalf("AMUX_TMUX_CONFIG = %q, want explicit /dev/null", got)
+		}
+		if got, _ := envValue(env, "KEEP_ME"); got != "yes" {
+			t.Fatalf("KEEP_ME = %q — unrelated parent env must survive", got)
+		}
+	})
+
 	t.Run("explicit env wins over fixture defaults", func(t *testing.T) {
 		env := childEnv(nil, home, []string{"TERM=screen-256color"})
 		if got, _ := envValue(env, "TERM"); got != "screen-256color" {
