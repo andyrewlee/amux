@@ -153,26 +153,23 @@ func attributedDriverPaths(ctx context.Context, repoPath, ref, attr string, conf
 		return nil, nil
 	}
 
+	// One spawn for the whole path list: --stdin takes NUL-separated paths
+	// and emits the same path\0<attr>\0value\0 triples argv mode does.
+	args := []string{"check-attr", "-z", "--stdin"}
+	if ref != "" {
+		args = append(args, "--source="+ref)
+	}
+	args = append(args, attr)
+	raw, err := RunGitRawStdinCtx(ctx, repoPath,
+		[]byte(strings.Join(paths, "\x00")+"\x00"), args...)
+	if err != nil {
+		return nil, err
+	}
 	var live []filterDriverAttribution
-	const checkAttrBatch = 200
-	for i := 0; i < len(paths); i += checkAttrBatch {
-		end := min(i+checkAttrBatch, len(paths))
-		args := []string{"check-attr", "-z"}
-		if ref != "" {
-			args = append(args, "--source="+ref)
-		}
-		args = append(args, attr, "--")
-		args = append(args, paths[i:end]...)
-		raw, err := RunGitRawCtx(ctx, repoPath, args...)
-		if err != nil {
-			return nil, err
-		}
-		// -z output is path\0filter\0value\0 triples.
-		fields := strings.Split(string(raw), "\x00")
-		for j := 0; j+2 < len(fields); j += 3 {
-			if _, ok := configured[fields[j+2]]; ok {
-				live = append(live, filterDriverAttribution{driver: fields[j+2], path: fields[j]})
-			}
+	fields := strings.Split(string(raw), "\x00")
+	for j := 0; j+2 < len(fields); j += 3 {
+		if _, ok := configured[fields[j+2]]; ok {
+			live = append(live, filterDriverAttribution{driver: fields[j+2], path: fields[j]})
 		}
 	}
 	return live, nil
