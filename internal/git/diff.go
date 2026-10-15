@@ -2,6 +2,8 @@ package git
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -84,6 +86,28 @@ func GetFileDiff(repoPath, path string, mode DiffMode) (*DiffResult, error) {
 
 // GetUntrackedFileContent returns the content of an untracked file formatted as a diff
 func GetUntrackedFileContent(repoPath, path string) (*DiffResult, error) {
+	// A repo-shipped untracked symlink (or FIFO/device/other non-regular
+	// file) renders its target's bytes — display-only disclosure of any
+	// user-readable path. Guard the same way countUntrackedLines does:
+	// Lstat the repo-relative path under an os.Root (containment enforced,
+	// so a hostile porcelain path cannot escape) and require a regular file
+	// before handing git a filesystem path --no-index will follow.
+	// A repo-shipped untracked symlink (or FIFO/device/other non-regular
+	// file) renders its target's bytes — display-only disclosure of any
+	// user-readable path. Guard the same way countUntrackedLines does:
+	// Lstat the repo-relative path under an os.Root (containment enforced,
+	// so a hostile porcelain path cannot escape) and require a regular file
+	// before handing git a filesystem path --no-index will follow.
+	root, err := os.OpenRoot(repoPath)
+	if err != nil {
+		return &DiffResult{Path: path, Error: err.Error()}, nil
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Lstat(filepath.FromSlash(path))
+	if err != nil || !info.Mode().IsRegular() {
+		return &DiffResult{Path: path, Error: "not a regular file"}, nil
+	}
+
 	fullPath := repoPath + "/" + path
 
 	// Use RunGitAllowFailureCtx since --no-index returns exit code 1 when differences exist
