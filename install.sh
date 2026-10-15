@@ -166,9 +166,9 @@ if [ ! -d "$INSTALL_DIR" ]; then
   fi
 fi
 if [ -w "$INSTALL_DIR" ]; then
-  mv "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+  install -m 0755 "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 elif command -v sudo >/dev/null 2>&1; then
-  sudo mv "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+  sudo install -m 0755 "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 else
   echo "Error: ${INSTALL_DIR} is not writable and sudo is not available." >&2
   echo "Re-run with INSTALL_DIR=$HOME/.local/bin (or another writable directory)." >&2
