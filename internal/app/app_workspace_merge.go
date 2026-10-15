@@ -326,6 +326,7 @@ func (a *App) showMergeConflictDialog(ws *data.Workspace, conflict *git.MergeCon
 		if !ok {
 			return
 		}
+		a.clearPendingWorkspaceCreate()
 		a.dlg.workspace = ws
 		a.dialog = common.NewConfirmDialog(
 			DialogMergeConflict,

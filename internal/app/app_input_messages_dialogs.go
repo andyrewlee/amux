@@ -62,44 +62,6 @@ func (a *App) handleShowAddProjectDialog() tea.Cmd {
 	return nil
 }
 
-// handleShowCreateWorkspaceDialog shows the create workspace dialog.
-func (a *App) handleShowCreateWorkspaceDialog(msg messages.ShowCreateWorkspaceDialog) {
-	if a.dialogOpen() {
-		return
-	}
-	a.requestOverlayOpen(func() {
-		a.clearPendingWorkspaceCreate()
-		a.dlg.project = msg.Project
-		a.dialog = common.NewInputDialog(DialogCreateWorkspace, "Create Workspace", "Enter workspace name...")
-		a.dialog.SetInputLabel("Workspace name")
-		a.dialog.SetInputValidate(func(s string) string {
-			s = validation.SanitizeInput(s)
-			if s == "" {
-				return "" // Don't show error for empty input
-			}
-			if err := validation.ValidateWorkspaceName(s); err != nil {
-				return err.Error()
-			}
-			return ""
-		})
-		// Second field is the base ref the new worktree's branch is created
-		// from — empty means "detect the project's default branch"
-		// (workspacesvc.ResolveBase). Distinct from the workspace's own
-		// branch name, which still derives from the workspace name.
-		a.dialog.SetSecondInput("Base (optional)", "default branch", func(s string) string {
-			s = validation.SanitizeInput(s)
-			if s == "" {
-				return ""
-			}
-			if err := validation.ValidateBaseRef(s); err != nil {
-				return err.Error()
-			}
-			return ""
-		})
-		a.presentDialog(a.dialog)
-	})
-}
-
 // handleShowDeleteWorkspaceDialog shows the delete workspace dialog.
 func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDialog) {
 	if a.dialogOpen() {
@@ -166,10 +128,20 @@ func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
+		ws, proj, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
+		// The re-resolved project is authoritative for a loaded workspace;
+		// a never-loaded subject keeps the caller's project context.
 		a.dlg.project = msg.Project
-		a.dlg.workspace = msg.Workspace
+		if proj != nil {
+			a.dlg.project = proj
+		}
+		a.dlg.workspace = ws
 		a.dialog = common.NewInputDialog(DialogRenameWorkspace, "Rename Workspace", "Enter new workspace name...")
 		a.dialog.SetInputValidate(func(s string) string {
 			s = validation.SanitizeInput(s)
@@ -184,7 +156,7 @@ func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDi
 		a.presentDialog(a.dialog)
 		// Prefill after presentDialog: Show() resets the input to empty, so the
 		// current name must be set afterward to render ready-to-edit.
-		a.dialog.SetInputValue(msg.Workspace.Name)
+		a.dialog.SetInputValue(ws.Name)
 	})
 }
 
@@ -197,9 +169,15 @@ func (a *App) handleShowWorkspaceEnvDialog(msg messages.ShowWorkspaceEnvDialog) 
 	if msg.Workspace == nil {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
-		a.overlays.envWorkspace = msg.Workspace
-		a.overlays.env = common.NewEnvDialog(filterReservedEnv(msg.Workspace.Env))
+		a.clearPendingWorkspaceCreate()
+		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
+		a.overlays.envWorkspace = ws
+		a.overlays.env = common.NewEnvDialog(filterReservedEnv(ws.Env))
 		a.overlays.env.SetKeyValidator(envAddKeyValidator)
 		a.overlays.env.SetSize(a.width, a.height)
 		a.overlays.env.Show()
@@ -215,9 +193,14 @@ func (a *App) handleShowCommitWorkspaceDialog(msg messages.ShowCommitWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
+	required := a.workspaceLoaded(msg.Workspace)
 	a.requestOverlayOpen(func() {
+		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
+		if !ok {
+			return
+		}
 		a.clearPendingWorkspaceCreate()
-		a.dlg.workspace = msg.Workspace
+		a.dlg.workspace = ws
 		a.dialog = common.NewInputDialog(DialogCommitWorkspace, "Commit changes", "Commit message...")
 		a.dialog.SetInputValidate(func(s string) string {
 			s = validation.SanitizeInput(s)
@@ -278,27 +261,6 @@ func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) 
 		if warning := scriptIndirectionWarning(a.repoScriptCommandsForTrust(repoRoot), repoRoot); warning != "" {
 			a.dialog.SetWarning(warning)
 		}
-		a.presentDialog(a.dialog)
-	})
-}
-
-// handleShowRemoveProjectDialog shows the remove project dialog.
-func (a *App) handleShowRemoveProjectDialog(msg messages.ShowRemoveProjectDialog) {
-	if a.dialogOpen() {
-		return
-	}
-	a.requestOverlayOpen(func() {
-		a.clearPendingWorkspaceCreate()
-		a.dlg.project = msg.Project
-		projectName := ""
-		if msg.Project != nil {
-			projectName = msg.Project.Name
-		}
-		a.dialog = common.NewConfirmDialog(
-			DialogRemoveProject,
-			"Remove Project",
-			fmt.Sprintf("Remove project '%s' from AMUX? Running agents and project scripts will stop; its repository and worktrees stay on disk.", projectName),
-		)
 		a.presentDialog(a.dialog)
 	})
 }
