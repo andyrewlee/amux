@@ -24,7 +24,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 )
 
-require golang.org/x/sys v0.48.0
+require golang.org/x/sys v0.49.0
 
 require (
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
