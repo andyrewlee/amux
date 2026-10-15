@@ -109,6 +109,10 @@ func RunGitCtx(ctx context.Context, dir string, args ...string) (string, error) 
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
+	args, err := neutralizeGitArgs(ctx, dir, args)
+	if err != nil {
+		return "", err
+	}
 	cmd := newGitCmd(dir, args...)
 
 	var stdout, stderr bytes.Buffer
@@ -193,6 +197,10 @@ func RunGitAllowFailureCtx(ctx context.Context, dir string, args ...string) (str
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
+	args, err := neutralizeGitArgs(ctx, dir, args)
+	if err != nil {
+		return "", err
+	}
 	cmd := newGitCmd(dir, args...)
 
 	var stdout, stderr bytes.Buffer
@@ -231,6 +239,10 @@ func RunGitRawCtx(ctx context.Context, dir string, args ...string) ([]byte, erro
 	ctx, cancel := ensureGitTimeout(ctx)
 	defer cancel()
 
+	args, err := neutralizeGitArgs(ctx, dir, args)
+	if err != nil {
+		return nil, err
+	}
 	cmd := newGitCmd(dir, args...)
 
 	var stdout, stderr bytes.Buffer

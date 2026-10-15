@@ -42,18 +42,28 @@ func refuseRepoFilterDrivers(ctx context.Context, repoPath, op string) error {
 }
 
 // liveFilterDrivers returns every filter driver configured in the repo's
-// LOCAL config (.git/config — the deliverable surface) that at least one
+// local+worktree config (.git/config, its include.path/includeIf chain, and
+// .git/config.worktree — the deliverable surfaces) that at least one
 // tracked path attributes via `filter=<name>` — the pairs a checkout or a
-// stage could actually execute. Two enumerations bound the answer exactly,
-// mirroring liveMergeDrivers: `git config --local --get-regexp` reads only
-// the repo-local config (the user's own global config is deliberately out
-// of scope — a legitimate `git lfs install` writes ~/.gitconfig and must
-// not trip the gate), and `git check-attr` applies the real attribute stack
-// (.gitattributes at every tree level plus info/attributes), so
-// unattributed driver names and unconfigured filter= values are correctly
-// ignored.
+// stage could actually execute. The scope flag comes from
+// filterConfigScope — `--local`, upgraded to `--worktree` when the repo
+// enables extensions.worktreeConfig (it additionally reads config.worktree;
+// unconditional --worktree errors on multi-worktree repos without the
+// extension) — and `--includes` resolves include chains a delivered .git
+// could hide drivers behind; the user's own global
+// config stays deliberately out of scope — a legitimate `git lfs install`
+// writes ~/.gitconfig and must not trip the gate. `git check-attr` applies
+// the real attribute stack (.gitattributes at every tree level plus
+// info/attributes), so unattributed driver names and unconfigured filter=
+// values are correctly ignored.
 func liveFilterDrivers(ctx context.Context, repoPath string) ([]filterDriverAttribution, error) {
-	out, err := RunGitAllowFailureCtx(ctx, repoPath, "config", "--local", "--get-regexp", `^filter\..*\.(clean|smudge|process|command|required)$`)
+	scope, err := filterConfigScope(ctx, repoPath)
+	if err != nil {
+		return nil, err
+	}
+	args := append([]string{"config"}, scope...)
+	args = append(args, "--includes", "--get-regexp", `^filter\..*\.(clean|smudge|process|command|required)$`)
+	out, err := RunGitAllowFailureCtx(ctx, repoPath, args...)
 	if err != nil {
 		return nil, err
 	}

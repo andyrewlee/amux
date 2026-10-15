@@ -432,12 +432,18 @@ delivered `.git` as hostile. Every git invocation runs with repo hooks,
 `core.fsmonitor`, and GPG signing neutralized and inherited `GIT_*` state
 dropped. Repo-configured drivers that would execute code during amux's own
 git operations are refused rather than run: an attributed `merge.*.driver`
-blocks the merge, and a repo-local `filter.*` driver (`clean`/`smudge`/
-`process`) attributed by the tree blocks workspace create/attach, `add -A`
-writeback, and merges, naming the driver in the refusal. Only `--local`
-config is enumerated, so globally configured filters (git-lfs's clean/smudge)
-are unaffected; `AMUX_ALLOW_GIT_HOOKS=1` is the single opt-out for repos the
-user does trust.
+blocks the merge, and a repo-configured `filter.*` driver (`clean`/`smudge`/
+`process`/`command`) attributed by the tree blocks workspace create/attach,
+`add -A` writeback, merges, and `merge --abort`, naming the driver in the
+refusal. Filter drivers are also neutralized on every git invocation —
+empty `-c filter.<name>.*=` overrides suppress any driver configured in
+repo-local config, its include chain, or `config.worktree` — because read
+paths like `git status`/`git diff` execute clean filters on stat-dirty
+files and cannot be refused without breaking the app. Merge drivers
+enumerate all config scopes (a repo's attributes can name a global driver);
+filter enumeration stays repo-scoped so globally configured filters
+(git-lfs's clean/smudge) are untouched; `AMUX_ALLOW_GIT_HOOKS=1` is the
+single opt-out for repos the user does trust.
 
 ## Port reservations (durable registry)
 
