@@ -141,6 +141,96 @@ func TestOverlayOpenDropsStaleWorkspaceSubject_ProjectDialogs(t *testing.T) {
 	}
 }
 
+// TestPresentWorkspaceDialog_LiveSubjectOnly pins the plan-094 structural
+// contract: build runs only at drain time and always with the re-resolved
+// workspace — never the captured message pointer — and the pending-create
+// clear happens on present.
+func TestPresentWorkspaceDialog_LiveSubjectOnly(t *testing.T) {
+	a := arbiterTestApp()
+	a.overlays.runOutput = visibleRunOutput()
+	ws := &data.Workspace{Name: "ws-live", Repo: "/repo", Root: "/repo/ws-live"}
+	a.projects = []data.Project{{Path: "/repo", Workspaces: []data.Workspace{*ws}}}
+	a.pendingWorkspaceCreate = pendingWorkspaceCreateState{project: &a.projects[0], name: "pending"}
+
+	var ran bool
+	var got *data.Workspace
+	a.presentWorkspaceDialog(ws, func(live *data.Workspace, _ *data.Project) {
+		ran = true
+		got = live
+	})
+	if len(a.pendingOverlayOpens) != 1 {
+		t.Fatalf("expected the open queued, got %d", len(a.pendingOverlayOpens))
+	}
+	// Replace the loaded copy so the live pointer differs from the captured
+	// one — build must receive the re-resolved value.
+	replacement := *ws
+	replacement.Name = "ws-live-renamed"
+	a.projects[0].Workspaces[0] = replacement
+	a.overlays.runOutput.Hide()
+	a.drainPendingOverlayOpens()
+
+	if !ran {
+		t.Fatal("build never ran for a still-loaded subject")
+	}
+	if got == ws || got.Name != "ws-live-renamed" {
+		t.Fatalf("build received the captured pointer (%q), want the re-resolved live workspace", got.Name)
+	}
+	if a.pendingWorkspaceCreate.project != nil || a.pendingWorkspaceCreate.name != "" {
+		t.Fatal("pending create handoff survived a presented dialog — clear must run on present")
+	}
+}
+
+// TestPresentWorkspaceDialog_RemovedSubjectNeverBuilds: a subject removed
+// while its open sits queued never reaches build, and the dropped open does
+// not tear down an unrelated in-flight create handoff (clear is
+// present-only).
+func TestPresentWorkspaceDialog_RemovedSubjectNeverBuilds(t *testing.T) {
+	a := arbiterTestApp()
+	a.overlays.runOutput = visibleRunOutput()
+	ws := &data.Workspace{Name: "ws-gone", Repo: "/repo", Root: "/repo/ws-gone"}
+	a.projects = []data.Project{{Path: "/repo", Workspaces: []data.Workspace{*ws}}}
+	a.pendingWorkspaceCreate = pendingWorkspaceCreateState{project: &a.projects[0], name: "pending"}
+
+	ran := false
+	a.presentWorkspaceDialog(ws, func(*data.Workspace, *data.Project) { ran = true })
+	a.projects = nil // removed while queued
+	a.overlays.runOutput.Hide()
+	a.drainPendingOverlayOpens()
+
+	if ran {
+		t.Fatal("build ran for a workspace removed while queued")
+	}
+	if a.pendingWorkspaceCreate.project == nil {
+		t.Fatal("dropped stale open cleared an unrelated pending create handoff")
+	}
+}
+
+// TestPresentBulkTargetsDialog_StaleSetNeverBuilds pins the same contract
+// for the marked-set sibling: a fully-loaded set losing a member while
+// queued invalidates the open — the typed count the user would confirm was
+// computed from the request-time set.
+func TestPresentBulkTargetsDialog_StaleSetNeverBuilds(t *testing.T) {
+	a := arbiterTestApp()
+	a.overlays.runOutput = visibleRunOutput()
+	ws1 := &data.Workspace{Name: "ws-a", Repo: "/repo", Root: "/repo/ws-a"}
+	ws2 := &data.Workspace{Name: "ws-b", Repo: "/repo", Root: "/repo/ws-b"}
+	a.projects = []data.Project{{Path: "/repo", Workspaces: []data.Workspace{*ws1, *ws2}}}
+	targets := []bulkTarget{
+		{project: &a.projects[0], workspace: ws1, markID: string(ws1.MetadataID())},
+		{project: &a.projects[0], workspace: ws2, markID: string(ws2.MetadataID())},
+	}
+
+	ran := false
+	a.presentBulkTargetsDialog(targets, false, func([]bulkTarget) { ran = true })
+	a.projects[0].Workspaces = a.projects[0].Workspaces[:1] // ws-b removed while queued
+	a.overlays.runOutput.Hide()
+	a.drainPendingOverlayOpens()
+
+	if ran {
+		t.Fatal("build ran for a bulk set whose membership drifted while queued")
+	}
+}
+
 // TestProjectEnvReadySupersededAtDrain: a queued env open whose seq was
 // bumped while queued must not stamp or present the superseded seed.
 func TestProjectEnvReadySupersededAtDrain(t *testing.T) {

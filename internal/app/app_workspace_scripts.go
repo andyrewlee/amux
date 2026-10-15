@@ -193,12 +193,7 @@ func (a *App) handleShowScriptOutput(msg messages.ShowScriptOutput) tea.Cmd {
 	if content == "" {
 		return a.toast.ShowInfo("No lifecycle script output for " + msg.Workspace.Name)
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestRunOutputOpen(func() {
-		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
+	a.presentWorkspaceOverlay(msg.Workspace, func(ws *data.Workspace) {
 		a.overlays.runOutputWorkspace = ws
 		a.overlays.runOutputAttachable = false
 		a.overlays.runOutputReleaseCount = 0

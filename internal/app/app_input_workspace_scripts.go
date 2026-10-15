@@ -19,13 +19,7 @@ func (a *App) handleShowWorkspaceScriptsDialog(msg messages.ShowWorkspaceScripts
 	if msg.Workspace == nil {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
-		a.clearPendingWorkspaceCreate()
-		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, _ *data.Project) {
 		a.overlays.scriptsWorkspace = ws
 		a.overlays.scripts = common.NewScriptsDialog(
 			ws.Scripts.Setup, ws.Scripts.Run,

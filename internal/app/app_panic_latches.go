@@ -46,8 +46,7 @@ func (a *App) resetAdvisoryLatchesAfterPanic() {
 	// and consume leaves a stale binding the next unrelated dialog would
 	// consume (e.g. an agent pick silently creating a workspace). Abort
 	// them — the user re-issues the flow.
-	a.pendingWorkspaceCreate = pendingWorkspaceCreateState{}
-	a.pendingLaunchTask = pendingLaunchTaskState{}
+	a.clearPendingHandoffs()
 
 	// A panic inside advanceBulk strands the batch: queue non-empty and
 	// headID armed forever, rejecting every later bulk op. Abandon the

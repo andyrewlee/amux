@@ -150,13 +150,7 @@ func (a *App) handleShowMergeWorkspaceDialog(msg messages.ShowMergeWorkspaceDial
 	if a.dialogOpen() {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
-		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, _ *data.Project) {
 		a.dlg.workspace = ws
 		a.dlg.mergeBase = msg.Base
 		a.dialog = common.NewConfirmDialog(
@@ -255,14 +249,12 @@ func (a *App) handleWorkspaceMerged(msg messages.WorkspaceMerged) tea.Cmd {
 	// a foreign-workspace completion or an already-removed row gets no
 	// dangling dialog.
 	if ws, proj := a.findWorkspaceAndProjectByID(string(msg.Workspace.ID())); ws != nil && proj != nil {
-		a.requestOverlayOpen(func() {
+		a.presentWorkspaceDialog(ws, func(ws *data.Workspace, proj *data.Project) {
 			// ws was resolved seconds ago at message time — a drain-time
 			// miss means the row left while queued.
-			ws, proj, ok := a.reResolveOpenTarget(ws, true)
-			if !ok || proj == nil {
+			if proj == nil {
 				return
 			}
-			a.clearPendingWorkspaceCreate()
 			a.dlg.project = proj
 			a.dlg.workspace = ws
 			a.dialog = common.NewSelectDialog(
@@ -320,13 +312,7 @@ func (a *App) refreshPrimaryCheckoutStatus(repo string) []tea.Cmd {
 // resolves nothing itself: the workspace already has a real shell, which is
 // where conflict resolution belongs.
 func (a *App) showMergeConflictDialog(ws *data.Workspace, conflict *git.MergeConflictError) {
-	required := a.workspaceLoaded(ws)
-	a.requestOverlayOpen(func() {
-		ws, _, ok := a.reResolveOpenTarget(ws, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentWorkspaceDialog(ws, func(ws *data.Workspace, _ *data.Project) {
 		a.dlg.workspace = ws
 		a.dialog = common.NewConfirmDialog(
 			DialogMergeConflict,

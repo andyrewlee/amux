@@ -153,13 +153,7 @@ func (a *App) handleShowBulkShelveWorkspaceDialog(msg messages.ShowBulkShelveWor
 	if a.dialogOpen() {
 		return
 	}
-	required := a.bulkTargetsRequired(targets, false)
-	a.requestOverlayOpen(func() {
-		targets, ok := a.resolveBulkTargets(targets, false, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentBulkTargetsDialog(targets, false, func(targets []bulkTarget) {
 		a.dlg.bulkTargets = targets
 		a.dialog = common.NewConfirmDialog(
 			DialogBulkShelveWorkspace,
@@ -184,13 +178,7 @@ func (a *App) handleShowBulkRestoreWorkspaceDialog(msg messages.ShowBulkRestoreW
 	if a.dialogOpen() {
 		return
 	}
-	required := a.bulkTargetsRequired(targets, true)
-	a.requestOverlayOpen(func() {
-		targets, ok := a.resolveBulkTargets(targets, true, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentBulkTargetsDialog(targets, true, func(targets []bulkTarget) {
 		a.dlg.bulkTargets = targets
 		a.dialog = common.NewConfirmDialog(
 			DialogBulkRestoreWorkspace,
@@ -219,13 +207,7 @@ func (a *App) handleShowBulkPurgeWorkspaceDialog(msg messages.ShowBulkPurgeWorks
 	if a.dialogOpen() {
 		return
 	}
-	required := a.bulkTargetsRequired(targets, true)
-	a.requestOverlayOpen(func() {
-		targets, ok := a.resolveBulkTargets(targets, true, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentBulkTargetsDialog(targets, true, func(targets []bulkTarget) {
 		a.dlg.bulkTargets = targets
 		want := strconv.Itoa(len(targets))
 		a.dialog = common.NewInputDialog(
@@ -258,13 +240,7 @@ func (a *App) handleShowBulkDeleteWorkspaceDialog(msg messages.ShowBulkDeleteWor
 	if a.dialogOpen() {
 		return
 	}
-	required := a.bulkTargetsRequired(targets, false)
-	a.requestOverlayOpen(func() {
-		targets, ok := a.resolveBulkTargets(targets, false, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentBulkTargetsDialog(targets, false, func(targets []bulkTarget) {
 		a.dlg.bulkTargets = targets
 		want := strconv.Itoa(len(targets))
 		a.dialog = common.NewInputDialog(
