@@ -156,7 +156,7 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 		if live, err := liveMergeDrivers(mergeCtx, repoPath); err != nil {
 			return fmt.Errorf("merging %s: checking merge drivers: %w", branch, err)
 		} else if len(live) > 0 {
-			return fmt.Errorf("merging %s: refusing: repo-configured merge driver %q is attributed to %s and would execute during the merge — merge manually after reviewing .git/config and .gitattributes", branch, live[0].driver, live[0].path)
+			return fmt.Errorf("merging %s: refusing: configured merge driver %q is attributed to %s and would execute during the merge — merge manually after reviewing git config and .gitattributes", branch, live[0].driver, live[0].path)
 		}
 		// Filter drivers execute during the merge's checkout writes — the
 		// same delivered-.git exec surface the merge-driver check above
@@ -197,14 +197,17 @@ type mergeDriverAttribution struct {
 // liveMergeDrivers returns every configured merge driver (<name> from
 // merge.<name>.driver) that at least one tracked path in the target tree
 // attributes via `merge=<name>` — the pairs a merge could actually execute.
-// Two enumerations bound the answer exactly: `git config --get-regexp` reads
-// the merged config view (local .git/config plus inherited scopes — the
-// repo-deliverable surface), and `git check-attr` applies the real attribute
+// Two enumerations bound the answer exactly: `git config --includes
+// --get-regexp` reads the merged config view across all scopes (including
+// include.path/includeIf chains) — wider than the filter gate's local-only
+// scope on purpose: a repo's .gitattributes can name a globally configured
+// driver, and a false refusal only costs a manual merge — and
+// `git check-attr` applies the real attribute
 // stack (.gitattributes at every tree level plus info/attributes), so
 // unattributed driver names and unconfigured merge= values are correctly
 // ignored.
 func liveMergeDrivers(ctx context.Context, repoPath string) ([]mergeDriverAttribution, error) {
-	out, err := RunGitAllowFailureCtx(ctx, repoPath, "config", "--get-regexp", `^merge\..*\.driver$`)
+	out, err := RunGitAllowFailureCtx(ctx, repoPath, "config", "--includes", "--get-regexp", `^merge\..*\.driver$`)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +282,14 @@ func AbortMerge(ctx context.Context, repoPath string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, mergeAbortTimeout)
 	defer cancel()
+
+	// `merge --abort` restores pre-merge state with an internal reset --hard,
+	// which executes smudge/process filter drivers on attributed paths — a
+	// delivered .git carrying MERGE_HEAD plus filter config would exec code on
+	// the user's "abort" click. Gate it like every other worktree-writing op.
+	if err := filterDriverGate(ctx, repoPath, "aborting merge"); err != nil {
+		return err
+	}
 
 	if _, err := RunGitCtx(ctx, repoPath, "merge", "--abort"); err != nil {
 		return fmt.Errorf("aborting merge: %w", err)
