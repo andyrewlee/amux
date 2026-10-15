@@ -10,14 +10,7 @@ import (
 )
 
 func TestRemoveWorkspaceRetriesUnregisteredLeftoverAfterMarkerWriteFailure(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origWriteRetryMarkerFile := writeRetryMarkerFile
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		writeRetryMarkerFile = origWriteRetryMarkerFile
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	savedOps := stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "stale-ws")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
@@ -28,7 +21,7 @@ func TestRemoveWorkspaceRetriesUnregisteredLeftoverAfterMarkerWriteFailure(t *te
 	}
 
 	worktreeListCalls := 0
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			worktreeListCalls++
@@ -44,7 +37,7 @@ func TestRemoveWorkspaceRetriesUnregisteredLeftoverAfterMarkerWriteFailure(t *te
 		}
 	}
 
-	writeRetryMarkerFile = func(string, []byte, os.FileMode) error {
+	ops.writeRetryMarkerFile = func(string, []byte, os.FileMode) error {
 		return errors.New("marker write failed")
 	}
 	err := RemoveWorkspace("/tmp/repo", workspacePath)
@@ -61,8 +54,8 @@ func TestRemoveWorkspaceRetriesUnregisteredLeftoverAfterMarkerWriteFailure(t *te
 		t.Fatalf("expected external cleanup marker to be absent after failed write, err=%v", err)
 	}
 
-	writeRetryMarkerFile = origWriteRetryMarkerFile
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.writeRetryMarkerFile = savedOps.writeRetryMarkerFile
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		return os.RemoveAll(path)
 	}
 
@@ -78,12 +71,7 @@ func TestRemoveWorkspaceRetriesUnregisteredLeftoverAfterMarkerWriteFailure(t *te
 }
 
 func TestRemoveWorkspaceRejectsMarkerlessManagedStaleWorkspace(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -97,13 +85,13 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedStaleWorkspace(t *testing.T) {
 		t.Fatalf("WriteFile(file.txt) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		t.Fatal("expected markerless stale workspace to be returned to caller for scoped cleanup")
 		return nil
 	}
@@ -121,16 +109,7 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedStaleWorkspace(t *testing.T) {
 }
 
 func TestRemoveWorkspaceRetriesTimeoutCleanupAfterMarkerWriteFailure(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origWriteRetryMarkerFile := writeRetryMarkerFile
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		writeRetryMarkerFile = origWriteRetryMarkerFile
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	savedOps := stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "timeout-stale-ws")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
@@ -142,7 +121,7 @@ func TestRemoveWorkspaceRetriesTimeoutCleanupAfterMarkerWriteFailure(t *testing.
 	}
 
 	worktreeListCalls := 0
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "worktree list --porcelain":
 			worktreeListCalls++
@@ -161,7 +140,7 @@ func TestRemoveWorkspaceRetriesTimeoutCleanupAfterMarkerWriteFailure(t *testing.
 		}
 	}
 
-	writeRetryMarkerFile = func(string, []byte, os.FileMode) error {
+	ops.writeRetryMarkerFile = func(string, []byte, os.FileMode) error {
 		return errors.New("marker write failed")
 	}
 	err := RemoveWorkspace("/tmp/repo", workspacePath)
@@ -175,11 +154,11 @@ func TestRemoveWorkspaceRetriesTimeoutCleanupAfterMarkerWriteFailure(t *testing.
 		t.Fatalf("expected internal retry metadata to remain after timeout marker write failure, err=%v", err)
 	}
 
-	writeRetryMarkerFile = origWriteRetryMarkerFile
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.writeRetryMarkerFile = savedOps.writeRetryMarkerFile
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		return os.RemoveAll(path)
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		return errWorkspaceCleanupRepoUnavailable
 	}
 
@@ -209,12 +188,7 @@ func TestRemoveWorkspaceRetriesTimeoutCleanupAfterMarkerWriteFailure(t *testing.
 }
 
 func TestRemoveWorkspaceRejectsReusedPathFromRetryMetadata(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "stale-ws")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -233,13 +207,13 @@ func TestRemoveWorkspaceRejectsReusedPathFromRetryMetadata(t *testing.T) {
 		t.Fatalf("WriteFile(new.txt) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected retry metadata reuse guard to fail before cleanup delete")
 		return nil
 	}
@@ -254,12 +228,7 @@ func TestRemoveWorkspaceRejectsReusedPathFromRetryMetadata(t *testing.T) {
 }
 
 func TestRemoveWorkspaceRecoversLegacyRetryMetadataWithoutFingerprint(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "legacy-retry-ws")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
@@ -272,13 +241,13 @@ func TestRemoveWorkspaceRecoversLegacyRetryMetadataWithoutFingerprint(t *testing
 		t.Fatalf("WriteFile(retryMetadata) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
 		return "", nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		return os.RemoveAll(path)
 	}
 

@@ -10,7 +10,7 @@ import (
 
 // Timeouts for the merge write path. The 5s defaultGitTimeout is sized for
 // single-file reads; a merge can touch the whole tree and invoke merge drivers,
-// so it gets the worktreeTimeout-style override. Abort and the read-only
+// so it gets the ops.worktreeTimeout-style override. Abort and the read-only
 // precondition/conflict queries are fast.
 const (
 	mergeTimeout        = 30 * time.Second
@@ -152,7 +152,7 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 	// merges proceed. The AMUX_ALLOW_GIT_HOOKS=1 opt-out stands the guard
 	// down along with the rest of the hardening — opting into repo hooks is
 	// opting into repo trust.
-	if !allowRepoGitHooks {
+	if !ops.allowRepoGitHooks {
 		// Attributes are checked against BOTH the current index and the
 		// incoming commit's tree: a branch can carry .gitattributes that
 		// attribute a driver the current tree never names, and the merge
@@ -166,7 +166,7 @@ func MergeWorkspaceBranch(ctx context.Context, repoPath, branch string) error {
 		// same delivered-.git exec surface the merge-driver check above
 		// closes. (refuseRepoFilterDrivers re-checks the opt-out itself;
 		// siting it here keeps both refusals adjacent.)
-		if err := filterDriverGate(mergeCtx, repoPath, "merging "+branch, oid); err != nil {
+		if err := ops.filterDriverGate(mergeCtx, repoPath, "merging "+branch, oid); err != nil {
 			return err
 		}
 	}
@@ -276,7 +276,7 @@ func AbortMerge(ctx context.Context, repoPath string) error {
 	// which executes smudge/process filter drivers on attributed paths — a
 	// delivered .git carrying MERGE_HEAD plus filter config would exec code on
 	// the user's "abort" click. Gate it like every other worktree-writing op.
-	if err := filterDriverGate(ctx, repoPath, "aborting merge"); err != nil {
+	if err := ops.filterDriverGate(ctx, repoPath, "aborting merge"); err != nil {
 		return err
 	}
 

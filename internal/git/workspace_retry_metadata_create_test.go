@@ -9,14 +9,7 @@ import (
 )
 
 func TestPrepareWorkspacePathForCreatePreservesUnregisterFromRetryMetadata(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo")
 	commonGitDir := filepath.Join(repoPath, ".git")
@@ -39,7 +32,7 @@ func TestPrepareWorkspacePathForCreatePreservesUnregisterFromRetryMetadata(t *te
 		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
 		if gotRepoPath != repoPath {
 			t.Fatalf("repo path = %q, want %q", gotRepoPath, repoPath)
 		}
@@ -50,7 +43,7 @@ func TestPrepareWorkspacePathForCreatePreservesUnregisterFromRetryMetadata(t *te
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(_ context.Context, gotRepoPath, gotWorkspacePath string) error {
+	ops.unregisterWorktreeCtx = func(_ context.Context, gotRepoPath, gotWorkspacePath string) error {
 		unregisterCalls++
 		if gotRepoPath != repoPath {
 			t.Fatalf("unregister repo path = %q, want %q", gotRepoPath, repoPath)
@@ -60,7 +53,7 @@ func TestPrepareWorkspacePathForCreatePreservesUnregisterFromRetryMetadata(t *te
 		}
 		return nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		return os.RemoveAll(path)
 	}
 
@@ -76,14 +69,7 @@ func TestPrepareWorkspacePathForCreatePreservesUnregisterFromRetryMetadata(t *te
 }
 
 func TestPrepareWorkspacePathForCreateUsesRepoPathStoredInRetryMetadata(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	originalRepoPath := filepath.Join(t.TempDir(), "repo-a")
 	currentRepoPath := filepath.Join(t.TempDir(), "repo-b")
@@ -107,7 +93,7 @@ func TestPrepareWorkspacePathForCreateUsesRepoPathStoredInRetryMetadata(t *testi
 		t.Fatalf("ensureWorkspaceCleanupRetryMetadataWithContext() error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
 		if gotRepoPath != originalRepoPath {
 			t.Fatalf("repo path = %q, want %q", gotRepoPath, originalRepoPath)
 		}
@@ -118,7 +104,7 @@ func TestPrepareWorkspacePathForCreateUsesRepoPathStoredInRetryMetadata(t *testi
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(_ context.Context, gotRepoPath, gotWorkspacePath string) error {
+	ops.unregisterWorktreeCtx = func(_ context.Context, gotRepoPath, gotWorkspacePath string) error {
 		unregisterCalls++
 		if gotRepoPath != originalRepoPath {
 			t.Fatalf("unregister repo path = %q, want %q", gotRepoPath, originalRepoPath)
@@ -128,7 +114,7 @@ func TestPrepareWorkspacePathForCreateUsesRepoPathStoredInRetryMetadata(t *testi
 		}
 		return nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		return os.RemoveAll(path)
 	}
 
@@ -144,14 +130,7 @@ func TestPrepareWorkspacePathForCreateUsesRepoPathStoredInRetryMetadata(t *testi
 }
 
 func TestPrepareWorkspacePathForCreateRejectsReusedPathFromRetryMetadata(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	repoPath := filepath.Join(t.TempDir(), "repo")
 	workspacePath := filepath.Join(t.TempDir(), "feature")
@@ -171,15 +150,15 @@ func TestPrepareWorkspacePathForCreateRejectsReusedPathFromRetryMetadata(t *test
 		t.Fatalf("WriteFile(new.txt) error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		t.Fatal("expected create retry metadata reuse guard to fail before git commands")
 		return "", nil
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected create retry metadata reuse guard to fail before unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(context.Context, string) error {
+	ops.removeWorkspacePathCtx = func(context.Context, string) error {
 		t.Fatal("expected create retry metadata reuse guard to fail before cleanup delete")
 		return nil
 	}
@@ -194,14 +173,7 @@ func TestPrepareWorkspacePathForCreateRejectsReusedPathFromRetryMetadata(t *test
 }
 
 func TestPrepareWorkspacePathForCreateRecoversLegacyRetryMetadataWithoutFingerprint(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "feature")
 	if err := os.MkdirAll(filepath.Join(workspacePath, "nested"), 0o755); err != nil {
@@ -214,15 +186,15 @@ func TestPrepareWorkspacePathForCreateRecoversLegacyRetryMetadataWithoutFingerpr
 		t.Fatalf("WriteFile(retryMetadata) error = %v", err)
 	}
 
-	runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
 		t.Fatal("expected legacy retry cleanup to complete before git commands")
 		return "", nil
 	}
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		t.Fatal("expected legacy retry cleanup to complete without unregister")
 		return nil
 	}
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		return os.RemoveAll(path)
 	}
 

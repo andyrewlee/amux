@@ -10,7 +10,7 @@ import (
 
 // commitTimeout bounds the stage+commit pass. The 5s defaultGitTimeout is fine
 // for a small tree but too tight for a large staging pass; this follows the
-// worktreeTimeout precedent of overriding for multi-file ops.
+// ops.worktreeTimeout precedent of overriding for multi-file ops.
 const commitTimeout = 15 * time.Second
 
 // ErrEmptyCommitMessage is returned by CommitAll when the message is blank.
@@ -45,7 +45,7 @@ func CommitAll(ctx context.Context, workspaceRoot, message string) error {
 
 	// `add -A` runs attributed clean filters — refuse a repo-local driver
 	// binding before staging executes it.
-	if err := filterDriverGate(ctx, workspaceRoot, "staging changes"); err != nil {
+	if err := ops.filterDriverGate(ctx, workspaceRoot, "staging changes"); err != nil {
 		return err
 	}
 	if _, err := RunGitCtx(ctx, workspaceRoot, "add", "-A"); err != nil {

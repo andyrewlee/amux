@@ -10,14 +10,7 @@ import (
 )
 
 func TestRemoveWorkspaceTimeoutReturnsPendingErrorWhenUnregisterRetryIsDeferred(t *testing.T) {
-	origRunGitCtx := runGitCtx
-	origRemoveWorkspacePathCtx := removeWorkspacePathCtx
-	origUnregisterWorktreeCtx := unregisterWorktreeCtx
-	defer func() {
-		runGitCtx = origRunGitCtx
-		removeWorkspacePathCtx = origRemoveWorkspacePathCtx
-		unregisterWorktreeCtx = origUnregisterWorktreeCtx
-	}()
+	stubOps(t)
 
 	workspacePath := filepath.Join(t.TempDir(), "timeout-deferred-unregister")
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
@@ -30,7 +23,7 @@ func TestRemoveWorkspaceTimeoutReturnsPendingErrorWhenUnregisterRetryIsDeferred(
 		t.Fatalf("WriteFile(.git) error = %v", err)
 	}
 
-	runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, gotRepoPath string, args ...string) (string, error) {
 		if gotRepoPath != "/tmp/repo" {
 			t.Fatalf("repo path = %q, want %q", gotRepoPath, "/tmp/repo")
 		}
@@ -48,12 +41,12 @@ func TestRemoveWorkspaceTimeoutReturnsPendingErrorWhenUnregisterRetryIsDeferred(
 	}
 
 	unregisterCalls := 0
-	unregisterWorktreeCtx = func(context.Context, string, string) error {
+	ops.unregisterWorktreeCtx = func(context.Context, string, string) error {
 		unregisterCalls++
 		return errWorkspaceCleanupRepoUnavailable
 	}
 
-	removeWorkspacePathCtx = func(_ context.Context, path string) error {
+	ops.removeWorkspacePathCtx = func(_ context.Context, path string) error {
 		if !strings.Contains(filepath.Base(path), ".amux-prune-") {
 			t.Fatalf("unexpected cleanup path %q", path)
 		}

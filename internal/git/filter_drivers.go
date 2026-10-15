@@ -13,16 +13,14 @@ type filterDriverAttribution struct {
 	path   string
 }
 
-// filterDriverGate is the mutation-site filter-driver check — a var so
-// tests that fake runGitCtx can stand it down alongside the fake (the gate
+// ops.ops.filterDriverGate is the mutation-site filter-driver check — a seam so
+// tests that fake ops.runGitCtx can stand it down alongside the fake (the gate
 // execs git directly for its config/ls-files/check-attr enumeration and
 // would otherwise escape the fake entirely). refs are additional tree-ish
 // sources whose attribute stacks also gate the operation — the commit a
 // `worktree add` checks out, the incoming commit of a merge — because the
 // current worktree's .gitattributes say nothing about paths attributed only
 // in the tree being written.
-var filterDriverGate = refuseRepoFilterDrivers
-
 // refuseRepoFilterDrivers runs the filter-driver refusal shared by every
 // mutation-capable git call site (worktree add, add -A, merge, merge
 // --abort): a repo-local filter.<name>.* driver attributed by a path
@@ -35,7 +33,7 @@ var filterDriverGate = refuseRepoFilterDrivers
 // opt-out stands the guard down along with the rest of the hardening —
 // opting into repo hooks is opting into repo trust.
 func refuseRepoFilterDrivers(ctx context.Context, repoPath, op string, refs ...string) error {
-	if allowRepoGitHooks {
+	if ops.allowRepoGitHooks {
 		return nil
 	}
 	live, err := liveFilterDrivers(ctx, repoPath, refs...)

@@ -46,6 +46,15 @@ var sidebarRearmChainClassification = []struct {
 	{"sidebar.SidebarTerminalCreateFailed", zeroMsg[SidebarTerminalCreateFailed](), false},
 	{"messages.WorkspaceDeleted", zeroMsg[messages.WorkspaceDeleted](), false},
 	{"messages.WorkspaceShelved", zeroMsg[messages.WorkspaceShelved](), false},
+
+	// Sibling Update surfaces — TabbedSidebar.Update (tabs.go),
+	// ProjectTree.Update (project_tree.go), and ChangesModel.Update
+	// (model_input.go) dispatch these in addition to the tea input types
+	// above. All one-shot results; no periodic chain lives in a sidebar
+	// content model.
+	{"messages.BranchChangesLoaded", zeroMsg[messages.BranchChangesLoaded](), false},
+	{"messages.AheadBehindLoaded", zeroMsg[messages.AheadBehindLoaded](), false},
+	{"sidebar.ProjectTreeDirectoryLoaded", zeroMsg[ProjectTreeDirectoryLoaded](), false},
 }
 
 // zeroMsg returns a zero-value sample of a message type — a var
@@ -57,14 +66,19 @@ func zeroMsg[T any]() tea.Msg {
 }
 
 // TestRearmForPanic_ClassifiesEveryModelUpdateMessage is the completeness
-// contract for the model-internal panic rearm: every message type
-// TerminalModel.Update routes through its type switch must appear in
+// contract for the model-internal panic rearm: every message type the
+// sidebar's Update methods route through their type switches must appear in
 // sidebarRearmChainClassification, so a new periodic chain cannot land
 // silently in RearmForPanic's nil default. The dispatched set is extracted
 // from the source — adding a case without classifying it fails this test
 // with the type names.
 func TestRearmForPanic_ClassifiesEveryModelUpdateMessage(t *testing.T) {
-	dispatched := modelUpdateMsgTypeNames(t, "terminal_update.go", "TerminalModel")
+	dispatched := modelUpdateMsgTypeNames(t, map[string][]string{
+		"terminal_update.go": {"TerminalModel"},
+		"tabs.go":            {"TabbedSidebar"},
+		"project_tree.go":    {"ProjectTree"},
+		"model_input.go":     {"ChangesModel"},
+	})
 
 	classified := make(map[string]bool, len(sidebarRearmChainClassification))
 	for _, row := range sidebarRearmChainClassification {
@@ -78,7 +92,7 @@ func TestRearmForPanic_ClassifiesEveryModelUpdateMessage(t *testing.T) {
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Fatalf("TerminalModel.Update message types missing a rearm classification — add each to sidebarRearmChainClassification: %v", missing)
+		t.Fatalf("sidebar Update message types missing a rearm classification — add each to sidebarRearmChainClassification: %v", missing)
 	}
 
 	// Classified-nil rows must produce nil: a type silently wired to a
@@ -94,28 +108,34 @@ func TestRearmForPanic_ClassifiesEveryModelUpdateMessage(t *testing.T) {
 	}
 }
 
-// modelUpdateMsgTypeNames extracts the type names routed by file's
-// `func (m *recvType) Update` type switch. Package-local case types are
+// modelUpdateMsgTypeNames extracts the type names routed by each file's
+// `func (m *recvType) Update` type switches — TerminalModel plus the sibling
+// content models (TabbedSidebar, ProjectTree, ChangesModel) that were the
+// blind spot for non-terminal dispatch. Package-local case types are
 // reported under the sidebar.* prefix.
-func modelUpdateMsgTypeNames(t *testing.T, file, recvType string) map[string]bool {
+func modelUpdateMsgTypeNames(t *testing.T, funcs map[string][]string) map[string]bool {
 	t.Helper()
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, file, nil, 0)
-	if err != nil {
-		t.Fatalf("parsing %s: %v", file, err)
-	}
 	names := map[string]bool{}
-	found := false
-	for _, decl := range f.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Name.Name != "Update" || fd.Body == nil || !receiverIs(fd, recvType) {
-			continue
+	for file, recvTypes := range funcs {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", file, err)
 		}
-		found = true
-		collectMsgSwitchCases(fd.Body, names)
-	}
-	if !found {
-		t.Fatalf("func (m *%s) Update not found in %s", recvType, file)
+		for _, recvType := range recvTypes {
+			found := false
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Name.Name != "Update" || fd.Body == nil || !receiverIs(fd, recvType) {
+					continue
+				}
+				found = true
+				collectMsgSwitchCases(fd.Body, names)
+			}
+			if !found {
+				t.Fatalf("func (m *%s) Update not found in %s", recvType, file)
+			}
+		}
 	}
 	if len(names) == 0 {
 		t.Fatal("no dispatched message types extracted — AST walker drifted from the source")

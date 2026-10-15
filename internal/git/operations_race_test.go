@@ -8,17 +8,13 @@ import (
 )
 
 func TestRunGitCommandIgnoresPostExitCancellation(t *testing.T) {
+	stubOps(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("shell exit command is unix-specific")
 	}
 
-	origHook := runGitCommandAfterWaitHook
-	defer func() {
-		runGitCommandAfterWaitHook = origHook
-	}()
-
 	ctx, cancel := context.WithCancel(context.Background())
-	runGitCommandAfterWaitHook = cancel
+	ops.runGitCommandAfterWaitHook = cancel
 
 	cmd := exec.Command("sh", "-c", "exit 0")
 	killedByContext, err := runGitCommand(ctx, cmd)

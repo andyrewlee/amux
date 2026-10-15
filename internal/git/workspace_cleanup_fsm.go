@@ -143,7 +143,7 @@ func cleanupUnregisterStep(r *workspaceCleanupRun) (workspaceCleanupPhase, error
 	if unregisterRepoPath != "" {
 		r.state.RepoPath = unregisterRepoPath
 	}
-	if err := unregisterWorktreeCtx(r.ctx, unregisterRepoPath, r.workspacePath); err != nil {
+	if err := ops.unregisterWorktreeCtx(r.ctx, unregisterRepoPath, r.workspacePath); err != nil {
 		if !canSkipUnregisterRetry(unregisterRepoPath, err) {
 			return cleanupPhaseDone, err
 		}
@@ -177,7 +177,7 @@ func cleanupRemoveStageStep(r *workspaceCleanupRun) (workspaceCleanupPhase, erro
 	} else if statErr != nil {
 		return cleanupPhaseDone, statErr
 	}
-	if err := removeWorkspacePathCtx(r.ctx, r.state.CleanupPath); err != nil {
+	if err := ops.removeWorkspacePathCtx(r.ctx, r.state.CleanupPath); err != nil {
 		return cleanupPhaseDone, err
 	}
 	r.state.CleanupPath = ""

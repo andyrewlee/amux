@@ -162,8 +162,7 @@ func TestCleanupFinalizeStep_PersistsDeferredUnregister(t *testing.T) {
 // marker is whatever it was before — so a subsequent resume recomputes from
 // disk and retries instead of treating the worktree as cleaned up.
 func TestCleanupFinalizeStep_WriteFailureLeavesDiskMarkerForRetry(t *testing.T) {
-	origWriteRetryMarkerFile := writeRetryMarkerFile
-	defer func() { writeRetryMarkerFile = origWriteRetryMarkerFile }()
+	savedOps := stubOps(t)
 
 	dir := t.TempDir()
 	ws := filepath.Join(dir, "ws")
@@ -173,12 +172,12 @@ func TestCleanupFinalizeStep_WriteFailureLeavesDiskMarkerForRetry(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	writeRetryMarkerFile = func(string, []byte, os.FileMode) error {
+	ops.writeRetryMarkerFile = func(string, []byte, os.FileMode) error {
 		return errors.New("marker write failed")
 	}
 
 	// The unregister is still unsatisfied, so finalize takes the persist branch
-	// (writePendingWorkspaceCleanupState -> writeRetryMarkerFile), which fails.
+	// (writePendingWorkspaceCleanupState -> ops.writeRetryMarkerFile), which fails.
 	run := &workspaceCleanupRun{
 		ctx:                 context.Background(),
 		repoPath:            dir,
@@ -208,7 +207,7 @@ func TestCleanupFinalizeStep_WriteFailureLeavesDiskMarkerForRetry(t *testing.T) 
 	// the persisted disk state and the unregister now succeeds on retry. The
 	// retried finalize then clears the marker, declaring the cleanup done — the
 	// worktree is not leaked.
-	writeRetryMarkerFile = origWriteRetryMarkerFile
+	ops.writeRetryMarkerFile = savedOps.writeRetryMarkerFile
 	retry := &workspaceCleanupRun{
 		ctx:                 context.Background(),
 		repoPath:            dir,

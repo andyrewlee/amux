@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 )
 
-var workspaceCleanupRetryFingerprintCtx = workspaceCleanupRetryFingerprintWithContext
-
 func workspaceCleanupRetryFingerprintWithContext(ctx context.Context, workspacePath string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -116,7 +114,7 @@ func workspacePathMatchesRetryMetadataCleanupWithContext(
 		}
 		return false, nil
 	}
-	currentFingerprint, err := workspaceCleanupRetryFingerprintCtx(ctx, workspacePath)
+	currentFingerprint, err := ops.workspaceCleanupRetryFingerprintCtx(ctx, workspacePath)
 	if err != nil {
 		return false, err
 	}

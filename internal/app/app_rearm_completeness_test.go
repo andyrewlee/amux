@@ -194,6 +194,14 @@ var rearmChainClassification = []struct {
 	{"messages.TriggerUpgrade", zeroMsg[messages.TriggerUpgrade](), false},
 	{"messages.UpgradeComplete", zeroMsg[messages.UpgradeComplete](), false},
 
+	// handleDialogResultMsg (app_dialog_result_binding.go) — consumed by the
+	// pre-switch guard before the main routing table. Both are one-shot
+	// results, never periodic chains.
+	{"app.boundDialogResultMsg", zeroMsg[boundDialogResultMsg](), false},
+	{"common.DialogResult", zeroMsg[common.DialogResult](), false},
+	// handleMouseMsg (app_input_mouse.go) re-dispatches the four tea mouse
+	// types already classified above — walking it adds no new names.
+
 	// center.PTYRestart reaches Update through the default sink (routed to
 	// center.Update, not a named case) — a panic still surfaces the type to
 	// rearmCmdForPanic, so it is classified here even though the AST walker
@@ -304,15 +312,20 @@ func rearmCaseTypeNames(t *testing.T) map[string]bool {
 }
 
 // dispatchedMsgTypeNames extracts the type names routed by App.update's
-// top-level dispatch: update()'s inline switch plus the five update*Msg
-// sub-dispatchers. Only `switch msg := msg.(type)` statements are walked —
-// nested switches on other values (e.g. dialog-result routing) are not
-// top-level dispatch.
+// top-level dispatch: update()'s inline switch plus the update*Msg
+// sub-dispatchers, the pre-switch dialog-result router, and the mouse
+// re-dispatcher — the last two were the blind spot that let a periodic
+// chain land in a pre-switch path unclassified. Only
+// `switch msg := msg.(type)` statements are walked — nested switches on
+// other values (e.g. m.activeTab) are not top-level dispatch.
 func dispatchedMsgTypeNames(t *testing.T) map[string]bool {
 	t.Helper()
 	funcs := map[string][]string{
-		"app_input.go":          {"update"},
-		"app_input_dispatch.go": {"updateUpgradeMsg", "updateTabMsg", "updateTmuxMsg", "updateWorkspaceLifecycleMsg", "updateDialogShowMsg"},
+		"app_input.go":                 {"update"},
+		"app_input_dispatch.go":        {"updateUpgradeMsg", "updateTabMsg", "updateTmuxMsg", "updateWorkspaceLifecycleMsg", "updateDialogShowMsg"},
+		"app_input_preswitch.go":       {"handlePreSwitchInput"},
+		"app_dialog_result_binding.go": {"handleDialogResultMsg"},
+		"app_input_mouse.go":           {"handleMouseMsg"},
 	}
 	names := map[string]bool{}
 	for file, wantFuncs := range funcs {

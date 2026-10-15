@@ -6,35 +6,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
-	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
-// These package-level vars are test seams — timeouts, runner indirections,
-// and filesystem hooks tests override to avoid real git/process work. As in
-// internal/ui/sidebar's seam block: tests that override any of them must not
-// use t.Parallel within this package.
-var (
-	worktreeTimeout = 30 * time.Second
-	// worktreeAddTimeout bounds `worktree add`, which checks out the whole
-	// tree: a large repo on a loaded machine can take minutes, and a killed
-	// add leaves a locked, half-populated worktree behind (see
-	// rollbackInterruptedWorktreeAdd).
-	worktreeAddTimeout      = 5 * time.Minute
-	worktreeRecoveryReserve = 2 * time.Minute
-	runGitCtx               = RunGitCtx
-	unregisterWorktreeCtx   = unregisterWorktreeAdminDirWithContext
-	removeWorkspacePathCtx  = removeWorkspacePathWithContext
-	removeWorkspacePathGOOS = runtime.GOOS
-	removeRetryMetadataPath = os.RemoveAll
-	writeRetryMarkerFile    = fsatomic.WriteFile
-	writeRetryMetadataFile  = fsatomic.WriteFile
-)
-
+// The workspace/test seams (timeouts, runner indirections, filesystem hooks)
+// live as fields on the ops struct in seams.go — tests override them through
+// stubOps and must not use t.Parallel within this package.
+//
+// ops.worktreeAddTimeout bounds `worktree add`, which checks out the whole
+// tree: a large repo on a loaded machine can take minutes, and a killed
+// add leaves a locked, half-populated worktree behind (see
+// rollbackInterruptedWorktreeAdd).
 const prunedWorkspaceCleanupMarkerSuffix = ".amux-pruned-worktree"
 
 // CreateWorkspace creates a new workspace backed by a git worktree.
@@ -54,7 +38,7 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 	// Refuse before any checkout work: an attributed repo-local filter
 	// driver would execute during `worktree add`'s checkout below — before
 	// the workspace's own trust gate can exist. Runs once, not per retry.
-	if err := filterDriverGate(context.Background(), repoPath, "creating workspace", base); err != nil {
+	if err := ops.filterDriverGate(context.Background(), repoPath, "creating workspace", base); err != nil {
 		return false, err
 	}
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
@@ -62,8 +46,8 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 	}
 
 	// Create branch from base and checkout into workspace path
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeAddTimeout)
-	_, err = runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, "--", workspacePath, base)
+	ctx, cancel := context.WithTimeout(context.Background(), ops.worktreeAddTimeout)
+	_, err = ops.runGitCtx(ctx, repoPath, "worktree", "add", "-b", branch, "--", workspacePath, base)
 	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 	cancel()
 	if err == nil {
@@ -81,8 +65,8 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 	// If the branch already exists, reuse it instead of failing hard.
 	// Retry with a fresh timeout context so a slow first attempt does not
 	// consume the entire budget for the fallback path.
-	retryCtx, retryCancel := context.WithTimeout(context.Background(), worktreeAddTimeout)
-	_, retryErr := runGitCtx(retryCtx, repoPath, "worktree", "add", "--", workspacePath, branch)
+	retryCtx, retryCancel := context.WithTimeout(context.Background(), ops.worktreeAddTimeout)
+	_, retryErr := ops.runGitCtx(retryCtx, repoPath, "worktree", "add", "--", workspacePath, branch)
 	retryTimedOut := errors.Is(retryCtx.Err(), context.DeadlineExceeded)
 	retryCancel()
 	if retryErr != nil && retryTimedOut {
@@ -107,14 +91,14 @@ func CreateWorkspaceWithResult(repoPath, workspacePath, branch, base string) (br
 // double --force is what removes a locked worktree; deleteBranch is true only
 // when this call created the branch. The returned error always wraps addErr.
 func rollbackInterruptedWorktreeAdd(addErr error, repoPath, workspacePath, branch string, deleteBranch bool) error {
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeRecoveryReserve)
+	ctx, cancel := context.WithTimeout(context.Background(), ops.worktreeRecoveryReserve)
 	defer cancel()
-	errs := []error{fmt.Errorf("worktree add timed out after %s: %w", worktreeAddTimeout, addErr)}
-	if _, err := runGitCtx(ctx, repoPath, "worktree", "remove", "--force", "--force", "--", workspacePath); err != nil {
+	errs := []error{fmt.Errorf("worktree add timed out after %s: %w", ops.worktreeAddTimeout, addErr)}
+	if _, err := ops.runGitCtx(ctx, repoPath, "worktree", "remove", "--force", "--force", "--", workspacePath); err != nil {
 		errs = append(errs, fmt.Errorf("rollback worktree remove: %w", err))
 	}
 	if deleteBranch {
-		if _, err := runGitCtx(ctx, repoPath, "branch", "-D", branch); err != nil && !IsBranchNotFoundError(err) {
+		if _, err := ops.runGitCtx(ctx, repoPath, "branch", "-D", branch); err != nil && !IsBranchNotFoundError(err) {
 			errs = append(errs, fmt.Errorf("rollback branch delete: %w", err))
 		}
 	}
@@ -174,14 +158,14 @@ func prepareWorkspacePathForCreate(repoPath, workspacePath string) error {
 // caller, never a silent recreation from a fabricated base.
 func AttachWorkspaceWorktree(repoPath, workspacePath, branch string) error {
 	// Same checkout-time exposure as CreateWorkspaceWithResult.
-	if err := filterDriverGate(context.Background(), repoPath, "attaching workspace", branch); err != nil {
+	if err := ops.filterDriverGate(context.Background(), repoPath, "attaching workspace", branch); err != nil {
 		return err
 	}
 	if err := prepareWorkspacePathForCreate(repoPath, workspacePath); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeAddTimeout)
-	_, err := runGitCtx(ctx, repoPath, "worktree", "add", "--", workspacePath, branch)
+	ctx, cancel := context.WithTimeout(context.Background(), ops.worktreeAddTimeout)
+	_, err := ops.runGitCtx(ctx, repoPath, "worktree", "add", "--", workspacePath, branch)
 	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 	cancel()
 	if err != nil && timedOut {
@@ -196,13 +180,13 @@ func AttachWorkspaceWorktree(repoPath, workspacePath, branch string) error {
 // common-dir parent (the owning repository, not the shared .git dir), and
 // branch is the abbreviated HEAD ("HEAD" when detached).
 func WorktreeIdentity(workspacePath string) (repo, branch string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), ops.worktreeTimeout)
 	defer cancel()
-	commonDir, err := runGitCtx(ctx, workspacePath, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	commonDir, err := ops.runGitCtx(ctx, workspacePath, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return "", "", err
 	}
-	branchOut, err := runGitCtx(ctx, workspacePath, "rev-parse", "--abbrev-ref", "HEAD")
+	branchOut, err := ops.runGitCtx(ctx, workspacePath, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", "", err
 	}
@@ -265,7 +249,7 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 		return resumeWorkspaceCleanup(ctx, repoPath, workspacePath, state)
 	}
 
-	regCtx, regCancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	regCtx, regCancel := context.WithTimeout(context.Background(), ops.worktreeTimeout)
 	registered, regErr := isRegisteredWorktreeCtx(regCtx, repoPath, workspacePath)
 	regCancel()
 	if regErr == nil && !registered {
@@ -301,7 +285,7 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveCommandTimeout())
 	defer cancel()
-	_, err = runGitCtx(ctx, repoPath, "worktree", "remove", "--force", "--", workspacePath)
+	_, err = ops.runGitCtx(ctx, repoPath, "worktree", "remove", "--force", "--", workspacePath)
 	if err != nil {
 		if isGitContextError(err) {
 			recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
@@ -362,9 +346,9 @@ func validateUnregisteredWorkspacePath(workspacePath string) error {
 
 // DeleteBranch deletes a git branch
 func DeleteBranch(repoPath, branch string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), ops.worktreeTimeout)
 	defer cancel()
-	_, err := runGitCtx(ctx, repoPath, "branch", "-D", "--", branch)
+	_, err := ops.runGitCtx(ctx, repoPath, "branch", "-D", "--", branch)
 	return err
 }
 
@@ -372,9 +356,9 @@ func DeleteBranch(repoPath, branch string) error {
 // Returns workspaces with minimal fields populated (Name, Branch, Repo, Root).
 // The caller should merge with stored metadata to get full workspace data.
 func DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), ops.worktreeTimeout)
 	defer cancel()
-	output, err := runGitCtx(ctx, project.Path, "worktree", "list", "--porcelain")
+	output, err := ops.runGitCtx(ctx, project.Path, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}

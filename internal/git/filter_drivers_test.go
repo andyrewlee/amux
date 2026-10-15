@@ -26,9 +26,8 @@ func repoWithFilterDriver(t *testing.T, driver string) string {
 // pattern operations_hardening_test.go uses.
 func allowHooks(t *testing.T) {
 	t.Helper()
-	prev := allowRepoGitHooks
-	allowRepoGitHooks = true
-	t.Cleanup(func() { allowRepoGitHooks = prev })
+	stubOps(t)
+	ops.allowRepoGitHooks = true
 }
 
 // TestLiveFilterDrivers_AttributedRepoLocalDriverDetected is the exploit

@@ -86,7 +86,7 @@ func stageWorkspaceForPendingCleanup(
 
 func canRecoverPendingCleanupWorkspace(ctx context.Context, workspacePath string, state workspaceCleanupState) (bool, error) {
 	if state.WorkspaceFingerprint != "" {
-		currentFingerprint, err := workspaceCleanupRetryFingerprintCtx(ctx, workspacePath)
+		currentFingerprint, err := ops.workspaceCleanupRetryFingerprintCtx(ctx, workspacePath)
 		if err != nil {
 			return false, err
 		}

@@ -192,7 +192,7 @@ func writeWorkspaceCleanupState(workspacePath string, state workspaceCleanupStat
 	if err != nil {
 		return fmt.Errorf("encode workspace cleanup marker: %w", err)
 	}
-	return writeRetryMarkerFile(prunedWorkspaceRetryMarkerPath(workspacePath), payload, 0o600)
+	return ops.writeRetryMarkerFile(prunedWorkspaceRetryMarkerPath(workspacePath), payload, 0o600)
 }
 
 // workspaceCleanupMarkerVersion is the current on-disk marker format version.
@@ -256,10 +256,10 @@ func readWorkspaceCleanupMarkerFile(markerPath string) ([]byte, error) {
 
 func clearPrunedWorkspaceRetryMarker(workspacePath string) error {
 	markerPath := prunedWorkspaceRetryMarkerPath(workspacePath)
-	if err := removeRetryMetadataPath(markerPath); err != nil && !os.IsNotExist(err) {
+	if err := ops.removeRetryMetadataPath(markerPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := removeRetryMetadataPath(retryMarkerBackupPath(markerPath)); err != nil && !os.IsNotExist(err) {
+	if err := ops.removeRetryMetadataPath(retryMarkerBackupPath(markerPath)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
@@ -294,7 +294,7 @@ func ensureWorkspaceCleanupRetryMetadataWithContext(
 	if metadata.NeedsUnregister && metadata.RepoPath == "" {
 		return workspaceCleanupRetryMetadata{}, fmt.Errorf("workspace cleanup retry metadata for %s is missing repo path for unregister recovery", workspacePath)
 	}
-	fingerprint, err := workspaceCleanupRetryFingerprintCtx(ctx, workspacePath)
+	fingerprint, err := ops.workspaceCleanupRetryFingerprintCtx(ctx, workspacePath)
 	if err != nil {
 		return workspaceCleanupRetryMetadata{}, err
 	}
@@ -302,7 +302,7 @@ func ensureWorkspaceCleanupRetryMetadataWithContext(
 	if err := ctx.Err(); err != nil {
 		return workspaceCleanupRetryMetadata{}, err
 	}
-	if err := writeRetryMetadataFile(
+	if err := ops.writeRetryMetadataFile(
 		workspaceCleanupRetryMetadataPath(workspacePath),
 		[]byte(fmt.Sprintf(
 			"repo_path=%s\nneeds_unregister=%t\nworkspace_fingerprint=%s\n",
