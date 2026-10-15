@@ -15,39 +15,34 @@ import (
 // ratchet. Each returns true (and appends to cmds) when it handled the message;
 // the message types are disjoint across dispatchers, so call order is irrelevant.
 //
-// Routing map — which dispatcher owns a message type, and where its handlers
-// live (see MESSAGE_FLOW.md for the create/activate and delete sequences):
+// Routing map — dispatcher → category → where its handlers live. Type names
+// are deliberately NOT enumerated here: the switch bodies are the source of
+// truth and hand-maintained lists drift (see MESSAGE_FLOW.md for the
+// create/activate and delete sequences).
 //
 //	handlePreSwitchInput   dialog/file-picker/settings/toast/overlay input
 //	                       → app_input_dialogs.go
-//	updateUpgradeMsg       UpdateCheckComplete, TriggerUpgrade, UpgradeComplete
-//	                       → service_update.go
-//	updateTabMsg           OpenDiff, CloseTab, LaunchAgent, TabCreated/Closed/
-//	                       Detached/Reattached/StateChanged/SelectionChanged,
-//	                       persistDebounceMsg, persistSaveFailedMsg,
-//	                       center.TabInputFailed/TabInputRejected
-//	                       → app_input_messages_center.go, app_persistence.go
-//	updateTmuxMsg          CleanupTmuxSessions, SpinnerTick, GitStatusTick,
-//	                       OrphanGCTick, PTYWatchdogTick, tmuxActivityTick/
-//	                       Result, tmuxAvailableResult, TmuxSyncTick,
-//	                       tmuxTabsSyncResult, tmuxTabs/SidebarDiscoverResult,
-//	                       orphanGCResult, staleDetachedAgentGCResult
-//	                       → app_tmux*.go
-//	updateWorkspaceLifecycleMsg  ProjectsLoaded, WorkspaceActivated/Created/
-//	                       CreatedWithWarning/CreateFailed/SetupComplete,
-//	                       CreateWorkspace, DeleteWorkspace, WorkspaceDeleted/
-//	                       DeleteFailed, AddProject/RemoveProject/ProjectRemoved,
-//	                       RefreshDashboard, RescanWorkspaces, GitStatusResult,
-//	                       WorkspaceCommitted, MergeWorkspace/
-//	                       MergeWorkspaceRefused/WorkspaceMerged/
-//	                       WorkspaceMergeAborted, ToggleWorkspaceScript/
-//	                       WorkspaceScriptStateChanged,
-//	                       FileWatcherEvent, StateWatcherEvent
-//	                       → app_input_messages_workspace.go, app_input_workspace.go,
-//	                         app_workspace_merge.go, app_workspace_scripts.go
-//	updateDialogShowMsg    Show* dialog requests, ThemePreview, SettingsResult,
-//	                       EnvDialogResult
+//	updateUpgradeMsg       self-update lifecycle (check/trigger/complete)
 //	                       → app_input_dialogs.go
+//	updateTabMsg           center tab lifecycle, persistence debounce, and
+//	                       input-verdict/bell results
+//	                       → app_input_messages_center.go, app_persistence.go,
+//	                         app_input_pty.go
+//	updateTmuxMsg          tmux ticks, sync/discovery results, and background
+//	                       GC/count results
+//	                       → app_tmux*.go
+//	updateWorkspaceLifecycleMsg  project/workspace lifecycle (load/create/
+//	                       delete/rename/shelve/restore), git status, merge,
+//	                       scripts, and file/state watcher events
+//	                       → app_input_messages_workspace.go,
+//	                         app_input_workspace*.go, app_workspace_*.go
+//	updateDialogShowMsg    Show* dialog requests plus the async results
+//	                       those dialogs and bespoke overlays consume
+//	                       (status-ready, run-output, save results,
+//	                       run-session enumeration)
+//	                       → app_input_dialogs.go, app_input_messages_dialogs.go,
+//	                         app_input_project_dialogs.go,
+//	                         app_workspace_*.go, app_run_output*.go
 
 // updateUpgradeMsg handles self-update / upgrade lifecycle messages.
 func (a *App) updateUpgradeMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {

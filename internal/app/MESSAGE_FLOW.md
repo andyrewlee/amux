@@ -72,6 +72,16 @@ failure result instead — git status, run-script status, upgrade, and the tmux
 activity scan all use it; `wrapLifecycleCmd` does the same for workspace
 lifecycle ops.
 
+The Update side has the same freeze risk: a handler that panics mid-body
+discards every cmd it built — including the tail-position re-arm that keeps a
+periodic chain alive. `App.Update`'s recover logs the panic, surfaces `a.err`,
+invalidates the frame cache, resets single-flight latches
+(`resetAdvisoryLatchesAfterPanic`), and restarts exactly the chain that died
+(`rearmCmdForPanic`, which mirrors each handler's own tail semantics —
+stale-token guards included). The full contract — including the actor-side
+per-event recover and the `withMu` lock discipline — lives in
+ARCHITECTURE.md's "Panic Recovery" section.
+
 New code should reach for `ReportError` for user-initiated operation failures;
 a raw `messages.Error` is acceptable when the modal alone is the intended
 surface. If a lint check ever lands, "raw `messages.Error` emitted with no
