@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -215,13 +216,13 @@ func TestPresentBulkTargetsDialog_StaleSetNeverBuilds(t *testing.T) {
 	ws1 := &data.Workspace{Name: "ws-a", Repo: "/repo", Root: "/repo/ws-a"}
 	ws2 := &data.Workspace{Name: "ws-b", Repo: "/repo", Root: "/repo/ws-b"}
 	a.projects = []data.Project{{Path: "/repo", Workspaces: []data.Workspace{*ws1, *ws2}}}
-	targets := []bulkTarget{
-		{project: &a.projects[0], workspace: ws1, markID: string(ws1.MetadataID())},
-		{project: &a.projects[0], workspace: ws2, markID: string(ws2.MetadataID())},
+	targets := []bulkops.Target{
+		{Project: &a.projects[0], Workspace: ws1, MarkID: string(ws1.MetadataID())},
+		{Project: &a.projects[0], Workspace: ws2, MarkID: string(ws2.MetadataID())},
 	}
 
 	ran := false
-	a.presentBulkTargetsDialog(targets, false, func([]bulkTarget) { ran = true })
+	a.presentBulkTargetsDialog(targets, false, func([]bulkops.Target) { ran = true })
 	a.projects[0].Workspaces = a.projects[0].Workspaces[:1] // ws-b removed while queued
 	a.overlays.runOutput.Hide()
 	a.drainPendingOverlayOpens()

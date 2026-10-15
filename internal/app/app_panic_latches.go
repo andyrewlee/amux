@@ -48,16 +48,11 @@ func (a *App) resetAdvisoryLatchesAfterPanic() {
 	// them — the user re-issues the flow.
 	a.clearPendingHandoffs()
 
-	// A panic inside advanceBulk strands the batch: queue non-empty and
-	// headID armed forever, rejecting every later bulk op. Abandon the
-	// batch — the in-flight head op still completes through its own
-	// message (bulkFinished no-ops on the cleared headID, so a foreign
+	// A panic inside the bulk driver's advance strands the batch: queue
+	// non-empty and headID armed forever, rejecting every later bulk op.
+	// Abandon the batch — the in-flight head op still completes through
+	// its own message (Finished no-ops on the cleared headID, so a foreign
 	// completion cannot corrupt a future batch), and its marks come down
-	// here since finishBulk will never run.
-	if a.bulk.active() {
-		if a.dashboard != nil {
-			a.dashboard.ClearMarks(a.bulk.markIDs)
-		}
-		a.bulk = bulkOpState{}
-	}
+	// inside Abandon since the drain will never run.
+	a.bulk.Abandon()
 }

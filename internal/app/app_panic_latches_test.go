@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -110,36 +111,32 @@ func TestResetAdvisoryLatchesAfterPanic_LeavesObligationMarks(t *testing.T) {
 // batch.
 func TestResetAdvisoryLatchesAfterPanic_AbandonsBulk(t *testing.T) {
 	a := newBulkTestApp()
-	targets := []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}
-	// Arm the state a mid-advanceBulk panic leaves: head op in flight, one
+	targets := []bulkops.Target{makeBulkTarget("a"), makeBulkTarget("b")}
+	// Arm the state a mid-advance panic leaves: head op in flight, one
 	// target still queued, all marks lit on the dashboard.
-	a.bulk = bulkOpState{
-		kind:    bulkOpShelve,
-		queue:   targets[1:],
-		markIDs: []string{targets[0].markID, targets[1].markID},
-		headID:  targets[0].markID,
-		total:   2,
+	if cmd := a.bulk.Start(bulkops.Shelve, targets); cmd == nil {
+		t.Fatal("expected the batch's first op cmds")
 	}
-	a.dashboard.MarkWorkspaceIDs(a.bulk.markIDs)
+	a.dashboard.MarkWorkspaceIDs([]string{targets[0].MarkID, targets[1].MarkID})
 	if a.dashboard.MarkedCount() != 2 {
 		t.Fatalf("fixture marks = %d, want 2", a.dashboard.MarkedCount())
 	}
 
 	a.resetAdvisoryLatchesAfterPanic()
 
-	if a.bulk.active() {
+	if a.bulk.Active() {
 		t.Fatal("wedged bulk batch survived the panic reset")
 	}
 	if got := a.dashboard.MarkedCount(); got != 0 {
 		t.Fatalf("dashboard marks = %d after abandoned batch, want 0", got)
 	}
 	// The in-flight head op's late completion must not corrupt anything:
-	// headID was cleared with the batch, so bulkFinished ignores it.
-	if cmd := a.bulkFinished(targets[0].workspace, true); cmd != nil {
+	// headID was cleared with the batch, so Finished ignores it.
+	if cmd := a.bulk.Finished(targets[0].Workspace, true); cmd != nil {
 		t.Fatal("orphaned head completion produced a cmd against the cleared batch")
 	}
 	// And a fresh batch can start — the wedge is actually gone.
-	if cmd := a.startBulkOp(bulkOpShelve, targets); cmd == nil {
+	if cmd := a.bulk.Start(bulkops.Delete, targets); cmd == nil {
 		t.Fatal("post-reset bulk op rejected — the wedge is still armed")
 	}
 }
@@ -150,7 +147,7 @@ func TestResetAdvisoryLatchesAfterPanic_AbandonsBulk(t *testing.T) {
 // must leave them alone (they are NOT idempotent read marks like the rest).
 func TestResetAdvisoryLatchesAfterPanic_PreservesMutationMarks(t *testing.T) {
 	a := newBulkTestApp()
-	ws := makeBulkTarget("pinned").workspace
+	ws := makeBulkTarget("pinned").Workspace
 	if !a.markWorkspaceMutationInFlight(ws, true) {
 		t.Fatal("fixture mark did not take")
 	}

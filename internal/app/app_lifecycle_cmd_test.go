@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -58,14 +59,14 @@ func TestWrapLifecycleCmdPanicYieldsTypedFailure(t *testing.T) {
 // messages.Error silently never did.
 func TestWrapLifecycleCmdPanicReleasesBulkDrain(t *testing.T) {
 	app := newBulkTestApp()
-	targets := []bulkTarget{makeBulkTarget("a"), makeBulkTarget("b")}
+	targets := []bulkops.Target{makeBulkTarget("a"), makeBulkTarget("b")}
 
-	app.startBulkOp(bulkOpPurge, targets)
-	if app.bulk.headID != targets[0].markID {
-		t.Fatalf("head = %q, want %q", app.bulk.headID, targets[0].markID)
+	app.bulk.Start(bulkops.Purge, targets)
+	if app.bulk.HeadID() != targets[0].MarkID {
+		t.Fatalf("head = %q, want %q", app.bulk.HeadID(), targets[0].MarkID)
 	}
 
-	msg := wrapLifecycleCmd(panickingCmd(), lifecycleOpDelete, targets[0].project, targets[0].workspace)()
+	msg := wrapLifecycleCmd(panickingCmd(), lifecycleOpDelete, targets[0].Project, targets[0].Workspace)()
 	failed, ok := msg.(messages.WorkspaceDeleteFailed)
 	if !ok {
 		t.Fatalf("panic produced %T, want WorkspaceDeleteFailed", msg)
@@ -75,14 +76,14 @@ func TestWrapLifecycleCmdPanicReleasesBulkDrain(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected the failure handler to advance the drain")
 	}
-	if app.isWorkspaceMutationInFlight(string(targets[0].workspace.ID())) {
+	if app.isWorkspaceMutationInFlight(string(targets[0].Workspace.ID())) {
 		t.Fatal("mutating mark leaked after panic-failed op")
 	}
-	if app.bulk.headID != targets[1].markID {
-		t.Fatalf("bulk head did not advance: %q, want %q", app.bulk.headID, targets[1].markID)
+	if app.bulk.HeadID() != targets[1].MarkID {
+		t.Fatalf("bulk head did not advance: %q, want %q", app.bulk.HeadID(), targets[1].MarkID)
 	}
-	if app.bulk.failed != 1 {
-		t.Fatalf("bulk.failed = %d, want 1", app.bulk.failed)
+	if _, _, failedCount := app.bulk.Counters(); failedCount != 1 {
+		t.Fatalf("bulk failed = %d, want 1", failedCount)
 	}
 }
 
@@ -92,18 +93,18 @@ func TestWrapLifecycleCmdPanicSingleOpReleasesMark(t *testing.T) {
 	app := newBulkTestApp()
 	target := makeBulkTarget("solo")
 
-	app.handleDeleteWorkspace(messages.DeleteWorkspace{Project: target.project, Workspace: target.workspace})
-	if !app.isWorkspaceMutationInFlight(string(target.workspace.ID())) {
+	app.handleDeleteWorkspace(messages.DeleteWorkspace{Project: target.Project, Workspace: target.Workspace})
+	if !app.isWorkspaceMutationInFlight(string(target.Workspace.ID())) {
 		t.Fatal("expected mutating mark after delete dispatch")
 	}
 
-	msg := wrapLifecycleCmd(panickingCmd(), lifecycleOpDelete, target.project, target.workspace)()
+	msg := wrapLifecycleCmd(panickingCmd(), lifecycleOpDelete, target.Project, target.Workspace)()
 	failed, ok := msg.(messages.WorkspaceDeleteFailed)
 	if !ok {
 		t.Fatalf("panic produced %T, want WorkspaceDeleteFailed", msg)
 	}
 	_ = app.handleWorkspaceDeleteFailed(failed)
-	if app.isWorkspaceMutationInFlight(string(target.workspace.ID())) {
+	if app.isWorkspaceMutationInFlight(string(target.Workspace.ID())) {
 		t.Fatal("mutating mark leaked after panic-failed single op")
 	}
 }

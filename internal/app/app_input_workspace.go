@@ -353,7 +353,7 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 		if postDeleteLoad != nil {
 			cmds = append(cmds, postDeleteLoad)
 		}
-		if cmd := a.bulkFinished(msg.Workspace, false); cmd != nil {
+		if cmd := a.bulk.Finished(msg.Workspace, false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		return cmds
@@ -364,7 +364,7 @@ func (a *App) handleWorkspaceDeleted(msg messages.WorkspaceDeleted) []tea.Cmd {
 	cmds = append(cmds, postDeleteLoad)
 	// A bulk purge member's completion advances the queue; foreign delete
 	// completions leave the batch untouched.
-	if cmd := a.bulkFinished(msg.Workspace, true); cmd != nil {
+	if cmd := a.bulk.Finished(msg.Workspace, true); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return cmds
@@ -441,7 +441,7 @@ func (a *App) handleWorkspaceDeleteFailed(msg messages.WorkspaceDeleteFailed) te
 	if errCmd := common.ReportError(errorContext(errorServiceWorkspace, "removing workspace"), msg.Err, ""); errCmd != nil {
 		cmds = append(cmds, errCmd)
 	}
-	if cmd := a.bulkFinished(msg.Workspace, false); cmd != nil {
+	if cmd := a.bulk.Finished(msg.Workspace, false); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return common.SafeBatch(cmds...)

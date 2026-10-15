@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
@@ -197,9 +198,10 @@ type App struct {
 	pendingLaunchAssistants map[string]string
 
 	// bulk drives a marked-set lifecycle op (shelve, restore, purge, delete)
-	// one workspace at a time through the literal per-row handler — see
-	// app_bulk_shelve.go.
-	bulk bulkOpState
+	// one workspace at a time through the literal per-row handler — the
+	// driver lives in internal/app/bulkops; its seams are wired in
+	// initBulkDriver.
+	bulk bulkops.Driver
 
 	// Git write-back seams. All nil in production (each falls back to the real
 	// git.* function); tests install fakes to assert the dialog→git wiring
@@ -279,7 +281,7 @@ type dialogContext struct {
 	trustScriptsHash string
 	// bulkTargets carries the confirmed bulk-op set from the dialog to
 	// its result handler.
-	bulkTargets []bulkTarget
+	bulkTargets []bulkops.Target
 	// mergeBase is the local base branch the merge confirmation resolved and
 	// verified, carried to the confirm handler so it reports the same branch
 	// the user was shown.
