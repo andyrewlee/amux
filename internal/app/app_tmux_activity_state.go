@@ -1,11 +1,16 @@
 package app
 
-import "github.com/andyrewlee/amux/internal/app/activity"
+import (
+	"sync"
+
+	"github.com/andyrewlee/amux/internal/app/activity"
+)
 
 // tmuxActivityState groups the tmux activity-scan bookkeeping that previously
 // lived as loose fields on App: ticker/dedup tokens, scan-coalescing flags,
-// shared-scan ownership, and per-session activity hysteresis. It is mutated
-// only from App.Update handlers (single writer).
+// shared-scan ownership, and per-session activity hysteresis. All fields are
+// mutated only from App.Update handlers (single writer) EXCEPT missBySession,
+// which the scan goroutine mutates under missMu.
 type tmuxActivityState struct {
 	// syncToken dedups tmux session-reconcile ticker generations (TmuxSyncTick).
 	syncToken int
@@ -41,8 +46,15 @@ type tmuxActivityState struct {
 	// never differ from itself. Cleared on owner transitions, pruned with
 	// sessionStates.
 	agentStateBaseline map[string]activity.AgentState
+	// missMu serializes missBySession access across scan goroutines. Scans
+	// are normally serialized by scanInFlight, but
+	// resetAdvisoryLatchesAfterPanic can clear that flag while a scan is
+	// still running — without this lock the overlap is a fatal
+	// concurrent-map-write crash, not a recoverable panic.
+	missMu sync.Mutex
 	// missBySession counts consecutive non-live activity observations per
 	// session so a single transient miss does not demote a working agent.
+	// Access only under missMu.
 	missBySession map[string]int
 }
 
