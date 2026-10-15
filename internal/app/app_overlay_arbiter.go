@@ -113,3 +113,74 @@ func (a *App) reResolveOpenTarget(ws *data.Workspace, required bool) (live *data
 	}
 	return ws, nil, true
 }
+
+// presentWorkspaceDialog owns the deferred-open contract for
+// workspace-subject dialogs — the prologue every such handler used to
+// re-perform by hand: workspaceLoaded captured at request time →
+// requestOverlayOpen arbitration → reResolveOpenTarget at drain →
+// clearPendingWorkspaceCreate → build(live ws, proj). build receives the
+// re-resolved subject — reading the captured message's workspace inside it
+// would bypass the staleness fence this helper exists to provide.
+//
+// The pending-create clear runs on present only: a dropped stale open never
+// tears down an unrelated in-flight create handoff.
+//
+// New workspace-subject Show* handlers must call this rather than
+// requestOverlayOpen directly. Non-workspace subjects (project env, session
+// pickers, file pickers, bespoke overlays) keep requestOverlayOpen plus
+// their own drain-time fence — see handleProjectEnvReady's token re-check
+// for the pattern.
+func (a *App) presentWorkspaceDialog(ws *data.Workspace, build func(live *data.Workspace, proj *data.Project)) {
+	required := a.workspaceLoaded(ws)
+	a.requestOverlayOpen(func() {
+		live, proj, ok := a.reResolveOpenTarget(ws, required)
+		if !ok {
+			return
+		}
+		a.clearPendingWorkspaceCreate()
+		build(live, proj)
+	})
+}
+
+// presentWorkspaceOverlay is presentWorkspaceDialog's bespoke-overlay
+// sibling for workspace subjects — same re-resolve contract, arbitrated
+// through requestRunOutputOpen (the runOutput slot's refresh semantics)
+// instead, and without the pending-create clear these non-dialog overlays
+// never ran.
+func (a *App) presentWorkspaceOverlay(ws *data.Workspace, build func(live *data.Workspace)) {
+	required := a.workspaceLoaded(ws)
+	a.requestRunOutputOpen(func() {
+		live, _, ok := a.reResolveOpenTarget(ws, required)
+		if !ok {
+			return
+		}
+		build(live)
+	})
+}
+
+// presentBulkTargetsDialog is presentWorkspaceDialog's marked-set sibling —
+// the same contract with a bulk target set as the subject and
+// resolveBulkTargets as the drain-time fence: a fully-loaded set whose
+// membership drifted while queued invalidates the whole open, since the
+// typed count and row list were computed from the request-time set.
+func (a *App) presentBulkTargetsDialog(targets []bulkTarget, shelved bool, build func(resolved []bulkTarget)) {
+	required := a.bulkTargetsRequired(targets, shelved)
+	a.requestOverlayOpen(func() {
+		resolved, ok := a.resolveBulkTargets(targets, shelved, required)
+		if !ok {
+			return
+		}
+		a.clearPendingWorkspaceCreate()
+		build(resolved)
+	})
+}
+
+// clearPendingHandoffs drops every staged dialog handoff — the create→
+// agent-picker binding and the picker→task binding. Called on paths that
+// abandon all in-flight flows at once (panic recovery); per-field clears
+// that run conditionally (the displaced-result path binds each to its own
+// dialog ID) stay manual at their sites.
+func (a *App) clearPendingHandoffs() {
+	a.pendingWorkspaceCreate = pendingWorkspaceCreateState{}
+	a.pendingLaunchTask = pendingLaunchTaskState{}
+}

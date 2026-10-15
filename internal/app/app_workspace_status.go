@@ -200,7 +200,6 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 	if msg.portErr != nil {
 		return a.toast.ShowError("Cannot read port reservation: " + msg.portErr.Error())
 	}
-	required := a.workspaceLoaded(msg.ws)
 	st := a.buildWorkspaceStatus(msg.ws, msg.reads)
 	st.runAlive = msg.runAlive
 	st.runLastExit = msg.runLastExit
@@ -210,15 +209,11 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 		st.portBase, st.portEnd, st.portAllocated = msg.portBase, msg.portEnd, true
 	}
 	content := renderWorkspaceStatus(st)
-	a.requestRunOutputOpen(func() {
+	a.presentWorkspaceOverlay(msg.ws, func(ws *data.Workspace) {
 		// Drain-time staleness: the token check above ran at message time —
 		// a later open may have bumped runOutputToken while this sat queued,
 		// and applying the superseded read would arm U/R on stale state.
 		if msg.token != a.overlays.runOutputToken {
-			return
-		}
-		ws, _, ok := a.reResolveOpenTarget(msg.ws, required)
-		if !ok {
 			return
 		}
 		a.overlays.runOutputWorkspace = ws

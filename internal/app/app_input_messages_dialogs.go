@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
@@ -67,13 +68,7 @@ func (a *App) handleShowDeleteWorkspaceDialog(msg messages.ShowDeleteWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
-		ws, proj, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, proj *data.Project) {
 		if proj == nil {
 			proj = msg.Project
 		}
@@ -98,13 +93,7 @@ func (a *App) handleShowShelveWorkspaceDialog(msg messages.ShowShelveWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
-		ws, proj, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, proj *data.Project) {
 		if proj == nil {
 			proj = msg.Project
 		}
@@ -128,13 +117,7 @@ func (a *App) handleShowRenameWorkspaceDialog(msg messages.ShowRenameWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
-		ws, proj, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, proj *data.Project) {
 		// The re-resolved project is authoritative for a loaded workspace;
 		// a never-loaded subject keeps the caller's project context.
 		a.dlg.project = msg.Project
@@ -169,13 +152,7 @@ func (a *App) handleShowWorkspaceEnvDialog(msg messages.ShowWorkspaceEnvDialog) 
 	if msg.Workspace == nil {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
-		a.clearPendingWorkspaceCreate()
-		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, _ *data.Project) {
 		a.overlays.envWorkspace = ws
 		a.overlays.env = common.NewEnvDialog(filterReservedEnv(ws.Env))
 		a.overlays.env.SetKeyValidator(envAddKeyValidator)
@@ -193,13 +170,7 @@ func (a *App) handleShowCommitWorkspaceDialog(msg messages.ShowCommitWorkspaceDi
 	if a.dialogOpen() {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
-		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, _ *data.Project) {
 		a.dlg.workspace = ws
 		a.dialog = common.NewInputDialog(DialogCommitWorkspace, "Commit changes", "Commit message...")
 		a.dialog.SetInputValidate(func(s string) string {
@@ -224,16 +195,10 @@ func (a *App) handleShowTrustScriptsDialog(msg messages.ShowTrustScriptsDialog) 
 	if a.dialogOpen() {
 		return
 	}
-	required := a.workspaceLoaded(msg.Workspace)
-	a.requestOverlayOpen(func() {
+	a.presentWorkspaceDialog(msg.Workspace, func(ws *data.Workspace, _ *data.Project) {
 		// The captured ConfigHash stays as-is: the service re-verifies it
 		// against the live file at commit, so only the workspace's presence
 		// needs re-validating here.
-		ws, _, ok := a.reResolveOpenTarget(msg.Workspace, required)
-		if !ok {
-			return
-		}
-		a.clearPendingWorkspaceCreate()
 		a.dlg.workspace = ws
 		a.dlg.trustScriptsHash = msg.ConfigHash
 		workspaceName := ""
