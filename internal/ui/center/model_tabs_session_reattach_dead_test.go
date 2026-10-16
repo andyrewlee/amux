@@ -132,3 +132,85 @@ func TestReattachActiveTab_ForeignSessionRefused(t *testing.T) {
 		t.Fatalf("reattach must not attach/recreate on a foreign session, got %d agent creates", createCalls)
 	}
 }
+
+// TestReattachToSession_DeadSessionRefused is the restore-path twin of the
+// reattach refusal test — the pipeline merge (plan 108) exists because this
+// path had already drifted to an inlined !Exists || !HasLivePane check. Both
+// entry points must yield the same Stopped refusal.
+func TestReattachToSession_DeadSessionRefused(t *testing.T) {
+	restoreReattachSeams(t)
+	createCalls := 0
+	createAgentWithConfigFn = func(
+		manager *appPty.AgentManager,
+		ws *data.Workspace,
+		agentType appPty.AgentType,
+		sessionName string,
+		rows, cols uint16,
+		tags tmux.SessionTags,
+		cfg config.AssistantConfig,
+	) (*appPty.Agent, error) {
+		createCalls++
+		return &appPty.Agent{Session: sessionName}, nil
+	}
+	sessionStateForFn = func(string, tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{Exists: true, HasLivePane: false}, nil
+	}
+
+	m := newTestModel()
+	setKnownViewport(m)
+	ws := newTestWorkspace("ws", "/repo/ws")
+
+	msg := m.reattachToSession(ws, TabID("tab-dead"), "claude", "amux-ws-dead", 1)()
+	failed, ok := msg.(ptyTabReattachFailed)
+	if !ok {
+		t.Fatalf("expected ptyTabReattachFailed, got %T", msg)
+	}
+	if !failed.Stopped {
+		t.Fatalf("restore-path attach to a dead pane must report Stopped, got %+v", failed)
+	}
+	if createCalls != 0 {
+		t.Fatalf("restore-path attach must not spawn an agent on a dead session, got %d", createCalls)
+	}
+}
+
+// TestReattachToSession_ForeignSessionRefused is the restore-path twin of the
+// squatting guard — stored metadata can name a session this workspace never
+// created, and ownership must still be verified before attaching.
+func TestReattachToSession_ForeignSessionRefused(t *testing.T) {
+	restoreReattachSeams(t)
+	createCalls := 0
+	createAgentWithConfigFn = func(
+		manager *appPty.AgentManager,
+		ws *data.Workspace,
+		agentType appPty.AgentType,
+		sessionName string,
+		rows, cols uint16,
+		tags tmux.SessionTags,
+		cfg config.AssistantConfig,
+	) (*appPty.Agent, error) {
+		createCalls++
+		return &appPty.Agent{Session: sessionName}, nil
+	}
+	sessionStateForFn = func(string, tmux.Options) (tmux.SessionState, error) {
+		return tmux.SessionState{Exists: true, HasLivePane: true}, nil
+	}
+	sessionOwnedFn = func(string, []string, tmux.Options) (bool, error) {
+		return false, nil
+	}
+
+	m := newTestModel()
+	setKnownViewport(m)
+	ws := newTestWorkspace("ws", "/repo/ws")
+
+	msg := m.reattachToSession(ws, TabID("tab-squat"), "claude", "amux-ws-squat", 1)()
+	failed, ok := msg.(ptyTabReattachFailed)
+	if !ok {
+		t.Fatalf("expected ptyTabReattachFailed, got %T", msg)
+	}
+	if !failed.Stopped {
+		t.Fatalf("foreign session must report Stopped on the restore path too, got %+v", failed)
+	}
+	if createCalls != 0 {
+		t.Fatalf("restore-path attach must not attach to a foreign session, got %d agent creates", createCalls)
+	}
+}

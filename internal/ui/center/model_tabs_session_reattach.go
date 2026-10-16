@@ -1,8 +1,6 @@
 package center
 
 import (
-	"errors"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/config"
@@ -116,99 +114,19 @@ func (m *Model) ReattachActiveTab() tea.Cmd {
 	assistant := tab.Assistant
 	ws := tab.Workspace
 	tabID := tab.ID
-	opts := m.tmuxOpts
 	return func() tea.Msg {
-		state, err := sessionStateForFn(sessionName, opts)
-		if err != nil {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         err,
-				Action:      "reattach",
-			}
-		}
-		// Dead-session policy is ptyio.SessionAttachable, shared with sidebar:
-		// reattach only attaches to a live session — a missing or dead session
-		// reports Stopped so the user chooses restart explicitly. (This used to
-		// kill the dead session and silently recreate, losing the distinction.)
-		if !ptyio.SessionAttachable(state) {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         errors.New("tmux session ended"),
-				Stopped:     true,
-				Action:      "reattach",
-			}
-		}
-		// Ownership policy is ptyio.SessionOwned, shared with sidebar: the
-		// live session must carry our tags. A foreign session squatting the
-		// name reports Stopped so the user restarts explicitly — restart
-		// kills the squatter by name before recreating.
-		owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
-		if ownErr != nil {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         ownErr,
-				Action:      "reattach",
-			}
-		}
-		if !owned {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         errors.New("tmux session is not owned by this workspace"),
-				Stopped:     true,
-				Action:      "reattach",
-			}
-		}
-		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, false)
-		bootstrap := ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
-		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
-		agent, err := createAgentWithConfigFn(
-			m.agentManager,
-			ws,
-			appPty.AgentType(assistant),
-			sessionName,
-			ptyRows,
-			ptyCols,
-			tags,
-			assistantCfg,
-		)
-		if err != nil {
-			ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         err,
-				Action:      "reattach",
-			}
-		}
-		scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows := ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
-		return ptyTabReattachResult{
-			WorkspaceID: string(ws.ID()),
-			TabID:       tabID,
-			Epoch:       epoch,
-			Agent:       agent,
-			Rows:        captureRows,
-			Cols:        captureCols,
-			SessionRestoreCapture: ptyio.SessionRestoreCapture{
-				ScrollbackCapture:           scrollback,
-				PostAttachScrollbackCapture: postAttachScrollback,
-				CaptureFullPane:             captureFullPane,
-				SnapshotCols:                snapshot.Cols,
-				SnapshotRows:                snapshot.Rows,
-				SnapshotCursorX:             snapshot.CursorX,
-				SnapshotCursorY:             snapshot.CursorY,
-				SnapshotHasCursor:           snapshot.HasCursor,
-				SnapshotModeState:           snapshot.ModeState,
-			},
-		}
+		return m.attachSessionPipeline(attachPipelineParams{
+			ws:           ws,
+			tabID:        tabID,
+			assistant:    assistant,
+			assistantCfg: assistantCfg,
+			sessionName:  sessionName,
+			epoch:        epoch,
+			termWidth:    termWidth,
+			termHeight:   termHeight,
+			attachWidth:  attachWidth,
+			attachHeight: attachHeight,
+		})
 	}
 }
 
