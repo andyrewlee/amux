@@ -144,6 +144,18 @@ func (m *Model) noteVisibleActivityLockedWithOutput(
 		return "", 0, false
 	}
 
+	now := time.Now()
+	if !tab.lastUserInputAt.IsZero() && now.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow {
+		// Inside the echo-suppression window the digest result is discarded
+		// — a full-screen walk per flush during the highest-frequency output
+		// window. The paste-echo consumer is stateful and still runs on this
+		// output so its bookkeeping doesn't drift; pending stays set so the
+		// first post-window flush re-evaluates the accumulated change.
+		consumeSubmittedPasteEchoLocked(tab, output)
+		tab.pendingVisibleOutput = true
+		return "", 0, false
+	}
+
 	digest := visibleScreenDigest(tab.Terminal)
 	changed := !tab.activityDigestInit || digest != tab.activityDigest
 	nextPending := hasMoreBuffered || tab.pendingVisibleSeq != visibleSeq
@@ -154,7 +166,6 @@ func (m *Model) noteVisibleActivityLockedWithOutput(
 		return "", 0, false
 	}
 
-	now := time.Now()
 	if tab.bootstrapActivity {
 		// Explicit bootstrap phase: terminal replay/prompt redraw is visible output
 		// but must not be treated as active work.
@@ -167,12 +178,6 @@ func (m *Model) noteVisibleActivityLockedWithOutput(
 		tab.activityDigest = digest
 		tab.activityDigestInit = true
 		tab.pendingVisibleOutput = nextPending
-		return "", 0, false
-	}
-	if !tab.lastUserInputAt.IsZero() && now.Sub(tab.lastUserInputAt) <= localInputEchoSuppressWindow {
-		// Suppress local-echo candidates and keep pending so the next flush
-		// cycle can re-evaluate once the echo window has passed.
-		tab.pendingVisibleOutput = true
 		return "", 0, false
 	}
 	tab.activityDigest = digest

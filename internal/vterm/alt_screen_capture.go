@@ -77,24 +77,38 @@ func (v *VTerm) captureScreenToScrollback() bool {
 }
 
 func (v *VTerm) visibleCaptureFrame() [][]Cell {
-	visible := make([][]Cell, len(v.Screen))
+	// Two passes over the live rows: find the non-blank bounds first, then
+	// copy only the retained rows. The blankness probe reads the live line
+	// directly — normalizeLine can only clear cells (wide-char orphans),
+	// never add content, so a raw-scan bound over-approximates the
+	// normalized one and the edge re-trim below recovers exactness.
 	firstNonBlank := -1
 	lastNonBlank := -1
-
 	for y, line := range v.Screen {
-		visible[y] = copyVisibleLine(line, v.Width)
-		if !isVisiblyBlankLine(visible[y]) {
+		if !isVisiblyBlankLine(line) {
 			if firstNonBlank < 0 {
 				firstNonBlank = y
 			}
 			lastNonBlank = y
 		}
 	}
-
 	if firstNonBlank < 0 {
 		return nil
 	}
-	return visible[firstNonBlank : lastNonBlank+1]
+	visible := make([][]Cell, lastNonBlank-firstNonBlank+1)
+	for i := range visible {
+		visible[i] = copyVisibleLine(v.Screen[firstNonBlank+i], v.Width)
+	}
+	for len(visible) > 0 && isVisiblyBlankLine(visible[0]) {
+		visible = visible[1:]
+	}
+	for len(visible) > 0 && isVisiblyBlankLine(visible[len(visible)-1]) {
+		visible = visible[:len(visible)-1]
+	}
+	if len(visible) == 0 {
+		return nil
+	}
+	return visible
 }
 
 func copyVisibleLine(line []Cell, width int) []Cell {

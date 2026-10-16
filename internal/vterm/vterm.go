@@ -144,6 +144,7 @@ type VTerm struct {
 	// failsafe (SyncStallTimeout) to force-release a sync whose end never came.
 	syncStartedAt     time.Time
 	syncScreen        [][]Cell
+	syncFrame         *syncFrame
 	syncScrollbackLen int
 	syncDeferTrim     bool
 	// syncViewOffsetDelta tracks the net hidden scrollback growth/shrink that
