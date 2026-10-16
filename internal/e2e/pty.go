@@ -49,9 +49,10 @@ type PTYOptions struct {
 }
 
 var (
-	buildOnce sync.Once
-	buildPath string
-	buildErr  error
+	buildOnce  sync.Once
+	buildPath  string
+	buildErr   error
+	buildRaced bool
 )
 
 func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
@@ -98,7 +99,14 @@ func StartPTYSession(opts PTYOptions) (*PTYSession, func(), error) {
 	cmd.Dir = root
 	// creack/pty sets Setsid=true; Setpgid here can cause EPERM on start (macOS/BSD).
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.Env = childEnv(os.Environ(), home, opts.Env)
+	env := childEnv(os.Environ(), home, opts.Env)
+	if buildRaced {
+		// halt_on_error turns a detected race into a child exit — the PTY
+		// session dies and the test fails — while the report goes to the
+		// child's stderr (the PTY) where the test's output dump shows it.
+		env = append(env, "GORACE=halt_on_error=1")
+	}
+	cmd.Env = env
 
 	ptyRows, ptyCols, _ := appPty.WinsizeFromInts(opts.Height, opts.Width)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
@@ -318,7 +326,15 @@ func buildAmuxBinary() (string, func(), error) {
 			buildErr = err
 			return
 		}
-		cmd := exec.Command("go", "build", "-o", out, "./cmd/amux")
+		args := []string{"build", "-o", out}
+		if os.Getenv("AMUX_E2E_RACE") == "1" {
+			// `go test -race` instruments only the test binary — the spawned
+			// amux needs its own -race build or the race legs see nothing.
+			args = append(args, "-race")
+			buildRaced = true
+		}
+		args = append(args, "./cmd/amux")
+		cmd := exec.Command("go", args...)
 		cmd.Dir = root
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

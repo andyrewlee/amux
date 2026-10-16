@@ -85,8 +85,10 @@ test-race:
 # the tmux-skip-check package list below. Note ./internal/app also races in
 # test-race's default filter — the overlap is deliberate: this leg exercises
 # app's real-tmux tests, which skip entirely in the no-tmux leg.
+# AMUX_E2E_RACE=1 so the e2e suite builds its spawned amux with -race too —
+# `go test -race` alone instruments only the test binary.
 test-race-tmux:
-	go test -race -count=1 ./internal/tmux/... ./internal/e2e/... ./internal/app ./internal/pty/... ./internal/ui/sidebar/...
+	AMUX_E2E_RACE=1 go test -race -count=1 ./internal/tmux/... ./internal/e2e/... ./internal/app ./internal/pty/... ./internal/ui/sidebar/...
 
 # soak runs the build-tagged sustained-workload test (PTY ingest + message
 # pump under load for minutes). Part of `make ci-nightly` — also run before
@@ -196,7 +198,7 @@ tmux-skip-check:
 	skipped=$$(awk '\
 		/^[[:space:]]+[^[:space:]]+\.go:[0-9]+:/ { reason=$$0 } \
 		/^--- SKIP:/ { \
-			if (reason ~ /cannot start PTY-backed tmux attach|client never attached|signal permissions restricted in this environment|tmux version does not emit DEC 2026 synchronized-output markers/) whitelisted++; \
+			if (reason ~ /cannot start PTY-backed tmux attach|client never attached|tmux version does not emit DEC 2026 synchronized-output markers/) whitelisted++; \
 			else skipped++; \
 			reason=""; \
 		} \
@@ -211,7 +213,7 @@ tmux-skip-check:
 		echo "NOTE: $$nonwhitelisted real-tmux/e2e tests skipped (tmux server unavailable or environment-restricted) — run inside tmux and use \`make verify-loop\` to exercise input/send end-to-end."; \
 	fi; \
 	if [ "$$whitelisted" -gt 0 ]; then \
-		echo "NOTE: $$whitelisted real-tmux/e2e tests skipped with whitelisted reasons (tmux attach/EPERM/sync-marker) — whitelisted skips are exempt from STRICT_TMUX but not invisible."; \
+		echo "NOTE: $$whitelisted real-tmux/e2e tests skipped with whitelisted reasons (tmux attach/sync-marker) — whitelisted skips are exempt from STRICT_TMUX but not invisible; signal-permission skips are NOT exempt (kill-path tests must run where tmux is present)."; \
 	fi
 
 # verify-loop drives a real keystroke through amux's actual input path into a

@@ -81,11 +81,15 @@ for leg in "${MATRIX[@]}"; do
   # the process-group checks in TestKillSession_* see a "still alive" group).
   # LANG/LC_ALL come from the image: without a UTF-8 locale tmux sanitizes
   # control bytes in format output (\x1f separators → "_"), breaking parsers.
+  # AMUX_E2E_RACE builds the e2e-spawned amux with -race too — `go test -race`
+  # instruments only the test binary, so without it the e2e leg covers nothing
+  # inside the real product.
   if ! docker run --rm --init \
       -v "$PWD":/src:ro -w /src \
       -v amux-tmux-matrix-gobuild:/cache/go-build \
       -v amux-tmux-matrix-gomod:/go/pkg/mod \
       -e STRICT_TMUX=1 \
+      -e AMUX_E2E_RACE=1 \
       "amux-tmux-matrix:$leg" \
       bash -euc '
         git config --global --add safe.directory /src
@@ -94,6 +98,8 @@ for leg in "${MATRIX[@]}"; do
         go test -race ./internal/e2e -count=1 &&
         go test -race ./internal/app -count=1 &&
         go test -race ./internal/pty -count=1 &&
+        go test -race ./internal/ui/sidebar -count=1 &&
+        go test -race ./internal/data -count=1 &&
         make tmux-skip-check'; then
     echo "=== leg $leg FAILED ===" >&2
     fail=1

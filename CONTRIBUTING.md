@@ -93,6 +93,10 @@ Dev-side environment variables:
   `make soak` bullet above).
 - `AMUX_E2E_BIN` — point `internal/e2e` tests at a prebuilt binary instead of
   the per-run build.
+- `AMUX_E2E_RACE=1` — build the e2e-spawned amux with `-race` too. `go test
+  -race ./internal/e2e` alone instruments only the test binary; this makes the
+  `test-race-tmux`/`ci-tmux-matrix` e2e legs cover the real product (both set
+  it automatically).
 - `AMUX_SKIP_LINT=1` — skip only the golangci-lint steps in the pre-commit
   and pre-push hooks (`make lint` / `make lint-strict-base`). Every other gate
   still runs: formatting, lint-config-drift, check-fmt-config, the staged
@@ -103,9 +107,12 @@ Dev-side environment variables:
 - `AMUX_SKIP_RACE=1` — skip only the pre-push race smoke (`go test -race` on
   the data-flocking, ptyio, and msgpump race tests); strict lint, the
   harness, and the e2e suite still apply.
-- `AMUX_SKIP_TESTS=1` — skip only the pre-push unit-test sweep (the
-  non-tmux package set from `scripts/test_pkgs.sh --exclude-app`); strict
-  lint, the harness, the race smoke, and the e2e suite still apply.
+- `AMUX_SKIP_TESTS=1` — skip only the pre-push unit-test sweeps (the
+  non-tmux package set from `scripts/test_pkgs.sh --exclude-app` plus the
+  excluded-package leg covering `internal/app`, `internal/pty`,
+  `internal/ui/sidebar`, and `internal/tmux` — tmux-dependent tests
+  self-skip without a server); strict lint, the harness, the race smoke,
+  and the e2e suite still apply.
 - `AMUX_LINT_BASE_REF=<ref>` — override the pre-push strict-lint base ref
   (default `origin/main`).
 - `AMUX_HARNESS_CENTER_ARGS="..."` — override the pre-push harness args
