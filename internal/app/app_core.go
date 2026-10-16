@@ -149,7 +149,13 @@ type App struct {
 	// pendingOverlayOpens defers modal overlay opens that arrive while
 	// another overlay is visible — see app_overlay_arbiter.go.
 	pendingOverlayOpens []func()
-	projectEnvStore     projectEnvIO
+	// drainedOverlayCmds collects follow-up cmds a deferred open can only
+	// arm at present time (the run-output refresh tick is the first
+	// consumer — a tick armed at request time fires while the viewer is
+	// still queued and dies on the visible check). drainPendingOverlayOpens
+	// returns them so Update can batch them into the active command.
+	drainedOverlayCmds []tea.Cmd
+	projectEnvStore    projectEnvIO
 	// projectScriptStore backs the runner's third resolution layer and the
 	// `i` dialog's per-script source labels (repo → workspace → project).
 	projectScriptStore projectScriptsIO

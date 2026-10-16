@@ -40,7 +40,7 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 		}
 	}()
 	model, cmd = a.update(msg)
-	a.drainPendingOverlayOpens()
+	cmd = common.SafeBatch(cmd, a.drainPendingOverlayOpens())
 	return model, cmd
 }
 

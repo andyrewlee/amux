@@ -145,10 +145,16 @@ func (a *App) handleRunOutputOpened(msg runOutputOpenedMsg) tea.Cmd {
 		a.overlays.runOutput.SetSearchable(true)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()
+		if msg.alive {
+			// Arm the refresh at present time, not request time: a tick
+			// scheduled while this open sits queued fires on a viewer that
+			// doesn't exist yet, dies on the visible check, and the chain
+			// never recovers. drainPendingOverlayOpens returns this cmd for
+			// Update to batch (also covers the synchronous fast path).
+			a.drainedOverlayCmds = append(a.drainedOverlayCmds,
+				a.scheduleRunOutputTick(a.overlays.runOutputToken))
+		}
 	})
-	if msg.alive {
-		return a.scheduleRunOutputTick(a.overlays.runOutputToken)
-	}
 	return nil
 }
 

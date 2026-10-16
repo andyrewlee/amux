@@ -108,8 +108,11 @@ func TestShowRunScriptOutput_DoesNotBlockOnHost(t *testing.T) {
 	if h.app.overlays.runOutput == nil || !h.app.overlays.runOutput.Visible() {
 		t.Fatal("expected runOutputDialog after the opened msg applied")
 	}
-	if apply == nil {
-		t.Fatal("expected the alive session to arm a refresh tick")
+	// The alive session's refresh tick arms inside the present-time open
+	// closure and surfaces through drainPendingOverlayOpens, not the
+	// handler's return — Update batches the drain's cmd each pass.
+	if cmd := h.app.drainPendingOverlayOpens(); cmd == nil || apply != nil {
+		t.Fatal("expected the alive session to arm a refresh tick via drain")
 	}
 }
 
