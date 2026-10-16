@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/andyrewlee/amux/internal/config"
 )
 
 func TestWorktreeAdminDirForWorkspaceResolvesRelativeGitdirPaths(t *testing.T) {
@@ -403,5 +405,66 @@ func TestRemoveWorkspaceTimeoutUsesFreshRecoveryTimeout(t *testing.T) {
 
 	if err := RemoveWorkspace("/tmp/repo", workspacePath); err != nil {
 		t.Fatalf("RemoveWorkspace() error = %v", err)
+	}
+}
+
+// TestRemoveWorkspacePathRefusesSymlinkedComponent pins the pre-rm re-verify:
+// a component of the managed-root-nested target swapped to a symlink between
+// validation and removal must refuse — and must not follow the link into the
+// sentinel it points at.
+func TestRemoveWorkspacePathRefusesSymlinkedComponent(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(config.WorkspacesRootEnvVar, root)
+
+	sentinel := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sentinel, "keep.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Leaf swap: the workspace dir itself became a symlink to the sentinel.
+	leaf := filepath.Join(root, "ws")
+	if err := os.Symlink(sentinel, leaf); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeWorkspacePathWithContext(context.Background(), leaf); err == nil {
+		t.Fatal("removal of a symlinked leaf should refuse")
+	}
+	if _, err := os.Stat(filepath.Join(sentinel, "keep.txt")); err != nil {
+		t.Fatalf("sentinel was deleted through the swapped leaf: %v", err)
+	}
+
+	// Intermediate swap: a real dir holds a symlinked middle component, and
+	// the target exists through it (so the existence precheck passes).
+	mid := filepath.Join(root, "outer")
+	if err := os.Mkdir(mid, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	innerSentinel := t.TempDir()
+	if err := os.WriteFile(filepath.Join(innerSentinel, "keep.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(innerSentinel, "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(innerSentinel, filepath.Join(mid, "inner")); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeWorkspacePathWithContext(context.Background(), filepath.Join(mid, "inner", "deep")); err == nil {
+		t.Fatal("removal through a symlinked intermediate should refuse")
+	}
+	if _, err := os.Stat(filepath.Join(innerSentinel, "keep.txt")); err != nil {
+		t.Fatalf("sentinel was deleted through the swapped intermediate: %v", err)
+	}
+
+	// Control: a real directory under the managed root still removes.
+	realDir := filepath.Join(root, "real")
+	if err := os.MkdirAll(filepath.Join(realDir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeWorkspacePathWithContext(context.Background(), realDir); err != nil {
+		t.Fatalf("legit removal failed: %v", err)
+	}
+	if _, err := os.Stat(realDir); !os.IsNotExist(err) {
+		t.Fatal("legit workspace dir was not removed")
 	}
 }

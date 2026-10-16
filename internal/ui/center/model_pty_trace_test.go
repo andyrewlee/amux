@@ -111,3 +111,31 @@ func TestTracePTYInputGated(t *testing.T) {
 		t.Fatal("trace file opened for empty input data")
 	}
 }
+
+// TestPTYTraceDirFallbackNeverSharedTemp pins the trace-dir contract: with no
+// logger the fallback is a private dir under the amux home — never a shared
+// os.TempDir, where a predictable name would be world-readable.
+func TestPTYTraceDirFallbackNeverSharedTemp(t *testing.T) {
+	logging.Close()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dir, err := ptyTraceDir()
+	if err != nil {
+		t.Fatalf("ptyTraceDir: %v", err)
+	}
+	want := filepath.Join(home, ".amux", "pty-traces")
+	if dir != want {
+		t.Fatalf("ptyTraceDir = %q, want %q", dir, want)
+	}
+	if dir == os.TempDir() || filepath.Dir(dir) == os.TempDir() {
+		t.Fatalf("trace dir %q resolved into shared temp", dir)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("fallback dir not created: %v", err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("fallback dir mode = %o, want 0700", info.Mode().Perm())
+	}
+}

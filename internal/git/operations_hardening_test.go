@@ -291,6 +291,7 @@ func TestFilteredGitEnvDropsGitProcessEnv(t *testing.T) {
 		"GIT_ATTR_SOURCE",
 		"GIT_EXTERNAL_DIFF",
 		"GIT_EDITOR",
+		"GIT_EXEC_PATH",
 		"GIT_PREFIX",
 	}
 	for _, key := range denied {

@@ -91,10 +91,15 @@ func discardPayload(path string) int {
 
 // resolveShell finds `sh` the way the previous `env` delivery resolved it:
 // search the merged PATH, where a missing PATH falls back to the execvp
-// default and empty or relative elements resolve against the post-chdir
-// working directory. exec.LookPath would use the parent environment and its
-// ErrDot policy instead, and a hardcoded /bin/sh would bypass an env layer
-// that intentionally shadows sh.
+// default. exec.LookPath would use the parent environment and its ErrDot
+// policy instead, and a hardcoded /bin/sh would bypass an env layer that
+// intentionally shadows sh.
+//
+// Only absolute PATH elements are searched: the resolution runs after chdir
+// into the payload working directory, which is untrusted — an empty or
+// relative element (".", "bin", the trailing-colon cwd convention) would
+// resolve `sh` against the payload dir and hand a repo-shipped file code
+// execution with no trust prompt.
 func resolveShell(env []string) (string, error) {
 	pathVal, found := "", false
 	for _, e := range env {
@@ -106,10 +111,10 @@ func resolveShell(env []string) (string, error) {
 		pathVal = "/bin:/usr/bin"
 	}
 	for _, dir := range strings.Split(pathVal, ":") {
-		candidate := "sh"
-		if dir != "" {
-			candidate = dir + string(filepath.Separator) + "sh"
+		if !filepath.IsAbs(dir) {
+			continue
 		}
+		candidate := dir + string(filepath.Separator) + "sh"
 		info, err := os.Stat(candidate)
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 			continue

@@ -59,8 +59,22 @@ func KillProcessGroup(leaderPID int, opts KillOptions) error {
 	return nil
 }
 
-// ForceKillProcess sends SIGKILL to the process group led by pid.
+// ForceKillProcess sends SIGKILL to the process group led by pid. It first
+// probes the leader pid with signal 0: while our child is live — or a zombie
+// awaiting reap — its pid is still allocated and the pgid can only name our
+// group. ESRCH means the leader was already reaped and the pid freed, so the
+// pgid may now belong to an unrelated process group; EPERM means it was
+// recycled to a process we cannot signal. Either way the group kill is
+// skipped rather than sent on a possibly-recycled pgid. The probe narrows but
+// cannot eliminate the recycle window — the pid could still be freed between
+// the check and the signal; unix offers no pidfd-style group handle.
 func ForceKillProcess(pid int) error {
+	if err := syscall.Kill(pid, 0); err != nil {
+		if err == syscall.ESRCH || err == syscall.EPERM {
+			return nil
+		}
+		return err
+	}
 	return syscall.Kill(-pid, syscall.SIGKILL)
 }
 

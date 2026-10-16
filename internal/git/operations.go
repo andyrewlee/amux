@@ -423,7 +423,10 @@ func filteredGitEnv() []string {
 //     merge.verifySignatures or core.sshCommand would bypass the argv
 //     hardening entirely. The namespace/quarantine/template/attr-source/
 //     external-diff/editor vars are stripped for the same reason: they only
-//     exist when a parent git process is mid-operation.
+//     exist when a parent git process is mid-operation. GIT_EXEC_PATH
+//     belongs to that family too — it redirects where child gits find
+//     `git-*` helper executables, so a parent-controlled value substitutes
+//     attacker binaries for builtins like credential or upload-pack.
 //
 // Deliberately KEPT (documented, do not strip without a migration):
 // GIT_SSH_COMMAND, GIT_SSH, GIT_ASKPASS (user SSH/agent config for remotes),
@@ -457,6 +460,7 @@ func isGitProcessEnv(kv string) bool {
 		"GIT_ATTR_SOURCE",
 		"GIT_EXTERNAL_DIFF",
 		"GIT_EDITOR",
+		"GIT_EXEC_PATH",
 		"GIT_PREFIX":
 		return true
 	default:
