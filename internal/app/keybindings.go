@@ -8,15 +8,7 @@ type KeyMap struct {
 	Prefix key.Binding
 
 	// Dashboard
-	Enter        key.Binding
-	Delete       key.Binding
-	Rename       key.Binding
-	ToggleFilter key.Binding
-	Refresh      key.Binding
-
-	// Agent/Chat
-	Interrupt  key.Binding
-	SendEscape key.Binding
+	Enter key.Binding
 
 	// Navigation
 	Up    key.Binding
@@ -39,32 +31,6 @@ func DefaultKeyMap() KeyMap {
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "activate"),
-		),
-		Delete: key.NewBinding(
-			key.WithKeys("D"),
-			key.WithHelp("D", "delete"),
-		),
-		Rename: key.NewBinding(
-			key.WithKeys("R"),
-			key.WithHelp("R", "rename"),
-		),
-		ToggleFilter: key.NewBinding(
-			key.WithKeys("f"),
-			key.WithHelp("f", "filter"),
-		),
-		Refresh: key.NewBinding(
-			key.WithKeys("g", "r"),
-			key.WithHelp("g", "rescan"),
-		),
-
-		// Agent
-		Interrupt: key.NewBinding(
-			key.WithKeys("ctrl+c"),
-			key.WithHelp("ctrl+c", "interrupt"),
-		),
-		SendEscape: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "escape"),
 		),
 
 		// Navigation

@@ -306,11 +306,6 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.openCommandsPalette(); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
-	case messages.ToggleKeymapHints:
-		a.setKeymapHintsEnabled(!a.config.UI.ShowKeymapHints)
-		if err := a.config.SaveUISettings(); err != nil {
-			*cmds = append(*cmds, common.ReportError("saving keymap setting", err, "Failed to save keymap setting"))
-		}
 	case messages.ShowQuitDialog:
 		a.showQuitDialog()
 	case messages.ShowAddProjectDialog:
