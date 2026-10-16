@@ -163,7 +163,7 @@ func awaitInputWriter(t *testing.T, tab *Tab) *tabInputWriter {
 func awaitWriterExit(t *testing.T, w *tabInputWriter) {
 	t.Helper()
 	select {
-	case <-w.done:
+	case <-w.Done():
 	case <-time.After(3 * time.Second):
 		t.Fatal("input writer did not exit")
 	}

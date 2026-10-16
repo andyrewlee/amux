@@ -2,14 +2,9 @@ package center
 
 // Terminal input admission + delivery contract.
 //
-// User input reaches the hosted terminal through one bounded FIFO per terminal
-// binding (a (tab, agent-terminal) pair). Producers on the Bubble Tea update
-// loop admit synchronously — admission order is the order Update received the
-// events — and a dedicated writer goroutine per binding performs the actual
-// PTY writes, so Update never blocks on a slow or stuck write and input never
-// queues behind the tab actor's output parsing.
-//
-// Invariants that keep this ordered and safe:
+// The binding protocol itself is shared machinery — ptyio/input_binding.go
+// carries the contract comment. This file holds the center pane's half of
+// the parameterized contract:
 //
 //  1. Ordering. Accepted requests go through the writer's FIFO channel only.
 //     No fallback path may write user bytes to the PTY directly — a direct
@@ -18,31 +13,35 @@ package center
 //     queue or a failed binding rejects with a visible signal — never a
 //     silent direct write, never a detach.
 //  3. Lifecycle binding. A writer is bound to the input generation stamped
-//     when the binding was attached (tabInput.gen, bumped on every attach).
-//     Detach/stop/close/reattach transitions retire the writer: pending
-//     requests are discarded, completions and failures from the retired
-//     writer are fenced out by the generation, and the worker is joined off
-//     tab.mu once the terminal is closed and any in-flight write returns.
+//     when the binding was attached (tabInput.gen, bumped on every attach —
+//     the sidebar bumps at retire instead). Detach/stop/close/reattach
+//     transitions retire the writer: pending requests are discarded,
+//     completions and failures from the retired writer are fenced out by
+//     the generation, and the worker is joined off tab.mu once the terminal
+//     is closed and any in-flight write returns.
 //  4. Failure once. A write failure on the current binding latches
 //     tabInput.failed and emits exactly one generation-stamped
 //     TabInputFailed; the guarded app handler owns the visible detach.
 //     Until it runs, further admissions are rejected — the failed writer is
 //     never lazily recreated for the same binding.
 //
-// The separate intentional control paths — per-agent interrupts, mouse
-// reporting (tab_actor.go sendMouseToTerminal), and vterm query responses
-// (SetResponseWriter) — write outside this queue by design; they carry their
-// own ordering/failure contract and are not user-byte producers.
+// Center-only semantics stay on this side: requests carry echo/seq/wsID/
+// tabID for the completion hook's local-echo stamping and PTYCursorRefresh,
+// and admissions may pin a generation (wantGen) so input composed against
+// one attachment is dropped after a reattach. The separate intentional
+// control paths — per-agent interrupts, mouse reporting (tab_actor.go
+// sendMouseToTerminal), and vterm query responses (SetResponseWriter) —
+// write outside this queue by design; they carry their own
+// ordering/failure contract and are not user-byte producers.
 
 import (
-	"sync"
-	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
 var (
@@ -56,36 +55,29 @@ var (
 	tabInputQueueMaxBytes = 4 << 20
 )
 
-// tabInputRequest is one admitted unit of terminal input.
-type tabInputRequest struct {
-	data  string
-	label string
-	seq   uint64
-	wsID  string
-	tabID TabID
-	// echo requests the post-delivery local-echo stamping + chat cursor
-	// refresh. Producers that historically did not stamp (prefix NUL) admit
-	// with echo=false.
-	echo bool
-}
+// tabInputRequest keeps the old request spelling at call sites; the type is
+// the shared one. The Echo flag requests the post-delivery local-echo
+// stamping + chat cursor refresh; producers that historically did not stamp
+// (prefix NUL) admit with Echo=false.
+type tabInputRequest = ptyio.InputRequest
 
 // tabInputAdmission is the admission verdict for one input attempt.
-type tabInputAdmission int
+type tabInputAdmission = ptyio.InputAdmission
 
 const (
 	// tabInputAdmitted: request is queued for the binding's writer.
-	tabInputAdmitted tabInputAdmission = iota
+	tabInputAdmitted = ptyio.InputAdmitted
 	// tabInputNoTerminal: no agent/terminal on the tab — silent no-op.
-	tabInputNoTerminal
+	tabInputNoTerminal = ptyio.InputNoTerminal
 	// tabInputRejectedFull: the binding's queue hit a bound — visible reject.
-	tabInputRejectedFull
+	tabInputRejectedFull = ptyio.InputRejectedFull
 	// tabInputRejectedFailed: the binding latched a delivery failure that has
 	// not been handled yet — visible reject; the writer is not recreated.
-	tabInputRejectedFailed
+	tabInputRejectedFailed = ptyio.InputRejectedFailed
 	// tabInputRejectedStale: the request pinned an input generation that has
 	// since been replaced (initial-task producer). Silent drop — the job
 	// belonged to a dead stream.
-	tabInputRejectedStale
+	tabInputRejectedStale = ptyio.InputRejectedStale
 )
 
 // tabInputState is the per-binding input pipeline state on a Tab, guarded by
@@ -107,22 +99,11 @@ type tabInputState struct {
 	retired []*tabInputWriter
 }
 
-// tabInputWriter is the dedicated delivery worker for one input binding.
-// Fields after construction: send is bound to the admission-time terminal;
-// reqs is closed exactly once via stop(); done closes when run() returns.
-type tabInputWriter struct {
-	m     *Model
-	tab   *Tab
-	gen   uint64
-	send  func(string) error
-	reqs  chan tabInputRequest
-	done  chan struct{}
-	stale atomic.Bool // set by stop(): discard queued + in-flight bookkeeping
-	// inflight marks a send in progress — tests bound assertions on it.
-	inflight    atomic.Bool
-	queuedBytes int // guarded by tab.mu
-	stopOnce    sync.Once
-}
+// tabInputWriter is the shared writer — the center keeps no fields of its
+// own on it (m/tab are captured by the hook closures at construction; send
+// is bound once so a replaced terminal can never receive a stale binding's
+// writes).
+type tabInputWriter = ptyio.InputWriter
 
 // tabInputSendFor resolves the delivery function for a tab's agent. It is a
 // package-level seam so input tests can substitute a deterministic sink.
@@ -131,6 +112,27 @@ var tabInputSendFor = func(tab *Tab) func(string) error {
 		return nil
 	}
 	return tab.Agent.Terminal.SendString
+}
+
+// newTabInputWriter builds the binding's writer with the center's hooks: no
+// Decide override (the shared stale/gen fence is exactly the center's
+// semantics — requests carry no gen so only writer staleness fences them),
+// Before for the per-input trace, Complete for completion-time byte release
+// + echo stamping + cursor refresh, Fail for the failure latch.
+func (m *Model) newTabInputWriter(tab *Tab, send func(string) error, gen uint64) *tabInputWriter {
+	var w *tabInputWriter
+	w = ptyio.NewInputWriter(tabInputQueueRequests, send, gen, ptyio.InputWriterHooks{
+		Before: func(req ptyio.InputRequest) {
+			m.tracePTYInput(tab, []byte(req.Data))
+		},
+		Complete: func(req ptyio.InputRequest) {
+			m.completeTabInput(tab, w, req)
+		},
+		Fail: func(req ptyio.InputRequest, err error) {
+			m.failTabInput(tab, w, req, err)
+		},
+	})
+	return w
 }
 
 // admitTabInput synchronously admits one unit of user input to the tab's
@@ -171,44 +173,29 @@ func (m *Model) admitTabInputBound(tab *Tab, wsID string, wantGen uint64, data, 
 		if send == nil {
 			return tabInputNoTerminal, st.gen
 		}
-		w = &tabInputWriter{
-			m:    m,
-			tab:  tab,
-			gen:  st.gen,
-			send: send,
-			reqs: make(chan tabInputRequest, tabInputQueueRequests),
-			done: make(chan struct{}),
-		}
+		w = m.newTabInputWriter(tab, send, st.gen)
 		st.writer = w
-		safego.Go("center.tab_input_writer", w.run)
+		safego.Go("center.tab_input_writer", w.Run)
 	}
 	// The request bound counts queued + in-flight work — the send in progress
 	// holds no slot in reqs but is still admitted, undelivered input.
-	pending := len(w.reqs)
-	if w.inflight.Load() {
-		pending++
-	}
-	if len(data) > tabInputQueueMaxBytes ||
-		pending >= tabInputQueueRequests ||
-		w.queuedBytes+len(data) > tabInputQueueMaxBytes {
+	if !ptyio.AdmissionFits(w, len(data), tabInputQueueRequests, tabInputQueueMaxBytes) {
 		return tabInputRejectedFull, st.gen
 	}
 	st.seq++
-	req := tabInputRequest{
-		data:  data,
-		label: label,
-		seq:   st.seq,
-		wsID:  wsID,
-		tabID: tab.ID,
-		echo:  echo,
+	req := ptyio.InputRequest{
+		Data:    data,
+		Label:   label,
+		Seq:     st.seq,
+		WsID:    wsID,
+		TabID:   string(tab.ID),
+		Echo:    echo,
+		Counted: true,
 	}
-	select {
-	case w.reqs <- req:
-		w.queuedBytes += len(data)
-		return tabInputAdmitted, st.gen
-	default:
+	if !ptyio.EnqueueInput(w, req) {
 		return tabInputRejectedFull, st.gen
 	}
+	return tabInputAdmitted, st.gen
 }
 
 // rejectedTabInputCmd renders an admission rejection for the user as a
@@ -240,64 +227,36 @@ func (m *Model) rejectedTabInputCmd(tab *Tab, res tabInputAdmission, gen uint64)
 	}
 }
 
-// run is the writer goroutine: one FIFO drain per binding. Requests whose
-// binding was retired mid-queue are skipped (stale); a delivery failure ends
-// the worker — the failure path owns reporting and the binding's latch.
-func (w *tabInputWriter) run() {
-	defer close(w.done)
-	for req := range w.reqs {
-		if w.stale.Load() {
-			continue
-		}
-		w.inflight.Store(true)
-		ok := w.deliver(req)
-		w.inflight.Store(false)
-		if !ok {
-			return
-		}
-	}
-}
-
-// deliver performs a single PTY write plus its completion bookkeeping.
-// Separated from run() so tests can drive delivery deterministically.
-func (w *tabInputWriter) deliver(req tabInputRequest) bool {
-	w.m.tracePTYInput(w.tab, []byte(req.data))
-	if err := w.send(req.data); err != nil {
-		w.fail(req, err)
-		return false
-	}
-	w.complete(req)
-	return true
-}
-
-// complete finishes a successful delivery under one tab.mu acquisition: the
-// binding check and the post-delivery mutations are atomic so a retired
-// writer can never stamp local echo onto a replacement binding.
-func (w *tabInputWriter) complete(req tabInputRequest) {
-	tab := w.tab
+// completeTabInput finishes a successful delivery under one tab.mu
+// acquisition: the binding check and the post-delivery mutations are atomic
+// so a retired writer can never stamp local echo onto a replacement binding.
+// The byte budget releases here, at completion — a slow send holds the
+// budget for the duration of its write (the sidebar releases at dequeue
+// instead).
+func (m *Model) completeTabInput(tab *Tab, w *tabInputWriter, req tabInputRequest) {
 	refresh := false
 	withMu(&tab.mu, func() {
 		if tab.tabInput.writer == w {
-			w.queuedBytes -= len(req.data)
-			if req.echo {
-				recordLocalInputEchoWindowLocked(tab, req.data, time.Now())
-				refresh = w.m.isChatTabLocked(tab)
+			w.QueuedBytes -= len(req.Data)
+			if req.Echo {
+				recordLocalInputEchoWindowLocked(tab, req.Data, time.Now())
+				refresh = m.isChatTabLocked(tab)
 			}
 		}
 	})
-	if refresh && w.m.msgSink != nil {
-		w.m.msgSink(PTYCursorRefresh{WorkspaceID: req.wsID, TabID: req.tabID, InputGeneration: w.gen})
+	if refresh && m.msgSink != nil {
+		m.msgSink(PTYCursorRefresh{WorkspaceID: req.WsID, TabID: TabID(req.TabID), InputGeneration: w.Gen})
 	}
 }
 
-// fail handles a delivery error. A failure on a binding that is still current
-// latches the binding's failure flag and emits exactly one generation-stamped
-// TabInputFailed — the guarded UI failure path owns the visible detach, so a
-// tab stays healthy-looking (and its failure stays actionable) until the
-// handler runs. A failure on a retired binding is a late signal: it is logged
-// and dropped, and must not detach, toast, or stamp the replacement binding.
-func (w *tabInputWriter) fail(req tabInputRequest, err error) {
-	tab := w.tab
+// failTabInput handles a delivery error. A failure on a binding that is
+// still current latches the binding's failure flag and emits exactly one
+// generation-stamped TabInputFailed — the guarded UI failure path owns the
+// visible detach, so a tab stays healthy-looking (and its failure stays
+// actionable) until the handler runs. A failure on a retired binding is a
+// late signal: it is logged and dropped, and must not detach, toast, or
+// stamp the replacement binding.
+func (m *Model) failTabInput(tab *Tab, w *tabInputWriter, req tabInputRequest, err error) {
 	current := withMuVal(&tab.mu, func() bool {
 		if tab.tabInput.writer == w {
 			tab.tabInput.failed = true
@@ -306,38 +265,23 @@ func (w *tabInputWriter) fail(req tabInputRequest, err error) {
 		return false
 	})
 	if !current {
-		logging.Debug("dropping stale %s failure for tab %s (input gen %d): %v", req.label, tab.ID, w.gen, err)
+		logging.Debug("dropping stale %s failure for tab %s (input gen %d): %v", req.Label, tab.ID, w.Gen, err)
 		return
 	}
-	logging.Error("%s failed for tab %s: %v", req.label, tab.ID, err)
-	if w.m.msgSink != nil {
-		w.m.msgSink(TabInputFailed{TabID: req.tabID, WorkspaceID: req.wsID, Err: err, Gen: w.gen})
+	logging.Error("%s failed for tab %s: %v", req.Label, tab.ID, err)
+	if m.msgSink != nil {
+		m.msgSink(TabInputFailed{TabID: TabID(req.TabID), WorkspaceID: req.WsID, Err: err, Gen: w.Gen})
 	}
-}
-
-// stop closes the request queue once. After close the worker drains and
-// discards any queued-but-undelivered requests (each checks stale) then exits.
-func (w *tabInputWriter) stop() {
-	w.stopOnce.Do(func() { close(w.reqs) })
-}
-
-// join blocks until the worker has exited. It must never be called under
-// tab.mu: a blocked write only unblocks when the lifecycle closes the
-// terminal, which callers arrange before joining.
-func (w *tabInputWriter) join() {
-	if w == nil {
-		return
-	}
-	<-w.done
 }
 
 // retireTabInputWriterLocked detaches the current writer from the binding:
-// marks it stale so queued and in-flight work discards, closes its queue, and
-// moves it to the retired list for an off-lock join. Lifecycle transitions
-// call this inside tab.mu; the caller joins via joinRetiredInputWriters after
-// releasing the lock (and after closing the agent/terminal so an in-flight
-// write can return). The generation does not change here — gen is bumped by
-// the next attach, which is what makes a pre-attach failure stale.
+// marks it stale so queued and in-flight work discards, signals its exit,
+// and moves it to the retired list for an off-lock join. Lifecycle
+// transitions call this inside tab.mu; the caller joins via
+// joinRetiredInputWriters after releasing the lock (and after closing the
+// agent/terminal so an in-flight write can return). The generation does
+// not change here — gen is bumped by the next attach, which is what makes
+// a pre-attach failure stale.
 func (t *Tab) retireTabInputWriterLocked() {
 	if t == nil {
 		return
@@ -347,8 +291,7 @@ func (t *Tab) retireTabInputWriterLocked() {
 		return
 	}
 	t.tabInput.writer = nil
-	w.stale.Store(true)
-	w.stop()
+	ptyio.RetireInputWriter(w)
 	t.tabInput.retired = append(t.tabInput.retired, w)
 }
 
@@ -365,7 +308,7 @@ func (t *Tab) joinRetiredInputWriters() {
 		return retired
 	})
 	for _, w := range retired {
-		w.join()
+		ptyio.JoinInputWriter(w)
 	}
 }
 

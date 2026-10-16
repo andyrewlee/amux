@@ -1,55 +1,49 @@
 package sidebar
 
+// Sidebar terminal input admission + delivery.
+//
+// The binding protocol itself is shared machinery — ptyio/input_binding.go
+// carries the contract comment. This file holds the sidebar's half of the
+// parameterized contract:
+//
+//  1. Queue preserves order, writer drains head-first.
+//  2. Queue bounded by BOTH request count and byte count
+//     (sidebarInputQueueRequests, sidebarInputQueueMaxBytes). queuedBytes
+//     is guarded by ts.mu and RELEASED AT DEQUEUE — the writer decrements
+//     inside its locked decide hook, so the byte budget frees as requests
+//     leave the channel rather than when the send returns.
+//  3. A binding is the (TerminalState, terminal attachment) pair stamped
+//     with ts.input.gen. detach/teardown/replacement retires the writer
+//     under ts.mu, marks it stale, and BUMPS gen at retire time (the
+//     center pane bumps at attach instead) — a request queued for a dead
+//     terminal is discarded and a late failure cannot detach the
+//     replacement.
+//  4. A failed send latches ts.input.failed on the Update goroutine's next
+//     look AND posts one SidebarInputFailed. A late failure stamped under
+//     a retired gen is dropped rather than detaching the replacement.
+//  5. A full queue or a latched failure rejects the new request with a
+//     visible toast — never silent direct write, never a detach.
+//  6. Retired writers are joined only after leaving ts.mu — joining under
+//     it would deadlock against a blocked send that needs the terminal
+//     close to return.
+//
+// VTerm query replies share the queue via admitQueryReplyLocked. The
+// response-writer callback runs inside VTerm.Write under ts.mu, so it can
+// only push non-blocking; a full queue drops the reply (a terminal may
+// display a slightly stale state) rather than wedge every handler on the
+// mutex. Replies are not charged to the byte budget (Counted=false) —
+// they are small by construction — but they still carry the binding gen
+// so a retired binding's reply is discarded at dequeue.
+
 import (
 	"fmt"
-	"sync/atomic"
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/safego"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
-
-// Sidebar input queue contract
-//
-// User input is accepted by Update while the dedicated writer goroutine
-// performs the PTY write. No Update path may block on a slow or stuck
-// ptyFile.Write — a stalled terminal must never wedge Bubble Tea's event
-// loop. This mirrors internal/ui/center/tab_input.go's contract, scaled to
-// one writer binding per sidebar terminal.
-//
-// Invariants:
-//
-//  1. Update performs admission only. Accepted requests go to the binding's
-//     single reqs channel — a bounded FIFO — in the order callers hand them
-//     over, and the writer drains them one at a time off the queue head,
-//     preserving order.
-//  2. The queue is bounded by BOTH request count and byte count —
-//     sidebarInputQueueRequests and sidebarInputQueueMaxBytes. A byte bound
-//     alone under-serves tiny requests and a request bound alone lets large
-//     pastes grow the queue unboundedly. queuedBytes is guarded by ts.mu,
-//     released by the writer as each request finishes.
-//  3. A binding is the (TerminalState, terminal attachment) pair stamped
-//     with ts.input.gen. detach, teardown, and terminal replacement retire
-//     the binding's writer under ts.mu, mark it stale, and bump gen, so a
-//     request queued for a dead terminal is discarded and a late failure
-//     message cannot detach the replacement.
-//  4. A failed send latches ts.input.failed on the Update goroutine's next
-//     look AND posts one SidebarInputFailed. A late failure stamped under a
-//     retired gen is dropped rather than detaching the replacement.
-//  5. A full queue or a latched failure rejects the new request with a
-//     visible signal — never a silent direct write, never a detach for a
-//     queue that is merely slow.
-//  6. Retired writers are joined ONLY after leaving ts.mu — joining under
-//     it would deadlock against a blocked send that needs the terminal
-//     close to return.
-//
-// VTerm query replies share the queue. The response-writer callback runs
-// inside VTerm.Write under ts.mu, so it can only push non-blocking; a full
-// queue drops the reply (a terminal may display a slightly stale state)
-// rather than wedge every handler on the mutex. Ordering vs user input is
-// correct by construction: the reply enqueues when the query parses, before
-// input admitted afterward.
 
 var (
 	// sidebarInputQueueRequests / sidebarInputQueueMaxBytes bound input
@@ -69,14 +63,22 @@ var (
 	}
 )
 
-type sidebarInputAdmission int
+type sidebarInputAdmission = ptyio.InputAdmission
 
 const (
-	sidebarInputAdmitted sidebarInputAdmission = iota
-	sidebarInputNoTerminal
-	sidebarInputRejectedFull
-	sidebarInputRejectedFailed
+	sidebarInputAdmitted       = ptyio.InputAdmitted
+	sidebarInputNoTerminal     = ptyio.InputNoTerminal
+	sidebarInputRejectedFull   = ptyio.InputRejectedFull
+	sidebarInputRejectedFailed = ptyio.InputRejectedFailed
 )
+
+// sidebarInputReq keeps the old request spelling at call sites; the type is
+// the shared one.
+type sidebarInputReq = ptyio.InputRequest
+
+// sidebarInputWriter is the shared writer — the sidebar keeps no fields of
+// its own on it (wsID/tabID are captured by the fail hook at construction).
+type sidebarInputWriter = ptyio.InputWriter
 
 // sidebarInputState is the tab's input binding: the current writer, the
 // generation that fences stale requests/failures, and the latched failure
@@ -85,35 +87,6 @@ type sidebarInputState struct {
 	gen    uint64
 	writer *sidebarInputWriter
 	failed bool
-}
-
-// sidebarInputReq is one admitted input write for a sidebar terminal.
-type sidebarInputReq struct {
-	data  string
-	label string
-	// gen is the binding generation the request was admitted under — the
-	// writer discards a request stamped under a retired gen.
-	gen uint64
-	// counted marks requests whose bytes were charged to queuedBytes —
-	// query replies bypass the byte budget and must not decrement it.
-	counted bool
-}
-
-// sidebarInputWriter is one binding's writer. reqs is never closed — pushes
-// from a retired response-writer closure land on a dead channel and drain
-// harmlessly at the cap — stop + stale retire it instead.
-type sidebarInputWriter struct {
-	reqs     chan sidebarInputReq
-	stop     chan struct{} // closed once by retireSidebarInputWriterLocked
-	done     chan struct{} // closed when runSidebarInputWriter returns
-	stale    atomic.Bool
-	inflight atomic.Bool
-	send     func(string) error
-	gen      uint64
-	wsID     string
-	tabID    string
-	// queuedBytes tracks admitted-but-undelivered payload; guarded by ts.mu.
-	queuedBytes int
 }
 
 // SidebarInputFailed reports a sidebar terminal input write failure. Gen is
@@ -153,19 +126,35 @@ func (m *TerminalModel) admitSidebarInput(ts *TerminalState, tabID TerminalTabID
 		if send == nil {
 			return sidebarInputNoTerminal
 		}
-		w = &sidebarInputWriter{
-			reqs:  make(chan sidebarInputReq, sidebarInputQueueRequests),
-			stop:  make(chan struct{}),
-			done:  make(chan struct{}),
-			send:  send,
-			gen:   iq.gen,
-			wsID:  m.workspaceID(),
-			tabID: string(tabID),
-		}
+		w = m.newSidebarInputWriter(ts, send, iq.gen, m.workspaceID(), string(tabID))
 		iq.writer = w
-		safego.Go("sidebar.input_writer", func() { m.runSidebarInputWriter(ts, w) })
+		safego.Go("sidebar.input_writer", w.Run)
 	}
 	return ts.admitSidebarInputReqLocked(w, data, label)
+}
+
+// newSidebarInputWriter builds the binding's writer with the sidebar's
+// dequeue-decide and failure hooks. The decide hook decrements
+// queuedBytes for counted requests inside ts.mu (dequeue-time release)
+// and applies the sidebar fence — gen mismatch or stale writer. The fail
+// hook captures the binding's route so a retired writer can never report
+// onto a replacement.
+func (m *TerminalModel) newSidebarInputWriter(ts *TerminalState, send func(string) error, gen uint64, wsID, tabID string) *sidebarInputWriter {
+	var w *sidebarInputWriter
+	w = ptyio.NewInputWriter(sidebarInputQueueRequests, send, gen, ptyio.InputWriterHooks{
+		Decide: func(req ptyio.InputRequest) bool {
+			return withMuVal(&ts.mu, func() bool {
+				if req.Counted {
+					w.QueuedBytes -= len(req.Data)
+				}
+				return req.Gen == w.Gen && !w.Stale.Load()
+			})
+		},
+		Fail: func(req ptyio.InputRequest, err error) {
+			failSidebarInput(ts, m, w, req, err, wsID, tabID)
+		},
+	})
+	return w
 }
 
 // admitSidebarInputReqLocked pushes a request onto a live writer's queue.
@@ -173,23 +162,13 @@ func (m *TerminalModel) admitSidebarInput(ts *TerminalState, tabID TerminalTabID
 // would overflow either bound is rejected — the queued work is left intact
 // (drop-new policy, same as the center pane).
 func (ts *TerminalState) admitSidebarInputReqLocked(w *sidebarInputWriter, data, label string) sidebarInputAdmission {
-	if len(data) > sidebarInputQueueMaxBytes {
+	if !ptyio.AdmissionFits(w, len(data), sidebarInputQueueRequests, sidebarInputQueueMaxBytes) {
 		return sidebarInputRejectedFull
 	}
-	pending := len(w.reqs)
-	if w.inflight.Load() {
-		pending++
-	}
-	if pending >= sidebarInputQueueRequests || w.queuedBytes+len(data) > sidebarInputQueueMaxBytes {
+	if !ptyio.EnqueueInput(w, ptyio.InputRequest{Data: data, Label: label, Gen: w.Gen, Counted: true}) {
 		return sidebarInputRejectedFull
 	}
-	select {
-	case w.reqs <- sidebarInputReq{data: data, label: label, gen: w.gen, counted: true}:
-		w.queuedBytes += len(data)
-		return sidebarInputAdmitted
-	default:
-		return sidebarInputRejectedFull
-	}
+	return sidebarInputAdmitted
 }
 
 // admitQueryReplyLocked pushes a VTerm query reply into the input FIFO.
@@ -206,9 +185,7 @@ func (ts *TerminalState) admitQueryReplyLocked(data []byte) {
 	if w == nil {
 		return
 	}
-	select {
-	case w.reqs <- sidebarInputReq{data: string(data), label: "query reply", gen: w.gen}:
-	default:
+	if !ptyio.EnqueueInput(w, ptyio.InputRequest{Data: string(data), Label: "query reply", Gen: w.Gen}) {
 		logging.Debug("Sidebar query reply dropped: input queue full")
 	}
 }
@@ -229,8 +206,7 @@ func (ts *TerminalState) retireSidebarInputWriterLocked() *sidebarInputWriter {
 	// The failure latch belongs to the retired binding — a reattach that
 	// installs a fresh writer must admit input again.
 	ts.input.failed = false
-	w.stale.Store(true)
-	close(w.stop)
+	ptyio.RetireInputWriter(w)
 	return w
 }
 
@@ -239,49 +215,14 @@ func (ts *TerminalState) retireSidebarInputWriterLocked() *sidebarInputWriter {
 // to: a send blocked inside ptyFile.Write returns only when the close
 // breaks it.
 func joinSidebarInputWriter(w *sidebarInputWriter) {
-	if w == nil {
-		return
-	}
-	<-w.done
-}
-
-// runSidebarInputWriter drains one binding's queue, writing each request to
-// the PTY in order. A failed send latches ts.input.failed (when the binding
-// is still current), posts one gen-stamped SidebarInputFailed, and retires
-// the writer — Update learns through the message whether the failure still
-// belongs to the live binding.
-func (m *TerminalModel) runSidebarInputWriter(ts *TerminalState, w *sidebarInputWriter) {
-	defer close(w.done)
-	for {
-		select {
-		case req := <-w.reqs:
-			stale := withMuVal(&ts.mu, func() bool {
-				if req.counted {
-					w.queuedBytes -= len(req.data)
-				}
-				return req.gen != w.gen || w.stale.Load()
-			})
-			if stale {
-				continue
-			}
-			w.inflight.Store(true)
-			err := w.send(req.data)
-			w.inflight.Store(false)
-			if err != nil {
-				w.failSidebarInput(ts, m, req, err)
-				return
-			}
-		case <-w.stop:
-			return
-		}
-	}
+	ptyio.JoinInputWriter(w)
 }
 
 // failSidebarInput records a write failure on the binding that produced it
 // and notifies Update. If the binding was already retired (writer swapped
 // out), the failure is stale — logged and dropped rather than latching
 // state the replacement should not inherit.
-func (w *sidebarInputWriter) failSidebarInput(ts *TerminalState, m *TerminalModel, req sidebarInputReq, err error) {
+func failSidebarInput(ts *TerminalState, m *TerminalModel, w *sidebarInputWriter, req sidebarInputReq, err error, wsID, tabID string) {
 	current := withMuVal(&ts.mu, func() bool {
 		if ts.input.writer == w {
 			ts.input.failed = true
@@ -289,14 +230,14 @@ func (w *sidebarInputWriter) failSidebarInput(ts *TerminalState, m *TerminalMode
 		}
 		return false
 	})
-	err = fmt.Errorf("%s: %w", req.label, err)
+	err = fmt.Errorf("%s: %w", req.Label, err)
 	if !current {
 		logging.Debug("Sidebar input write failed on a retired binding (ignored): %v", err)
 		return
 	}
 	logging.Error("Sidebar input write failed: %v", err)
 	if m.msgSink != nil {
-		m.msgSink(SidebarInputFailed{WorkspaceID: w.wsID, TabID: w.tabID, Gen: w.gen, Err: err})
+		m.msgSink(SidebarInputFailed{WorkspaceID: wsID, TabID: tabID, Gen: w.Gen, Err: err})
 	}
 }
 
