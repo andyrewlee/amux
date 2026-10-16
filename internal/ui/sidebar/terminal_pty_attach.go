@@ -49,98 +49,62 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
-		if err := ensureTmuxAvailableFn(); err != nil {
-			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
-		}
-
-		var scrollback []byte
-		var postAttachScrollback []byte
-		var snapshot tmux.PaneSnapshot
-		var bootstrap ptyio.SessionBootstrapCapture
-		captureFullPane := false
-		captureCols := attachWidth
-		captureRows := attachHeight
-		reuseExistingSession := false
-		var env []string
-		if envFn != nil {
-			env, err = envFn(ws)
-			if err != nil {
-				return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
-			}
-		}
-		env = append(env, "COLORTERM=truecolor")
-		if path := pty.AugmentedPath(); path != "" {
-			env = append(env, "PATH="+path)
-		}
 		sessionName := tmux.SessionName("amux", wsID, string(tabID))
 		// Reuse scrollback if a prior tmux session with the same name exists
 		// (e.g., app restart with persisted tmux session). The reuse check also
 		// verifies ownership tags: a live session under our name that isn't
 		// amux-tagged is a foreign squatter, and attaching would both hand it a
 		// client and launder it by re-tagging it as ours.
-		if state, err := sessionStateForFn(sessionName, opts); err == nil && ptyio.SessionAttachable(state) {
+		precheck := func() (bool, error) {
+			state, err := sessionStateForFn(sessionName, opts)
+			if err != nil || !ptyio.SessionAttachable(state) {
+				return false, nil
+			}
 			owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
 			if ownErr != nil {
-				return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: ownErr}
+				return false, ownErr
 			}
 			if !owned {
-				return SidebarTerminalCreateFailed{
-					WorkspaceID: wsID,
-					Err:         errors.New("tmux session name already in use by a non-amux session"),
-				}
+				return false, errors.New("tmux session name already in use by a non-amux session")
 			}
-			reuseExistingSession = true
+			return true, nil
 		}
-		if reuseExistingSession {
-			bootstrap = ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
-		}
-		tags := ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, true)
-		prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
-			WorkDir:        root,
-			Command:        loginShellCommand,
-			Environment:    env,
-			Options:        opts,
-			Tags:           tags,
-			DetachExisting: true,
+		res, err := spawnSidebarTerminal(sidebarSpawnParams{
+			ws:             ws,
+			sessionName:    sessionName,
+			loginShell:     loginShellCommand,
+			root:           root,
+			envFn:          envFn,
+			tags:           ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, true),
+			detachExisting: true,
+			opts:           opts,
+			attachWidth:    attachWidth,
+			attachHeight:   attachHeight,
+			termWidth:      termWidth,
+			termHeight:     termHeight,
+			precheck:       precheck,
+			verifyLabel:    "create",
 		})
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
 		}
-		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
-		term, err := newPTYWithSizeFn(prepared.Command, root, env, ptyRows, ptyCols)
-		if err != nil {
-			// Start failed before any pane process could exist: the payload
-			// is provably unconsumed, then restore the pre-attach capture.
-			prepared.AbortBeforeStart()
-			if reuseExistingSession {
-				ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
-			}
-			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
-		}
-		if reuseExistingSession {
-			scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows = ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
-		}
-		if err := verifyTerminalSessionTagsFn(sessionName, tags, opts); err != nil {
-			logging.Warn("sidebar terminal create: session tag verification failed for %s: %v", sessionName, err)
-		}
-
 		return SidebarTerminalCreated{
 			WorkspaceID: wsID,
 			TabID:       tabID,
-			Terminal:    term,
+			Terminal:    res.term,
 			SessionName: sessionName,
-			CaptureCols: captureCols,
-			CaptureRows: captureRows,
+			CaptureCols: res.captureCols,
+			CaptureRows: res.captureRows,
 			SessionRestoreCapture: ptyio.SessionRestoreCapture{
-				ScrollbackCapture:           scrollback,
-				PostAttachScrollbackCapture: postAttachScrollback,
-				CaptureFullPane:             captureFullPane,
-				SnapshotCols:                snapshot.Cols,
-				SnapshotRows:                snapshot.Rows,
-				SnapshotCursorX:             snapshot.CursorX,
-				SnapshotCursorY:             snapshot.CursorY,
-				SnapshotHasCursor:           snapshot.HasCursor,
-				SnapshotModeState:           snapshot.ModeState,
+				ScrollbackCapture:           res.scrollback,
+				PostAttachScrollbackCapture: res.postAttachScrollback,
+				CaptureFullPane:             res.captureFullPane,
+				SnapshotCols:                res.snapshot.Cols,
+				SnapshotRows:                res.snapshot.Rows,
+				SnapshotCursorX:             res.snapshot.CursorX,
+				SnapshotCursorY:             res.snapshot.CursorY,
+				SnapshotHasCursor:           res.snapshot.HasCursor,
+				SnapshotModeState:           res.snapshot.ModeState,
 			},
 		}
 	}
@@ -298,87 +262,53 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 		if shellErr != nil {
 			return attachFailure(wsID, tabID, epoch, action, shellErr, false)
 		}
-		if err := ensureTmuxAvailableFn(); err != nil {
-			return attachFailure(wsID, tabID, epoch, action, err, false)
-		}
 		if action == "reattach" {
 			if failed := reattachTargetCheck(ws, sessionName, opts, wsID, tabID, epoch); failed != nil {
 				return *failed
 			}
 		}
-		tags := ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, action != "reattach")
-		var err error
-		var scrollback []byte
-		var postAttachScrollback []byte
-		captureFullPane := false
-		captureCols := attachWidth
-		captureRows := attachHeight
-		var snapshot tmux.PaneSnapshot
-		var bootstrap ptyio.SessionBootstrapCapture
-		if action == "reattach" {
-			bootstrap = ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
-		}
-		var env []string
-		if envFn != nil {
-			env, err = envFn(ws)
-			if err != nil {
-				return attachFailure(wsID, tabID, epoch, action, err, false)
-			}
-		}
-		env = append(env, "COLORTERM=truecolor")
-		if path := pty.AugmentedPath(); path != "" {
-			env = append(env, "PATH="+path)
-		}
-		prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
-			WorkDir:        root,
-			Command:        loginShellCommand,
-			Environment:    env,
-			Options:        opts,
-			Tags:           tags,
-			DetachExisting: detachExisting,
+		res, err := spawnSidebarTerminal(sidebarSpawnParams{
+			ws:             ws,
+			sessionName:    sessionName,
+			loginShell:     loginShellCommand,
+			root:           root,
+			envFn:          envFn,
+			tags:           ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, action != "reattach"),
+			detachExisting: detachExisting,
+			opts:           opts,
+			attachWidth:    attachWidth,
+			attachHeight:   attachHeight,
+			termWidth:      termWidth,
+			termHeight:     termHeight,
+			precheck: func() (bool, error) {
+				// The reattach path's existence/ownership check ran above;
+				// here the flag only gates the bootstrap-capture lifecycle.
+				return action == "reattach", nil
+			},
+			restartCapture: action != "reattach",
+			verifyLabel:    action,
 		})
 		if err != nil {
 			return attachFailure(wsID, tabID, epoch, action, err, false)
-		}
-		ptyRows, ptyCols, _ := pty.WinsizeFromInts(attachHeight, attachWidth)
-		term, err := newPTYWithSizeFn(prepared.Command, root, env, ptyRows, ptyCols)
-		if err != nil {
-			// Start failed before any pane process could exist: the payload
-			// is provably unconsumed, then restore the pre-attach capture.
-			prepared.AbortBeforeStart()
-			if action == "reattach" {
-				ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
-			}
-			return attachFailure(wsID, tabID, epoch, action, err, false)
-		}
-		if action == "reattach" {
-			scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows = ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
-		}
-		if err := verifyTerminalSessionTagsFn(sessionName, tags, opts); err != nil {
-			logging.Warn("sidebar terminal %s: session tag verification failed for %s: %v", action, sessionName, err)
-		}
-		if action != "reattach" {
-			captureCols, captureRows = ptyio.DefaultBootstrap().HistoryCaptureSize(sessionName, attachWidth, attachHeight, opts)
-			scrollback, _ = capturePaneFn(sessionName, opts)
 		}
 		return SidebarTerminalReattachResult{
 			WorkspaceID: wsID,
 			TabID:       tabID,
 			Epoch:       epoch,
-			Terminal:    term,
+			Terminal:    res.term,
 			SessionName: sessionName,
-			CaptureCols: captureCols,
-			CaptureRows: captureRows,
+			CaptureCols: res.captureCols,
+			CaptureRows: res.captureRows,
 			SessionRestoreCapture: ptyio.SessionRestoreCapture{
-				ScrollbackCapture:           scrollback,
-				PostAttachScrollbackCapture: postAttachScrollback,
-				CaptureFullPane:             captureFullPane,
-				SnapshotCols:                snapshot.Cols,
-				SnapshotRows:                snapshot.Rows,
-				SnapshotCursorX:             snapshot.CursorX,
-				SnapshotCursorY:             snapshot.CursorY,
-				SnapshotHasCursor:           snapshot.HasCursor,
-				SnapshotModeState:           snapshot.ModeState,
+				ScrollbackCapture:           res.scrollback,
+				PostAttachScrollbackCapture: res.postAttachScrollback,
+				CaptureFullPane:             res.captureFullPane,
+				SnapshotCols:                res.snapshot.Cols,
+				SnapshotRows:                res.snapshot.Rows,
+				SnapshotCursorX:             res.snapshot.CursorX,
+				SnapshotCursorY:             res.snapshot.CursorY,
+				SnapshotHasCursor:           res.snapshot.HasCursor,
+				SnapshotModeState:           res.snapshot.ModeState,
 			},
 		}
 	}
