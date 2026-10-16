@@ -231,15 +231,24 @@ func TestProjectEnv_WriteRefusesNewerSchema(t *testing.T) {
 	}
 }
 
-func TestProjectEnv_CorruptFileStillReplaced(t *testing.T) {
+func TestProjectEnv_CorruptFilePreservesAndRefuses(t *testing.T) {
 	dir := t.TempDir()
 	store := NewProjectEnvStore(dir)
 	if err := os.WriteFile(store.Path(), []byte(`{not json`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
+	err := store.Set(repo, map[string]string{"B": "2"})
+	var corruptErr *CorruptStoreError
+	if !errors.As(err, &corruptErr) {
+		t.Fatalf("Set on corrupt file = %v, want *CorruptStoreError refusal", err)
+	}
+	if raw, readErr := os.ReadFile(store.Path() + ".bak"); readErr != nil || string(raw) != "{not json" {
+		t.Fatalf(".bak = %q, %v — corrupt bytes must be preserved", raw, readErr)
+	}
+	// The refused write moved the corrupt primary aside, so a retry succeeds.
 	if err := store.Set(repo, map[string]string{"B": "2"}); err != nil {
-		t.Fatalf("Set on corrupt file = %v, want wholesale replace", err)
+		t.Fatalf("Set retry after preservation = %v", err)
 	}
 	if got := store.ForRepo(repo); got["B"] != "2" {
 		t.Fatalf("ForRepo after replace = %v, want B=2", got)
@@ -262,15 +271,24 @@ func TestProjectScriptStore_WriteRefusesNewerSchema(t *testing.T) {
 	}
 }
 
-func TestProjectScriptStore_CorruptFileStillReplaced(t *testing.T) {
+func TestProjectScriptStore_CorruptFilePreservesAndRefuses(t *testing.T) {
 	dir := t.TempDir()
 	store := NewProjectScriptStore(dir)
 	if err := os.WriteFile(store.Path(), []byte(`{not json`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
+	err := store.Set(repo, ScriptsConfig{Setup: "y"})
+	var corruptErr *CorruptStoreError
+	if !errors.As(err, &corruptErr) {
+		t.Fatalf("Set on corrupt file = %v, want *CorruptStoreError refusal", err)
+	}
+	if raw, readErr := os.ReadFile(store.Path() + ".bak"); readErr != nil || string(raw) != "{not json" {
+		t.Fatalf(".bak = %q, %v — corrupt bytes must be preserved", raw, readErr)
+	}
+	// The refused write moved the corrupt primary aside, so a retry succeeds.
 	if err := store.Set(repo, ScriptsConfig{Setup: "y"}); err != nil {
-		t.Fatalf("Set on corrupt file = %v, want wholesale replace", err)
+		t.Fatalf("Set retry after preservation = %v", err)
 	}
 	if got := store.ForRepo(repo); got.Setup != "y" {
 		t.Fatalf("ForRepo after replace = %+v, want setup=y", got)

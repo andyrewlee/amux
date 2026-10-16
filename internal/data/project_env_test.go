@@ -1,7 +1,10 @@
 package data
 
 import (
+	"errors"
+	"io/fs"
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -78,13 +81,83 @@ func TestProjectEnvStore_CorruptFileNeverBlocks(t *testing.T) {
 	if got := store.ForRepo(t.TempDir()); len(got) != 0 {
 		t.Fatalf("ForRepo() on corrupt file = %v, want empty (spawn must not fail)", got)
 	}
-	// Set replaces the unparseable bytes wholesale.
+	// User-authored data is never zeroed silently: Set preserves the
+	// corrupt bytes to .bak and refuses, surfacing a distinguishable error.
 	repo := t.TempDir()
+	err := store.Set(repo, map[string]string{"A": "1"})
+	var corruptErr *CorruptStoreError
+	if !errors.As(err, &corruptErr) {
+		t.Fatalf("Set() over corrupt file = %v, want *CorruptStoreError", err)
+	}
+	raw, readErr := os.ReadFile(store.Path() + ".bak")
+	if readErr != nil || string(raw) != "{not json" {
+		t.Fatalf(".bak = %q, %v — corrupt bytes must be preserved", raw, readErr)
+	}
+	if _, statErr := os.Stat(store.Path()); !os.IsNotExist(statErr) {
+		t.Fatalf("primary still present after refusal (%v) — it must move to .bak", statErr)
+	}
+	if got := store.ForRepo(repo); len(got) != 0 {
+		t.Fatalf("ForRepo() after refusal = %v, want empty", got)
+	}
+	// The refused write left the primary absent, so a retry lands clean.
 	if err := store.Set(repo, map[string]string{"A": "1"}); err != nil {
-		t.Fatalf("Set() over corrupt file error = %v", err)
+		t.Fatalf("Set() retry after preservation error = %v", err)
 	}
 	if got := store.ForRepo(repo); got["A"] != "1" {
 		t.Fatalf("ForRepo() = %v after recovery write", got)
+	}
+	// A clean write must not touch the preserved corrupt bytes (Windows'
+	// fsatomic fallback reclaims the .bak slot, so only assert on POSIX).
+	if runtime.GOOS != "windows" {
+		raw, _ = os.ReadFile(store.Path() + ".bak")
+		if string(raw) != "{not json" {
+			t.Fatalf(".bak rewritten to %q — stale preservation must survive a clean write", raw)
+		}
+	}
+}
+
+func TestProjectEnvStore_CorruptSetPreservesOccupiedBackup(t *testing.T) {
+	// A second corruption while .bak is occupied refuses without destroying
+	// either file — the registry's never-recover-a-stale-backup rule.
+	dir := t.TempDir()
+	store := NewProjectEnvStore(dir)
+	if err := os.WriteFile(store.Path()+".bak", []byte("{first corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path(), []byte("{second corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := store.Set(t.TempDir(), map[string]string{"A": "1"})
+	var corruptErr *CorruptStoreError
+	if !errors.As(err, &corruptErr) {
+		t.Fatalf("Set() = %v, want *CorruptStoreError", err)
+	}
+	if !corruptErr.BackupOccupied || corruptErr.Preserved != "" {
+		t.Fatalf("occupied-backup refusal = %+v, want BackupOccupied with no move", corruptErr)
+	}
+	if raw, _ := os.ReadFile(store.Path()); string(raw) != "{second corrupt" {
+		t.Fatalf("primary = %q — corrupt file must be left in place when .bak is occupied", raw)
+	}
+	if raw, _ := os.ReadFile(store.Path() + ".bak"); string(raw) != "{first corrupt" {
+		t.Fatalf(".bak = %q — earlier preservation must not be overwritten", raw)
+	}
+}
+
+func TestProjectEnvStore_SetReadFailureIsNotCorruption(t *testing.T) {
+	// A read failure that is not decode corruption (permissions, transient
+	// I/O) refuses the write as-is — the file may be perfectly healthy and
+	// must not be moved to .bak.
+	dir := t.TempDir()
+	store := NewProjectEnvStore(dir)
+	ioErr := fs.ErrPermission
+	store.readFile = func(string) ([]byte, error) { return nil, ioErr }
+	err := store.Set(t.TempDir(), map[string]string{"A": "1"})
+	var corruptErr *CorruptStoreError
+	if errors.As(err, &corruptErr) {
+		t.Fatalf("Set() with read failure = %v, must not be CorruptStoreError", err)
+	}
+	if !errors.Is(err, ioErr) {
+		t.Fatalf("Set() = %v, want the read failure surfaced", err)
 	}
 }
 

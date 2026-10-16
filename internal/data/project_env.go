@@ -77,19 +77,17 @@ func (s *ProjectEnvStore) Set(repoPath string, env map[string]string) error {
 	defer unlockRegistryFile(lockFile)
 	all, err := s.load()
 	if err != nil {
-		var synErr *json.SyntaxError
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &synErr) || errors.As(err, &typeErr) {
-			// A corrupt file is replaced wholesale — Set is the
-			// authoritative write and holding onto unparseable bytes
-			// would wedge every future edit.
-			all = map[string]map[string]string{}
-		} else {
-			// A newer schema or any non-decode read failure is existing
-			// state this binary cannot inspect — refuse rather than
-			// clobbering bytes that may hold other projects' env.
-			return err
+		if isStoreDecodeError(err) {
+			// User-authored data: preserve the corrupt bytes beside the
+			// store and refuse this write — zeroing the file would
+			// silently drop every project's env at once.
+			preserved, occupied := preserveCorruptPrimary(s.path)
+			return &CorruptStoreError{Path: s.path, Preserved: preserved, BackupOccupied: occupied, Err: err}
 		}
+		// A newer schema or any non-decode read failure is existing
+		// state this binary cannot inspect — refuse rather than
+		// clobbering bytes that may hold other projects' env.
+		return err
 	}
 	if len(env) == 0 {
 		delete(all, key)
