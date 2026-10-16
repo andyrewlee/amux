@@ -1,9 +1,12 @@
 package app
 
 import (
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // pendingOverlayOpenCap bounds the deferred-open queue. Opens beyond the cap
@@ -68,14 +71,23 @@ func (a *App) requestRunOutputOpen(open func()) {
 
 // drainPendingOverlayOpens runs deferred opens while nothing modal is
 // visible. Called once per Update (after the message is fully handled), so
-// an overlay closing on this message unblocks the queue immediately.
-func (a *App) drainPendingOverlayOpens() {
+// an overlay closing on this message unblocks the queue immediately. Opens
+// run as func() — a deferred open that needs a follow-up cmd (arming the
+// run-output refresh tick once the viewer actually presents) appends it to
+// drainedOverlayCmds, which this returns for Update to batch.
+func (a *App) drainPendingOverlayOpens() tea.Cmd {
 	for len(a.pendingOverlayOpens) > 0 && !a.anyModalOverlayVisible() {
 		open := a.pendingOverlayOpens[0]
 		a.pendingOverlayOpens[0] = nil
 		a.pendingOverlayOpens = a.pendingOverlayOpens[1:]
 		open()
 	}
+	if len(a.drainedOverlayCmds) == 0 {
+		return nil
+	}
+	cmds := a.drainedOverlayCmds
+	a.drainedOverlayCmds = nil
+	return common.SafeBatch(cmds...)
 }
 
 // workspaceLoaded reports whether ws is currently resolvable against the

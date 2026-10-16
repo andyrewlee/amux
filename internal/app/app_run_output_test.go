@@ -157,12 +157,15 @@ func newRunOutputHarness(t *testing.T, ws *data.Workspace, tail string, alive bo
 
 // TestHandleShowRunScriptOutput_ArmsRefreshOnlyWhileAlive pins the loop's
 // entry condition: an alive session schedules the first tick; a dead one
-// leaves the static remain-on-exit snapshot alone.
+// leaves the static remain-on-exit snapshot alone. The tick arms inside the
+// present-time open closure, so it surfaces through drainPendingOverlayOpens
+// even on the synchronous fast path.
 func TestHandleShowRunScriptOutput_ArmsRefreshOnlyWhileAlive(t *testing.T) {
 	ws := &data.Workspace{Name: "feature", Repo: "/repo", Root: "/repo/ws", Scripts: data.ScriptsConfig{Run: "make dev"}}
 
 	live := newRunOutputHarness(t, ws, "tick-1", true)
-	if cmd := openRunOutput(t, live, ws); cmd == nil {
+	openRunOutput(t, live, ws)
+	if cmd := live.app.drainPendingOverlayOpens(); cmd == nil {
 		t.Fatal("expected a scheduled refresh tick for a live session")
 	}
 	if live.app.overlays.runOutputWorkspace == nil || live.app.overlays.runOutputWorkspace.Root != ws.Root {
@@ -170,8 +173,48 @@ func TestHandleShowRunScriptOutput_ArmsRefreshOnlyWhileAlive(t *testing.T) {
 	}
 
 	dead := newRunOutputHarness(t, ws, "final-tail", false)
-	if cmd := openRunOutput(t, dead, ws); cmd != nil {
+	openRunOutput(t, dead, ws)
+	if cmd := dead.app.drainPendingOverlayOpens(); cmd != nil {
 		t.Fatal("expected no refresh tick for a dead session")
+	}
+}
+
+// TestRunOutputOpened_DeferredOpenArmsTickOnDrain pins the defect this
+// mechanism exists for: an R-open queued behind a visible modal must arm
+// its refresh chain when the drain presents it — a tick scheduled at
+// request time fires on a queued (invisible) viewer, drops, and the chain
+// never recovers.
+func TestRunOutputOpened_DeferredOpenArmsTickOnDrain(t *testing.T) {
+	ws := &data.Workspace{Name: "feature", Repo: "/repo", Root: "/repo/ws", Scripts: data.ScriptsConfig{Run: "make dev"}}
+	h := newRunOutputHarness(t, ws, "tick-1", true)
+
+	// A visible modal forces the viewer open into the deferred queue.
+	h.app.overlays.env = common.NewEnvDialog(nil)
+	h.app.overlays.env.Show()
+
+	if cmd := openRunOutput(t, h, ws); cmd != nil {
+		t.Fatal("deferred open must not arm a tick at request time")
+	}
+	if h.app.overlays.runOutput != nil {
+		t.Fatal("viewer should still be queued behind the modal")
+	}
+
+	h.app.overlays.env.Hide()
+	cmd := h.app.drainPendingOverlayOpens()
+	if h.app.overlays.runOutput == nil || !h.app.overlays.runOutput.Visible() {
+		t.Fatal("drain did not present the queued viewer")
+	}
+	if cmd == nil {
+		t.Fatal("deferred open must arm its refresh tick at present time")
+	}
+
+	// The armed tick drives the fetch loop now that the viewer is visible.
+	fetch := h.app.handleRunOutputTick(runOutputTickMsg{token: h.app.overlays.runOutputToken})
+	if fetch == nil {
+		t.Fatal("armed tick should produce a fetch cmd")
+	}
+	if msg, ok := fetch().(runOutputRefreshedMsg); !ok || msg.content != "tick-1" || !msg.alive {
+		t.Fatalf("refreshed msg = %+v, want content=tick-1 alive=true", fetch())
 	}
 }
 
