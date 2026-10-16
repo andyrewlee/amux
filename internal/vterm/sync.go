@@ -1,6 +1,9 @@
 package vterm
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // SyncStallTimeout bounds how long a DEC 2026 sync-begin may freeze rendering
 // without its matching sync-end. A well-behaved writer closes a sync region
@@ -33,7 +36,8 @@ func (v *VTerm) setSynchronizedOutput(active bool) {
 		}
 		v.syncActive = true
 		v.syncStartedAt = syncNow()
-		v.syncScreen = copyScreen(v.Screen)
+		v.syncFrame, _ = syncFramePool.Get().(*syncFrame)
+		v.syncScreen = v.syncFrame.freeze(v.Screen)
 		v.syncScrollbackLen = len(v.Scrollback)
 		v.syncViewOffsetDelta = 0
 		v.syncPreserveViewport = v.ViewOffset > 0
@@ -49,6 +53,14 @@ func (v *VTerm) setSynchronizedOutput(active bool) {
 	}
 	v.syncActive = false
 	v.syncScreen = nil
+	if v.syncFrame != nil {
+		// The frame stays reusable even when a mid-window resize rebuilt
+		// syncScreen: syncFrame.rows is the pooled backing, and a resize
+		// only shuffles which row slices the replacement outer references —
+		// never writes through them (the frozen frame is read-only).
+		syncFramePool.Put(v.syncFrame)
+		v.syncFrame = nil
+	}
 	v.syncScrollbackLen = 0
 	if v.syncPreserveViewport && v.syncViewOffsetDelta != 0 {
 		v.ViewOffset += v.syncViewOffsetDelta
@@ -68,10 +80,31 @@ func (v *VTerm) setSynchronizedOutput(active bool) {
 	v.bumpVersion()
 }
 
-func copyScreen(src [][]Cell) [][]Cell {
-	dst := make([][]Cell, len(src))
-	for i := range src {
-		dst[i] = CopyLine(src[i])
+// syncFrame is the pooled backing for a synchronized-output snapshot. tmux
+// brackets every client redraw in DEC 2026, so an unpooled copy allocated a
+// fresh [][]Cell plus every row on every rendered frame (~51 allocs and
+// ~616KB per begin on a 200x50 screen).
+var syncFramePool = sync.Pool{New: func() any { return &syncFrame{} }}
+
+type syncFrame struct {
+	rows [][]Cell
+}
+
+// freeze copies src into the reusable buffer, growing rows only when the
+// pool entry is fresh or a row widened past its retained capacity. Each
+// row keeps its own backing because live rows may exceed v.Width (see
+// resizeRows' "may stay wider" contract).
+func (f *syncFrame) freeze(src [][]Cell) [][]Cell {
+	if cap(f.rows) < len(src) {
+		f.rows = make([][]Cell, len(src))
 	}
-	return dst
+	f.rows = f.rows[:len(src)]
+	for i := range src {
+		if cap(f.rows[i]) < len(src[i]) {
+			f.rows[i] = make([]Cell, len(src[i]))
+		}
+		f.rows[i] = f.rows[i][:len(src[i])]
+		copy(f.rows[i], src[i])
+	}
+	return f.rows
 }
