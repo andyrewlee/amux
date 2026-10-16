@@ -273,3 +273,111 @@ func TestSidebarInputReattachClearsFailureLatch(t *testing.T) {
 	}
 	state.mu.Unlock()
 }
+
+// TestSidebarInputRequestCountBound pins the count half of the admission
+// bound: with the queue request cap tightened, the request after the
+// in-flight + queued capacity rejects with a visible warning.
+func TestSidebarInputRequestCountBound(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	send := func(s string) error {
+		<-release // park so the queue stays full
+		return nil
+	}
+	m, _, _, sink := inputBoundModel(t, send)
+
+	old := sidebarInputQueueRequests
+	sidebarInputQueueRequests = 2
+	t.Cleanup(func() { sidebarInputQueueRequests = old })
+
+	// First paste parks in send; second queues; the third exceeds the
+	// in-flight + queued capacity and must refuse with a toast.
+	for i := 0; i < 3; i++ {
+		m.Update(tea.PasteMsg{Content: "x"})
+	}
+	select {
+	case msg := <-sink:
+		toast, ok := msg.(messages.Toast)
+		if !ok || toast.Level != messages.ToastWarning {
+			t.Fatalf("expected a warning toast for the rejected paste, got %#v", msg)
+		}
+		if !strings.Contains(toast.Message, "queue full") {
+			t.Fatalf("toast %q does not name the queue-full rejection", toast.Message)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("overflow paste produced no rejection signal")
+	}
+}
+
+// TestSidebarInputQueryReplyDroppedOnFullQueue pins the reply policy: a
+// VTerm query reply pushed while the queue is at capacity is dropped
+// silently (stale reply is recoverable) — never blocking, never panicking
+// on a retired queue.
+func TestSidebarInputQueryReplyDroppedOnFullQueue(t *testing.T) {
+	release := make(chan struct{})
+	send := func(s string) error {
+		<-release
+		return nil
+	}
+	m, state, tabID, _ := inputBoundModel(t, send)
+	defer close(release)
+
+	old := sidebarInputQueueRequests
+	sidebarInputQueueRequests = 2
+	t.Cleanup(func() { sidebarInputQueueRequests = old })
+
+	// Install the writer, then fill its channel to capacity directly —
+	// admission alone cannot do it (the in-flight send counts against the
+	// pending bound before the channel fills).
+	m.admitSidebarInput(state, tabID, "a", "fill")
+	awaitWriterInstall(t, state)
+	state.mu.Lock()
+	w := state.input.writer
+	for len(w.Reqs) < cap(w.Reqs) {
+		w.Reqs <- sidebarInputReq{Data: "x", Label: "fill", Gen: w.Gen}
+	}
+	state.admitQueryReplyLocked([]byte("\x1b[?6n"))
+	if len(w.Reqs) != cap(w.Reqs) {
+		state.mu.Unlock()
+		t.Fatalf("query reply displaced queued input: len=%d cap=%d", len(w.Reqs), cap(w.Reqs))
+	}
+	state.mu.Unlock()
+	// No panic, no wedge — the reply was dropped on the full queue.
+}
+
+// TestSidebarInputRetiredWriterDiscardsQueuedRequests pins the retire
+// contract: requests still queued when the binding retires are never
+// delivered — the writer abandons them on its way out.
+func TestSidebarInputRetiredWriterDiscardsQueuedRequests(t *testing.T) {
+	release := make(chan struct{})
+	var deliveredMu sync.Mutex
+	var delivered []string
+	send := func(s string) error {
+		<-release
+		deliveredMu.Lock()
+		delivered = append(delivered, s)
+		deliveredMu.Unlock()
+		return nil
+	}
+	m, state, _, _ := inputBoundModel(t, send)
+
+	// First request parks in send; the rest sit queued.
+	m.Update(tea.PasteMsg{Content: "first"})
+	m.Update(tea.PasteMsg{Content: "queued-1"})
+	m.Update(tea.PasteMsg{Content: "queued-2"})
+
+	awaitWriterInstall(t, state)
+	state.mu.Lock()
+	retired := state.retireSidebarInputWriterLocked()
+	state.mu.Unlock()
+	close(release) // unblock the parked send; retirement must not deliver queued reqs
+	joinSidebarInputWriter(retired)
+
+	deliveredMu.Lock()
+	defer deliveredMu.Unlock()
+	for _, d := range delivered {
+		if d == "queued-1" || d == "queued-2" {
+			t.Fatalf("retired writer delivered queued request %q", d)
+		}
+	}
+}
