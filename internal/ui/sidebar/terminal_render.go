@@ -414,7 +414,11 @@ func (m *TerminalModel) SetSize(width, height int) {
 	// Calculate actual terminal dimensions (accounting for tab bar, help lines, status reserve)
 	termWidth, termHeight := m.terminalContentSize()
 
-	// Resize all terminal vtems across all workspaces only if size changed
+	// Resize all terminal vtems across all workspaces only if size changed.
+	// The vterm resize happens under ts.mu; the winsize ioctl is collected
+	// and run after the lock releases — a syscall must not sit inside the
+	// render lock the reader path also contends on.
+	var resized []*pty.Terminal
 	for _, tabs := range m.tabs.ByWorkspace {
 		for _, tab := range tabs {
 			if tab.State == nil {
@@ -427,12 +431,17 @@ func (m *TerminalModel) SetSize(width, height int) {
 					ts.lastHeight = termHeight
 					ts.VTerm.Resize(termWidth, termHeight)
 					if ts.Terminal != nil {
-						if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
-							_ = setTerminalSizeFn(ts.Terminal, ptyRows, ptyCols)
-						}
+						resized = append(resized, ts.Terminal)
 					}
 				}
 			})
+		}
+	}
+	if len(resized) > 0 {
+		if ptyRows, ptyCols, ok := pty.WinsizeFromInts(termHeight, termWidth); ok {
+			for _, term := range resized {
+				_ = setTerminalSizeFn(term, ptyRows, ptyCols)
+			}
 		}
 	}
 }

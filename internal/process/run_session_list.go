@@ -32,17 +32,43 @@ func (r *ScriptRunner) RunSessionList(ws *data.Workspace) []RunSessionEntry {
 	if err != nil {
 		return nil
 	}
+	states, err := runSessionStates(r.runHost, found)
+	if err != nil {
+		return nil
+	}
 	base := runSessionBaseName(ws)
 	entries := make([]RunSessionEntry, 0, len(found))
 	for _, name := range found {
-		exists, alive, exitCode, err := r.runHost.Status(name)
-		if err != nil || !exists {
+		st := states[name]
+		if !st.Exists {
 			continue
 		}
-		entries = append(entries, RunSessionEntry{Name: name, Ordinal: runSessionOrdinal(name, base), Alive: alive, ExitCode: exitCode})
+		entries = append(entries, RunSessionEntry{Name: name, Ordinal: runSessionOrdinal(name, base), Alive: st.Alive, ExitCode: st.ExitCode})
 	}
 	sortRunSessionEntries(entries, base)
 	return entries
+}
+
+// runSessionStates answers Status for every named session in one batch when
+// the host implements RunSessionStatusBatcher — one subprocess for the whole
+// set, with the dead-pane exit-code probe inside the batcher — and falls back
+// to the per-session Status loop for hosts without it. A name absent from
+// the map means the session does not exist (or its status probe failed); a
+// batch error fails the whole query, matching the "report empty, don't retry
+// serially" failure mode runSessionsHosted established.
+func runSessionStates(host RunSessionHost, names []string) (map[string]RunSessionState, error) {
+	if batcher, ok := host.(RunSessionStatusBatcher); ok {
+		return batcher.StatusAll(names)
+	}
+	states := make(map[string]RunSessionState, len(names))
+	for _, name := range names {
+		exists, alive, exitCode, err := host.Status(name)
+		if err != nil || !exists {
+			continue
+		}
+		states[name] = RunSessionState{Exists: true, Alive: alive, ExitCode: exitCode}
+	}
+	return states, nil
 }
 
 // runSessionOrdinal is the session's creation-order index: the base name is

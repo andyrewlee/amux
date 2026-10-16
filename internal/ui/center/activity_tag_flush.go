@@ -9,10 +9,12 @@ import (
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
-// activityTagFlushDue is the internal message a scheduled flush posts back
+// ActivityTagFlushDue is the internal message a scheduled flush posts back
 // through msgSink once the throttle window has elapsed. Unknown to the app
-// dispatcher, it reaches Update via the default forward-to-center case.
-type activityTagFlushDue struct{}
+// dispatcher, it reaches Update via the default forward-to-center case. It is
+// exported because app.frameInvalidatedBy names it: the handler only spawns a
+// background tag write, so the message is render-neutral.
+type ActivityTagFlushDue struct{}
 
 // setSessionTagForSessions is a seam over tmux.SetSessionTagValueForSessions
 // so tests can count batched flushes without a tmux server.
@@ -44,7 +46,7 @@ func (m *Model) markActivityTagForFlush(sessionName string) {
 	sink := m.msgSink
 	safego.Go("center.activity_tag_flush_due", func() {
 		time.Sleep(activityTagThrottle)
-		sink(activityTagFlushDue{})
+		sink(ActivityTagFlushDue{})
 	})
 }
 

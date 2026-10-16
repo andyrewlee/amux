@@ -147,15 +147,15 @@ func (p *PortAllocator) LookupWorkspaceInterval(ws *data.Workspace) (base, end i
 	durable := p.durable
 	p.mu.Unlock()
 	if durable == nil {
-		if port, ok := p.GetPort(ws.Root); ok {
-			return port, port + p.rangeSize - 1, true, nil
+		if iv, ok := p.getInterval(ws.Root); ok {
+			return iv.start, iv.end, true, nil
 		}
 		return 0, 0, false, nil
 	}
 	id, ok := ws.StoredID()
 	if !ok {
-		if port, found := p.GetPort(ws.Root); found {
-			return port, port + p.rangeSize - 1, true, nil
+		if iv, found := p.getInterval(ws.Root); found {
+			return iv.start, iv.end, true, nil
 		}
 		return 0, 0, false, nil
 	}
@@ -332,6 +332,17 @@ func (p *PortAllocator) GetPort(workspaceRoot string) (int, bool) {
 
 	iv, ok := p.allocated[workspaceRoot]
 	return iv.start, ok
+}
+
+// getInterval returns the workspace's held interval at its true width —
+// the {start,end} recorded at allocation, which survives a later rangeSize
+// reconfiguration that would otherwise distort a computed end.
+func (p *PortAllocator) getInterval(workspaceRoot string) (portRange, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	iv, ok := p.allocated[workspaceRoot]
+	return iv, ok
 }
 
 // ReleasePort releases the port allocation for a workspace so the base can

@@ -140,7 +140,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		cmd := m.updatePTYRestart(msg)
 		cmds = append(cmds, cmd)
 
-	case activityTagFlushDue:
+	case ActivityTagFlushDue:
 		m.handleActivityTagFlushDue()
 
 	case selectionScrollTick:

@@ -284,3 +284,77 @@ func TestRunScriptHosted_NonconcurrentSerializesAdmissions(t *testing.T) {
 		t.Fatalf("killed = %v, want the first admission's session killed by the serialized second", host.killed)
 	}
 }
+
+// TestRunSessionList_BatchedStatusQuery pins the picker's O(1) query
+// contract — same batched path as the hosted sweep, not a per-session
+// Status loop.
+func TestRunSessionList_BatchedStatusQuery(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	host := &batchRunSessionHost{fakeRunSessionHost: newFakeRunSessionHost()}
+	runner.SetRunHost(host)
+	ws := newHostedWorkspace(t, "concurrent")
+	wsID := string(ws.MetadataID())
+	base := "amux-ws-" + wsID + "-run"
+
+	host.sessions[base] = &fakeRunSession{
+		alive:    true,
+		exitCode: -1,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 100},
+	}
+	host.sessions[base+"-2"] = &fakeRunSession{
+		alive:    false,
+		exitCode: 3,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 200},
+	}
+	host.findExtra = []string{base + "-gone"} // vanished between find and status
+
+	entries := runner.RunSessionList(ws)
+	if host.statusAllCalls != 1 {
+		t.Fatalf("StatusAll calls = %d, want exactly one batched query", host.statusAllCalls)
+	}
+	if host.statusCalls != 0 {
+		t.Fatalf("per-session Status ran %d times despite the batch capability", host.statusCalls)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2 (vanished filtered)", len(entries))
+	}
+	if entries[0].Name != base || !entries[0].Alive {
+		t.Fatalf("entries[0] = %+v, want the live base session", entries[0])
+	}
+	if entries[1].Name != base+"-2" || entries[1].Alive || entries[1].ExitCode != 3 {
+		t.Fatalf("entries[1] = %+v, want dead %s-2 with exit 3", entries[1], base)
+	}
+}
+
+// TestRunScriptAttachTarget_BatchedStatusQuery pins the same batching on
+// the interactive attach pick — newest-alive order preserved.
+func TestRunScriptAttachTarget_BatchedStatusQuery(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	host := &batchRunSessionHost{fakeRunSessionHost: newFakeRunSessionHost()}
+	runner.SetRunHost(host)
+	ws := newHostedWorkspace(t, "concurrent")
+	wsID := string(ws.MetadataID())
+	base := "amux-ws-" + wsID + "-run"
+
+	host.sessions[base] = &fakeRunSession{
+		alive:    false,
+		exitCode: 0,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 300},
+	}
+	host.sessions[base+"-2"] = &fakeRunSession{
+		alive:    true,
+		exitCode: -1,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 200},
+	}
+
+	name, ok := runner.RunScriptAttachTarget(ws)
+	if host.statusAllCalls != 1 {
+		t.Fatalf("StatusAll calls = %d, want exactly one batched query", host.statusAllCalls)
+	}
+	if host.statusCalls != 0 {
+		t.Fatalf("per-session Status ran %d times despite the batch capability", host.statusCalls)
+	}
+	if !ok || name != base+"-2" {
+		t.Fatalf("attach target = (%q,%v), want the alive %s-2", name, ok, base)
+	}
+}

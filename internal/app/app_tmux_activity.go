@@ -80,6 +80,15 @@ func (a *App) eagerScanTmuxActivity() tea.Cmd {
 }
 
 func (a *App) scanTmuxActivityNow() tea.Cmd {
+	return a.beginTmuxActivityScan()
+}
+
+// beginTmuxActivityScan is the shared scan preamble both dispatch sites ran
+// inline: mark the scan in-flight (or set rescanPending and return nil when
+// one already is), mint a fresh token so out-of-order results are rejected,
+// snapshot the inputs, clamp the command timeout, and return the off-loop
+// scan cmd.
+func (a *App) beginTmuxActivityScan() tea.Cmd {
 	if a.tmuxActivity.scanInFlight {
 		a.tmuxActivity.rescanPending = true
 		return nil
@@ -94,8 +103,7 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 	if opts.CommandTimeout <= 0 || opts.CommandTimeout > tmuxCommandTimeout {
 		opts.CommandTimeout = tmuxCommandTimeout
 	}
-	svc := a.tmuxService
-	return a.tmuxActivityScanCmd(scanToken, infoBySession, statesSnapshot, opts, svc)
+	return a.tmuxActivityScanCmd(scanToken, infoBySession, statesSnapshot, opts, a.tmuxService)
 }
 
 // tmuxActivityScanCmd runs one scan off-loop. The panic fallback emits the
@@ -118,34 +126,16 @@ func (a *App) tmuxActivityScanCmd(
 }
 
 func (a *App) handleTmuxActivityTick(msg tmuxActivityTick) []tea.Cmd {
-	if msg.Token != a.tmuxActivity.token {
-		return []tea.Cmd{a.scheduleTmuxActivityTick()}
+	tick := a.scheduleTmuxActivityTick()
+	if msg.Token != a.tmuxActivity.token || !a.tmuxAvailable {
+		return []tea.Cmd{tick}
 	}
-	if !a.tmuxAvailable {
-		return []tea.Cmd{a.scheduleTmuxActivityTick()}
+	// beginTmuxActivityScan re-arms rescanPending itself when a scan is
+	// already in flight; the tick reschedules either way.
+	if scan := a.beginTmuxActivityScan(); scan != nil {
+		return []tea.Cmd{tick, scan}
 	}
-	if a.tmuxActivity.scanInFlight {
-		a.tmuxActivity.rescanPending = true
-		return []tea.Cmd{a.scheduleTmuxActivityTick()}
-	}
-	a.tmuxActivity.scanInFlight = true
-	a.tmuxActivity.rescanPending = false
-	// Increment token for this scan so out-of-order results are rejected.
-	// Each scan gets a unique token; only the most recent result is applied.
-	a.tmuxActivity.token++
-	scanToken := a.tmuxActivity.token
-	sessionInfo := a.tabSessionInfoByName()
-	statesSnapshot := a.snapshotActivityStates()
-	opts := a.tmuxOptions
-	if opts.CommandTimeout <= 0 || opts.CommandTimeout > tmuxCommandTimeout {
-		opts.CommandTimeout = tmuxCommandTimeout
-	}
-	svc := a.tmuxService
-	cmds := []tea.Cmd{
-		a.scheduleTmuxActivityTick(),
-		a.tmuxActivityScanCmd(scanToken, sessionInfo, statesSnapshot, opts, svc),
-	}
-	return cmds
+	return []tea.Cmd{tick}
 }
 
 func (a *App) runTmuxActivityScan(
