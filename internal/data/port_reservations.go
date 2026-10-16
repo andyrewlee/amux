@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/andyrewlee/amux/internal/fsatomic"
@@ -34,11 +35,20 @@ type PortReservationStore struct {
 	// guardMu covers guard only; the registry lock covers the file.
 	guardMu sync.Mutex
 	// guard is the first-adoption check injected by Initialize. It runs only
-	// while creating a missing registry — never on the read path — and its
-	// failure leaves no file behind. Stored so a Reserve that finds the file
-	// missing applies the same guarded initialization instead of silently
-	// minting a fresh registry over live legacy sessions.
+	// while creating a registry this process has never seen — never on the
+	// read path, and never to recreate a registry that vanished mid-run —
+	// and its failure leaves no file behind. Stored so a Reserve that finds
+	// the file missing at first adoption applies the same guarded
+	// initialization instead of silently minting a fresh registry over live
+	// legacy sessions.
 	guard func() error
+	// seenLive records that this process already observed an existing (or
+	// freshly created) registry file. A later missing observation then
+	// skips the guard: the guard exists to avoid minting a registry over
+	// live legacy sessions at first adoption, and a file that existed and
+	// vanished mid-run is not first adoption — re-running it would wedge
+	// every spawn on this instance's own surviving sessions.
+	seenLive atomic.Bool
 }
 
 // portReservationsFileVersion is the only schema version this binary reads or
@@ -265,13 +275,22 @@ func (s *PortReservationStore) loadOrInitializeLocked() (*portReservationFile, e
 		return nil, err
 	}
 	if !missing {
+		s.seenLive.Store(true)
 		return file, nil
 	}
-	if guard := s.currentGuard(); guard != nil {
-		if err := guard(); err != nil {
-			return nil, err
+	if !s.seenLive.Load() {
+		// First adoption: a missing file only means "no registry yet" before
+		// this process has ever seen one — run the injected guard before
+		// minting so a fresh registry can't overlay live legacy sessions.
+		if guard := s.currentGuard(); guard != nil {
+			if err := guard(); err != nil {
+				return nil, err
+			}
 		}
 	}
+	// The registry existed earlier this process and vanished mid-run —
+	// recreate the empty envelope without the first-adoption guard, which
+	// this instance's own live sessions would fail.
 	file = &portReservationFile{
 		Version:      portReservationsFileVersion,
 		Reservations: map[string]PortReservationInterval{},
@@ -279,6 +298,7 @@ func (s *PortReservationStore) loadOrInitializeLocked() (*portReservationFile, e
 	if err := fsatomic.WriteJSON(s.path, file); err != nil {
 		return nil, err
 	}
+	s.seenLive.Store(true)
 	return file, nil
 }
 

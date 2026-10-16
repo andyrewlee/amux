@@ -119,11 +119,21 @@ type WorkspaceConfig struct {
 
 // ScriptRunner manages script execution for workspaces
 type ScriptRunner struct {
-	mu               sync.Mutex
-	portAllocator    *PortAllocator
-	envBuilder       *EnvBuilder
-	running          map[string]*runningScript // workspace root -> running process
-	pendingRelease   map[string]pendingPortRelease
+	mu             sync.Mutex
+	portAllocator  *PortAllocator
+	envBuilder     *EnvBuilder
+	running        map[string]*runningScript // workspace root -> running process
+	pendingRelease map[string]pendingPortRelease
+	// stopped latches once StopAll swaps the running map — setRunningEntry
+	// observes it under the same r.mu that inserts, so a concurrently
+	// admitted run cannot escape the shutdown sweep.
+	stopped bool
+	// runAdmissionMu stripes the nonconcurrent Stop+spawn pair across a
+	// fixed slot set — per-key mutual exclusion without a map that would
+	// grow for the process lifetime. Two racing RunScript calls for one
+	// nonconcurrent workspace must serialize, else both survive Stop and
+	// mint two sessions/processes (L1).
+	runAdmissionMu   [64]sync.Mutex
 	killProcessGroup func(pid int, opts KillOptions) error
 	trust            *ScriptTrust // per-user approval registry for repo-supplied scripts
 	// runHost hosts `run` scripts in persistent sessions (tmux at the app
@@ -192,13 +202,44 @@ type pendingPortRelease struct {
 	running *runningScript
 }
 
-func (r *ScriptRunner) setRunningEntry(key string, running *runningScript) {
+// setRunningEntry installs the run slot under the same lock that observes
+// the stopped flag: a StopAll swap that already ran leaves stopped set, and
+// an insert racing it must not land in the post-shutdown map — the escaping
+// process would survive shutdown. Returns false on refusal; the caller
+// kills and reaps the just-started child.
+//
+// On slot overwrite a parked release pinned to the displaced entry is
+// re-armed as sweepable (running=nil) instead of dropped: the release still
+// fires at the next "nothing alive" observation, and the displaced
+// process's own finish path would never find it once the slot belongs to a
+// newer entry (finishRunningEntry requires the parked-for process to be the
+// current slot owner).
+func (r *ScriptRunner) setRunningEntry(key string, running *runningScript) bool {
 	r.mu.Lock()
-	if _, exists := r.running[key]; exists {
-		delete(r.pendingRelease, key)
+	defer r.mu.Unlock()
+	if r.stopped {
+		return false
+	}
+	if displaced, exists := r.running[key]; exists && displaced != running {
+		if pending, ok := r.pendingRelease[key]; ok && pending.running == displaced {
+			pending.running = nil
+			r.pendingRelease[key] = pending
+		}
 	}
 	r.running[key] = running
-	r.mu.Unlock()
+	return true
+}
+
+// lockRunAdmission holds the workspace's striped admission mutex across a
+// nonconcurrent Stop+spawn — see runAdmissionMu.
+func (r *ScriptRunner) lockRunAdmission(key string) func() {
+	var h uint32
+	for i := 0; i < len(key); i++ {
+		h = h*31 + uint32(key[i])
+	}
+	mu := &r.runAdmissionMu[h%uint32(len(r.runAdmissionMu))]
+	mu.Lock()
+	return mu.Unlock
 }
 
 // NewScriptRunner creates a new script runner

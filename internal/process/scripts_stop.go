@@ -276,6 +276,10 @@ func (r *ScriptRunner) BeginTeardown(ws *data.Workspace) (*TeardownGuard, error)
 // are deliberately untouched — they persist across quit by design.
 func (r *ScriptRunner) StopAll() {
 	r.mu.Lock()
+	// Latch stopped under the same lock the run-slot insert takes — a
+	// RunScript admitted after this swap cannot be observed by the kill
+	// sweep, so it must be refused at insert time instead.
+	r.stopped = true
 	running := make([]*runningScript, 0, len(r.running))
 	for _, entry := range r.running {
 		running = append(running, entry)

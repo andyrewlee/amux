@@ -36,6 +36,12 @@ per-identity flock, never assumed from the atomic write.
   afford this only because their file is a flat derived map — no data is
   lost that can't be re-entered.
 
+`port-reservations.json` has one extra contract: the first-adoption guard
+(see `Initialize`) runs only while this process has never seen an existing
+registry. A registry file deleted mid-run is recreated empty without the
+guard — re-running it would wedge every spawn on this instance's own
+surviving sessions.
+
 ## Investigate (divergences, not yet adjudicated)
 
 - `projects.json` recovers a corrupt primary from `.bak` on read, but

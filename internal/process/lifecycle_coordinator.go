@@ -29,6 +29,11 @@ var ErrWorkspaceTeardown = errors.New("workspace teardown in progress")
 // edges admit again once earlier hooks finish.
 var ErrOnDoneLimit = errors.New("on-done hook limit reached for workspace")
 
+// ErrRunnerStopped reports an admission that arrived after StopAll latched
+// the runner shut. The rejected spawn is killed and reaped by its caller —
+// it can no longer be observed by the shutdown sweep.
+var ErrRunnerStopped = errors.New("script runner stopped")
+
 // maxOnDoneHooks bounds the detached on-done hooks one workspace may have in
 // flight at once. The map exists so teardown can drain every hook; without a
 // bound a hooked workspace could fan out detached processes and tracker
@@ -74,6 +79,10 @@ type lifecycleCoordinator struct {
 	mu      sync.Mutex
 	nextGen uint64 // process-monotonic: stale tickets never match a fresh state
 	states  map[string]*lifecycleState
+	// stopped latches on StopAll: admission calls check it under the same
+	// mutex that creates states, so a post-shutdown admit cannot mint a
+	// fresh state the sweep never saw.
+	stopped bool
 	// killGroup routes process-group kills through the runner's injectable
 	// seam so tests observe teardown kills without signaling real processes.
 	killGroup func(pid int, opts KillOptions) error
@@ -102,6 +111,9 @@ func (c *lifecycleCoordinator) stateFor(key string) *lifecycleState {
 func (c *lifecycleCoordinator) admitSetup(key string) (*lifecycleTicket, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.stopped {
+		return nil, ErrRunnerStopped
+	}
 	st := c.stateFor(key)
 	if st.teardown {
 		return nil, ErrWorkspaceTeardown
@@ -170,6 +182,9 @@ func (c *lifecycleCoordinator) ticketCurrent(key string, t *lifecycleTicket) boo
 func (c *lifecycleCoordinator) admitOnDone(key string, cmd *exec.Cmd) (*lifecycleProc, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.stopped {
+		return nil, ErrRunnerStopped
+	}
 	st := c.stateFor(key)
 	if st.teardown {
 		return nil, ErrWorkspaceTeardown
@@ -201,6 +216,9 @@ func (c *lifecycleCoordinator) finishOnDone(key string, p *lifecycleProc) {
 func (c *lifecycleCoordinator) checkAdmission(key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.stopped {
+		return ErrRunnerStopped
+	}
 	if st := c.states[key]; st != nil && st.teardown {
 		return ErrWorkspaceTeardown
 	}
@@ -338,12 +356,14 @@ func (c *lifecycleCoordinator) releaseTeardown(key string) {
 	}
 }
 
-// stopAllSnapshots snapshots every workspace's in-flight lifecycle work and
-// clears the maps. Used by StopAll: no gate is set — the whole runner is going
-// away, so new admissions racing shutdown are not a concern worth rejecting.
+// stopAllSnapshots snapshots every workspace's in-flight lifecycle work,
+// clears the maps, and latches the coordinator stopped — post-shutdown
+// admissions (admitSetup/admitOnDone/checkAdmission) are refused under the
+// same mutex so nothing can mint a fresh state the sweep never saw.
 func (c *lifecycleCoordinator) stopAllSnapshots() []*lifecycleSnapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.stopped = true
 	var snaps []*lifecycleSnapshot
 	for key, st := range c.states {
 		snap := &lifecycleSnapshot{ticket: st.setup}

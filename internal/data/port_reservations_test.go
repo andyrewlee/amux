@@ -382,28 +382,57 @@ func TestPortReservations_ConcurrentIndependentStores(t *testing.T) {
 	}
 }
 
-// TestPortReservations_MissingRegistryReinitializesThroughGuard proves a
-// Reserve that finds the file gone applies the same guarded initialization —
-// a missing registry is never a license to skip the adoption check.
-func TestPortReservations_MissingRegistryReinitializesThroughGuard(t *testing.T) {
+// TestPortReservations_MissingRegistryFirstAdoptionRunsGuard proves a Reserve
+// that finds no registry — and never saw one this process — applies the
+// injected first-adoption guard, and its refusal leaves no file behind.
+func TestPortReservations_MissingRegistryFirstAdoptionRunsGuard(t *testing.T) {
+	home := t.TempDir()
+	s := newPortStore(t, home)
+	guardErr := errors.New("legacy sessions still live")
+	if err := s.Initialize(func() error { return guardErr }); err == nil {
+		t.Fatal("Initialize with a failing guard should refuse")
+	}
+	if _, _, err := s.Reserve("id", 6200, 10); !errors.Is(err, guardErr) {
+		t.Fatalf("Reserve before first adoption error = %v, want guard refusal", err)
+	}
+	if _, statErr := os.Stat(s.Path()); !os.IsNotExist(statErr) {
+		t.Fatal("refused first adoption still created a registry")
+	}
+}
+
+// TestPortReservations_MidRunDeletionRecreatesWithoutGuard pins the wedge fix:
+// a registry this process already read (or created) that is deleted mid-run is
+// recreated empty — the first-adoption guard must NOT re-run, because this
+// instance's own surviving sessions make it refuse forever.
+func TestPortReservations_MidRunDeletionRecreatesWithoutGuard(t *testing.T) {
 	home := t.TempDir()
 	s := newPortStore(t, home)
 	if err := s.Initialize(nil); err != nil {
 		t.Fatal(err)
 	}
+	if _, _, err := s.Reserve("id-a", 6200, 10); err != nil {
+		t.Fatalf("seed Reserve: %v", err)
+	}
 	if err := os.Remove(s.Path()); err != nil {
 		t.Fatal(err)
 	}
-	guardErr := errors.New("legacy sessions still live")
+	// A guard that would refuse if re-run — this instance's live sessions
+	// are exactly what makes a re-run wedge in production.
 	s.guardMu.Lock()
-	s.guard = func() error { return guardErr }
+	s.guard = func() error { return errors.New("must not run post-adoption") }
 	s.guardMu.Unlock()
 
-	if _, _, err := s.Reserve("id", 6200, 10); !errors.Is(err, guardErr) {
-		t.Fatalf("Reserve on missing registry error = %v, want guard refusal", err)
+	base, end, err := s.Reserve("id-b", 6200, 10)
+	if err != nil {
+		t.Fatalf("Reserve after mid-run deletion error = %v, want success", err)
 	}
-	if _, statErr := os.Stat(s.Path()); !os.IsNotExist(statErr) {
-		t.Fatal("refused re-initialization still created a registry")
+	// The recreated registry is empty — id-a's reservation was lost with the
+	// deleted file, so id-b mints at the configured base.
+	if base != 6200 || end != 6209 {
+		t.Fatalf("Reserve = %d-%d, want 6200-6209", base, end)
+	}
+	if _, statErr := os.Stat(s.Path()); statErr != nil {
+		t.Fatal("mid-run deletion was not recreated")
 	}
 }
 
