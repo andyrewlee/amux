@@ -1,7 +1,6 @@
 package center
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,9 +9,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
-	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
-	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -133,7 +130,6 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 	tm := m.terminalMetrics()
 	attachWidth := tm.Width
 	attachHeight := tm.Height
-	opts := m.tmuxOpts
 	assistantCfg, cfgOK := assistantConfigSnapshot(m.config, assistant)
 	if !cfgOK {
 		err := fmt.Errorf("unknown agent type: %s", assistant)
@@ -148,91 +144,17 @@ func (m *Model) reattachToSession(ws *data.Workspace, tabID TabID, assistant, se
 		}
 	}
 	return func() tea.Msg {
-		state, err := sessionStateForFn(sessionName, opts)
-		if err != nil {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         err,
-				Action:      "reattach",
-			}
-		}
-		if !state.Exists || !state.HasLivePane {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         errors.New("tmux session ended"),
-				Stopped:     true,
-				Action:      "reattach",
-			}
-		}
-		// Ownership check shared with the other attach paths: a live session
-		// under the stored name must carry our tags, else it is a foreign
-		// squatter and reattach refuses rather than attaching to it.
-		owned, ownErr := sessionOwnedFn(sessionName, data.WorkspaceIdentityStrings(ws), opts)
-		if ownErr != nil {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         ownErr,
-				Action:      "reattach",
-			}
-		}
-		if !owned {
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         errors.New("tmux session is not owned by this workspace"),
-				Stopped:     true,
-				Action:      "reattach",
-			}
-		}
-		tags := ptyio.AttachSessionTags(ws, string(tabID), "agent", assistant, m.instanceID, false)
-		bootstrap := ptyio.DefaultBootstrap().CaptureExisting(sessionName, termWidth, termHeight, opts)
-		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(attachHeight, attachWidth)
-		agent, err := createAgentWithConfigFn(
-			m.agentManager,
-			ws,
-			appPty.AgentType(assistant),
-			sessionName,
-			ptyRows,
-			ptyCols,
-			tags,
-			assistantCfg,
-		)
-		if err != nil {
-			ptyio.DefaultBootstrap().Rollback(sessionName, bootstrap, opts)
-			return ptyTabReattachFailed{
-				WorkspaceID: string(ws.ID()),
-				TabID:       tabID,
-				Epoch:       epoch,
-				Err:         err,
-				Action:      "reattach",
-			}
-		}
-		scrollback, postAttachScrollback, captureFullPane, snapshot, captureCols, captureRows := ptyio.FinalizeAttachScrollback(sessionName, bootstrap, attachWidth, attachHeight, opts, capturePaneFn)
-		return ptyTabReattachResult{
-			WorkspaceID: string(ws.ID()),
-			TabID:       tabID,
-			Epoch:       epoch,
-			Agent:       agent,
-			Rows:        captureRows,
-			Cols:        captureCols,
-			SessionRestoreCapture: ptyio.SessionRestoreCapture{
-				ScrollbackCapture:           scrollback,
-				PostAttachScrollbackCapture: postAttachScrollback,
-				CaptureFullPane:             captureFullPane,
-				SnapshotCols:                snapshot.Cols,
-				SnapshotRows:                snapshot.Rows,
-				SnapshotCursorX:             snapshot.CursorX,
-				SnapshotCursorY:             snapshot.CursorY,
-				SnapshotHasCursor:           snapshot.HasCursor,
-				SnapshotModeState:           snapshot.ModeState,
-			},
-		}
+		return m.attachSessionPipeline(attachPipelineParams{
+			ws:           ws,
+			tabID:        tabID,
+			assistant:    assistant,
+			assistantCfg: assistantCfg,
+			sessionName:  sessionName,
+			epoch:        epoch,
+			termWidth:    termWidth,
+			termHeight:   termHeight,
+			attachWidth:  attachWidth,
+			attachHeight: attachHeight,
+		})
 	}
 }

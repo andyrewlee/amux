@@ -91,6 +91,7 @@ func TestTerminalInputBackpressure(t *testing.T) {
 	t.Run("rejection is visible and keeps the attachment healthy", func(t *testing.T) {
 		stubTabInputQueue(t, 1, 1<<20)
 		rec := newRecordingSend()
+		rec.release = make(chan struct{})
 		stubTabInputSend(t, rec.send)
 
 		ws := newTestWorkspace("ws", t.TempDir())
@@ -100,6 +101,7 @@ func TestTerminalInputBackpressure(t *testing.T) {
 		if res, _ := m.admitTabInput(tab, "x", "Input", true); res != tabInputAdmitted {
 			t.Fatalf("first request rejected: %v", res)
 		}
+		<-rec.entered // hold the first send so queued+in-flight stays at the bound
 		res, gen := m.admitTabInput(tab, "y", "Input", true)
 		if res != tabInputRejectedFull {
 			t.Fatalf("expected tabInputRejectedFull, got %v", res)
@@ -126,6 +128,10 @@ func TestTerminalInputBackpressure(t *testing.T) {
 		if running, detached := tabFlags(tab); !running || detached {
 			t.Fatalf("rejection disturbed the attachment: running=%v detached=%v", running, detached)
 		}
+		close(rec.release)
+		testutil.Eventually(t, 3*time.Second, time.Millisecond, func() bool {
+			return rec.delivered() == 1
+		}, "held send did not drain after release")
 	})
 
 	t.Run("blocked write admits without blocking the update loop", func(t *testing.T) {
