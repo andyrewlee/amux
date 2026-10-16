@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
@@ -84,6 +85,7 @@ func (m *TerminalModel) SweepStalledReattaches() tea.Cmd {
 				return false
 			})
 			if stalled {
+				m.stalledReattachReleases++
 				logging.Warn("Sidebar terminal attach for tab %s produced no outcome within %s; releasing reattach lock", tab.ID, ptyio.ReattachStallTimeout)
 			}
 		}
@@ -91,4 +93,35 @@ func (m *TerminalModel) SweepStalledReattaches() tea.Cmd {
 	// Unlike the center sweep there is nothing to dispatch: a stalled sidebar
 	// terminal recovers on its own the next time the attach sweep retries it.
 	return nil
+}
+
+// StalledReattachReleases reports how many locks the stall sweep has
+// released — the only side effect visible outside the unexported tabs map.
+// Test instrumentation for the app watchdog's wiring assertions; not for
+// production use.
+func (m *TerminalModel) StalledReattachReleases() int {
+	return m.stalledReattachReleases
+}
+
+// StallReattachForTest pins the workspace's first terminal tab in the
+// stalled-reattach state SweepStalledReattaches exists to release. The lock
+// is stamped far enough in the past to qualify on the next sweep. Test-only
+// — production reaches this state only through a dropped reattach outcome.
+func (m *TerminalModel) StallReattachForTest(ws *data.Workspace) {
+	if ws == nil {
+		return
+	}
+	for _, tab := range m.tabs.ByWorkspace[string(ws.ID())] {
+		if tab == nil || tab.State == nil {
+			continue
+		}
+		ts := tab.State
+		withMu(&ts.mu, func() {
+			ts.Running = false
+			ts.Reattach.InFlight = true
+			ts.Reattach.StartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
+			ts.reattachEpoch++
+		})
+		return
+	}
 }

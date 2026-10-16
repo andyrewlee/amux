@@ -45,7 +45,7 @@ func newThreePaneApp(t *testing.T) *App {
 // selection state (HasSelection/SelectedText) after routing pointer events.
 func newSelectableCenterApp(t *testing.T) (*App, *vterm.VTerm) {
 	t.Helper()
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}

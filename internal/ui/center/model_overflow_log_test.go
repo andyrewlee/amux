@@ -51,7 +51,7 @@ func TestUpdatePTYOutput_OverflowEmitsThrottledWarn(t *testing.T) {
 	}
 	defer logging.Close()
 
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestUpdatePTYOutput_OverflowWarnReportsActualTrimmedBytes(t *testing.T) {
 	}
 	defer logging.Close()
 
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}

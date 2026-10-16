@@ -2,9 +2,10 @@ package pty
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,7 +32,17 @@ func TestAgentManager_CreateAgentWithTags_RegistersAgent(t *testing.T) {
 		_ = exec.Command("tmux", "-L", serverName, "kill-server").Run()
 	})
 
-	m := NewAgentManager(testConfig())
+	// "claude ran" must be proven by an artifact that survives the launch
+	// payload's RIS: the reset escape can wipe the client's byte stream
+	// before the test reads it, so asserting the name in pane output is a
+	// load-dependent race (it flakes under the parallel sweep). A file the
+	// command itself writes is persistent either way.
+	markerFile := filepath.Join(t.TempDir(), "agent-ran")
+	cfg := testConfig()
+	claude := cfg.Assistants["claude"]
+	claude.Command = "echo claude >'" + markerFile + "'"
+	cfg.Assistants["claude"] = claude
+	m := NewAgentManager(cfg)
 	m.SetTmuxOptions(tmux.Options{
 		ServerName:     serverName,
 		ConfigPath:     "/dev/null",
@@ -85,9 +96,12 @@ func TestAgentManager_CreateAgentWithTags_RegistersAgent(t *testing.T) {
 	// consumed by tmux's pane parser (alt-screen/RIS are state changes, not
 	// forwarded output), so the observable regression marker is the
 	// drop-to-shell text proving the payload command ran end to end.
-	output := readTerminalThroughMarker(t, agent.Terminal, "Agent exited. Dropping to shell", ptyTestTimeout)
-	if !strings.Contains(output, "claude") {
-		t.Error("pane output missing the agent command's printed name")
+	// The marker still proves the compound payload ran end to end; the file
+	// artifact proves the agent command inside it ran — unlike the byte
+	// stream, it cannot be RIS'd away before the read.
+	readTerminalThroughMarker(t, agent.Terminal, "Agent exited. Dropping to shell", ptyTestTimeout)
+	if _, err := os.Stat(markerFile); err != nil {
+		t.Errorf("agent command did not run: %v", err)
 	}
 
 	// Registration under ws.ID().

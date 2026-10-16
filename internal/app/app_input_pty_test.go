@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
+	"github.com/andyrewlee/amux/internal/ui/ptyio"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
@@ -368,6 +370,68 @@ func TestHandlePTYWatchdogTick_AlwaysReschedules(t *testing.T) {
 	}
 	if cmds[0] == nil {
 		t.Fatal("expected a non-nil watchdog command")
+	}
+}
+
+// The tick's real job is the sweeps, not the rearm: a dropped sweep call
+// (center reader restart, center/sidebar stalled-reattach release,
+// dashboard activity sync) would leave every assertion in the reschedule
+// tests green while tabs wedge. Each effect is asserted through its own
+// observable surface so the wiring cannot silently rot.
+func TestHandlePTYWatchdogTick_RunsEverySweep(t *testing.T) {
+	ws := ptyTestWorkspace()
+	centerModel := newPTYTestCenter(t, ws)
+
+	// Center stalled reattach: an InFlight lock stamped past the stall
+	// timeout on a stopped tab — the sweep must release it.
+	stalledTab := &center.Tab{
+		ID:        center.TabID("tab-stalled"),
+		Name:      "claude",
+		Assistant: "claude",
+		Workspace: ws,
+		Running:   false,
+		Reattach: ptyio.ReattachGuard{
+			InFlight:  true,
+			StartedAt: time.Now().Add(-2 * ptyio.ReattachStallTimeout),
+		},
+	}
+	centerModel.AddTab(stalledTab)
+
+	// Sidebar stalled reattach: same state, injected through the model's
+	// test seam (the tabs map is unexported); the release counter is the
+	// externally visible proof.
+	sidebarModel := sidebar.NewTerminalModel()
+	sidebarModel.AddTerminalForHarness(ws)
+	sidebarModel.StallReattachForTest(ws)
+
+	dash := dashboard.New()
+	app := &App{
+		center:          centerModel,
+		sidebarTerminal: sidebarModel,
+		dashboard:       dash,
+		tmuxActivity:    newTmuxActivityState(),
+	}
+	// A settled scan with active workspaces must land on the dashboard:
+	// SetActiveWorkspaces dirties content, so ContentVersion advancing is
+	// the observable half of syncActiveWorkspacesToDashboard.
+	app.tmuxActivity.settled = true
+	app.tmuxActivity.activeWorkspaceIDs[string(ws.ID())] = true
+	dashVersionBefore := dash.ContentVersion()
+
+	cmds := app.handlePTYWatchdogTick()
+
+	if stalledTab.Reattach.InFlight {
+		t.Fatal("center sweep did not run: stalled reattach lock still held")
+	}
+	if got := sidebarModel.StalledReattachReleases(); got != 1 {
+		t.Fatalf("sidebar sweep did not run: stalled releases = %d, want 1", got)
+	}
+	if dash.ContentVersion() == dashVersionBefore {
+		t.Fatal("dashboard sync did not run: content version unchanged after activity landed")
+	}
+	// The rearm still rides along.
+	if len(cmds) == 0 {
+		t.Fatal("expected at least the watchdog reschedule command")
 	}
 }
 

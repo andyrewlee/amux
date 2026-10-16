@@ -12,7 +12,7 @@ import (
 
 func setupSelectionModel(t *testing.T) (*Model, *Tab) {
 	t.Helper()
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestSelectionClearsOutsideBounds(t *testing.T) {
 
 func TestTabBarClickPlusButton(t *testing.T) {
 	// This tests that clicking the + button in the tab bar triggers the right action
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}
