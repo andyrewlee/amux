@@ -88,6 +88,71 @@ func TestRunScriptHosted_PostEnsureAdmissionKillsSession(t *testing.T) {
 	guard.Finish(true)
 }
 
+// TestRunScriptRefusedAfterStopAll pins the BUG-06 latch: a RunScript admitted
+// after StopAll swapped the running map is refused with ErrRunnerStopped —
+// never admitted into the new map where it would escape the shutdown sweep.
+// A StopAll that lands inside the spawn window (between the early check and
+// setRunningEntry) is refused the same way by the stopped latch, with the
+// just-started child killed and reaped by the loser.
+func TestRunScriptRefusedAfterStopAll(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	ws := newHostedWorkspace(t, "concurrent")
+	ws.Scripts.Run = "sleep 60"
+
+	runner.StopAll()
+
+	// The coordinator's early admission check refuses before any spawn — the
+	// stopped latch means no child ever starts.
+	cmd, err := runner.RunScript(ws, ScriptRun)
+	if !errors.Is(err, ErrRunnerStopped) {
+		t.Fatalf("RunScript after StopAll = %v, want ErrRunnerStopped", err)
+	}
+	if cmd != nil {
+		t.Fatal("rejected run returned a live cmd")
+	}
+	if runner.IsRunning(ws) {
+		t.Fatal("IsRunning() = true for a post-StopAll spawn")
+	}
+
+	// The coordinator's latch rejects setup/on-done admissions the same way.
+	key := scriptWorkspaceKey(ws)
+	if _, err := runner.lifecycle.admitSetup(key); !errors.Is(err, ErrRunnerStopped) {
+		t.Fatalf("admitSetup after StopAll = %v, want ErrRunnerStopped", err)
+	}
+	if _, err := runner.lifecycle.admitOnDone(key, noopCmd()); !errors.Is(err, ErrRunnerStopped) {
+		t.Fatalf("admitOnDone after StopAll = %v, want ErrRunnerStopped", err)
+	}
+}
+
+// TestRunScriptStopAllConcurrentAdmission exercises the BUG-06 window under
+// -race: a RunScript racing StopAll either registers into the pre-swap map
+// (killed by the sweep) or is refused by the stopped latch — in no
+// interleaving may an entry survive into the post-shutdown map.
+func TestRunScriptStopAllConcurrentAdmission(t *testing.T) {
+	for i := 0; i < 12; i++ {
+		runner := NewScriptRunner(6200, 10)
+		ws := newHostedWorkspace(t, "concurrent")
+		ws.Scripts.Run = "sleep 60"
+
+		done := make(chan error, 1)
+		go func() {
+			_, err := runner.RunScript(ws, ScriptRun)
+			done <- err
+		}()
+		runner.StopAll()
+
+		if err := <-done; err != nil && !errors.Is(err, ErrRunnerStopped) {
+			t.Fatalf("iteration %d: racing RunScript error = %v, want nil or ErrRunnerStopped", i, err)
+		}
+		runner.mu.Lock()
+		tracked := len(runner.running)
+		runner.mu.Unlock()
+		if tracked != 0 {
+			t.Fatalf("iteration %d: %d running entries escaped the StopAll sweep", i, tracked)
+		}
+	}
+}
+
 // TestRunOnDone_FanOutCap pins maxOnDoneHooks: admission past the cap is
 // refused with ErrOnDoneLimit, and the refused spawn is killed and reaped by
 // its caller rather than tracked.

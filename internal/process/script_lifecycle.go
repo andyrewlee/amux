@@ -115,8 +115,12 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 		return nil, err
 	}
 
-	// Check for existing process in non-concurrent mode
+	// Check for existing process in non-concurrent mode. The Stop+spawn pair
+	// holds the workspace's striped admission mutex — without it two racing
+	// RunScript calls interleave into two live sessions on a workspace whose
+	// contract is one run at a time.
 	if ws.ScriptMode == data.ScriptModeNonconcurrent {
+		defer r.lockRunAdmission(scriptWorkspaceKey(ws))()
 		if err := r.Stop(ws); !isBenignStopError(err) {
 			return nil, err
 		}
@@ -156,7 +160,14 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	// targets, so the entry must be visible to its sweep — and when the gate
 	// is held anyway, the just-started child is killed and reaped inline.
 	// Same contract as admitOnDone: admit after start; the loser kills+reaps.
-	r.setRunningEntry(key, running)
+	// setRunningEntry's insert is the same critical section that observes
+	// the post-StopAll stopped latch (BUG-06).
+	if !r.setRunningEntry(key, running) {
+		r.killScriptProcessGroup(cmd)
+		_ = cmd.Wait()
+		close(running.done)
+		return nil, ErrRunnerStopped
+	}
 	if err := r.lifecycle.checkAdmission(key); err != nil {
 		r.clearRunningEntry(key)
 		r.killScriptProcessGroup(cmd)

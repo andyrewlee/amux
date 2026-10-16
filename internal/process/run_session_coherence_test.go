@@ -2,7 +2,9 @@ package process
 
 import (
 	"errors"
+	"sync"
 	"testing"
+	"time"
 )
 
 // TestRunScriptHosted_CreateCollisionRetriesNextSuffix pins the allocation
@@ -223,5 +225,62 @@ func TestNewestRunSessionFirst(t *testing.T) {
 		if ref.Name != wantFallback[i] {
 			t.Fatalf("unstamped order[%d] = %q, want %q", i, ref.Name, wantFallback[i])
 		}
+	}
+}
+
+// TestRunScriptHosted_NonconcurrentSerializesAdmissions pins the L1 contract:
+// two racing RunScript calls for one nonconcurrent workspace must not both
+// survive into live sessions — the second admission's Stop has to see (and
+// kill) the first's session, which requires the Stop+spawn pair to hold the
+// workspace's striped admission mutex.
+func TestRunScriptHosted_NonconcurrentSerializesAdmissions(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	host := newFakeRunSessionHost()
+	runner.SetRunHost(host)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+
+	// The first admission stalls inside Create while the second RunScript is
+	// already in flight. Without admission serialization the second call's
+	// Stop→Find lands inside this window — before the first session exists —
+	// and both survive; the collision retry then mints a second session.
+	firstCreate := make(chan struct{})
+	var once sync.Once
+	host.onCreate = func(h *fakeRunSessionHost, _ string) {
+		once.Do(func() {
+			close(firstCreate)
+			deadline := time.Now().Add(300 * time.Millisecond)
+			for len(h.findCalls) < 2 && time.Now().Before(deadline) {
+				time.Sleep(5 * time.Millisecond)
+			}
+		})
+	}
+
+	errs := make(chan error, 2)
+	go func() {
+		_, err := runner.RunScript(ws, ScriptRun)
+		errs <- err
+	}()
+	<-firstCreate
+	go func() {
+		_, err := runner.RunScript(ws, ScriptRun)
+		errs <- err
+	}()
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("RunScript %d error = %v", i, err)
+		}
+	}
+
+	live := 0
+	for _, s := range host.sessions {
+		if s.alive {
+			live++
+		}
+	}
+	if live != 1 {
+		t.Fatalf("live run sessions = %d, want exactly 1 — nonconcurrent admissions must serialize", live)
+	}
+	if len(host.killed) != 1 {
+		t.Fatalf("killed = %v, want the first admission's session killed by the serialized second", host.killed)
 	}
 }

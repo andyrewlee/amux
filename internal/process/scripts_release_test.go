@@ -123,6 +123,58 @@ func TestScriptRunnerPendingReleaseDoesNotApplyToReplacementRun(t *testing.T) {
 	}
 }
 
+// TestScriptRunnerPendingReleaseSurvivesSlotOverwrite pins BUG-02: a release
+// parked against a live run must not be silently dropped when a newer run
+// takes the slot. The overwrite unpins the park so the next "nothing alive"
+// sweep releases the port — the pin's semantic (release only once the
+// displaced process is gone) is preserved by the runAlive gate.
+func TestScriptRunnerPendingReleaseSurvivesSlotOverwrite(t *testing.T) {
+	repo := t.TempDir()
+	wsRoot := t.TempDir()
+	ws := &data.Workspace{Repo: repo, Root: wsRoot}
+
+	runner := NewScriptRunner(6200, 10)
+	if _, err := runner.portAllocator.AllocatePort(ws.Root); err != nil {
+		t.Fatalf("AllocatePort: %v", err)
+	}
+	key := scriptWorkspaceKey(ws)
+
+	oldRun := &runningScript{done: make(chan struct{})}
+	runner.setRunningEntry(key, oldRun)
+	runner.ReleaseWorkspace(ws) // parks the release pinned to oldRun
+
+	newRun := &runningScript{done: make(chan struct{})}
+	if !runner.setRunningEntry(key, newRun) {
+		t.Fatal("setRunningEntry refused a pre-StopAll insert")
+	}
+	runner.mu.Lock()
+	pending, parked := runner.pendingRelease[key]
+	runner.mu.Unlock()
+	if !parked {
+		t.Fatal("slot overwrite dropped the parked release — port leak")
+	}
+	if pending.running != nil {
+		t.Fatal("parked release still pinned to the displaced process — it can never drain")
+	}
+
+	// While the replacement runs, the release stays parked (runAlive gate).
+	runner.mu.Lock()
+	_, parked = runner.pendingRelease[key]
+	runner.mu.Unlock()
+	if !parked {
+		t.Fatal("release fired while the replacement run was alive")
+	}
+
+	// Once the slot goes idle the sweep must drain it — the leak case.
+	runner.finishRunningEntry(key, newRun)
+	if runner.IsRunning(ws) {
+		t.Fatal("IsRunning() = true after the last run finished")
+	}
+	if _, ok := runner.portAllocator.GetPort(ws.Root); ok {
+		t.Fatal("parked release never fired — port allocation leaked")
+	}
+}
+
 // TestScriptRunnerDurableReleaseRetainsInterval proves the durable contract at
 // the runner surface: ReleaseWorkspace — including a release parked behind a
 // live consumer — never frees the reservation for another workspace, and a
