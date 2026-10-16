@@ -176,9 +176,12 @@ func (r *ScriptRunner) findRunSessions(ws *data.Workspace) ([]string, error) {
 // runSessionSeen reports whether a find ever returned sessions under any of
 // the workspace's current identity forms.
 func (r *ScriptRunner) runSessionSeen(ws *data.Workspace) bool {
+	// WorkspaceIdentitySet resolves symlinks — filesystem work stays outside
+	// r.mu so a stalled resolution can't freeze every runner consumer.
+	ids := data.WorkspaceIdentitySet(ws)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, id := range data.WorkspaceIdentitySet(ws) {
+	for _, id := range ids {
 		if _, ok := r.runSessionsSeen[string(id)]; ok {
 			return true
 		}
@@ -189,9 +192,10 @@ func (r *ScriptRunner) runSessionSeen(ws *data.Workspace) bool {
 // markRunSessionSeen records every current identity form so a later identity
 // drift still recognizes the workspace as having had sessions.
 func (r *ScriptRunner) markRunSessionSeen(ws *data.Workspace) {
+	ids := data.WorkspaceIdentitySet(ws)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, id := range data.WorkspaceIdentitySet(ws) {
+	for _, id := range ids {
 		r.runSessionsSeen[string(id)] = struct{}{}
 	}
 }
@@ -202,9 +206,10 @@ func (r *ScriptRunner) markRunSessionSeen(ws *data.Workspace) {
 // "had them before the restart" — the swept-set bounds the discovery sweep to
 // once per process rather than skipping it forever.
 func (r *ScriptRunner) runSessionSwept(ws *data.Workspace) bool {
+	ids := data.WorkspaceIdentitySet(ws)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, id := range data.WorkspaceIdentitySet(ws) {
+	for _, id := range ids {
 		if _, ok := r.runSessionsSwept[string(id)]; ok {
 			return true
 		}
@@ -214,9 +219,10 @@ func (r *ScriptRunner) runSessionSwept(ws *data.Workspace) bool {
 
 // markRunSessionSwept records every current identity form as probed.
 func (r *ScriptRunner) markRunSessionSwept(ws *data.Workspace) {
+	ids := data.WorkspaceIdentitySet(ws)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, id := range data.WorkspaceIdentitySet(ws) {
+	for _, id := range ids {
 		r.runSessionsSwept[string(id)] = struct{}{}
 	}
 }
@@ -355,6 +361,8 @@ func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (sessions []RunSess
 	if err != nil {
 		return nil, false, -1
 	}
+	dead := make([]RunSessionRef, 0, len(found))
+	exitByName := make(map[string]int, len(found))
 	for _, ref := range found {
 		st := states[ref.Name]
 		if !st.Exists {
@@ -364,8 +372,15 @@ func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (sessions []RunSess
 		if st.Alive {
 			anyAlive = true
 		} else if st.ExitCode != -1 {
-			lastExit = st.ExitCode
+			dead = append(dead, ref)
+			exitByName[ref.Name] = st.ExitCode
 		}
+	}
+	// The contract is "most recent dead session's exit code" — find order is
+	// lexical (run-10 sorts before run-2), so pick newest the same way the
+	// output/attach selection does rather than last-in-order.
+	if len(dead) > 0 {
+		lastExit = exitByName[newestRunSessionFirst(dead)[0].Name]
 	}
 	return sessions, anyAlive, lastExit
 }
@@ -435,56 +450,4 @@ func (r *ScriptRunner) RunScriptOutputAndStatus(ws *data.Workspace, lines int) (
 		output = r.runHost.Tail(newestRunSessionFirst(sessions)[0].Name, lines)
 	}
 	return output, alive, exit
-}
-
-// RunSessionTail returns up to lines of the named run session's pane — the
-// pinned-session variant of RunScriptOutput for the session picker.
-func (r *ScriptRunner) RunSessionTail(name string, lines int) string {
-	if r.runHost == nil || name == "" {
-		return ""
-	}
-	return r.runHost.Tail(name, lines)
-}
-
-// RunSessionAlive reports whether the named run session's pane is still
-// running — the attach path's recheck for a session that may have exited
-// between enumeration and selection.
-func (r *ScriptRunner) RunSessionAlive(name string) bool {
-	if r.runHost == nil || name == "" {
-		return false
-	}
-	exists, alive, _, err := r.runHost.Status(name)
-	return err == nil && exists && alive
-}
-
-// RunScriptAttachTarget returns the newest ALIVE hosted run-session name for
-// interactive attach — the same newest-alive selection the output overlay
-// uses, ordered by creation stamp rather than suffix. False when no hosted
-// session is alive or no session host is installed.
-func (r *ScriptRunner) RunScriptAttachTarget(ws *data.Workspace) (string, bool) {
-	r.mu.Lock()
-	host := r.runHost
-	r.mu.Unlock()
-	if host == nil || ws == nil {
-		return "", false
-	}
-	found, err := r.findRunSessionRefs(ws)
-	if err != nil {
-		return "", false
-	}
-	ordered := newestRunSessionFirst(found)
-	names := make([]string, 0, len(ordered))
-	for _, ref := range ordered {
-		names = append(names, ref.Name)
-	}
-	states, err := runSessionStates(host, names)
-	if err != nil {
-		return "", false
-	}
-	for _, ref := range ordered {
-		if st := states[ref.Name]; st.Exists && st.Alive {
-			return ref.Name, true
-		}
-	}
-	return "", false
 }

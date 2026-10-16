@@ -163,15 +163,13 @@ func (r *ScriptRunner) RunScript(ws *data.Workspace, scriptType ScriptType) (*ex
 	// setRunningEntry's insert is the same critical section that observes
 	// the post-StopAll stopped latch (BUG-06).
 	if !r.setRunningEntry(key, running) {
-		r.killScriptProcessGroup(cmd)
-		_ = cmd.Wait()
+		r.reapAfterKill(cmd)
 		close(running.done)
 		return nil, ErrRunnerStopped
 	}
 	if err := r.lifecycle.checkAdmission(key); err != nil {
 		r.clearRunningEntry(key)
-		r.killScriptProcessGroup(cmd)
-		_ = cmd.Wait()
+		r.reapAfterKill(cmd)
 		close(running.done)
 		return nil, err
 	}
@@ -342,8 +340,7 @@ func (r *ScriptRunner) RunOnDone(ws *data.Workspace, sessionName string) error {
 	key := scriptWorkspaceKey(ws)
 	proc, admErr := r.lifecycle.admitOnDone(key, cmd)
 	if admErr != nil {
-		r.killScriptProcessGroup(cmd)
-		_ = cmd.Wait()
+		r.reapAfterKill(cmd)
 		if errors.Is(admErr, ErrOnDoneLimit) {
 			logging.Warn("on-done hook dropped at fan-out cap: workspace=%s cap=%d", key, maxOnDoneHooks)
 		}
@@ -425,6 +422,34 @@ func (r *ScriptRunner) reapAfterTimeout(cmd *exec.Cmd, waitErr <-chan error) boo
 		// a process outlived its workspace teardown and nothing retries it.
 		logging.Error("timed-out script could not be reaped; abandoning it so the delete can proceed")
 		return false
+	}
+}
+
+// reapAfterKill is the bounded kill+reap the admission-reject paths run on a
+// just-started child: kill the group, wait bounded by scriptStopTimeout,
+// escalate to a direct SIGKILL, bound again, then abandon — cmd.Wait() must
+// never run unbounded after a kill that may have failed, because a wedged
+// child would hang the teardown the reject exists to protect. Same shape as
+// reapAfterTimeout; the buffered wait goroutine completes whenever the
+// process finally exits.
+func (r *ScriptRunner) reapAfterKill(cmd *exec.Cmd) {
+	r.killScriptProcessGroup(cmd)
+	waitErr := make(chan error, 1)
+	safego.Go("process.reject_reap", func() { waitErr <- cmd.Wait() })
+	select {
+	case <-waitErr:
+		return
+	case <-time.After(scriptStopTimeout):
+	}
+	if cmd.Process != nil {
+		if err := ForceKillProcess(cmd.Process.Pid); err != nil && !isBenignStopError(err) {
+			logging.Debug("force-killing unreaped rejected script: %v", err)
+		}
+	}
+	select {
+	case <-waitErr:
+	case <-time.After(scriptStopTimeout):
+		logging.Error("rejected script process could not be reaped; abandoning the waiter")
 	}
 }
 

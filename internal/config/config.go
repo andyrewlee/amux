@@ -313,18 +313,43 @@ func saveAssistants(path string, assistants map[string]AssistantConfig) error {
 	}
 
 	out := make(map[string]any, len(assistants))
+	builtins := defaultAssistants()
 	for name, cfg := range assistants {
-		// interrupt_delay_ms is always written: the loader distinguishes an
-		// absent field (inherit the built-in default) from an explicit zero
-		// (no spacing), so omitting a resolved zero would restore the
-		// built-in delay on the next load. Zero counts stay omitted because
-		// the loader coerces a present-but-zero count back to 1 anyway.
-		entry := map[string]any{
-			"command":            cfg.Command,
-			"interrupt_delay_ms": cfg.InterruptDelayMs,
+		builtin, isBuiltin := builtins[normalizeAssistantName(name)]
+		entry := map[string]any{}
+		switch {
+		case !isBuiltin:
+			// No built-in to inherit against — persist the resolved config
+			// in full. Zero interrupt_count stays omitted: the loader
+			// coerces a present-but-zero count to 1, so writing it could not
+			// round-trip. Zero delay IS written — for a custom assistant an
+			// absent delay would still resolve to zero on reload, but the
+			// explicit field keeps the entry self-describing.
+			entry["command"] = cfg.Command
+			entry["interrupt_delay_ms"] = cfg.InterruptDelayMs
+			if cfg.InterruptCount > 0 {
+				entry["interrupt_count"] = cfg.InterruptCount
+			}
+		default:
+			// Persist only fields that differ from the built-in profile: the
+			// loader treats an absent field as "inherit the built-in", so
+			// writing resolved defaults would pin today's values and shut a
+			// future built-in revision out of every saved config. An explicit
+			// zero delay still lands (0 != built-in 200) — the
+			// present-vs-absent distinction the loader relies on. The same
+			// >0 guard on count applies: a resolved zero can't round-trip.
+			if cfg.Command != builtin.Command {
+				entry["command"] = cfg.Command
+			}
+			if cfg.InterruptDelayMs != builtin.InterruptDelayMs {
+				entry["interrupt_delay_ms"] = cfg.InterruptDelayMs
+			}
+			if cfg.InterruptCount != builtin.InterruptCount && cfg.InterruptCount > 0 {
+				entry["interrupt_count"] = cfg.InterruptCount
+			}
 		}
-		if cfg.InterruptCount > 0 {
-			entry["interrupt_count"] = cfg.InterruptCount
+		if len(entry) == 0 {
+			continue // resolved-equal to the built-in — absent means inherit
 		}
 		out[name] = entry
 	}
