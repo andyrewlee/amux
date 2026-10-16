@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/logging"
 	appPty "github.com/andyrewlee/amux/internal/pty"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
@@ -83,6 +84,14 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 	term.AllowAltScreenScrollback = true
 	tabID := generateTabID()
 	sessionName := strings.TrimSpace(info.SessionName)
+	if sessionName != "" && !tmux.ValidSessionName(sessionName) {
+		// Stored metadata is untrusted: a name outside SessionName's own
+		// alphabet could carry tmux target syntax (: . % $ # @) and point
+		// reattach/send-keys at a foreign session. Mint a fresh name
+		// instead — the stored session is left untouched.
+		logging.Warn("stored session name %q rejected on restore; minting a fresh name", sessionName)
+		sessionName = ""
+	}
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tabID))
 	}

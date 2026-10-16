@@ -303,3 +303,62 @@ func TestForgetWorkspaceIdempotentAndNilSafe(t *testing.T) {
 	var nilRunner *ScriptRunner
 	nilRunner.ForgetWorkspace(ws)
 }
+
+// TestForgetWorkspaceDropsParkedReleaseAndLifecycleState: a confirmed delete
+// must not leave the parked port release or the coordinator record behind —
+// the sweep that drains pendingRelease only runs inside IsRunning, which a
+// deleted workspace never reaches again.
+func TestForgetWorkspaceDropsParkedReleaseAndLifecycleState(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+	key := scriptWorkspaceKey(ws)
+
+	// A released-while-running workspace parks its port; a quiescent
+	// coordinator record persists from a completed lifecycle admission.
+	runner.pendingRelease[key] = pendingPortRelease{root: ws.Root}
+	runner.lifecycle.stateFor(key)
+	if _, err := runner.portAllocator.AllocatePort(ws.Root); err != nil {
+		t.Fatalf("seed AllocatePort: %v", err)
+	}
+
+	runner.ForgetWorkspace(ws)
+
+	if _, ok := runner.pendingRelease[key]; ok {
+		t.Fatal("parked pendingRelease survived ForgetWorkspace")
+	}
+	if _, ok := runner.portAllocator.GetPort(ws.Root); ok {
+		t.Fatal("parked release's port was never returned")
+	}
+	runner.lifecycle.mu.Lock()
+	_, stillThere := runner.lifecycle.states[key]
+	runner.lifecycle.mu.Unlock()
+	if stillThere {
+		t.Fatal("quiescent lifecycle state survived ForgetWorkspace")
+	}
+}
+
+// TestForgetWorkspaceKeepsLiveReleaseAndState: a pending release pinned to a
+// still-running entry and a state with live work must survive — the finish
+// path drains them; deleting early would strand the port or drop tracking.
+func TestForgetWorkspaceKeepsLiveReleaseAndState(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+	key := scriptWorkspaceKey(ws)
+
+	entry := &runningScript{}
+	runner.pendingRelease[key] = pendingPortRelease{root: ws.Root, running: entry}
+	st := runner.lifecycle.stateFor(key)
+	st.teardown = true
+
+	runner.ForgetWorkspace(ws)
+
+	if _, ok := runner.pendingRelease[key]; !ok {
+		t.Fatal("live running-pinned pendingRelease was dropped — its port release is now stranded")
+	}
+	runner.lifecycle.mu.Lock()
+	_, stillThere := runner.lifecycle.states[key]
+	runner.lifecycle.mu.Unlock()
+	if !stillThere {
+		t.Fatal("teardown-gated lifecycle state was dropped mid-operation")
+	}
+}

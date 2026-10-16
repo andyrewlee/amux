@@ -348,8 +348,8 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	// are preserved for empty stored fields → applyWorkspaceDefaults fills
 	// any remaining gaps. The conditional "if stored.X != ''" guards below
 	// implement the first two tiers of this hierarchy.
-	if stored.Name != "" {
-		ws.Name = stored.Name
+	if name := strings.TrimSpace(stored.Name); name != "" {
+		ws.Name = name
 	}
 	ws.Created = stored.Created
 	ws.Base = stored.Base
@@ -364,6 +364,7 @@ func (s *WorkspaceStore) LoadMetadataFor(ws *Workspace) (bool, error) {
 	ws.ActiveTabIndex = stored.ActiveTabIndex
 	ws.Archived = stored.Archived
 	ws.ArchivedAt = stored.ArchivedAt
+	ws.Shelved = stored.Shelved
 	ws.storeID = stored.storeID
 
 	// Apply defaults if stored metadata had empty values

@@ -19,14 +19,19 @@ type WorkspacePruneOptions struct {
 	Now               time.Time
 	OrphanGracePeriod time.Duration
 	ArchivedRetention time.Duration
-	// BeforeMissingRootRemove runs while the workspace metadata is still
-	// present. Returning an error retains the record so cleanup can retry on a
-	// later reconciliation pass.
-	BeforeMissingRootRemove func(WorkspacePruneCleanup) error
+	// BeforeWorkspaceMetadataRemove runs while the workspace metadata is
+	// still present — for missing_root and archived removals, whose
+	// worktrees are gone, so their tmux sessions are orphaned dead work.
+	// unregistered removals skip it deliberately: the repo is only absent
+	// from THIS instance's registry, and sessions tagged with the workspace
+	// ID may belong to another live instance. Returning an error retains
+	// the record so cleanup can retry on a later reconciliation pass.
+	BeforeWorkspaceMetadataRemove func(WorkspacePruneCleanup) error
 }
 
-// WorkspacePruneCleanup identifies sessions belonging to a missing-root
-// workspace. Both the stored and canonical IDs are included when they differ.
+// WorkspacePruneCleanup identifies sessions belonging to a workspace whose
+// metadata record is about to be removed. Both the stored and canonical IDs
+// are included when they differ.
 type WorkspacePruneCleanup struct {
 	WorkspaceIDs []WorkspaceID
 	SessionNames []string
@@ -192,7 +197,9 @@ func (s *WorkspaceStore) pruneWorkspaceIfStale(
 	if reason == "" {
 		return "", nil
 	}
-	if reason == "missing_root" && options.BeforeMissingRootRemove != nil {
+	// unregistered is exempt: its sessions may be foreign-owned (see the
+	// option doc). missing_root and archived both mean the worktree is gone.
+	if reason != "unregistered" && options.BeforeWorkspaceMetadataRemove != nil {
 		cleanup := WorkspacePruneCleanup{WorkspaceIDs: []WorkspaceID{id}}
 		// ws.ID() returns the store key for a loaded record — the missing
 		// identity form is ComputedID(), the path-derived alias sessions
@@ -206,8 +213,8 @@ func (s *WorkspaceStore) pruneWorkspaceIfStale(
 				cleanup.SessionNames = append(cleanup.SessionNames, name)
 			}
 		}
-		if err := options.BeforeMissingRootRemove(cleanup); err != nil {
-			return "", fmt.Errorf("clean up missing-root workspace: %w", err)
+		if err := options.BeforeWorkspaceMetadataRemove(cleanup); err != nil {
+			return "", fmt.Errorf("clean up %s workspace: %w", reason, err)
 		}
 	}
 	if err := s.deleteWorkspaceDir(id); err != nil {

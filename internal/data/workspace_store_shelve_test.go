@@ -1,6 +1,8 @@
 package data
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -100,5 +102,50 @@ func TestWorkspaceStore_DiscoveryClearsShelved(t *testing.T) {
 	}
 	if loaded.Archived || loaded.Shelved {
 		t.Fatalf("discovery must un-archive and un-shelve, got Archived=%v Shelved=%v", loaded.Archived, loaded.Shelved)
+	}
+}
+
+// TestWorkspaceStore_LoadMetadataFor_MergesShelvedAndTrimsName pins two merge
+// gaps: the Shelved flag (an intentional archive must survive a discovery
+// reload) and whitespace on a stored name (hand-edited files flow through
+// unvalidated).
+func TestWorkspaceStore_LoadMetadataFor_MergesShelvedAndTrimsName(t *testing.T) {
+	root := t.TempDir()
+	store := NewWorkspaceStore(root)
+
+	discovered := &Workspace{
+		Branch: "feat",
+		Repo:   "/repo",
+		Root:   "/repo/ws",
+	}
+	id := discovered.ID()
+	dir := filepath.Join(root, string(id))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	metadata := `{
+		"name": "  spaced-name  ",
+		"archived": true,
+		"shelved": true
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(metadata), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	found, err := store.LoadMetadataFor(discovered)
+	if err != nil {
+		t.Fatalf("LoadMetadataFor() error = %v", err)
+	}
+	if !found {
+		t.Fatal("LoadMetadataFor() should have found stored metadata")
+	}
+	if !discovered.Shelved {
+		t.Error("Shelved flag did not survive LoadMetadataFor merge")
+	}
+	if !discovered.Archived {
+		t.Error("Archived flag did not survive LoadMetadataFor merge")
+	}
+	if discovered.Name != "spaced-name" {
+		t.Errorf("Name = %q, want trimmed %q", discovered.Name, "spaced-name")
 	}
 }

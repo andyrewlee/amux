@@ -59,15 +59,15 @@ func TestWorkspaceStorePruneStaleReconcilesOwnedState(t *testing.T) {
 	}
 	unlockRegistryFiles(locks)
 
-	var missingCleanup WorkspacePruneCleanup
+	var cleanups []WorkspacePruneCleanup
 	result, err := store.PruneStale(WorkspacePruneOptions{
 		RegisteredRepos:   []string{registeredRepo},
 		ManagedRoot:       managedRoot,
 		Now:               now,
 		OrphanGracePeriod: time.Hour,
 		ArchivedRetention: 7 * 24 * time.Hour,
-		BeforeMissingRootRemove: func(cleanup WorkspacePruneCleanup) error {
-			missingCleanup = cleanup
+		BeforeWorkspaceMetadataRemove: func(cleanup WorkspacePruneCleanup) error {
+			cleanups = append(cleanups, cleanup)
 			return nil
 		},
 	})
@@ -80,11 +80,26 @@ func TestWorkspaceStorePruneStaleReconcilesOwnedState(t *testing.T) {
 	if result.OrphanLocksRemoved != 1 {
 		t.Fatalf("orphan locks removed = %d, want 1", result.OrphanLocksRemoved)
 	}
-	if len(missingCleanup.WorkspaceIDs) != 1 || missingCleanup.WorkspaceIDs[0] != missing.ID() {
-		t.Fatalf("missing-root workspace IDs = %v, want [%s]", missingCleanup.WorkspaceIDs, missing.ID())
+	// The cleanup callback fires for the dead-worktree removals —
+	// missing_root and archived — whose sessions are orphaned dead work.
+	// unregistered stays exempt: its tagged sessions may belong to another
+	// live instance's workspace, so pruning must not kill them.
+	cleanupByID := map[WorkspaceID]WorkspacePruneCleanup{}
+	for _, c := range cleanups {
+		cleanupByID[c.WorkspaceIDs[0]] = c
+	}
+	missingCleanup, ok := cleanupByID[missing.ID()]
+	if !ok || len(missingCleanup.WorkspaceIDs) != 1 {
+		t.Fatalf("missing-root cleanup = %+v, want IDs [%s]", missingCleanup, missing.ID())
 	}
 	if len(missingCleanup.SessionNames) != 1 || missingCleanup.SessionNames[0] != "legacy-missing-session" {
 		t.Fatalf("missing-root session names = %v, want [legacy-missing-session]", missingCleanup.SessionNames)
+	}
+	if _, ok := cleanupByID[archived.ID()]; !ok {
+		t.Fatalf("archived workspace pruned without its session cleanup (cleanups=%v)", cleanupByID)
+	}
+	if _, ok := cleanupByID[orphanOld.ID()]; ok {
+		t.Fatalf("unregistered workspace got session cleanup — its sessions may be foreign-owned (cleanups=%v)", cleanupByID)
 	}
 
 	for _, ws := range []*Workspace{orphanOld, missing, archived} {
@@ -127,7 +142,7 @@ func TestWorkspaceStorePruneStaleRetainsMissingRootWhenCleanupFails(t *testing.T
 		ManagedRoot:       managedRoot,
 		Now:               time.Now(),
 		OrphanGracePeriod: time.Hour,
-		BeforeMissingRootRemove: func(WorkspacePruneCleanup) error {
+		BeforeWorkspaceMetadataRemove: func(WorkspacePruneCleanup) error {
 			return errors.New("tmux busy")
 		},
 	})
@@ -184,7 +199,7 @@ func TestWorkspaceStorePruneStaleCleanupIncludesComputedAlias(t *testing.T) {
 		ManagedRoot:       managedRoot,
 		Now:               time.Now(),
 		OrphanGracePeriod: time.Hour,
-		BeforeMissingRootRemove: func(c WorkspacePruneCleanup) error {
+		BeforeWorkspaceMetadataRemove: func(c WorkspacePruneCleanup) error {
 			called = true
 			cleanup = c
 			return nil

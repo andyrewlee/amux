@@ -233,6 +233,19 @@ func (c *lifecycleCoordinator) live(key string) bool {
 	return st != nil && (st.setup != nil || len(st.onDone) > 0)
 }
 
+// forget drops the workspace's lifecycle record once it carries nothing
+// live — the confirmed-delete path's complement to Finish(removed), which
+// deletes the state for a gated teardown. A state with an in-flight setup,
+// live on-done procs, or a held teardown gate is kept: its drain channels,
+// generation guard, and admission lock are still active there.
+func (c *lifecycleCoordinator) forget(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if st := c.states[key]; st != nil && !st.teardown && st.setup == nil && len(st.onDone) == 0 {
+		delete(c.states, key)
+	}
+}
+
 // TeardownGuard owns a workspace's lifecycle admission gate between teardown
 // drain and the end of the service removal operation. While held, new
 // lifecycle work is rejected; Finish releases the gate (failed operation) or
