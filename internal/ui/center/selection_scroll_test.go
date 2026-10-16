@@ -15,7 +15,7 @@ import (
 // The tab actor path is exercised directly via handleTabEvent.
 func setupScrollModel(t *testing.T) (*Model, *Tab, string) {
 	t.Helper()
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}

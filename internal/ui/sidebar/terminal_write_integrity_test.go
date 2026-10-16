@@ -275,17 +275,21 @@ func TestSidebarWriterEpoch(t *testing.T) {
 		// A completion stamped with a replaced epoch is dropped — even though
 		// its clip payload is a valid OSC52 capture.
 		m.Update(SidebarTabWritten{WorkspaceID: "ws", TabID: string(tabID), clip: []byte("stale"), epoch: 6})
-		time.Sleep(100 * time.Millisecond)
-		if got := copied(); len(got) != 0 {
-			t.Fatalf("stale completion copied %v", got)
-		}
+		testutil.Consistently(t, 100*time.Millisecond, 5*time.Millisecond, func() string {
+			if got := copied(); len(got) != 0 {
+				return "stale completion copied to clipboard"
+			}
+			return ""
+		})
 
 		// Zero epoch is the untagged sentinel — never accepted.
 		m.Update(SidebarTabWritten{WorkspaceID: "ws", TabID: string(tabID), clip: []byte("untagged"), epoch: 0})
-		time.Sleep(100 * time.Millisecond)
-		if got := copied(); len(got) != 0 {
-			t.Fatalf("untagged completion copied %v", got)
-		}
+		testutil.Consistently(t, 100*time.Millisecond, 5*time.Millisecond, func() string {
+			if got := copied(); len(got) != 0 {
+				return "untagged completion copied to clipboard"
+			}
+			return ""
+		})
 
 		// A completion from the current stream drains normally.
 		m.Update(SidebarTabWritten{WorkspaceID: "ws", TabID: string(tabID), clip: []byte("fresh"), epoch: 7})

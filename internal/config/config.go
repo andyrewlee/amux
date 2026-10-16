@@ -43,6 +43,32 @@ const fallbackDefaultAssistant = "claude"
 // AgentRegistry so it cannot drift from the rest of the roster.
 var preferredAssistantOrder = AgentNames()
 
+// newConfigDefaults assembles the Config every constructor starts from:
+// resolved paths plus the built-in port/UI/assistant values. File overlays
+// (DefaultConfig) apply on top of this; file-free callers get it directly.
+func newConfigDefaults(paths *Paths) *Config {
+	return &Config{
+		Paths:         paths,
+		PortStart:     6200,
+		PortRangeSize: 10,
+		UI:            defaultUISettings(),
+		Assistants:    defaultAssistants(),
+	}
+}
+
+// DefaultConfigNoFile returns newConfigDefaults without reading the user's
+// config file — real resolved Paths, but no ~/.amux/config.json overlay.
+// Harnesses and model fixtures must not consult ambient user config: a
+// developer's theme/assistant overrides would make golden frames and test
+// fixtures machine-dependent.
+func DefaultConfigNoFile() (*Config, error) {
+	paths, err := DefaultPaths()
+	if err != nil {
+		return nil, err
+	}
+	return newConfigDefaults(paths), nil
+}
+
 // DefaultConfig returns the default configuration
 func DefaultConfig() (*Config, error) {
 	paths, err := DefaultPaths()
@@ -57,16 +83,9 @@ func DefaultConfig() (*Config, error) {
 		logging.Warn("config: failed to parse %s; using valid sections and defaults: %v", paths.ConfigPath, err)
 	}
 
-	assistants := defaultAssistants()
-	applyAssistantOverrides(assistants, file.Assistants)
-
-	cfg := &Config{
-		Paths:         paths,
-		PortStart:     6200,
-		PortRangeSize: 10,
-		UI:            applyUISettings(defaultUISettings(), file.UI),
-		Assistants:    assistants,
-	}
+	cfg := newConfigDefaults(paths)
+	applyAssistantOverrides(cfg.Assistants, file.Assistants)
+	cfg.UI = applyUISettings(cfg.UI, file.UI)
 	return cfg, nil
 }
 

@@ -29,6 +29,9 @@ type HarnessOptions struct {
 	// rendered frame exercises composeOverlays instead of only base-pane chrome.
 	// See applyHarnessOverlay in harness_overlay.go for the accepted values.
 	Overlay string
+	// Config, when non-nil, is used verbatim instead of the file-free
+	// defaults — the test-side pin for a fully deterministic config struct.
+	Config *config.Config
 }
 
 // HarnessMode values.
@@ -73,9 +76,17 @@ func NewHarness(opts HarnessOptions) (*Harness, error) {
 		return nil, err
 	}
 
-	cfg, err := config.DefaultConfig()
-	if err != nil {
-		return nil, err
+	// The harness must never read ~/.amux/config.json: ambient theme and
+	// assistant overrides would make rendered frames machine-dependent. The
+	// file-free defaults (or an explicitly pinned Config) are the only config
+	// a golden frame may bake in.
+	cfg := opts.Config
+	if cfg == nil {
+		var err error
+		cfg, err = config.DefaultConfigNoFile()
+		if err != nil {
+			return nil, err
+		}
 	}
 	cfg.UI.ShowKeymapHints = opts.ShowKeymapHints
 

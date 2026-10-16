@@ -48,12 +48,15 @@ func TestInitialTaskSentAfterModeSet(t *testing.T) {
 		})
 	}
 
-	// Plain output before any mode set: task must NOT send.
+	// Plain output before any mode set: task must NOT send — assert-absent
+	// for the window, fail-fast if it arrives early.
 	write([]byte("still booting\r\n"))
-	time.Sleep(200 * time.Millisecond)
-	if b, _ := os.ReadFile(out); len(b) != 0 {
-		t.Fatalf("task sent before readiness: %q", b)
-	}
+	testutil.Consistently(t, 200*time.Millisecond, 10*time.Millisecond, func() string {
+		if b, _ := os.ReadFile(out); len(b) != 0 {
+			return "task sent before readiness: " + string(b)
+		}
+		return ""
+	})
 
 	// A DECSET (mouse reporting) marks the TUI input loop live.
 	write([]byte("\x1b[?1000h"))
@@ -64,10 +67,12 @@ func TestInitialTaskSentAfterModeSet(t *testing.T) {
 
 	// Second write: task cleared, nothing re-sent.
 	write([]byte("\x1b[?1006h more\r\n"))
-	time.Sleep(150 * time.Millisecond)
-	if b, _ := os.ReadFile(out); string(b) != "fix the bug\n" {
-		t.Fatalf("task re-sent: %q", b)
-	}
+	testutil.Consistently(t, 150*time.Millisecond, 10*time.Millisecond, func() string {
+		if b, _ := os.ReadFile(out); string(b) != "fix the bug\n" {
+			return "task re-sent: " + string(b)
+		}
+		return ""
+	})
 }
 
 // TestInitialTaskAssignedOnFreshLaunch proves the launch task survives the
@@ -138,10 +143,12 @@ func TestInitialTaskNotSentWithoutModes(t *testing.T) {
 		output:         []byte("plain line\r\n"),
 		filteredOutput: []byte("plain line\r\n"),
 	})
-	time.Sleep(150 * time.Millisecond)
-	if b, _ := os.ReadFile(out); len(b) != 0 {
-		t.Fatalf("task sent with no readiness signal: %q", b)
-	}
+	testutil.Consistently(t, 150*time.Millisecond, 10*time.Millisecond, func() string {
+		if b, _ := os.ReadFile(out); len(b) != 0 {
+			return "task sent with no readiness signal: " + string(b)
+		}
+		return ""
+	})
 	if tab.pendingInitialTask != "never sent" {
 		t.Fatal("task cleared without a send")
 	}

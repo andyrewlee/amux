@@ -166,6 +166,11 @@ type TerminalModel struct {
 	tabBarBuilds uint64
 	statusBuilds uint64
 	helpBuilds   uint64
+	// stalledReattachReleases counts reattach locks the stall sweep has
+	// released. It lives inside the release branch so app-level wiring tests
+	// can prove the sweep ran without reaching the unexported tabs map —
+	// same instrumentation convention as the build counters.
+	stalledReattachReleases int
 }
 
 // NewTerminalModel creates a new sidebar terminal model

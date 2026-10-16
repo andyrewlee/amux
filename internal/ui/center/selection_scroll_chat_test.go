@@ -22,7 +22,7 @@ import (
 // terminal has real scrollback and chat capture behavior enabled.
 func setupChatScrollModel(t *testing.T, lines int) (*Model, *Tab, string) {
 	t.Helper()
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}

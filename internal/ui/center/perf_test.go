@@ -31,7 +31,7 @@ func TestPerfScenario(t *testing.T) {
 	}
 	defer logging.Close()
 
-	cfg, err := config.DefaultConfig()
+	cfg, err := config.DefaultConfigNoFile()
 	if err != nil {
 		t.Fatalf("default config: %v", err)
 	}
