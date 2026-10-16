@@ -195,7 +195,7 @@ func (m *Model) terminalMetrics() TerminalMetrics {
 	}
 	helpLineCount := 0
 	if m.showKeymapHints {
-		helpLineCount = len(m.helpLines(width))
+		helpLineCount = m.helpLineCount(width)
 	}
 	height := m.height - baseOverhead - helpLineCount
 	if height < 5 {

@@ -347,30 +347,13 @@ func (r *ScriptRunner) runSessionsHosted(ws *data.Workspace) (sessions []RunSess
 		return nil, false, -1
 	}
 	r.markRunSessionSeen(ws)
-	var states map[string]RunSessionState
-	if batcher, ok := r.runHost.(RunSessionStatusBatcher); ok {
-		names := make([]string, 0, len(found))
-		for _, ref := range found {
-			names = append(names, ref.Name)
-		}
-		// One status query for the whole session set — the 3s poll pays O(1)
-		// subprocesses instead of one per session. A batch failure is the same
-		// failure mode as the find above failing: report empty, don't retry
-		// serially.
-		states, err = batcher.StatusAll(names)
-		if err != nil {
-			return nil, false, -1
-		}
-	} else {
-		// Hosts without the batch capability keep the per-session loop.
-		states = make(map[string]RunSessionState, len(found))
-		for _, ref := range found {
-			exists, alive, exitCode, serr := r.runHost.Status(ref.Name)
-			if serr != nil || !exists {
-				continue
-			}
-			states[ref.Name] = RunSessionState{Exists: true, Alive: alive, ExitCode: exitCode}
-		}
+	names := make([]string, 0, len(found))
+	for _, ref := range found {
+		names = append(names, ref.Name)
+	}
+	states, err := runSessionStates(r.runHost, names)
+	if err != nil {
+		return nil, false, -1
 	}
 	for _, ref := range found {
 		st := states[ref.Name]
@@ -489,9 +472,17 @@ func (r *ScriptRunner) RunScriptAttachTarget(ws *data.Workspace) (string, bool) 
 	if err != nil {
 		return "", false
 	}
-	for _, ref := range newestRunSessionFirst(found) {
-		exists, alive, _, err := host.Status(ref.Name)
-		if err == nil && exists && alive {
+	ordered := newestRunSessionFirst(found)
+	names := make([]string, 0, len(ordered))
+	for _, ref := range ordered {
+		names = append(names, ref.Name)
+	}
+	states, err := runSessionStates(host, names)
+	if err != nil {
+		return "", false
+	}
+	for _, ref := range ordered {
+		if st := states[ref.Name]; st.Exists && st.Alive {
 			return ref.Name, true
 		}
 	}

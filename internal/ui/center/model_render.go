@@ -231,31 +231,50 @@ func (m *Model) helpItem(key, desc string) string {
 	return common.RenderHelpItem(m.styles, key, desc)
 }
 
-func (m *Model) helpLines(contentWidth int) []string {
-	items := []string{}
-
-	hasTabs := len(m.getTabs()) > 0
+// helpEntries is the single source of truth for the hint-bar items —
+// helpLines renders them styled, helpLineCount wraps the plain text.
+func (m *Model) helpEntries() [][2]string {
+	var items [][2]string
 	if m.workspace != nil {
-		items = append(
-			items,
-			m.helpItem("C-Spc t a", "new agent tab"),
+		items = append(items, [2]string{"C-Spc t a", "new agent tab"})
+	}
+	if len(m.getTabs()) > 0 {
+		items = append(items,
+			[2]string{"C-Spc t x", "close"},
+			[2]string{"C-Spc t d", "detach"},
+			[2]string{"C-Spc t r", "reattach"},
+			[2]string{"C-Spc t s", "restart"},
+			[2]string{"C-Spc t p", "prev"},
+			[2]string{"C-Spc t n", "next"},
+			[2]string{"C-Spc 1-9", "jump tab"},
+			[2]string{"PgUp", "scroll up"},
+			[2]string{"PgDn", "scroll down"},
 		)
 	}
-	if hasTabs {
-		items = append(
-			items,
-			m.helpItem("C-Spc t x", "close"),
-			m.helpItem("C-Spc t d", "detach"),
-			m.helpItem("C-Spc t r", "reattach"),
-			m.helpItem("C-Spc t s", "restart"),
-			m.helpItem("C-Spc t p", "prev"),
-			m.helpItem("C-Spc t n", "next"),
-			m.helpItem("C-Spc 1-9", "jump tab"),
-			m.helpItem("PgUp", "scroll up"),
-			m.helpItem("PgDn", "scroll down"),
-		)
+	return items
+}
+
+func (m *Model) helpLines(contentWidth int) []string {
+	entries := m.helpEntries()
+	items := make([]string, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, m.helpItem(e[0], e[1]))
 	}
 	return common.WrapHelpItems(items, contentWidth)
+}
+
+// helpLineCount is the wrap count terminalMetrics needs, computed on the
+// unstyled "key:desc" text — same widths (RenderHelpItem's printable output
+// is exactly key+":"+desc and HelpKey/HelpDesc are foreground-only styles),
+// but zero lipgloss renders. Callers needing the line count must use this
+// rather than len(helpLines) — the styled render is the expensive part.
+func (m *Model) helpLineCount(contentWidth int) int {
+	entries := m.helpEntries()
+	plain := make([]string, 0, len(entries))
+	for _, e := range entries {
+		plain = append(plain, e[0]+":"+e[1])
+	}
+	return len(common.WrapHelpItems(plain, contentWidth))
 }
 
 // renderEmpty renders the empty state

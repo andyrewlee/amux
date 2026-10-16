@@ -42,8 +42,8 @@ func TestActivityTagFlush_FiresWithinThrottleWindow(t *testing.T) {
 	m.markActivityTagForFlush("amux-sess-x")
 	select {
 	case msg := <-msgs:
-		if _, ok := msg.(activityTagFlushDue); !ok {
-			t.Fatalf("expected activityTagFlushDue, got %T", msg)
+		if _, ok := msg.(ActivityTagFlushDue); !ok {
+			t.Fatalf("expected ActivityTagFlushDue, got %T", msg)
 		}
 	case <-time.After(activityTagThrottle + 500*time.Millisecond):
 		t.Fatal("flush message did not arrive within the throttle window")
@@ -82,7 +82,7 @@ func TestActivityTagFlush_UpdateWritesOneBatch(t *testing.T) {
 
 	m.markActivityTagForFlush("amux-sess-a")
 	m.markActivityTagForFlush("amux-sess-b")
-	m.Update(activityTagFlushDue{})
+	m.Update(ActivityTagFlushDue{})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {

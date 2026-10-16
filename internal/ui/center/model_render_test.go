@@ -412,3 +412,23 @@ func TestTabBarSanitizesTabNames(t *testing.T) {
 		t.Fatalf("expected 1 tab hit region, got %d", tabHitCount)
 	}
 }
+
+// helpLineCount is terminalMetrics' cheap wrap count — it must agree with
+// len(helpLines) at every width or the reserved height is wrong. The parity
+// invariant is what makes skipping the styled renders safe.
+func TestHelpLineCountMatchesRenderedWrap(t *testing.T) {
+	m, _ := setupSelectionModel(t)
+	for _, width := range []int{1, 20, 40, 63, 80, 100, 160, 400} {
+		if got, want := m.helpLineCount(width), len(m.helpLines(width)); got != want {
+			t.Fatalf("width=%d: helpLineCount = %d, len(helpLines) = %d", width, got, want)
+		}
+	}
+	// No workspace and no tabs → zero items → the single empty line, same
+	// as the rendered wrap of an empty list.
+	empty := New(m.config)
+	for _, width := range []int{1, 80, 400} {
+		if got, want := empty.helpLineCount(width), len(empty.helpLines(width)); got != want {
+			t.Fatalf("empty width=%d: helpLineCount = %d, len(helpLines) = %d", width, got, want)
+		}
+	}
+}

@@ -300,3 +300,30 @@ func TestPortAllocator_DurableLookupNeverAllocates(t *testing.T) {
 		t.Fatalf("Lookup(unsaved) = found %v err %v, want false/nil", found, err)
 	}
 }
+
+// TestPortAllocator_LookupWorkspaceIntervalTrueEnd pins the mirror contract:
+// a stored interval wider than the CURRENT rangeSize (minted under an older
+// config) must report its true end, not base+rangeSize-1.
+func TestPortAllocator_LookupWorkspaceIntervalTrueEnd(t *testing.T) {
+	home := t.TempDir()
+	p := durableAllocator(t, home, 6200, 10)
+	ws := &data.Workspace{Name: "w", Repo: t.TempDir(), Root: t.TempDir()}
+
+	if _, _, err := p.ReserveWorkspace(ws); err != nil {
+		t.Fatalf("ReserveWorkspace: %v", err)
+	}
+	// Simulate a registry record minted under a wider historical width that
+	// the current (narrower) rangeSize would misreport.
+	p.mu.Lock()
+	p.allocated[ws.Root] = portRange{start: 6200, end: 6219}
+	p.rangeSize = 5
+	p.mu.Unlock()
+
+	base, end, found, err := p.LookupWorkspaceInterval(ws)
+	if err != nil || !found {
+		t.Fatalf("LookupWorkspaceInterval = (%d,%d,%v,%v), want found", base, end, found, err)
+	}
+	if base != 6200 || end != 6219 {
+		t.Fatalf("interval = %d-%d, want the stored 6200-6219 not a recomputed end", base, end)
+	}
+}

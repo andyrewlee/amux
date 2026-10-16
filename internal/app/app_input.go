@@ -56,6 +56,7 @@ func (a *App) Update(msg tea.Msg) (model tea.Model, cmd tea.Cmd) {
 func frameInvalidatedBy(msg tea.Msg) bool {
 	switch msg.(type) {
 	case center.PTYOutput, center.PTYFlush, center.PTYCursorRefresh,
+		center.ActivityTagFlushDue,
 		messages.SidebarPTYOutput, messages.SidebarPTYFlush:
 		return false
 	default:
