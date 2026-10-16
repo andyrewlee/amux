@@ -96,6 +96,7 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/app` | Bubble Tea root: message pump, orchestration, layout, tmux-activity leader lease | `app_core.go`, `app_init.go` |
 | `internal/app/activity` | Agent-activity detection logic and per-session lease state | `logic.go`, `types.go` |
 | `internal/app/workspacesvc` | Workspace service: create/delete/shelve workspaces, project load/prune, persistence + script state, path helpers. App-specific seams (mutation-in-flight checks, tmux cleanup) arrive via `Deps` callbacks — no import back into `internal/app` | `workspace_service.go`, `services.go` |
+| `internal/app/bulkops` | Sequential bulk-operation driver: a marked set of workspaces drained one at a time through the per-row lifecycle op, completion-matched, batch summary at drain. App supplies its whole surface through `Seams` | `driver.go` |
 | `internal/ui/center` | Center pane: agent tab strip, per-tab PTY I/O, diff viewer, selection | `model.go`, `tab_actor.go` |
 | `internal/ui/sidebar` | Sidebar pane: workspace file tree + embedded tmux terminal | `terminal.go` |
 | `internal/ui/dashboard` | Dashboard pane: project/workspace tree and toolbar | `model.go` |

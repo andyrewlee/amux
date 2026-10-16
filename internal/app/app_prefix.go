@@ -162,7 +162,7 @@ func (a *App) prefixCommands() []prefixCommand {
 		for i := range commands {
 			if len(commands[i].Sequence) == 1 && commands[i].Sequence[0] == "d" {
 				commands[i].Desc = "scroll down"
-				commands[i].Action = "scroll_down"
+				commands[i].Action = prefixActionScrollDown
 				break
 			}
 		}

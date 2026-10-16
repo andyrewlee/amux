@@ -63,10 +63,13 @@ For style-only cleanup, run:
 make fmt
 ```
 
-Before opening larger PRs, also run strict ratcheted lint on changed code:
+Before opening larger PRs, also run strict ratcheted lint on changed code
+(adds the funlen/gocyclo/nestif complexity ratchet on top of the strict
+profile):
 
 ```bash
-make lint-strict-new
+make lint-strict-new                     # unstaged/staged changes
+make lint-strict-new BASE=origin/main    # everything since a base rev
 ```
 
 Pull requests are gated by the local gates above plus the git hooks — nothing runs server-side. For local confidence before opening a PR:

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"syscall"
@@ -30,7 +32,32 @@ var (
 	date    = "unknown"
 )
 
+// releaseModuleVersion matches only a clean module release tag — what `go
+// install module@latest` records in build info. Pseudo-versions
+// (vX.Y.Z-0.yyyymmddhhmmss-shorthash, "+dirty") and "(devel)" — what a plain
+// `go build` inside the repo produces — must stay "dev" so local builds keep
+// the debug surface and updater exclusion.
+var releaseModuleVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
+// effectiveVersion resolves the version every consumer sees. Release builds
+// stamp `version` via ldflags; `go install module@latest` leaves the "dev"
+// default but records the real module version in the binary's build info —
+// recover it so those builds can self-update and skip the dev-only debug
+// surface (signalDebugEnabled keys off "dev").
+func effectiveVersion(stamp string) string {
+	if stamp != "" && stamp != "dev" {
+		return stamp
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info != nil {
+		if v := info.Main.Version; releaseModuleVersion.MatchString(v) {
+			return v
+		}
+	}
+	return "dev"
+}
+
 func main() {
+	version = effectiveVersion(version)
 	args := os.Args[1:]
 
 	// Private pane-launch bootstrap: the same executable consumes or discards

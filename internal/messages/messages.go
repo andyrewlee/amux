@@ -211,9 +211,6 @@ type SidebarPTYRestart struct {
 	Gen         uint64
 }
 
-// ToggleKeymapHints toggles display of keymap helper text
-type ToggleKeymapHints struct{}
-
 // RefreshDashboard requests a dashboard refresh
 type RefreshDashboard struct{}
 

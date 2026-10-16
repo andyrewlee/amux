@@ -143,7 +143,6 @@ var rearmChainClassification = []struct {
 	// updateDialogShowMsg (app_input_dispatch.go)
 	{"messages.ShowWelcome", zeroMsg[messages.ShowWelcome](), false},
 	{"messages.ShowCommandsPalette", zeroMsg[messages.ShowCommandsPalette](), false},
-	{"messages.ToggleKeymapHints", zeroMsg[messages.ToggleKeymapHints](), false},
 	{"messages.ShowQuitDialog", zeroMsg[messages.ShowQuitDialog](), false},
 	{"messages.ShowAddProjectDialog", zeroMsg[messages.ShowAddProjectDialog](), false},
 	{"messages.ShowCreateWorkspaceDialog", zeroMsg[messages.ShowCreateWorkspaceDialog](), false},

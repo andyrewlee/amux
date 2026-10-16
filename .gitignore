@@ -5,6 +5,10 @@
 .gemini-clipboard/
 /.cache/
 
+# plans/ is the local-only audit ledger — never committed, but must not trip
+# release-tag's clean-tree check.
+/plans/
+
 # feature-audit generated outputs — regenerate via build_audit.py; committing
 # them guarantees staleness (they self-date to the generating commit).
 feature-audit/FEATURES.csv

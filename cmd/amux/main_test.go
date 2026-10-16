@@ -145,3 +145,27 @@ func TestSignalDebugEnabled(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// TestEffectiveVersion pins the stamp-vs-buildinfo contract: a linker-stamped
+// version wins verbatim; "dev" and empty stamps consult build info — and only
+// a clean module release tag (what `go install @latest` records) is promoted,
+// never a repo-build pseudo-version or "(devel)".
+func TestEffectiveVersion(t *testing.T) {
+	if got := effectiveVersion("v1.2.3"); got != "v1.2.3" {
+		t.Fatalf("effectiveVersion(stamped) = %q, want the stamp verbatim", got)
+	}
+	for _, stamp := range []string{"dev", ""} {
+		if got := effectiveVersion(stamp); got == "" {
+			t.Fatalf("effectiveVersion(%q) = empty; build-info fallback must never blank the version", stamp)
+		}
+	}
+
+	if !releaseModuleVersion.MatchString("v1.2.3") {
+		t.Fatal("release tag v1.2.3 must match")
+	}
+	for _, v := range []string{"(devel)", "v0.0.21-0.20261016205844-7fea7ff9c286", "v1.2.3+dirty", "v1.2.3-rc.1", "dev"} {
+		if releaseModuleVersion.MatchString(v) {
+			t.Fatalf("releaseModuleVersion matched %q — pseudo/dev versions must stay dev", v)
+		}
+	}
+}
