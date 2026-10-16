@@ -358,3 +358,40 @@ func TestRunScriptAttachTarget_BatchedStatusQuery(t *testing.T) {
 		t.Fatalf("attach target = (%q,%v), want the alive %s-2", name, ok, base)
 	}
 }
+
+// TestRunSessionsHosted_LastExitIsNewestDead pins the "most recent dead
+// session's exit code" contract: find order is lexical (run-10 sorts before
+// run-2), so the newest dead session — not the last in order — wins.
+func TestRunSessionsHosted_LastExitIsNewestDead(t *testing.T) {
+	runner := NewScriptRunner(6200, 10)
+	host := &batchRunSessionHost{fakeRunSessionHost: newFakeRunSessionHost()}
+	runner.SetRunHost(host)
+	ws := newHostedWorkspace(t, "concurrent")
+	wsID := string(ws.MetadataID())
+	base := "amux-ws-" + wsID + "-run"
+
+	// Lexical order is run-10 < run-2; creation order is the opposite.
+	host.sessions[base+"-10"] = &fakeRunSession{
+		alive:    false,
+		exitCode: 1,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 100},
+	}
+	host.sessions[base+"-2"] = &fakeRunSession{
+		alive:    false,
+		exitCode: 2,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 200},
+	}
+	host.sessions[base+"-3"] = &fakeRunSession{
+		alive:    true,
+		exitCode: -1,
+		meta:     RunSessionMeta{WorkspaceID: wsID, CreatedAt: 300},
+	}
+
+	_, anyAlive, lastExit := runner.runSessionsHosted(ws)
+	if !anyAlive {
+		t.Fatal("live run-3 not reported")
+	}
+	if lastExit != 2 {
+		t.Fatalf("lastExit = %d, want 2 (the newest dead session run-2, not run-10's 1)", lastExit)
+	}
+}

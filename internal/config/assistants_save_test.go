@@ -46,11 +46,14 @@ func TestSaveAssistantsWritesCommand(t *testing.T) {
 	if claude["command"] != "claude --resume" {
 		t.Errorf("assistants.claude.command = %#v, want %q", claude["command"], "claude --resume")
 	}
-	if got, ok := claude["interrupt_count"].(float64); !ok || got != 2 {
-		t.Errorf("assistants.claude.interrupt_count = %#v, want 2", claude["interrupt_count"])
+	// count 2 and delay 200 match the built-in claude profile — the saver
+	// omits them so a future built-in revision still reaches this config
+	// (absent means inherit on the next load).
+	if _, present := claude["interrupt_count"]; present {
+		t.Errorf("assistants.claude.interrupt_count = %#v, want omitted (matches built-in)", claude["interrupt_count"])
 	}
-	if got, ok := claude["interrupt_delay_ms"].(float64); !ok || got != 200 {
-		t.Errorf("assistants.claude.interrupt_delay_ms = %#v, want 200", claude["interrupt_delay_ms"])
+	if _, present := claude["interrupt_delay_ms"]; present {
+		t.Errorf("assistants.claude.interrupt_delay_ms = %#v, want omitted (matches built-in)", claude["interrupt_delay_ms"])
 	}
 
 	mytool, ok := section["mytool"].(map[string]any)
@@ -347,4 +350,51 @@ func TestConfigSaveAssistants(t *testing.T) {
 			t.Fatal("SaveAssistants() error = nil, want non-nil")
 		}
 	})
+}
+
+// TestSaveAssistantsOmitsBuiltInDefaults pins the inherit contract: an
+// assistant whose resolved config equals the built-in profile writes NO file
+// entry, so a later built-in revision (a different default delay, say)
+// reaches every config that never customized it.
+func TestSaveAssistantsOmitsBuiltInDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	builtin := defaultAssistants()["claude"]
+
+	if err := saveAssistants(path, map[string]AssistantConfig{"claude": builtin}); err != nil {
+		t.Fatalf("saveAssistants() error = %v", err)
+	}
+
+	section := readAssistantsSection(t, path)
+	if _, present := section["claude"]; present {
+		t.Fatalf("assistants.claude = %#v, want omitted entirely (resolved-equal to built-in)", section["claude"])
+	}
+
+	// Round-trip: absent entry resolves straight to the built-in profile.
+	file, err := readConfigFile(path)
+	if err != nil {
+		t.Fatalf("readConfigFile() error = %v", err)
+	}
+	got := defaultAssistants()
+	applyAssistantOverrides(got, file.Assistants)
+	if got["claude"] != builtin {
+		t.Fatalf("reloaded claude = %+v, want built-in %+v", got["claude"], builtin)
+	}
+
+	// And a single-field customization persists only that field.
+	custom := builtin
+	custom.InterruptDelayMs = 0
+	if err := saveAssistants(path, map[string]AssistantConfig{"claude": custom}); err != nil {
+		t.Fatalf("saveAssistants(custom) error = %v", err)
+	}
+	section = readAssistantsSection(t, path)
+	entry, ok := section["claude"].(map[string]any)
+	if !ok {
+		t.Fatalf("assistants.claude missing after customization, got %#v", section["claude"])
+	}
+	if _, present := entry["command"]; present {
+		t.Errorf("command written despite matching built-in: %#v", entry["command"])
+	}
+	if got, ok := entry["interrupt_delay_ms"].(float64); !ok || got != 0 {
+		t.Errorf("interrupt_delay_ms = %#v, want explicit 0 (differs from built-in)", entry["interrupt_delay_ms"])
+	}
 }

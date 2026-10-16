@@ -371,8 +371,7 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 		// ticket, and the just-spawned child is killed and reaped here so it
 		// never outlives the teardown gate.
 		if !r.lifecycle.registerCmd(key, ticket, cmd) {
-			_ = KillProcessGroup(cmd.Process.Pid, KillOptions{})
-			_ = cmd.Wait()
+			r.reapAfterKill(cmd)
 			err := ticket.ctx.Err()
 			if err == nil {
 				err = ErrWorkspaceTeardown

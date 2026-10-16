@@ -68,8 +68,11 @@ func (r *ScriptRunner) recordScriptOutput(ws *data.Workspace, scriptType ScriptT
 	if runErr != nil {
 		entry.Err = runErr.Error()
 	}
+	// scriptOutputKey resolves symlinks — compute it outside r.mu so a
+	// stalled resolution can't extend the lock's hold.
+	key := scriptOutputKey(ws, scriptType)
 	r.mu.Lock()
-	r.lastOutput[scriptOutputKey(ws, scriptType)] = entry
+	r.lastOutput[key] = entry
 	r.mu.Unlock()
 	// Write-through outside r.mu: the fs write must not extend its hold time,
 	// and its own errors degrade to warnings inside.
@@ -103,9 +106,15 @@ func (r *ScriptRunner) LastScriptOutputs(ws *data.Workspace) map[ScriptType]Scri
 		if hook := r.transcriptLoadHook; hook != nil {
 			hook()
 		}
+		// scriptOutputKey resolves symlinks — precompute per-type keys
+		// outside r.mu, matching the prefix hoist above.
+		keys := make(map[ScriptType]string, len(disk))
+		for st := range disk {
+			keys[st] = scriptOutputKey(ws, st)
+		}
 		r.mu.Lock()
 		for st, entry := range disk {
-			key := scriptOutputKey(ws, st)
+			key := keys[st]
 			cur, have := r.lastOutput[key]
 			if !have || cur.FinishedAt.Before(entry.FinishedAt) {
 				r.lastOutput[key] = entry
@@ -137,6 +146,9 @@ func (r *ScriptRunner) ForgetWorkspace(ws *data.Workspace) {
 		return
 	}
 	key := scriptWorkspaceKey(ws)
+	// Identity-set resolution does filesystem work — hoist it out of r.mu,
+	// same convention as the key above.
+	ids := data.WorkspaceIdentitySet(ws)
 	var releaseRoot string
 	r.mu.Lock()
 	prefix := key + "|"
@@ -145,7 +157,7 @@ func (r *ScriptRunner) ForgetWorkspace(ws *data.Workspace) {
 			delete(r.lastOutput, k)
 		}
 	}
-	for _, id := range data.WorkspaceIdentitySet(ws) {
+	for _, id := range ids {
 		delete(r.runSessionsSeen, string(id))
 		delete(r.runSessionsSwept, string(id))
 	}
