@@ -87,6 +87,12 @@ func unregisterWorktreeAdminDirWithContext(ctx context.Context, repoPath, worksp
 	if !isSafeWorktreeAdminCleanupPath(commonGitDir, adminDir) {
 		return fmt.Errorf("refusing to remove unsafe worktree admin dir: %s", adminDir)
 	}
+	// The safety check above resolved symlinks for comparison only —
+	// re-verify the live components before the recursive delete so a
+	// `worktrees` swapped for a symlink cannot redirect the removal.
+	if err := lstatNoSymlinkComponents(commonGitDir, adminDir); err != nil {
+		return err
+	}
 	return ops.removeWorkspacePathCtx(ctx, adminDir)
 }
 

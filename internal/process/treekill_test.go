@@ -256,3 +256,50 @@ func TestSetProcessGroup_PreserveExisting(t *testing.T) {
 		t.Error("existing Credential should be preserved")
 	}
 }
+
+func TestForceKillProcess_KillsLiveGroup(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "trap '' TERM; sleep 60")
+	SetProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+	pid := cmd.Process.Pid
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatalf("Getpgid: %v", err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+
+	testutil.Eventually(t, 2*time.Second, 5*time.Millisecond, func() bool {
+		return pgidEstablished(pid)
+	}, "process group for %d never established", pid)
+
+	if err := ForceKillProcess(pid); err != nil {
+		if err == syscall.EPERM {
+			t.Skip("signal permissions restricted in this environment")
+		}
+		t.Fatalf("ForceKillProcess: %v", err)
+	}
+	_ = cmd.Wait()
+
+	testutil.Eventually(t, 2*time.Second, 10*time.Millisecond, func() bool {
+		return syscall.Kill(-pgid, 0) == syscall.ESRCH
+	}, "process group survived ForceKillProcess")
+}
+
+// TestForceKillProcess_ReapedLeaderSkipsGroupKill pins the PID-recycle guard:
+// once the leader is reaped its pid is free and the pgid may name an
+// unrelated group — the probe must skip the kill instead of signaling it.
+func TestForceKillProcess_ReapedLeaderSkipsGroupKill(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 0")
+	SetProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Wait() // reaped: pid freed, pgid recyclable
+
+	if err := ForceKillProcess(pid); err != nil {
+		t.Fatalf("ForceKillProcess on reaped leader = %v, want nil (skip)", err)
+	}
+}

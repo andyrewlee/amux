@@ -136,6 +136,31 @@ func isGitContextError(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
+// lstatNoSymlinkComponents re-verifies the exact path handed to rm -rf:
+// every component between root (exclusive — the trusted boundary) and target
+// (inclusive) must still exist and must not be a symlink. The earlier path
+// safety checks resolve symlinks for *comparison* only; between that check
+// and the recursive delete an attacker can swap an intermediate component
+// for a symlink and redirect the removal outside the managed tree.
+func lstatNoSymlinkComponents(root, target string) error {
+	rel, inside := data.PathWithin(root, target)
+	if !inside || rel == "." {
+		return fmt.Errorf("refusing to remove %s: not strictly under %s", target, root)
+	}
+	current := filepath.Clean(root)
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return fmt.Errorf("refusing to remove %s: component %s: %w", target, current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to remove %s: component %s is a symlink", target, current)
+		}
+	}
+	return nil
+}
+
 func removeWorkspacePathWithContext(ctx context.Context, workspacePath string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -145,6 +170,19 @@ func removeWorkspacePathWithContext(ctx context.Context, workspacePath string) e
 			return nil
 		}
 		return err
+	}
+	// Re-verify immediately before the recursive delete: a target nested
+	// under the managed workspaces root must still be composed of real
+	// directories — an intermediate swapped into a symlink would redirect
+	// the removal. Targets outside the managed root (worktree admin dirs)
+	// are checked by their callers, which know the trusted boundary.
+	for _, alias := range managedWorkspacesRootAliases() {
+		if _, inside := pathWithinManagedRoot(alias, workspacePath); inside {
+			if err := lstatNoSymlinkComponents(alias, workspacePath); err != nil {
+				return err
+			}
+			break
+		}
 	}
 
 	cmd := buildRemoveWorkspaceCommand(ctx, workspacePath)

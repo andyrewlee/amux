@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
@@ -40,12 +41,24 @@ func ptyTraceAllowed(assistant string) bool {
 	return false
 }
 
-func ptyTraceDir() string {
-	logPath := logging.GetLogPath()
-	if logPath != "" {
-		return filepath.Dir(logPath)
+// ptyTraceDir resolves the trace directory. The log dir is preferred; with no
+// logger the fallback is a private dir under the amux home — never a shared
+// temp dir, since trace bytes include keystrokes and a predictable name in
+// os.TempDir would be world-readable on multi-user hosts. An error disables
+// tracing for the tab rather than writing somewhere unsafe.
+func ptyTraceDir() (string, error) {
+	if logPath := logging.GetLogPath(); logPath != "" {
+		return filepath.Dir(logPath), nil
 	}
-	return os.TempDir()
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(paths.Home, "pty-traces")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // ptyTraceFileName builds the trace filename for an assistant. The assistant
@@ -103,7 +116,12 @@ func (m *Model) tracePTY(tab *Tab, direction string, data []byte) {
 	}
 
 	if tab.ptyTraceFile == nil {
-		dir := ptyTraceDir()
+		dir, err := ptyTraceDir()
+		if err != nil {
+			logging.Warn("PTY trace dir unavailable, tracing disabled: %v", err)
+			tab.ptyTraceClosed = true
+			return
+		}
 		name := ptyTraceFileName(tab.Assistant, string(tab.ID), time.Now().Format("20060102-150405"))
 		path := filepath.Join(dir, name)
 		file, err := openPTYTraceFile(dir, name)
