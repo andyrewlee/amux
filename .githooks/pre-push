@@ -84,8 +84,7 @@ if [[ -n "${AMUX_SKIP_TESTS:-}" ]]; then
 else
   # The non-tmux unit sweep — e2e above only covers the e2e package, so
   # without this leg a unit regression could reach main unexecuted. Same
-  # package source as `make test` (scripts/test_pkgs.sh --exclude-app):
-  # real-tmux packages are deferred to tmux-skip-check/test-race-tmux.
+  # package source as `make test` (scripts/test_pkgs.sh --exclude-app).
   echo "amux pre-push: running unit-test sweep (non-tmux packages)..."
   # bash 3.2-compatible accumulation (no mapfile) — package paths contain
   # no spaces, so word-splitting $test_packages is the intended expansion.
@@ -98,4 +97,12 @@ else
     exit 1
   fi
   go test -count=1 $test_packages
+
+  # The --exclude-app sweep drops internal/app, internal/pty,
+  # internal/ui/sidebar, and internal/tmux — without this leg those suites
+  # never execute on push at all. tmux-dependent tests self-skip cleanly
+  # without a server (same discipline as the e2e leg); skip-detection is
+  # tmux-skip-check's job, run via `make devcheck`/`make test`.
+  echo "amux pre-push: running excluded package tests (app + pty + sidebar + tmux)..."
+  go test -count=1 ./internal/app ./internal/pty ./internal/ui/sidebar/... ./internal/tmux
 fi
