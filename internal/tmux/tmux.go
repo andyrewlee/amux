@@ -162,6 +162,30 @@ func SessionName(parts ...string) string {
 	return strings.Join(cleaned, "-")
 }
 
+// ValidSessionName reports whether a name is safe for tmux session
+// targeting — exactly the alphabet SessionName produces: [a-z0-9_-].
+// Stored metadata is untrusted (hand-edited or corrupt files reach the
+// restore path), so anything outside this set is rejected before it can
+// smuggle tmux target syntax — `:`/`.` session/window/pane splits,
+// `%/$/#/@` id forms, or control bytes — into has-session and send-keys
+// arguments.
+func ValidSessionName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= '0' && ch <= '9':
+		case ch == '-' || ch == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func SessionStateFor(sessionName string, opts Options) (SessionState, error) {
 	if sessionName == "" {
 		return SessionState{}, nil

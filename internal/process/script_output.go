@@ -122,26 +122,47 @@ func (r *ScriptRunner) LastScriptOutputs(ws *data.Workspace) map[ScriptType]Scri
 
 // ForgetWorkspace drops every retained record keyed to the workspace:
 // lastOutput transcripts (the in-memory copies — disk transcripts are the
-// metadata store's lifecycle, swept with it) and the runSessionsSeen/Swept
-// identity forms. Called from the confirmed-delete path so a lifetime of
-// deleted workspaces cannot grow these maps without bound. Safe on a nil or
-// already-pruned workspace — deletion is idempotent.
+// metadata store's lifecycle, swept with it), the runSessionsSeen/Swept
+// identity forms, a parked pendingRelease entry, and a quiescent
+// lifecycle-coordinator state. Called from the confirmed-delete path so a
+// lifetime of deleted workspaces cannot grow these maps without bound.
+// Safe on a nil or already-pruned workspace — deletion is idempotent.
+//
+// Key agreement: pendingRelease, runSessionsSeen/Swept, and the
+// coordinator's states are all keyed by scriptWorkspaceKey (identity sets
+// for the run-session maps). If that keying ever changes, this function
+// must change with it.
 func (r *ScriptRunner) ForgetWorkspace(ws *data.Workspace) {
 	if r == nil || ws == nil {
 		return
 	}
+	key := scriptWorkspaceKey(ws)
+	var releaseRoot string
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	prefix := scriptWorkspaceKey(ws) + "|"
-	for key := range r.lastOutput {
-		if strings.HasPrefix(key, prefix) {
-			delete(r.lastOutput, key)
+	prefix := key + "|"
+	for k := range r.lastOutput {
+		if strings.HasPrefix(k, prefix) {
+			delete(r.lastOutput, k)
 		}
 	}
 	for _, id := range data.WorkspaceIdentitySet(ws) {
 		delete(r.runSessionsSeen, string(id))
 		delete(r.runSessionsSwept, string(id))
 	}
+	// A parked nil-running release is dropped here — the sweep that would
+	// drain it only runs inside IsRunning, which a deleted workspace never
+	// reaches again; its port must still be returned. A pending release
+	// pinned to a live running entry stays: the finish path drains it, and
+	// deleting now would strand the reservation.
+	if pending, ok := r.pendingRelease[key]; ok && pending.running == nil {
+		delete(r.pendingRelease, key)
+		releaseRoot = pending.root
+	}
+	r.mu.Unlock()
+	if releaseRoot != "" && r.portAllocator != nil {
+		r.portAllocator.ReleasePort(releaseRoot)
+	}
+	r.lifecycle.forget(key)
 }
 
 // missingScriptTypes lists the lifecycle types absent from the set — the

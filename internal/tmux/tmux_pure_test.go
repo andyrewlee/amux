@@ -283,3 +283,43 @@ func TestSetGlobalOptionValues_EmptyInput(t *testing.T) {
 		t.Fatalf("expected nil error for empty values, got %v", err)
 	}
 }
+
+// TestValidSessionName pins the trusted alphabet for stored session names:
+// exactly what SessionName produces ([a-z0-9_-]). Anything carrying tmux
+// target syntax or outside that set is rejected before it reaches
+// has-session/send-keys arguments.
+func TestValidSessionName(t *testing.T) {
+	for _, name := range []string{
+		"amux-abc123-deadbeef",
+		"sess_running",
+		"a",
+		"0-0-0",
+	} {
+		if !ValidSessionName(name) {
+			t.Errorf("ValidSessionName(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{
+		"",            // empty
+		"a:b",         // session:window split
+		"a.b",         // window.pane split
+		"a b",         // whitespace
+		"%3",          // pane-id form
+		"$other",      // session-id form
+		"@7",          // window-id form
+		"#idx",        // index form
+		"UPPER",       // sanitize lowercases — minted names never carry it
+		"a\tb",        // control byte
+		"sess\x00nul", // NUL
+		"sess-名",      // non-ASCII
+	} {
+		if ValidSessionName(name) {
+			t.Errorf("ValidSessionName(%q) = true, want false", name)
+		}
+	}
+	// Every minted name must validate — a mismatch would break restore on
+	// legitimate metadata.
+	if minted := SessionName("amux", "AbC1", "tab_2"); !ValidSessionName(minted) {
+		t.Fatalf("minted name %q fails ValidSessionName", minted)
+	}
+}

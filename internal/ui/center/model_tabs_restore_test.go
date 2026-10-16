@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/tmux"
 )
 
 func TestAddDetachedTab_SetsLastFocusedFromCreatedAt(t *testing.T) {
@@ -115,5 +116,28 @@ func TestAutoReattachActiveTabOnSelection_SkipsRestoreInFlightPlaceholder(t *tes
 
 	if cmd := m.autoReattachActiveTabOnSelection(); cmd != nil {
 		t.Fatalf("expected auto reattach to skip while restore reattach is in flight")
+	}
+}
+
+// TestAddPlaceholderTab_RejectsHostileStoredSessionName: a corrupt or
+// hand-edited SessionName carrying tmux target syntax must not be used as a
+// tmux target — the tab falls back to a minted name, leaving the stored
+// session untouched.
+func TestAddPlaceholderTab_RejectsHostileStoredSessionName(t *testing.T) {
+	m := newTestModel()
+	ws := newTestWorkspace("ws", "/repo/ws")
+
+	for _, hostile := range []string{"a:b", "a.b", "a b", "%1", "$other", "sess\nname"} {
+		_, sessionName, _ := m.addPlaceholderTab(ws, data.TabInfo{
+			Assistant:   "claude",
+			Name:        "Claude",
+			SessionName: hostile,
+		})
+		if sessionName == hostile {
+			t.Fatalf("hostile stored SessionName %q used verbatim", hostile)
+		}
+		if !tmux.ValidSessionName(sessionName) {
+			t.Fatalf("fallback name %q is not a valid session name", sessionName)
+		}
 	}
 }

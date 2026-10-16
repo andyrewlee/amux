@@ -29,7 +29,7 @@ func (s *Service) reconcileWorkspaceMetadata(registeredRepos []string) {
 		Now:               time.Now(),
 		OrphanGracePeriod: metadataOrphanGracePeriod,
 		ArchivedRetention: archivedMetadataRetention,
-		BeforeMissingRootRemove: func(cleanup data.WorkspacePruneCleanup) error {
+		BeforeWorkspaceMetadataRemove: func(cleanup data.WorkspacePruneCleanup) error {
 			var errs []error
 			for _, id := range cleanup.WorkspaceIDs {
 				errs = append(errs, s.killWorkspaceSessionsForDelete(string(id)))
