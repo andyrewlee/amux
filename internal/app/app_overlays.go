@@ -73,6 +73,11 @@ type overlayState struct {
 	// `U` typed-confirm revoke intercept is armed. False for every other
 	// flavor and whenever nothing is recorded to revoke.
 	runOutputUntrustable bool
+	// runOutputLifecycle marks the script-transcript flavor (`O`): its
+	// refresh tick composes recorded lifecycle transcripts plus the live
+	// setup tail instead of a run-session capture. Set at open time on every
+	// flavor so a dialog replacing a live one never inherits the branch.
+	runOutputLifecycle bool
 }
 
 // overlayInputSlot feeds one message into a bespoke overlay and reports

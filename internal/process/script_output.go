@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -18,13 +19,18 @@ const scriptOutputTailBytes = 64 << 10
 // Setup/archive/on-done attach it as both Stdout and Stderr — os/exec
 // dedupes an identical writer into one copy goroutine (the CombinedOutput
 // contract), so a single buffer is safe and preserves real output order.
+// The mutex exists for LiveSetupOutput: an in-flight setup's tail is read
+// by the viewer while the copier goroutine is still writing it.
 type tailWriter struct {
+	mu      sync.Mutex
 	buf     []byte
 	max     int
 	dropped int
 }
 
 func (w *tailWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.buf = append(w.buf, p...)
 	if len(w.buf) > w.max {
 		excess := len(w.buf) - w.max
@@ -38,6 +44,8 @@ func (w *tailWriter) Write(p []byte) (int, error) {
 // String renders the tail with a truncation note when earlier output was
 // dropped — callers fold this verbatim into errors and the output dialog.
 func (w *tailWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.dropped > 0 {
 		return fmt.Sprintf("[... %d bytes of earlier output dropped ...]\n%s", w.dropped, w.buf)
 	}
@@ -129,6 +137,25 @@ func (r *ScriptRunner) LastScriptOutputs(ws *data.Workspace) map[ScriptType]Scri
 	return out
 }
 
+// LiveSetupOutput returns the in-flight setup's captured tail — text so far,
+// and whether a setup sequence is still running for the workspace. The
+// script-output viewer polls it to render a live "setup (running)" section;
+// ("", false) means no setup is in flight and the recorded transcript in
+// LastScriptOutputs is the freshest state.
+func (r *ScriptRunner) LiveSetupOutput(ws *data.Workspace) (string, bool) {
+	if ws == nil {
+		return "", false
+	}
+	key := scriptWorkspaceKey(ws)
+	r.mu.Lock()
+	tail := r.liveSetup[key]
+	r.mu.Unlock()
+	if tail == nil {
+		return "", false
+	}
+	return tail.String(), true
+}
+
 // ForgetWorkspace drops every retained record keyed to the workspace:
 // lastOutput transcripts (the in-memory copies — disk transcripts are the
 // metadata store's lifecycle, swept with it), the runSessionsSeen/Swept
@@ -157,6 +184,9 @@ func (r *ScriptRunner) ForgetWorkspace(ws *data.Workspace) {
 			delete(r.lastOutput, k)
 		}
 	}
+	// An in-flight setup's own defer unregisters its tail; clearing here too
+	// keeps a forgotten workspace from serving a live view it no longer owns.
+	delete(r.liveSetup, key)
 	for _, id := range ids {
 		delete(r.runSessionsSeen, string(id))
 		delete(r.runSessionsSwept, string(id))

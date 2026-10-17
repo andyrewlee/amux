@@ -181,38 +181,68 @@ func (a *App) handleRunScriptStatusResult(msg messages.RunScriptStatusResult) te
 }
 
 // handleShowScriptOutput opens the read-only viewer with the workspace's
-// recorded lifecycle-script transcripts — the last setup, archive, and
-// on-done run, each bounded by the runner's tail buffer. Unlike the run
-// viewer the content is static (the scripts already finished), so no
-// refresh tick is armed.
+// lifecycle-script output — the last setup, archive, and on-done
+// transcripts, each bounded by the runner's tail buffer. While a setup is
+// in-flight the viewer also shows that run's live tail and refreshes on
+// runOutputTickInterval — the setup script's long silent stretch is exactly
+// the case the recorded-transcript view renders like a hang. Once the setup
+// finishes the loop lands the recorded transcript and disarms, so an idle
+// viewer stays static as before.
 func (a *App) handleShowScriptOutput(msg messages.ShowScriptOutput) tea.Cmd {
 	if msg.Workspace == nil || a.workspaceService == nil {
 		return nil
 	}
-	content := composeScriptOutputView(a.workspaceService.LastScriptOutputs(msg.Workspace))
+	liveText, live := a.workspaceService.LiveSetupOutput(msg.Workspace)
+	content := composeScriptOutputView(a.workspaceService.LastScriptOutputs(msg.Workspace), liveText, live)
 	if content == "" {
 		return a.toast.ShowInfo("No lifecycle script output for " + msg.Workspace.Name)
 	}
 	a.presentWorkspaceOverlay(msg.Workspace, func(ws *data.Workspace) {
 		a.overlays.runOutputWorkspace = ws
+		a.overlays.runOutputSession = ""
 		a.overlays.runOutputAttachable = false
 		a.overlays.runOutputReleaseCount = 0
 		a.overlays.runOutputUntrustable = false
+		a.overlays.runOutputLifecycle = true
 		a.overlays.runOutputToken++
 		a.overlays.runOutput = common.NewOutputDialog("Script output — "+ws.Name, content)
 		a.overlays.runOutput.SetSearchable(true)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()
+		if live {
+			// Arm the refresh at present time, matching the run viewer's
+			// deferred-open contract: a tick scheduled at request time could
+			// fire on a viewer that doesn't exist yet, drop, and never
+			// recover. drainPendingOverlayOpens returns this cmd for Update
+			// to batch (also covers the synchronous fast path).
+			a.drainedOverlayCmds = append(a.drainedOverlayCmds,
+				a.scheduleRunOutputTick(a.overlays.runOutputToken))
+		}
 	})
 	return nil
 }
 
-// composeScriptOutputView renders the recorded lifecycle transcripts as one
+// composeScriptOutputView renders the lifecycle transcripts as one
 // scrollable document: a section per script type in lifecycle order, each
-// headed by its outcome and finish time.
-func composeScriptOutputView(outputs map[process.ScriptType]process.ScriptOutput) string {
+// headed by its outcome and finish time. While a setup is in-flight
+// (setupLive) its section shows the in-progress tail instead of the last
+// recorded run — the live bytes are fresher and the running sequence has no
+// FinishedAt yet.
+func composeScriptOutputView(outputs map[process.ScriptType]process.ScriptOutput, liveText string, setupLive bool) string {
 	var b strings.Builder
 	for _, st := range []process.ScriptType{process.ScriptSetup, process.ScriptArchive, process.ScriptOnDone} {
+		if st == process.ScriptSetup && setupLive {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString("── setup ── running\n\n")
+			if liveText == "" {
+				b.WriteString("(no output yet)")
+			} else {
+				b.WriteString(liveText)
+			}
+			continue
+		}
 		entry, ok := outputs[st]
 		if !ok {
 			continue

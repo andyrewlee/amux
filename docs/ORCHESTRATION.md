@@ -314,7 +314,10 @@ When a lifecycle script fails, `O` opens its captured output and `/`
 searches it — literal, case-insensitive, retained buffer only — which is
 usually the fastest way to find the error line an orchestrator needs to
 react to. `n`/`N` step between matches. The same search works in `R` for
-run-script output.
+run-script output. `O` also tails a *running* `setup-workspace`: the setup
+section streams the in-flight tail while the sequence runs and settles to
+the recorded transcript when it finishes, so a create/restore's provisioning
+is observable instead of silent.
 
 Path pickers (add project, transcript browser) resolve explicit typed paths
 before row selection: an absolute path, `~`, `~/…`, `./…`, `../…`, or any
