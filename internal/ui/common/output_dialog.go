@@ -133,6 +133,11 @@ func (d *OutputDialog) SetSearchable(on bool) { d.searchable = on }
 // intercepts (`a` attach) and paste fall-through.
 func (d *OutputDialog) Editing() bool { return d.editing }
 
+// Text returns the full retained snapshot — what `y` copy-out places on the
+// clipboard. The dialog itself never copies; the owning overlay slot wires
+// the key so it can toast the outcome.
+func (d *OutputDialog) Text() string { return strings.Join(d.lines, "\n") }
+
 func (d *OutputDialog) Update(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 	if !d.visible {
 		return d, nil
@@ -476,11 +481,11 @@ func (d *OutputDialog) renderFooter(w, capLines int, muted lipgloss.Style) strin
 		if d.following {
 			prefix = accent.Render("[following] ")
 		}
-		return prefix + accent.Render(status) + muted.Render("  n/N next/prev  "+attach+"f follow  esc close")
+		return prefix + accent.Render(status) + muted.Render("  n/N next/prev  "+attach+"y copy  f follow  esc close")
 	}
-	footer := "up/down scroll  " + attach + "f follow  esc close"
+	footer := "up/down scroll  " + attach + "y copy  f follow  esc close"
 	if len(d.lines) > capLines {
-		footer = "up/down scroll  pgup/pgdn page  G bottom  " + attach + "f follow  esc close"
+		footer = "up/down scroll  pgup/pgdn page  G bottom  " + attach + "y copy  f follow  esc close"
 	}
 	if d.searchable {
 		footer = "/ search  " + footer

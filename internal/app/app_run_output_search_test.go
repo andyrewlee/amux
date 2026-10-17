@@ -43,6 +43,72 @@ func searchableRunOutputApp(t *testing.T) *App {
 
 func keyA() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'a', Text: "a"} }
 
+func TestRunOutputCopy_YCopiesFullSnapshot(t *testing.T) {
+	a := searchableRunOutputApp(t)
+	var gotText, gotLabel string
+	a.copyToClipboardFn = func(text, label string) error {
+		gotText, gotLabel = text, label
+		return nil
+	}
+	var cmds []tea.Cmd
+	if !a.handleRunOutputInput(tea.KeyPressMsg{Code: 'y', Text: "y"}, &cmds) {
+		t.Fatal("browse-mode `y` not consumed")
+	}
+	if len(cmds) != 1 {
+		t.Fatalf("`y` enqueued %d cmds, want the copy cmd", len(cmds))
+	}
+	msg := cmds[0]()
+	if gotText != "needle line\nfiller" {
+		t.Fatalf("clipboard got %q, want the full dialog snapshot", gotText)
+	}
+	if gotLabel == "" {
+		t.Fatal("copy ran without a log label")
+	}
+	toastMsg, ok := msg.(messages.Toast)
+	if !ok {
+		t.Fatalf("copy cmd returned %T, want messages.Toast", msg)
+	}
+	if toastMsg.Level != messages.ToastSuccess {
+		t.Fatalf("toast level = %v, want success", toastMsg.Level)
+	}
+	if !strings.Contains(toastMsg.Message, "Copied output") {
+		t.Fatalf("toast %q missing the confirmation", toastMsg.Message)
+	}
+}
+
+func TestRunOutputCopy_YWhileEditingIsQueryText(t *testing.T) {
+	a := searchableRunOutputApp(t)
+	a.copyToClipboardFn = func(text, label string) error {
+		t.Fatalf("copy ran while the query field was editing (captured %q)", text)
+		return nil
+	}
+	var cmds []tea.Cmd
+	a.handleRunOutputInput(tea.KeyPressMsg{Code: '/', Text: "/"}, &cmds)
+	if !a.overlays.runOutput.Editing() {
+		t.Fatal("/ did not enter query-edit mode")
+	}
+	before := len(cmds)
+	a.handleRunOutputInput(tea.KeyPressMsg{Code: 'y', Text: "y"}, &cmds)
+	if len(cmds) != before {
+		t.Fatal("`y` while editing enqueued a cmd — it is query text")
+	}
+	if !strings.Contains(a.overlays.runOutput.View(), "/y") {
+		t.Fatalf("query echo missing the literal 'y':\n%s", a.overlays.runOutput.View())
+	}
+}
+
+func TestRunOutputCopy_EmptyViewerWarns(t *testing.T) {
+	a := searchableRunOutputApp(t)
+	a.overlays.runOutput.SetContent("")
+	var cmds []tea.Cmd
+	if !a.handleRunOutputInput(tea.KeyPressMsg{Code: 'y', Text: "y"}, &cmds) {
+		t.Fatal("`y` on an empty viewer was not consumed")
+	}
+	if !strings.Contains(a.toast.View(), "No output to copy") {
+		t.Fatalf("empty-viewer `y` did not surface the warning toast, got %q", a.toast.View())
+	}
+}
+
 func TestRunOutputSearch_AttachBlockedWhileEditing(t *testing.T) {
 	a := searchableRunOutputApp(t)
 	var cmds []tea.Cmd

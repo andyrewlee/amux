@@ -116,12 +116,22 @@ func (a *App) overlayChain() []overlayInputSlot {
 	}
 }
 
-// handleRunOutputInput is the runOutput overlay slot with one app-level key
-// intercept: `a` attaches an interactive tab to the viewer's pinned run
-// session — but only for the live-run flavor (runOutputAttachable). Every
-// other key and the other OutputDialog flavors pass through to the dialog
-// unchanged.
+// handleRunOutputInput is the runOutput overlay slot with app-level key
+// intercepts: `y` copies the viewer's retained snapshot (every flavor),
+// `a` attaches an interactive tab to the viewer's pinned run session — but
+// only for the live-run flavor (runOutputAttachable) — and `R`/`U` arm the
+// workspace-status flavor's typed-confirm actions. Every other key passes
+// through to the dialog unchanged.
 func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
+	// `y` copies the viewer's full retained snapshot — every OutputDialog
+	// flavor (run output, workspace status, transcripts) shares it. Gated on
+	// !Editing like the other intercepts so `y` stays literal query text.
+	if a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
+		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "y" {
+			*cmds = append(*cmds, a.copyRunOutputCommand())
+			return true
+		}
+	}
 	// While the search query field is editing, `a`/`R` are literal query
 	// text — the dialog owns all input, so the intercepts are disabled.
 	if a.overlays.runOutputAttachable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
