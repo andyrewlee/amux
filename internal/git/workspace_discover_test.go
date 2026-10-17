@@ -244,6 +244,9 @@ func TestDiscoverWorkspacesPropagatesGitError(t *testing.T) {
 		if dir != "/tmp/project" {
 			t.Fatalf("dir = %q, want %q", dir, "/tmp/project")
 		}
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -265,7 +268,10 @@ func TestDiscoverWorkspacesPropagatesGitError(t *testing.T) {
 func TestDiscoverWorkspacesParsesStubbedOutput(t *testing.T) {
 	stubOps(t)
 
-	ops.runGitCtx = func(_ context.Context, _ string, _ ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		return `worktree /home/user/myrepo
 HEAD abc123
 branch refs/heads/main

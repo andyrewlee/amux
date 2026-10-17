@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -13,7 +14,7 @@ func TestWorktreeListPaths_LiteralBytes(t *testing.T) {
 	output := "worktree /repo\nbranch refs/heads/main\n\n" +
 		"worktree /ws/ padded \nHEAD abc123\ndetached\n\n" +
 		"worktree /repo2\nbare\n"
-	got := worktreeListPaths(output)
+	got := worktreeListPaths(output, false)
 	want := []string{"/repo", "/ws/ padded ", "/repo2"}
 	if len(got) != len(want) {
 		t.Fatalf("worktreeListPaths() = %q, want %q", got, want)
@@ -35,7 +36,14 @@ func TestIsRegisteredWorktreeCtx_WhitespacePathAgreesWithParser(t *testing.T) {
 
 	paddedPath := "/tmp/ws/padded "
 	output := "worktree " + paddedPath + "\nHEAD abc123\ndetached\n\n"
-	ops.runGitCtx = func(context.Context, string, ...string) (string, error) {
+	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		// Model git <2.36: the -z invocation is rejected, so the fallback
+		// delivers this line-format output.
+		for _, a := range args {
+			if a == "-z" {
+				return "", errors.New("unknown option `-z'")
+			}
+		}
 		return output, nil
 	}
 
@@ -62,6 +70,9 @@ func TestRemoveWorkspace_ArgvTerminator(t *testing.T) {
 	workspacePath := "-forged"
 	var removeArgs []string
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		switch args[1] {
 		case "list":
 			return "worktree " + workspacePath + "\nHEAD abc\ndetached\n\n", nil

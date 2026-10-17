@@ -157,6 +157,9 @@ func TestRemoveWorkspaceRejectsMarkerlessWorkspaceOutsideManagedRoots(t *testing
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}

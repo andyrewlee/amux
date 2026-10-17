@@ -2,11 +2,25 @@ package git
 
 import (
 	"context"
+	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/testutil"
 )
+
+// errGitZedWorktreeList models git <2.36 rejecting `worktree list -z` —
+// runWorktreeList's fallback then issues the line-format argv these stubs
+// were written against.
+var errGitZedWorktreeList = errors.New("git worktree list: unknown option `-z'")
+
+// isZedWorktreeListArgs reports whether args are the -z-preferring worktree
+// list invocation. Stubs written for the line-format argv prepend a
+// rejection for it so the production fallback reaches the argv they model.
+func isZedWorktreeListArgs(args []string) bool {
+	return strings.Join(args, " ") == "worktree list --porcelain -z"
+}
 
 // skipIfNoGit skips the test if git is not installed
 func skipIfNoGit(t *testing.T) {

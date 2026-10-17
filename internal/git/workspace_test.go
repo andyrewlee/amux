@@ -324,6 +324,9 @@ func TestCreateWorkspaceRejectsMarkerWrittenBeforeRenameWhenLivePathNotRegistere
 		if repoPath != "/tmp/repo" {
 			t.Fatalf("repo path = %q, want %q", repoPath, "/tmp/repo")
 		}
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}

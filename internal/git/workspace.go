@@ -358,83 +358,110 @@ func DeleteBranch(repoPath, branch string) error {
 func DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ops.worktreeTimeout)
 	defer cancel()
-	output, err := ops.runGitCtx(ctx, project.Path, "worktree", "list", "--porcelain")
+	output, zed, err := runWorktreeList(ctx, project.Path)
 	if err != nil {
 		return nil, err
 	}
 
-	return parseWorktreeList(output, project.Path), nil
+	return parseWorktreeListFormat(output, project.Path, zed), nil
+}
+
+// runWorktreeList returns `git worktree list --porcelain` output, preferring
+// the NUL-delimited -z form (git ≥2.36) so a path containing a newline can
+// no longer corrupt the record boundary. Older gits reject -z and fall back
+// to the line format — same parse rules, with the newline-in-path limitation
+// the line format always had.
+func runWorktreeList(ctx context.Context, repoPath string) (output string, zed bool, err error) {
+	if output, err = ops.runGitCtx(ctx, repoPath, "worktree", "list", "--porcelain", "-z"); err == nil {
+		return output, true, nil
+	}
+	output, err = ops.runGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
+	return output, false, err
+}
+
+// worktreeListFields splits either porcelain format into field lines: -z
+// output NUL-terminates every field (and the record-separating blank line
+// becomes an empty field); line output splits on \n with only a trailing \r
+// stripped. Payloads after "worktree "/"branch " are literal bytes either
+// way — a path may legally contain spaces, \r, and (under -z) \n.
+func worktreeListFields(output string, zed bool) []string {
+	if zed {
+		return strings.Split(output, "\x00")
+	}
+	lines := strings.Split(output, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSuffix(line, "\r")
+	}
+	return lines
 }
 
 // worktreeListPaths returns the literal path payload of every "worktree "
 // record in `git worktree list --porcelain` output. A path may legally begin
-// or end with spaces, so only the line terminator is stripped — never the
-// line itself. Readers that only need paths (worktree registration checks)
+// or end with spaces, so only the field terminator is stripped — never the
+// field itself. Readers that only need paths (worktree registration checks)
 // must use this shared extraction so they classify identically with
 // parseWorktreeList's literal-byte discipline.
-func worktreeListPaths(output string) []string {
+func worktreeListPaths(output string, zed bool) []string {
 	var paths []string
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSuffix(line, "\r")
-		if strings.HasPrefix(line, "worktree ") {
-			paths = append(paths, strings.TrimPrefix(line, "worktree "))
+	for _, field := range worktreeListFields(output, zed) {
+		if strings.HasPrefix(field, "worktree ") {
+			paths = append(paths, strings.TrimPrefix(field, "worktree "))
 		}
 	}
 	return paths
 }
 
-// parseWorktreeList parses the output of `git worktree list --porcelain`
+// parseWorktreeList parses line-delimited `git worktree list --porcelain`
+// output. Newline-in-path corruption is a known line-format limitation the
+// -z path does not share — see runWorktreeList's fallback note.
 func parseWorktreeList(output, repoPath string) []data.Workspace {
+	return parseWorktreeListFormat(output, repoPath, false)
+}
+
+// parseWorktreeListFormat parses `git worktree list --porcelain` output in
+// either the line or the -z (NUL) field format.
+func parseWorktreeListFormat(output, repoPath string, zed bool) []data.Workspace {
 	var workspaces []data.Workspace
 	var current struct {
 		path   string
 		branch string
 		bare   bool
 	}
+	flush := func() {
+		if current.path != "" && !current.bare {
+			workspaces = append(workspaces, data.Workspace{
+				Name:   filepath.Base(current.path),
+				Branch: current.branch,
+				Repo:   repoPath,
+				Root:   current.path,
+			})
+		}
+		current.path = ""
+		current.branch = ""
+		current.bare = false
+	}
 
-	for _, line := range strings.Split(output, "\n") {
-		// Payloads after "worktree "/"branch " are literal bytes — a path may
-		// legally begin or end with spaces — so only the line terminator is
-		// stripped, never the line itself.
-		line = strings.TrimSuffix(line, "\r")
-		if strings.TrimSpace(line) == "" {
-			// End of entry, save if we have a path and it's not bare
-			if current.path != "" && !current.bare {
-				ws := data.Workspace{
-					Name:   filepath.Base(current.path),
-					Branch: current.branch,
-					Repo:   repoPath,
-					Root:   current.path,
-				}
-				workspaces = append(workspaces, ws)
-			}
-			current.path = ""
-			current.branch = ""
-			current.bare = false
+	for _, field := range worktreeListFields(output, zed) {
+		if strings.TrimSpace(field) == "" {
+			// End of entry — in -z output the record-separating blank line is
+			// the empty field the same check catches.
+			flush()
 			continue
 		}
 
-		if strings.HasPrefix(line, "worktree ") {
-			current.path = strings.TrimPrefix(line, "worktree ")
-		} else if strings.HasPrefix(line, "branch ") {
+		if strings.HasPrefix(field, "worktree ") {
+			current.path = strings.TrimPrefix(field, "worktree ")
+		} else if strings.HasPrefix(field, "branch ") {
 			// Format: "branch refs/heads/main"
-			ref := strings.TrimPrefix(line, "branch ")
+			ref := strings.TrimPrefix(field, "branch ")
 			current.branch = strings.TrimPrefix(ref, "refs/heads/")
-		} else if line == "bare" {
+		} else if field == "bare" {
 			current.bare = true
 		}
 	}
 
-	// Handle last entry (if no trailing newline)
-	if current.path != "" && !current.bare {
-		ws := data.Workspace{
-			Name:   filepath.Base(current.path),
-			Branch: current.branch,
-			Repo:   repoPath,
-			Root:   current.path,
-		}
-		workspaces = append(workspaces, ws)
-	}
+	// Handle last entry (if no trailing terminator)
+	flush()
 
 	return workspaces
 }

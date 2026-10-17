@@ -226,6 +226,8 @@ func TestRemoveWorkspaceTimeoutCancelsRetryFingerprintWithinRecoveryBudget(t *te
 
 	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
+		case "worktree list --porcelain -z":
+			return "", errGitZedWorktreeList
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
 		case "worktree remove --force -- " + workspacePath:

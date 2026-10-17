@@ -201,12 +201,12 @@ func canSkipUnregisterRetry(repoPath string, err error) bool {
 }
 
 func isRegisteredWorktreeCtx(ctx context.Context, repoPath, workspacePath string) (bool, error) {
-	output, err := ops.runGitCtx(ctx, repoPath, "worktree", "list", "--porcelain")
+	output, zed, err := runWorktreeList(ctx, repoPath)
 	if err != nil {
 		return false, err
 	}
 	expectedPaths := comparablePathSet(workspacePath)
-	for _, wtPath := range worktreeListPaths(output) {
+	for _, wtPath := range worktreeListPaths(output, zed) {
 		if pathSetContains(expectedPaths, wtPath) {
 			return true, nil
 		}
