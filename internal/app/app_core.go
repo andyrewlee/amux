@@ -133,6 +133,9 @@ type App struct {
 	// Button focus state for welcome/workspace info screens
 	centerBtnFocused bool
 	centerBtnIndex   int
+	// centerStaticBuilds counts no-tabs center pane string builds — the
+	// test/perf observable for the centerStaticGate skipping clean frames.
+	centerStaticBuilds int
 
 	// UI Components
 	layout          *layout.Manager

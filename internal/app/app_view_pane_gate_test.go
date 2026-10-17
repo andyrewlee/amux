@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
 	"github.com/andyrewlee/amux/internal/vterm"
@@ -324,6 +326,65 @@ func TestSidebarTerminalGates_SkipsCleanAndRebuildsDirty(t *testing.T) {
 	h.Render()
 	if got := term.HelpBuildCount(); got <= helpBuilds {
 		t.Fatalf("sidebar terminal help not rebuilt after hints toggle: builds stayed at %d", helpBuilds)
+	}
+}
+
+// TestCenterStaticGate_SkipsRebuildWhenClean pins the no-tabs center gate:
+// stable inputs reuse the recorded drawable instead of paying the lipgloss
+// border build every frame, and each folded input — workspace fields, button
+// focus/index, pane focus, content variant — invalidates it. This is the
+// common dashboard state, so a gate miss here is per-frame churn and a
+// fingerprint miss is a stale frame.
+func TestCenterStaticGate_SkipsRebuildWhenClean(t *testing.T) {
+	h, err := NewHarness(HarnessOptions{Mode: HarnessSidebar, Width: 160, Height: 48})
+	if err != nil {
+		t.Fatalf("sidebar harness init: %v", err)
+	}
+	ws := harnessWorkspace()
+	h.app.activeWorkspace = ws
+	h.app.activeProject = &data.Project{Name: "primary", Path: ws.Repo}
+
+	h.Render()
+	builds := h.app.centerStaticBuilds
+	if builds == 0 {
+		t.Fatal("first render never built the static center pane; the gate path was not exercised")
+	}
+
+	h.Render()
+	h.Render()
+	if got := h.app.centerStaticBuilds; got != builds {
+		t.Fatalf("static center rebuilt on clean re-render: %d -> %d", builds, got)
+	}
+
+	// A workspace field the pane draws (rename) must invalidate.
+	ws.Name = "renamed"
+	h.Render()
+	if got := h.app.centerStaticBuilds; got <= builds {
+		t.Fatalf("static center not rebuilt after workspace rename: builds stayed at %d", builds)
+	}
+	builds = h.app.centerStaticBuilds
+
+	// Button focus/index drive the highlighted button.
+	h.app.centerBtnFocused = true
+	h.Render()
+	if got := h.app.centerStaticBuilds; got <= builds {
+		t.Fatalf("static center not rebuilt after button focus: builds stayed at %d", builds)
+	}
+	builds = h.app.centerStaticBuilds
+
+	// Switching content variant (workspace info -> welcome) must invalidate.
+	h.app.showWelcome = true
+	h.Render()
+	if got := h.app.centerStaticBuilds; got <= builds {
+		t.Fatalf("static center not rebuilt after content-variant switch: builds stayed at %d", builds)
+	}
+	builds = h.app.centerStaticBuilds
+
+	// Pane focus drives the border color.
+	h.app.focusedPane = messages.PaneCenter
+	h.Render()
+	if got := h.app.centerStaticBuilds; got <= builds {
+		t.Fatalf("static center not rebuilt after pane-focus change: builds stayed at %d", builds)
 	}
 }
 
