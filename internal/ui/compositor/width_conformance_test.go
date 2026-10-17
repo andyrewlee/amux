@@ -47,6 +47,55 @@ func widthEnginesAgree(t *testing.T, s string) {
 }
 
 func TestWidthEnginesConformOnUICorpus(t *testing.T) {
+	for class, glyphs := range widthCorpus() {
+		for _, g := range glyphs {
+			t.Run(class+"/"+g, func(t *testing.T) { widthEnginesAgree(t, g) })
+		}
+	}
+}
+
+// TestWidthCorpusDualMode answers the question the e2e determinism shim
+// (displaywidth.DefaultOptions.EastAsianWidth=false) raises: do the three
+// engines still agree when ambiguous-width glyphs measure 2 cells, as they do
+// under a CJK locale? The narrow mode re-runs the gate unchanged; the wide
+// mode measures the same corpus with displaywidth's EastAsianWidth=true —
+// the only engine of the three with a per-call options surface (ansi and
+// lipgloss take theirs from RUNEWIDTH_EASTASIAN at package init).
+//
+// Wide-mode invariants, weaker than agreement by design: flipping the knob
+// can only widen a glyph (ambiguous 1→2), never shrink it, and ansi/lipgloss
+// — which hold the same knob behind one env var — must still agree with each
+// other. Every divergence between the wide displaywidth and the narrow
+// engines is logged: under RUNEWIDTH_EASTASIAN=1 the pair flips to match,
+// so each logged row is a glyph whose alignment depends on all three knobs
+// moving together — a real CJK-locale alignment surface, not a test bug.
+func TestWidthCorpusDualMode(t *testing.T) {
+	wide := displaywidth.Options{EastAsianWidth: true}
+	divergences := 0
+	for class, glyphs := range widthCorpus() {
+		for _, g := range glyphs {
+			t.Run(class+"/"+g, func(t *testing.T) {
+				narrow := displaywidth.String(g)
+				wideW := wide.String(g)
+				an := ansi.StringWidth(g)
+				lg := lipgloss.Width(g)
+				if wideW < narrow {
+					t.Errorf("%q narrowed under EastAsianWidth=true: %d → %d", g, narrow, wideW)
+				}
+				if an != lg {
+					t.Errorf("%q: ansi.StringWidth=%d lipgloss.Width=%d disagree", g, an, lg)
+				}
+				if wideW != an {
+					divergences++
+					t.Logf("dual-mode divergence on %q: displaywidth(eaw)=%d ansi/lipgloss=%d (narrow=%d)", g, wideW, an, narrow)
+				}
+			})
+		}
+	}
+	t.Logf("%d corpus glyphs measure differently when ambiguous width is 2 — these align only while all three engines' EastAsianWidth knobs move together", divergences)
+}
+
+func widthCorpus() map[string][]string {
 	uiIcons := []string{
 		theme.Icons.Clean, theme.Icons.Dirty, theme.Icons.Running, theme.Icons.Idle,
 		theme.Icons.Add, theme.Icons.Delete, theme.Icons.Edit, theme.Icons.Close,
@@ -57,7 +106,7 @@ func TestWidthEnginesConformOnUICorpus(t *testing.T) {
 	}
 	uiIcons = append(uiIcons, theme.Icons.Spinner...)
 
-	corpus := map[string][]string{
+	return map[string][]string{
 		"ui icon set (theme.Icons)": uiIcons,
 		"ascii and punctuation": {
 			"a", "Z", "0", "9", "!@#$%^&*()", "hello world", "file-name_v2.go",
@@ -80,11 +129,5 @@ func TestWidthEnginesConformOnUICorpus(t *testing.T) {
 		"ambiguous-width and symbols": {
 			"·", "±", "§", "€", "≠", "™", "©", "®", "ə", "١٢٣", "𝔘", "𝟘",
 		},
-	}
-
-	for class, glyphs := range corpus {
-		for _, g := range glyphs {
-			t.Run(class+"/"+g, func(t *testing.T) { widthEnginesAgree(t, g) })
-		}
 	}
 }
