@@ -118,6 +118,7 @@ button does the same; `Esc` cancels). Commands are short key sequences:
 | `K` | cleanup tmux sessions |
 | `h` / `l` | focus pane left / right |
 | `n` | jump the dashboard cursor to the next workspace needing attention — a done badge or an agent that rang BEL (agents like Claude Code ring it on notification/permission events) |
+| `e` | event log — a read-only viewer listing this session's notifications (every toast the app showed), newest-first; scroll/`/`search/`y` copy like the other output viewers |
 | `t a` | new agent tab |
 | `t t` | new terminal tab |
 | `t n` / `t p` | next / previous tab |

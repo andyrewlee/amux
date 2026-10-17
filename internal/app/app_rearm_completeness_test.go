@@ -159,6 +159,7 @@ var rearmChainClassification = []struct {
 	{"messages.ShowRunScriptOutput", zeroMsg[messages.ShowRunScriptOutput](), false},
 	{"messages.ShowScriptOutput", zeroMsg[messages.ShowScriptOutput](), false},
 	{"messages.ShowWorkspaceStatus", zeroMsg[messages.ShowWorkspaceStatus](), false},
+	{"messages.ShowEventLog", zeroMsg[messages.ShowEventLog](), false},
 	{"app.lifecycleScriptExitedMsg", zeroMsg[lifecycleScriptExitedMsg](), false},
 	{"messages.RunScriptStatusResult", zeroMsg[messages.RunScriptStatusResult](), false},
 	{"messages.ShowCommitWorkspaceDialog", zeroMsg[messages.ShowCommitWorkspaceDialog](), false},

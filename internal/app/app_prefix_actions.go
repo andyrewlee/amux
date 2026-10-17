@@ -32,4 +32,5 @@ const (
 	prefixActionBrowseScripts   prefixAction = "browse_transcripts"
 	prefixActionScrollUp        prefixAction = "scroll_up"
 	prefixActionScrollDown      prefixAction = "scroll_down"
+	prefixActionEventLog        prefixAction = "event_log"
 )
