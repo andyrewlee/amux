@@ -85,27 +85,67 @@ func (a *App) composeCenterPane(canvas *lipgloss.Canvas, leftGutter, topGutter, 
 		if !diffGate.clean(version, diffGeom) {
 			diffContent := a.center.View()
 			diffView := buildBorderedPane(diffContent, centerWidth, centerHeight, centerFocused)
-			rendered := a.renderCache.centerContent.get(clampPane(diffView, centerWidth, centerHeight), centerX, topGutter) != nil
+			rendered := a.renderCache.centerDiffContent.get(clampPane(diffView, centerWidth, centerHeight), centerX, topGutter) != nil
 			diffGate.record(version, diffGeom, rendered)
 		}
 		if diffGate.rendered {
-			if diffDrawable := a.renderCache.centerContent.drawable; diffDrawable != nil {
+			if diffDrawable := a.renderCache.centerDiffContent.drawable; diffDrawable != nil {
 				canvas.Compose(diffDrawable)
 			}
 		}
 		return
 	}
 
-	var centerContent string
 	if a.center.HasTabs() {
-		centerContent = a.center.View()
-	} else {
-		centerContent = a.renderCenterPaneContent()
+		centerView := buildBorderedPane(a.center.View(), centerWidth, centerHeight, a.focusedPane == messages.PaneCenter)
+		if centerDrawable := a.renderCache.centerContent.get(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter); centerDrawable != nil {
+			canvas.Compose(centerDrawable)
+		}
+		return
 	}
-	centerView := buildBorderedPane(centerContent, centerWidth, centerHeight, a.focusedPane == messages.PaneCenter)
-	if centerDrawable := a.renderCache.centerContent.get(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter); centerDrawable != nil {
-		canvas.Compose(centerDrawable)
+
+	// No-tabs center (welcome / workspace info / "Select a workspace"): the
+	// whole string build + border render + clamp is gated on a fingerprint of
+	// its inputs, like the diff gate above — a stable empty-center pane (the
+	// common dashboard state) reuses the recorded drawable instead of paying
+	// lipgloss border composition every frame.
+	staticGate := &a.renderCache.centerStaticGate
+	staticGeom := [4]int{centerX, topGutter, centerWidth, centerHeight}
+	if version := a.centerStaticContentVersion(); !staticGate.clean(version, staticGeom) {
+		a.centerStaticBuilds++
+		centerView := buildBorderedPane(a.renderCenterPaneContent(), centerWidth, centerHeight, a.focusedPane == messages.PaneCenter)
+		rendered := a.renderCache.centerStaticContent.get(clampPane(centerView, centerWidth, centerHeight), centerX, topGutter) != nil
+		staticGate.record(version, staticGeom, rendered)
 	}
+	if staticGate.rendered {
+		if centerDrawable := a.renderCache.centerStaticContent.drawable; centerDrawable != nil {
+			canvas.Compose(centerDrawable)
+		}
+	}
+}
+
+// centerStaticContentVersion fingerprints every input the no-tabs center
+// string path reads: which content variant renders (showWelcome), the fields
+// renderWorkspaceInfo draws, button focus/index, keymap hints, the theme the
+// styles/border color resolve through, and pane focus for the border. Any
+// change lands as a new fingerprint, so the gate self-invalidates without
+// bump discipline.
+func (a *App) centerStaticContentVersion() uint64 {
+	version := common.FoldFingerprintBool(0, a.showWelcome)
+	if ws := a.activeWorkspace; ws != nil {
+		version = common.FoldFingerprintString(version, ws.Name)
+		version = common.FoldFingerprintString(version, ws.Branch)
+		version = common.FoldFingerprintString(version, ws.Root)
+	}
+	if p := a.activeProject; p != nil {
+		version = common.FoldFingerprintString(version, p.Name)
+	}
+	version = common.FoldFingerprintBool(version, a.centerBtnFocused)
+	version = common.FoldFingerprint(version, uint64(int64(a.centerBtnIndex)))
+	version = common.FoldFingerprintBool(version, a.config.UI.ShowKeymapHints)
+	version = common.FoldFingerprintString(version, string(common.GetCurrentTheme().ID))
+	version = common.FoldFingerprintBool(version, a.focusedPane == messages.PaneCenter)
+	return version
 }
 
 // composeCenterTerminalLayer draws the center pane's direct VTerm layer plus its
