@@ -202,7 +202,8 @@ Sidebar (Changes tab, focused):
   tab detaches — the script keeps running). All output viewers (`R`, `O`,
   `i`) share the same scroll keys: `j`/`k` scroll, `PgUp`/`PgDn` page,
   `g`/`G` jump to the top/bottom (`G` resumes following), `f` toggles
-  follow mode, `esc`/`enter` closes. The `R` and `O` transcript viewers
+  follow mode, `y` copies the retained snapshot to the clipboard,
+  `esc`/`enter` closes. The `R` and `O` transcript viewers
   also support `/` to search (literal, case-insensitive; only the retained
   buffer is searched — scrollback dropped from the tail is not), with
   `n`/`N` jumping between matches. While typing the query every key is

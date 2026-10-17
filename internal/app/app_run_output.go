@@ -166,3 +166,41 @@ func runSessionTitleSuffix(e process.RunSessionEntry) string {
 	}
 	return fmt.Sprintf(" #%d", e.Ordinal)
 }
+
+// copyRunOutputCommand is the viewer's `y` binding — copy the retained
+// snapshot to the OS clipboard through the same seam as `t y` transcript
+// copy, reporting by toast. The text is captured at key time (the snapshot
+// may refresh while the copy runs); the copy itself runs off the Update
+// loop because it shells out to the platform clipboard tool.
+func (a *App) copyRunOutputCommand() tea.Cmd {
+	if a.overlays.runOutput == nil {
+		return nil
+	}
+	text := a.overlays.runOutput.Text()
+	if text == "" {
+		return a.toast.ShowWarning("No output to copy")
+	}
+	text, truncated := common.TruncateTranscriptTail(text)
+	copyFn := a.copyToClipboardFn
+	if copyFn == nil {
+		copyFn = common.CopyToClipboardE
+	}
+	return func() tea.Msg {
+		if err := copyFn(text, "output viewer"); err != nil {
+			return messages.Toast{
+				Message: fmt.Sprintf("Copy output failed: %v", err),
+				Level:   messages.ToastError,
+			}
+		}
+		if truncated {
+			return messages.Toast{
+				Message: fmt.Sprintf("Copied output — truncated to last %d chars", len(text)),
+				Level:   messages.ToastSuccess,
+			}
+		}
+		return messages.Toast{
+			Message: fmt.Sprintf("Copied output — %d chars", len(text)),
+			Level:   messages.ToastSuccess,
+		}
+	}
+}

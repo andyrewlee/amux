@@ -290,7 +290,9 @@ dropped from the tail buffer is not searchable. `enter` accepts the query
 and jumps to the first match, `n`/`N` cycle matches (the footer shows
 `match k/N` and `(wrapped)` after a wrapped jump), and `esc` exits the
 query field before it can close the viewer. The `i` workspace-status panel
-has no search.
+has no search. Every output-viewer flavor (`R`, `O`, `i`) also binds `y`:
+it copies the retained snapshot — the same text the search covers — to the
+OS clipboard and confirms by toast.
 
 ## Project tree loading model
 
