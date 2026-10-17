@@ -205,6 +205,59 @@ func TestInputOpenViaOAndSpaceKeys(t *testing.T) {
 	}
 }
 
+// TestInputVEmitsOpenFileInVimForSelectedChange proves the v binding jumps
+// from a change row to the file itself: the emitted OpenFileInVim carries
+// the workspace and the repo-relative path resolved under the workspace
+// root — the same contract the project tree's enter produces.
+func TestInputVEmitsOpenFileInVimForSelectedChange(t *testing.T) {
+	m := newInputModel(t)
+	ws := &data.Workspace{Name: "ws", Root: "/repo/ws"}
+	m.SetWorkspace(ws)
+
+	// Move onto the first Unstaged change (index 4 == c.go), then press v.
+	m, _ = m.Update(keyPress('j')) // 2 (b.go)
+	m, _ = m.Update(keyPress('j')) // 4 (c.go)
+	_, cmd := m.Update(keyPress('v'))
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from v")
+	}
+	msg := cmd()
+	open, ok := msg.(messages.OpenFileInVim)
+	if !ok {
+		t.Fatalf("expected messages.OpenFileInVim, got %T", msg)
+	}
+	if open.Path != "/repo/ws/c.go" {
+		t.Fatalf("expected resolved path /repo/ws/c.go, got %q", open.Path)
+	}
+	if open.Workspace != ws {
+		t.Fatalf("OpenFileInVim workspace = %p, want %p", open.Workspace, ws)
+	}
+}
+
+// TestInputVOnDeletedChangeShowsNote proves v does not open the viewer on a
+// deleted file — there is no worktree path to jump to — and reports instead.
+func TestInputVOnDeletedChangeShowsNote(t *testing.T) {
+	m := NewChangesModel()
+	m.SetSize(80, 20)
+	m.Focus()
+	m.SetWorkspace(&data.Workspace{Name: "ws", Root: "/repo/ws"})
+	m.SetGitStatus(&git.StatusResult{
+		Unstaged: []git.Change{{Path: "gone.go", Kind: git.ChangeDeleted}},
+	})
+
+	_, cmd := m.Update(keyPress('v'))
+	if cmd == nil {
+		t.Fatal("expected a note cmd for a deleted file")
+	}
+	toast, ok := cmd().(messages.Toast)
+	if !ok {
+		t.Fatalf("expected messages.Toast for a deleted file, got %T", cmd())
+	}
+	if toast.Message != "File is deleted — nothing to open" {
+		t.Fatalf("unexpected deleted-file toast: %q", toast.Message)
+	}
+}
+
 func TestInputClickResolvesRowToChange(t *testing.T) {
 	m := newInputModel(t)
 

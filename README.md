@@ -187,7 +187,8 @@ Dashboard rows (workspace/project/shelved list):
 Sidebar (Changes tab, focused):
 
 - `1` / `2` switch the sidebar between Changes and Project views.
-- `j`/`k` or arrows move, `enter`/`space`/`o` opens a diff, `g` refreshes,
+- `j`/`k` or arrows move, `enter`/`space`/`o` opens a diff, `v` opens the
+  file itself in the center pane's editor/viewer, `g` refreshes,
   `/` filters.
 - `c` commit, `b` branch mode, `e` workspace env, `E` project env, `s`
   scripts, `r` run/stop the workspace run script, `R` run output, `O` script
@@ -228,6 +229,8 @@ Diff viewer (opened from Changes with `enter`/`space`/`o`):
   display rows so a wrapped line's tail is always reachable; the footer counts
   display rows, not source lines.
 - `n`/`p` cycle forward/back through diff hunks (still source-line anchored).
+- `v` opens the diffed file in the center pane's editor/viewer — the same
+  jump the Changes list's `v` makes.
 - `/` opens a literal, case-insensitive search over the diff lines (`+`/`-`
   markers and `@@` headers included). `enter` accepts, `esc` leaves the
   field with the query kept; `n`/`N` then cycle matches (wrapping, with the

@@ -279,6 +279,11 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 			m.prevHunk()
 
+		// Jump to source — v opens the diffed file in the configured
+		// viewer, the same action as the Changes list's v binding.
+		case key.Matches(msg, key.NewBinding(key.WithKeys("v"))):
+			return m, m.openSource()
+
 		// Toggle wrap — keep the same source line at the top of the
 		// viewport, clamping its segment to the new wrap count.
 		case key.Matches(msg, key.NewBinding(key.WithKeys("w"))):

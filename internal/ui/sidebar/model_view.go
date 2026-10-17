@@ -252,6 +252,7 @@ func (m *ChangesModel) helpLines(contentWidth int) []string {
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
 		m.helpItem("enter/space/o", "open"),
+		m.helpItem("v", "open file"),
 		m.helpItem("c", "commit"),
 		m.helpItem("b", "vs base"),
 		m.helpItem("e", "env"),

@@ -342,6 +342,7 @@ func (m *Model) renderFooter() string {
 		keyStyle.Render("j/k") + ":scroll",
 		keyStyle.Render("/") + ":search",
 		navHint,
+		keyStyle.Render("v") + ":edit",
 		keyStyle.Render("w") + ":wrap",
 		keyStyle.Render("q") + ":close",
 	}
