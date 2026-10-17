@@ -86,6 +86,8 @@ func TestRemoveWorkspaceTimeoutPersistsHiddenCleanupAndRetriesDirectly(t *testin
 
 	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
+		case "worktree list --porcelain -z":
+			return "", errGitZedWorktreeList
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
 		case "worktree remove --force -- " + workspacePath:
@@ -183,6 +185,8 @@ func TestRemoveWorkspaceTimeoutPersistsNeedsUnregisterUntilRetrySucceeds(t *test
 
 	ops.runGitCtx = func(ctx context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
+		case "worktree list --porcelain -z":
+			return "", errGitZedWorktreeList
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
 		case "worktree remove --force -- " + workspacePath:
@@ -427,6 +431,9 @@ func TestRemoveWorkspaceRejectsMarkerWrittenBeforeRenameWhenLivePathNotRegistere
 	ops.runGitCtx = func(ctx context.Context, repoPath string, args ...string) (string, error) {
 		if repoPath != "/tmp/repo" {
 			t.Fatalf("repo path = %q, want %q", repoPath, "/tmp/repo")
+		}
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
 		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)

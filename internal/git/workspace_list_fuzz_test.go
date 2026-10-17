@@ -45,3 +45,37 @@ func FuzzParseWorktreeList(f *testing.F) {
 		}
 	})
 }
+
+// FuzzParseWorktreeListZ exercises the NUL-delimited `-z` variant of the
+// same parser — the format that lets a path carry a literal newline without
+// corrupting the record boundary.
+func FuzzParseWorktreeListZ(f *testing.F) {
+	f.Add("")
+	f.Add("worktree /repo\x00HEAD abc\x00branch refs/heads/main\x00\x00")
+	f.Add("worktree /path with\nnewline\x00HEAD abc\x00\x00")
+	f.Add("worktree /bare\x00bare\x00\x00")
+	f.Add("worktree /a\x00branch refs/heads/feat\x00\x00worktree /b\x00bare\x00\x00worktree /c\x00branch refs/heads/x\x00")
+	f.Add("worktree \x00\x00")
+	f.Add("\x00\x00\xff\xfeworktree\x00")
+	f.Fuzz(func(t *testing.T, data string) {
+		got := parseWorktreeListFormat(data, "/repo", true)
+		// Output cannot exceed input field count (no amplification).
+		if n := strings.Count(data, "\x00") + 1; len(got) > n {
+			t.Fatalf("amplified: %d workspaces from %d fields", len(got), n)
+		}
+		for _, ws := range got {
+			if ws.Root == "" {
+				t.Fatalf("empty root emitted for input %q", data)
+			}
+			if ws.Name == "" {
+				t.Fatalf("empty name emitted for input %q", data)
+			}
+			if ws.Repo != "/repo" {
+				t.Fatalf("repo %q emitted, want the passed repoPath", ws.Repo)
+			}
+			if !strings.Contains(data, ws.Root) {
+				t.Fatalf("root %q not present in input %q", ws.Root, data)
+			}
+		}
+	})
+}

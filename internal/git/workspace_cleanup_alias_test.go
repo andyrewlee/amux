@@ -23,6 +23,9 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedAliasStaleWorkspace(t *testing.T
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -65,6 +68,9 @@ func TestRemoveWorkspaceRejectsGitBearingManagedStaleWorkspace(t *testing.T) {
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -103,6 +109,9 @@ func TestRemoveWorkspaceUnregistersDanglingGitPointerStaleWorkspace(t *testing.T
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -152,6 +161,9 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderSymlinkRootAlias(t
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -192,6 +204,9 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredSymlinkR
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -227,6 +242,9 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedWorkspaceUnderConfiguredRootEnv(
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -262,6 +280,9 @@ func TestRemoveWorkspaceLookupFailureDoesNotCleanupDifferentRepoUnderManagedRoot
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -372,6 +393,8 @@ func TestRemoveWorkspacePreservesPendingUnregisterWhenAdminDirLookupMisses(t *te
 				t.Fatalf("repo path = %q, want %q", gotRepoPath, repoPath)
 			}
 			return commonGitDir, nil
+		case "worktree list --porcelain -z":
+			return "", errGitZedWorktreeList
 		case "worktree list --porcelain":
 			if gotRepoPath != repoPath {
 				t.Fatalf("repo path = %q, want %q", gotRepoPath, repoPath)

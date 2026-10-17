@@ -300,7 +300,7 @@ doctor:
 		glv=$$("$$glbin" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 		glpin=$$(tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'); \
 		if [ -n "$$glpin" ] && [ "$${glv#v}" != "$$glpin" ]; then \
-			echo "warn golangci-lint $$glv resolved but .golangci-version pins $$glpin (run 'make lint-tools'; diagnostics may differ)"; \
+			echo "warn golangci-lint $$glv resolved but .golangci-version pins $$glpin (run 'make lint-tools' to build the pinned version; diagnostics may differ)"; \
 		else \
 			echo "ok   golangci-lint $$glv present"; \
 		fi; \
@@ -375,7 +375,7 @@ check-golangci-version:
 	have_raw="$$($(GOLANGCI) version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)"; \
 	have="$${have_raw#v}"; \
 	if [ "$$have" != "$$want" ]; then \
-		echo "WARNING: golangci-lint $${have_raw:-unknown} resolved but .golangci-version pins $$want_raw (run 'make lint-tools' to build the pinned version; diagnostics may differ)"; \
+		echo "warn golangci-lint $${have_raw:-unknown} resolved but .golangci-version pins $$want_raw (run 'make lint-tools' to build the pinned version; diagnostics may differ)"; \
 	fi
 
 # lint-tools self-bootstraps the pinned golangci-lint (from .golangci-version)

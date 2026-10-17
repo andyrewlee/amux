@@ -28,6 +28,8 @@ func TestRemoveWorkspaceTimeoutReturnsPendingErrorWhenUnregisterRetryIsDeferred(
 			t.Fatalf("repo path = %q, want %q", gotRepoPath, "/tmp/repo")
 		}
 		switch strings.Join(args, " ") {
+		case "worktree list --porcelain -z":
+			return "", errGitZedWorktreeList
 		case "worktree list --porcelain":
 			return "worktree " + workspacePath, nil
 		case "worktree remove --force -- " + workspacePath:

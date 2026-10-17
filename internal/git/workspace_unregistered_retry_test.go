@@ -23,6 +23,8 @@ func TestRemoveWorkspaceRetriesUnregisteredLeftoverAfterMarkerWriteFailure(t *te
 	worktreeListCalls := 0
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
+		case "worktree list --porcelain -z":
+			return "", errGitZedWorktreeList
 		case "worktree list --porcelain":
 			worktreeListCalls++
 			if worktreeListCalls == 1 {
@@ -86,6 +88,9 @@ func TestRemoveWorkspaceRejectsMarkerlessManagedStaleWorkspace(t *testing.T) {
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -123,6 +128,8 @@ func TestRemoveWorkspaceRetriesTimeoutCleanupAfterMarkerWriteFailure(t *testing.
 	worktreeListCalls := 0
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
+		case "worktree list --porcelain -z":
+			return "", errGitZedWorktreeList
 		case "worktree list --porcelain":
 			worktreeListCalls++
 			if worktreeListCalls == 1 {
@@ -208,6 +215,9 @@ func TestRemoveWorkspaceRejectsReusedPathFromRetryMetadata(t *testing.T) {
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}
@@ -242,6 +252,9 @@ func TestRemoveWorkspaceRecoversLegacyRetryMetadataWithoutFingerprint(t *testing
 	}
 
 	ops.runGitCtx = func(_ context.Context, _ string, args ...string) (string, error) {
+		if isZedWorktreeListArgs(args) {
+			return "", errGitZedWorktreeList
+		}
 		if got, want := strings.Join(args, " "), "worktree list --porcelain"; got != want {
 			t.Fatalf("git args = %q, want %q", got, want)
 		}

@@ -61,7 +61,7 @@ sidebar tab, like the changes-fetch results.
      supervisor, process}
                  \              /
                   v            v
-        internal/{safego, perf, logging, messages, validation}
+        internal/{safego, perf, logging, messages, validation, syncutil}
 ```
 
 ### External render-engine coupling
@@ -124,6 +124,7 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/messages` | Shared Bubble Tea message vocabulary between pump and panes | `messages.go` |
 | `internal/validation` | Input/path guards (assistant, base ref, project path, workspace) | `validation.go` |
 | `internal/shellutil` | Shared shell-quoting primitive (POSIX single-quote escaping) | `shellutil.go` |
+| `internal/syncutil` | Shared mutex-guard primitives (panic-safe `withMu`/`withMuVal` for pane state locks) | `mutex.go` |
 | `internal/testutil` | Shared test polling helpers (deadline/poll loops with consistent failure messaging) | `wait.go` |
 | `internal/devtools` | Repository-tooling contract tests (git hook skip-flag dispatch) | (tests) |
 | `internal/e2e` | PTY-driven end-to-end tests exercising the real binary | (tests) |
