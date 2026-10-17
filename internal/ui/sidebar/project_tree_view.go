@@ -8,6 +8,18 @@ import (
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
+// filterStatusLine renders the filter status row — the input while typing,
+// the applied query otherwise. Empty when no filter is engaged.
+func (m *ProjectTree) filterStatusLine() string {
+	if m.filter.Active() {
+		return m.styles.Muted.Render("/") + m.filter.View()
+	}
+	if m.filter.Query() != "" {
+		return m.styles.Muted.Render("filter: ") + m.styles.BranchName.Render(m.filter.Query())
+	}
+	return ""
+}
+
 // View renders the project tree
 func (m *ProjectTree) View() string {
 	m.contentBuilds++
@@ -16,6 +28,12 @@ func (m *ProjectTree) View() string {
 	}
 
 	if len(m.flatNodes) == 0 {
+		if m.filter.Active() || m.filter.Query() != "" {
+			// The filter narrowed the loaded tree to nothing — still render
+			// the filter row so the narrowing state stays legible.
+			content := m.filterStatusLine() + "\n" + m.styles.Muted.Render("(no matching files)")
+			return m.renderWithHelp(content)
+		}
 		if m.root != nil && m.root.pendingRequest != 0 {
 			return m.renderWithHelp(m.styles.Muted.Render("Loading project tree…"))
 		}
@@ -26,6 +44,9 @@ func (m *ProjectTree) View() string {
 	}
 
 	var b strings.Builder
+	if line := m.filterStatusLine(); line != "" {
+		b.WriteString(line + "\n")
+	}
 	visibleHeight := m.visibleHeight()
 
 	// Adjust scroll
@@ -159,6 +180,7 @@ func (m *ProjectTree) helpLines(contentWidth int) []string {
 		m.helpItem("h/←", "collapse"),
 		m.helpItem("l/→", "expand"),
 		m.helpItem("enter/o", "open"),
+		m.helpItem("/", "filter"),
 		m.helpItem(".", "hidden"),
 		m.helpItem("r", "refresh"),
 	}

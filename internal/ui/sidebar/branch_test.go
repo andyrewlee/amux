@@ -134,7 +134,7 @@ func TestRebuildBranchDisplayListRespectsFilter(t *testing.T) {
 		{Path: "internal/bar.go", Kind: git.ChangeAdded},
 		{Path: "internal/foo.go", Kind: git.ChangeModified},
 	}
-	m.filterQuery = "internal"
+	m.filter.SetQuery("internal")
 
 	m.rebuildDisplayList()
 

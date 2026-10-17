@@ -97,10 +97,11 @@ func (m *ChangesModel) rebuildBranchDisplayList() {
 	}
 
 	matchesFilter := func(c *git.Change) bool {
-		if m.filterQuery == "" {
+		query := m.filter.Query()
+		if query == "" {
 			return true
 		}
-		return strings.Contains(strings.ToLower(c.Path), strings.ToLower(m.filterQuery))
+		return strings.Contains(strings.ToLower(c.Path), strings.ToLower(query))
 	}
 
 	count := 0

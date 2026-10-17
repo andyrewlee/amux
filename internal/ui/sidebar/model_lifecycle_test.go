@@ -92,7 +92,7 @@ func TestSidebarModelInitReturnsNoCmd(t *testing.T) {
 	if m.Focused() {
 		t.Fatal("Init() should not focus the sidebar")
 	}
-	if m.filterMode {
+	if m.filter.Active() {
 		t.Fatal("Init() should not enter filter mode")
 	}
 }
@@ -136,18 +136,17 @@ func TestSidebarModelBlurExitsFilterMode(t *testing.T) {
 	m := NewChangesModel()
 	m.Focus()
 	// Simulate the model being in active filter mode with a focused input.
-	m.filterMode = true
-	m.filterInput.Focus()
-	if !m.filterInput.Focused() {
+	m.filter.Start()
+	if !m.filter.Focused() {
 		t.Fatal("precondition failed: expected filter input to be focused")
 	}
 
 	m.Blur()
 
-	if m.filterMode {
+	if m.filter.Active() {
 		t.Fatal("Blur() should exit filter mode")
 	}
-	if m.filterInput.Focused() {
+	if m.filter.Focused() {
 		t.Fatal("Blur() should blur the filter input")
 	}
 	if m.Focused() {
@@ -160,14 +159,14 @@ func TestSidebarModelBlurWhenNotFilteringLeavesFilterInputUntouched(t *testing.T
 	m.Focus()
 	// filterMode is false, but the input could carry a stale query value;
 	// Blur must not touch the input when not in filter mode.
-	m.filterInput.SetValue("stale")
+	m.filter.SetValue("stale")
 
 	m.Blur()
 
-	if m.filterMode {
+	if m.filter.Active() {
 		t.Fatal("filter mode should remain false")
 	}
-	if got := m.filterInput.Value(); got != "stale" {
+	if got := m.filter.Value(); got != "stale" {
 		t.Fatalf("Blur() should not clear filter input value when not filtering, got %q", got)
 	}
 	if m.Focused() {

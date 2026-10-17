@@ -239,12 +239,24 @@ func TestUpdateNumberKeysIgnoredWhileChangesFilterActive(t *testing.T) {
 	s := newTestTabbedSidebar(t)
 	s.Focus()
 	s.SetActiveTab(TabChanges)
-	s.changes.filterMode = true
-	s.changes.filterInput.Focus()
+	s.changes.filter.Start()
 
 	updated, _ := s.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 
 	if updated.ActiveTab() != TabChanges {
+		t.Fatalf("filter-active number key should not switch tabs, got %d", updated.ActiveTab())
+	}
+}
+
+func TestUpdateNumberKeysIgnoredWhileProjectFilterActive(t *testing.T) {
+	s := newTestTabbedSidebar(t)
+	s.Focus()
+	s.SetActiveTab(TabProject)
+	s.projectTree.filter.Start()
+
+	updated, _ := s.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
+
+	if updated.ActiveTab() != TabProject {
 		t.Fatalf("filter-active number key should not switch tabs, got %d", updated.ActiveTab())
 	}
 }

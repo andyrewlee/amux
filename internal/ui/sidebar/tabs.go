@@ -160,10 +160,12 @@ func (m *TabbedSidebar) Update(msg tea.Msg) (*TabbedSidebar, tea.Cmd) {
 		return m, common.SafeBatch(cmds...)
 
 	case tea.KeyPressMsg:
-		// Tab switching with number keys when focused, but not while the Changes
-		// view is in filter mode (so digits get typed into the filter instead of
-		// silently switching tabs).
-		if m.focused && !(m.activeTab == TabChanges && m.changes.FilterActive()) {
+		// Tab switching with number keys when focused, but not while the
+		// active tab's list is in filter mode (so digits get typed into the
+		// filter instead of silently switching tabs).
+		filterCaptures := (m.activeTab == TabChanges && m.changes.FilterActive()) ||
+			(m.activeTab == TabProject && m.projectTree.FilterActive())
+		if m.focused && !filterCaptures {
 			for _, def := range sidebarTabDefs {
 				if key.Matches(msg, key.NewBinding(key.WithKeys(def.key))) {
 					m.activeTab = def.tab

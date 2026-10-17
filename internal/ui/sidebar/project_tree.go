@@ -48,6 +48,12 @@ type ProjectTree struct {
 	height          int
 	showKeymapHints bool
 	showHidden      bool
+	// filter is the shared `/` widget (common.FilterInput). An applied
+	// query narrows the flattened list to matching nodes plus their
+	// ancestors — Expanded flags are untouched, so clearing restores the
+	// exact expansion state. Only loaded nodes can match: children of an
+	// unexpanded directory are not known yet.
+	filter common.FilterInput
 
 	styles common.Styles
 
@@ -108,6 +114,7 @@ func NewProjectTree() *ProjectTree {
 	return &ProjectTree{
 		styles:     common.DefaultStyles(),
 		showHidden: true,
+		filter:     common.NewFilterInput(),
 		executing:  map[uint64]projectTreeLoadJob{},
 		readSlots:  make(chan struct{}, projectTreeMaxConcurrentLoads),
 		readDir:    defaultReadDir,
@@ -174,6 +181,17 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 		}
 
 	case tea.KeyPressMsg:
+		// Filter input captures every key while active — the widget's own
+		// esc/enter contract decides when it releases.
+		if m.filter.Active() {
+			cmd, handled, changed := m.filter.Update(msg)
+			if handled {
+				if changed {
+					m.rebuildFlatList()
+				}
+				return m, cmd
+			}
+		}
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
 			m.moveCursor(1)
@@ -213,6 +231,15 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			// Refresh tree
 			return m, m.reloadTree()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+			// Enter filter mode — the shared FilterInput widget owns esc/enter.
+			return m, m.filter.Start()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+			// Dismiss an applied filter (no other esc binding on this surface).
+			if m.filter.Query() != "" {
+				m.filter.Clear()
+				m.rebuildFlatList()
+			}
 		}
 	}
 
@@ -311,27 +338,44 @@ func (m *ProjectTree) installChildren(node *projectTreeNode, entries []ProjectTr
 	node.Children = append(dirs, files...)
 }
 
-// rebuildFlatList flattens the visible tree nodes
+// rebuildFlatList flattens the visible tree nodes. With no applied filter
+// visibility is expansion-driven; with one it is match-driven — matching
+// nodes plus their ancestors render regardless of Expanded (the flag is
+// left untouched so clearing the filter restores the exact prior state).
 func (m *ProjectTree) rebuildFlatList() {
 	m.flatNodes = nil
 	if m.root == nil {
 		return
 	}
 
-	var walk func(node *projectTreeNode)
-	walk = func(node *projectTreeNode) {
-		m.flatNodes = append(m.flatNodes, node)
-		if node.IsDir && node.Expanded {
+	if q := m.filter.Query(); q != "" {
+		lower := strings.ToLower(q)
+		var walkFiltered func(node *projectTreeNode)
+		walkFiltered = func(node *projectTreeNode) {
 			for _, child := range node.Children {
-				walk(child)
+				if treeNodeVisible(child, lower) {
+					m.flatNodes = append(m.flatNodes, child)
+					walkFiltered(child)
+				}
 			}
 		}
-	}
+		walkFiltered(m.root)
+	} else {
+		var walk func(node *projectTreeNode)
+		walk = func(node *projectTreeNode) {
+			m.flatNodes = append(m.flatNodes, node)
+			if node.IsDir && node.Expanded {
+				for _, child := range node.Children {
+					walk(child)
+				}
+			}
+		}
 
-	// Start from root's children (don't show root itself)
-	if m.root.Expanded {
-		for _, child := range m.root.Children {
-			walk(child)
+		// Start from root's children (don't show root itself)
+		if m.root.Expanded {
+			for _, child := range m.root.Children {
+				walk(child)
+			}
 		}
 	}
 
@@ -344,13 +388,45 @@ func (m *ProjectTree) rebuildFlatList() {
 	}
 }
 
+// treeNodeVisible reports whether a node belongs in the filtered list: its
+// own path matches the query (case-insensitive substring, the Changes
+// shape) or a loaded descendant's does. An unexpanded directory's unloaded
+// children cannot match — the honest bound of lazy loading.
+func treeNodeVisible(node *projectTreeNode, query string) bool {
+	if strings.Contains(strings.ToLower(node.Path), query) {
+		return true
+	}
+	for _, child := range node.Children {
+		if treeNodeVisible(child, query) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *ProjectTree) visibleHeight() int {
 	help := m.helpLineCount()
-	visible := m.height - help
+	visible := m.height - help - m.filterLineCount()
 	if visible < 1 {
 		visible = 1
 	}
 	return visible
+}
+
+// filterLineCount reports the height of the filter status row rendered
+// above the node list — independent of showKeymapHints since the row is
+// functional state.
+func (m *ProjectTree) filterLineCount() int {
+	if m.filter.Active() || m.filter.Query() != "" {
+		return 1
+	}
+	return 0
+}
+
+// FilterActive reports whether the tree is in filter-input mode — the
+// tab bar must not steal digit keys meant for the filter.
+func (m *ProjectTree) FilterActive() bool {
+	return m.filter.Active()
 }
 
 func (m *ProjectTree) rowIndexAt(screenY int) (int, bool) {
@@ -362,7 +438,9 @@ func (m *ProjectTree) rowIndexAt(screenY int) (int, bool) {
 	if screenY < 0 || screenY >= contentHeight {
 		return -1, false
 	}
-	index := m.scrollOffset + screenY
+	// The filter status row occupies the first content line — clicks on it
+	// land on no node.
+	index := m.scrollOffset + screenY - m.filterLineCount()
 	if index < 0 || index >= len(m.flatNodes) {
 		return -1, false
 	}
@@ -410,6 +488,8 @@ func (m *ProjectTree) Blur() {
 		return
 	}
 	m.focused = false
+	// Exit filter-input mode on focus loss (the query stays applied)
+	m.filter.ExitKeep()
 	m.markContentDirty()
 }
 

@@ -46,13 +46,10 @@ func (m *ChangesModel) Focus() {
 
 // Blur removes focus.
 func (m *ChangesModel) Blur() {
-	changed := m.focused || m.filterMode
+	changed := m.focused || m.filter.Active()
 	m.focused = false
-	// Exit filter mode when losing focus
-	if m.filterMode {
-		m.filterMode = false
-		m.filterInput.Blur()
-	}
+	// Exit filter mode when losing focus (the query stays applied)
+	m.filter.ExitKeep()
 	if changed {
 		m.markContentDirty()
 	}
@@ -76,14 +73,10 @@ func (m *ChangesModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.workspace = ws
 	m.cursor = 0
 	m.scrollOffset = 0
-	m.filterQuery = ""
-	m.filterInput.SetValue("")
-	// Fully exit filter mode (mirroring Blur) so a workspace switch mid-filter
-	// doesn't leave a phantom filter capturing subsequent keystrokes.
-	if m.filterMode {
-		m.filterMode = false
-		m.filterInput.Blur()
-	}
+	// Fully clear the filter (query and mode) so a workspace switch
+	// mid-filter doesn't leave a phantom filter capturing subsequent
+	// keystrokes.
+	m.filter.Clear()
 	// Branch-mode data (list + ahead/behind) belongs to the previous
 	// workspace; drop it rather than showing stale results under the new one.
 	m.branchMode = false
@@ -100,7 +93,7 @@ func (m *ChangesModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 // FilterActive reports whether the Changes view is currently in filter-input
 // mode (used so the tab bar doesn't steal digit keys meant for the filter).
 func (m *ChangesModel) FilterActive() bool {
-	return m.filterMode
+	return m.filter.Active()
 }
 
 // SetGitStatus sets the git status. Pointer identity is the change signal:

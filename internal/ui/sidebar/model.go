@@ -4,8 +4,6 @@ import (
 	"strconv"
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
-
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -32,10 +30,9 @@ type ChangesModel struct {
 	cursor       int
 	scrollOffset int
 
-	// Filter mode
-	filterMode  bool
-	filterQuery string
-	filterInput textinput.Model
+	// Filter state — the shared `/` widget (see common.FilterInput for the
+	// input-mode/esc/enter contract).
+	filter common.FilterInput
 
 	// Branch mode: when true, displayItems lists files changed vs base
 	// (BranchChangesVsBase) instead of working-tree status, feeding the
@@ -97,13 +94,9 @@ func (m *ChangesModel) ContentBuildCount() uint64 { return m.contentBuilds }
 
 // NewChangesModel creates a new Changes-tab content model.
 func NewChangesModel() *ChangesModel {
-	ti := textinput.New()
-	ti.Placeholder = "filter..."
-	ti.CharLimit = 100
-
 	return &ChangesModel{
-		styles:      common.DefaultStyles(),
-		filterInput: ti,
+		styles: common.DefaultStyles(),
+		filter: common.NewFilterInput(),
 	}
 }
 
@@ -124,10 +117,11 @@ func (m *ChangesModel) rebuildDisplayList() {
 
 	// Filter function
 	matchesFilter := func(c *git.Change) bool {
-		if m.filterQuery == "" {
+		query := m.filter.Query()
+		if query == "" {
 			return true
 		}
-		return strings.Contains(strings.ToLower(c.Path), strings.ToLower(m.filterQuery))
+		return strings.Contains(strings.ToLower(c.Path), strings.ToLower(query))
 	}
 
 	// Count matching items
@@ -229,7 +223,7 @@ func (m *ChangesModel) listHeaderLines() int {
 	if m.workspace != nil && m.workspace.Branch != "" {
 		header++
 	}
-	if m.filterMode || m.filterQuery != "" {
+	if m.filter.Active() || m.filter.Query() != "" {
 		header++
 	}
 	header += 1 // "changed files"
