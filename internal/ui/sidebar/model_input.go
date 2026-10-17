@@ -1,9 +1,12 @@
 package sidebar
 
 import (
+	"path/filepath"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/process"
 	"github.com/andyrewlee/amux/internal/ui/common"
@@ -100,6 +103,8 @@ func (m *ChangesModel) Update(msg tea.Msg) (*ChangesModel, tea.Cmd) {
 			m.moveCursor(-1)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter", "space", "o"))):
 			cmds = append(cmds, m.openCurrentItem())
+		case key.Matches(msg, key.NewBinding(key.WithKeys("v"))):
+			cmds = append(cmds, m.openSelectedFile())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
 			cmds = append(cmds, m.refreshStatus(), m.refreshAheadBehind())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("c"))):
@@ -154,6 +159,36 @@ func (m *ChangesModel) openCurrentItem() tea.Cmd {
 			Mode:      mode,
 			Workspace: ws,
 		}
+	}
+}
+
+// openSelectedFile jumps from the selected change to the file itself — the
+// sibling of openCurrentItem's diff: enter/o opens the diff, v opens the
+// file in the configured viewer (the project tree's enter action). The
+// repo-relative change path resolves under the workspace root, matching the
+// absolute path the tree emits. Deleted files have no worktree target, so
+// the key reports rather than opening the viewer on an empty buffer.
+func (m *ChangesModel) openSelectedFile() tea.Cmd {
+	if m.cursor < 0 || m.cursor >= len(m.displayItems) {
+		return nil
+	}
+	item := m.displayItems[m.cursor]
+	if item.isHeader || item.change == nil || item.change.Path == "" {
+		return nil
+	}
+	ws := m.workspace
+	if ws == nil {
+		return nil
+	}
+	change := item.change
+	if change.Kind == git.ChangeDeleted {
+		return func() tea.Msg {
+			return messages.Toast{Message: "File is deleted — nothing to open", Level: messages.ToastInfo}
+		}
+	}
+	path := filepath.Join(ws.Root, change.Path)
+	return func() tea.Msg {
+		return messages.OpenFileInVim{Path: path, Workspace: ws}
 	}
 }
 

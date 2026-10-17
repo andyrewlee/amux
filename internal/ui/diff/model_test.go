@@ -7,6 +7,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/messages"
 )
 
 func newModelWithDiff(height, lines int, hunks []git.Hunk) *Model {
@@ -242,5 +243,64 @@ func TestHunkCycleAfterManualScroll(t *testing.T) {
 	m.nextHunk()
 	if m.hunkIdx != 2 {
 		t.Fatalf("manual scroll off the selected hunk: n should pick the first hunk below the viewport, got idx=%d", m.hunkIdx)
+	}
+}
+
+// TestOpenSourceEmitsOpenFileInVim proves the v binding jumps from the diff
+// to the file itself: the emitted OpenFileInVim carries the workspace and
+// the repo-relative change path resolved under the workspace root — the
+// same contract the Changes list's v binding produces.
+func TestOpenSourceEmitsOpenFileInVim(t *testing.T) {
+	ws := &data.Workspace{Name: "ws", Root: "/repo/ws"}
+	m := newSizedModel()
+	m.focused = true
+	m.workspace = ws
+	m.change = &git.Change{Path: "sub/dir/foo.go", Kind: git.ChangeModified}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from v")
+	}
+	open, ok := cmd().(messages.OpenFileInVim)
+	if !ok {
+		t.Fatalf("expected messages.OpenFileInVim, got %T", cmd())
+	}
+	if open.Path != "/repo/ws/sub/dir/foo.go" {
+		t.Fatalf("expected resolved path /repo/ws/sub/dir/foo.go, got %q", open.Path)
+	}
+	if open.Workspace != ws {
+		t.Fatalf("OpenFileInVim workspace = %p, want %p", open.Workspace, ws)
+	}
+}
+
+// TestOpenSourceDeletedFileShowsNote proves v does not open the viewer on a
+// deleted file — there is no worktree path to jump to — and reports instead.
+func TestOpenSourceDeletedFileShowsNote(t *testing.T) {
+	m := newSizedModel()
+	m.focused = true
+	m.workspace = &data.Workspace{Name: "ws", Root: "/repo/ws"}
+	m.change = &git.Change{Path: "gone.go", Kind: git.ChangeDeleted}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if cmd == nil {
+		t.Fatal("expected a note cmd for a deleted file")
+	}
+	toast, ok := cmd().(messages.Toast)
+	if !ok {
+		t.Fatalf("expected messages.Toast for a deleted file, got %T", cmd())
+	}
+	if toast.Message != "File is deleted — nothing to open" {
+		t.Fatalf("unexpected deleted-file toast: %q", toast.Message)
+	}
+}
+
+// TestOpenSourceKeyIsQueryTextWhileSearching preserves the query-edit
+// contract: v inside an open `/` query edits the query, it does not emit.
+func TestOpenSourceKeyIsQueryTextWhileSearching(t *testing.T) {
+	m := searchFixture()
+	pressKey(m, '/')
+	pressKey(m, 'v')
+	if m.query != "v" {
+		t.Fatalf("v inside the query should be literal text, got query %q", m.query)
 	}
 }

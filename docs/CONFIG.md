@@ -278,7 +278,10 @@ footer's position counter and the wheel affordance count display rows.
 re-anchors the view to the same source line when possible. `/` search
 selection scrolls to the wrapped display segment that actually contains the
 hit (a tail-of-line match is never left below the viewport), keeping the
-enclosing `@@` header in view when it fits with that segment.
+enclosing `@@` header in view when it fits with that segment. `v` opens the
+diffed file itself in a `viewer_command` tab (the same jump the Changes
+list's `v` makes for the selected change; a deleted file reports instead of
+opening an empty buffer).
 
 ## Output viewer search
 
