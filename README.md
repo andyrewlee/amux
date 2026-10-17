@@ -338,7 +338,11 @@ Create `.amux/workspaces.json` in your project to define commands that amux runs
 
 `setup-workspace`, `archive`, and `on-done` each record a bounded tail of
 their combined output on every run — press `O` in the Changes sidebar to view
-the last run of each for the shown workspace. Transcripts persist under the
+the last run of each for the shown workspace. While a setup is in-flight the
+same viewer shows that run's live tail under a `── setup ── running` section
+and refreshes until it finishes, so a long `npm install` is visibly working
+rather than looking hung; once it ends the recorded transcript replaces the
+live section and the viewer goes static again. Transcripts persist under the
 workspace's metadata dir (`script-transcripts.json`), so `O` still answers
 "why did setup fail" after a restart; writes merge latest-per-type across
 amux processes, so a restarted amux recording one hook can't erase the

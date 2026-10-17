@@ -153,6 +153,12 @@ type ScriptRunner struct {
 	// each lifecycle script (setup/archive/on-done) per workspace — what the
 	// "script output" viewer shows. See script_output.go.
 	lastOutput map[string]ScriptOutput
+	// liveSetup holds the in-flight setup tail per workspace key — the
+	// same tailWriter the process's copier feeds, exposed to the output
+	// viewer so a running setup streams instead of rendering like a hang.
+	// Entries exist only between admission and finish, and the setup slot
+	// guarantees at most one per key. See script_output.go.
+	liveSetup map[string]*tailWriter
 	// exitListener notifies the app when a detached lifecycle script exits
 	// non-zero (on-done — the only lifecycle hook without a synchronous
 	// caller to report to). See script_output.go.
@@ -344,7 +350,24 @@ func (r *ScriptRunner) RunSetup(ws *data.Workspace) error {
 	// in one bounded tail so the recorded transcript (and a failure's error)
 	// covers the whole setup, not just the command that died — stdout was
 	// previously dropped entirely, which hid the failure's own diagnostics.
+	//
+	// The same tail is published for the live-output viewer: the copier
+	// goroutine's Writes land under the tail's own mutex, so readers see a
+	// consistent snapshot at any moment. Only the admitted sequence
+	// registers — an ErrSetupBusy loser never reaches here, so the slot
+	// cannot be overwritten by a second request.
 	tail := &tailWriter{max: scriptOutputTailBytes}
+	r.mu.Lock()
+	if r.liveSetup == nil {
+		r.liveSetup = map[string]*tailWriter{}
+	}
+	r.liveSetup[key] = tail
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		delete(r.liveSetup, key)
+		r.mu.Unlock()
+	}()
 	for _, cmdStr := range commands {
 		// The ticket's context spans the whole sequence: teardown cancels it
 		// once, which aborts the in-flight command AND every queued command —

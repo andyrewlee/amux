@@ -155,6 +155,17 @@ func (s *Service) RunScriptOutputAndStatus(ws *data.Workspace, lines int) (outpu
 	return s.scripts.RunScriptOutputAndStatus(ws, lines)
 }
 
+// LiveSetupOutput returns the in-flight setup tail for the workspace —
+// output so far and whether a setup sequence is still running. The
+// script-output viewer polls it to render the live "setup (running)"
+// section; ("", false) means the recorded transcript is the freshest state.
+func (s *Service) LiveSetupOutput(ws *data.Workspace) (string, bool) {
+	if s == nil || s.scripts == nil || ws == nil {
+		return "", false
+	}
+	return s.scripts.LiveSetupOutput(ws)
+}
+
 // ToggleScriptAsync starts ws's `run` script, or stops it when one is already
 // running, off the UI goroutine. The started process is long-lived (a dev
 // server), so the command reports only that the spawn succeeded — not that the

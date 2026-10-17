@@ -362,3 +362,48 @@ func TestForgetWorkspaceKeepsLiveReleaseAndState(t *testing.T) {
 		t.Fatal("teardown-gated lifecycle state was dropped mid-operation")
 	}
 }
+
+// TestLiveSetupOutput_StreamsWhileRunningAndClearsAfter pins the live-tail
+// contract the script-output viewer polls: output is visible while the
+// setup is in flight (before the transcript records), and the live flag
+// drops once RunSetup returns — by which point the recorded transcript
+// already exists.
+func TestLiveSetupOutput_StreamsWhileRunningAndClearsAfter(t *testing.T) {
+	repo := t.TempDir()
+	writeWorkspaceConfig(t, repo, `{"setup-workspace": ["echo live-line; sleep 0.4"]}`)
+	runner := NewScriptRunner(6200, 10)
+	trustRepo(t, runner, repo)
+	ws := newHostedWorkspace(t, "nonconcurrent")
+	ws.Repo = repo
+
+	done := make(chan error, 1)
+	go func() { done <- runner.RunSetup(ws) }()
+
+	// Poll until the live tail carries the first command's output — bounded
+	// so a broken publish fails the test rather than hanging it.
+	deadline := time.Now().Add(5 * time.Second)
+	var text string
+	var live bool
+	for time.Now().Before(deadline) {
+		text, live = runner.LiveSetupOutput(ws)
+		if live && strings.Contains(text, "live-line") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !live || !strings.Contains(text, "live-line") {
+		t.Fatalf("LiveSetupOutput mid-run = (%q, %v), want live tail containing live-line", text, live)
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("RunSetup() error = %v", err)
+	}
+	if text, live := runner.LiveSetupOutput(ws); live || text != "" {
+		t.Fatalf("LiveSetupOutput after finish = (%q, %v), want (\"\", false)", text, live)
+	}
+	// The recorded transcript must already hold the finished run — the
+	// viewer's final fetch composes it once live drops.
+	if entry, ok := runner.LastScriptOutputs(ws)[ScriptSetup]; !ok || !strings.Contains(entry.Text, "live-line") {
+		t.Fatalf("recorded transcript missing after live drop: %+v", runner.LastScriptOutputs(ws))
+	}
+}

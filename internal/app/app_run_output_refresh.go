@@ -42,13 +42,24 @@ func (a *App) handleRunOutputTick(msg runOutputTickMsg) tea.Cmd {
 	}
 	token, svc := a.overlays.runOutputToken, a.workspaceService
 	session := a.overlays.runOutputSession
+	lifecycle := a.overlays.runOutputLifecycle
 	snap := cloneForCmd(ws)
 	return func() tea.Msg {
 		var content string
 		var alive bool
-		if session != "" {
+		switch {
+		case lifecycle:
+			// The script-transcript flavor: recorded transcripts plus the
+			// in-flight setup tail. The fetch is in-memory — setup's own
+			// defer clears the live flag only after the transcript is
+			// recorded, so the first dead fetch lands the finished section
+			// and the loop stops.
+			liveText, live := svc.LiveSetupOutput(snap)
+			content = composeScriptOutputView(svc.LastScriptOutputs(snap), liveText, live)
+			alive = live
+		case session != "":
 			content, alive = svc.RunScriptSessionTail(session, 400), svc.RunScriptSessionAlive(session)
-		} else {
+		default:
 			content, alive, _ = svc.RunScriptOutputAndStatus(snap, 400)
 		}
 		return runOutputRefreshedMsg{token: token, content: content, alive: alive}
@@ -79,5 +90,6 @@ func (a *App) closeRunOutputDialog() {
 	a.overlays.runOutputAttachable = false
 	a.overlays.runOutputReleaseCount = 0
 	a.overlays.runOutputUntrustable = false
+	a.overlays.runOutputLifecycle = false
 	a.overlays.runOutputToken++
 }
