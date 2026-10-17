@@ -180,9 +180,14 @@ Dashboard rows (workspace/project/shelved list):
   [How it works](#how-it-works)) — single-row by design since a merge can
   stop on conflicts; on success a follow-up offers to shelve or delete the
   now-merged workspace; `S` shelves it (bulk-shelves the marked set).
-- `space` marks a row (`●`); `esc` clears marks.
+- `space` marks a row (`●`); `esc` clears marks, or dismisses an applied
+  filter when there are no marks.
 - `r` rescans — refreshes the list and imports worktrees created outside
   amux as workspaces.
+- `/` filters the list: workspace and shelved rows match on name, path, or
+  branch; a project header survives when the project itself or any of its
+  rows matches (a surviving project keeps its `+ New` row). While typing,
+  every key is filter text; `enter` applies, `esc` clears.
 
 Sidebar (Changes tab, focused):
 
@@ -221,6 +226,13 @@ Sidebar (Project tab, focused):
   refreshes. Directory reads run in the background — a loading directory shows
   a `…` marker and a failed read shows a short error you can retry with `r` —
   so a slow filesystem never freezes input or other panes.
+- `/` filters the loaded tree: matching entries stay visible together with
+  their ancestor directories (a collapsed parent is not expanded, it just
+  stays on screen as the match's path context). Expansion state is never
+  touched, so `esc` restores the tree exactly. Only loaded entries can
+  match — children of a directory you never expanded are not in the tree
+  yet. While typing, every key is filter text (digits included — they do
+  not switch sidebar tabs); `enter` applies, `esc` clears.
 
 Diff viewer (opened from Changes with `enter`/`space`/`o`):
 

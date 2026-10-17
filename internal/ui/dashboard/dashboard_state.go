@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -126,6 +127,10 @@ func (m *Model) rebuildRows() {
 		m.rows = append(m.rows, Row{Type: RowSpacer})
 	}
 
+	if q := m.filter.Query(); q != "" {
+		m.rows = filterDashboardRows(m.rows, q)
+	}
+
 	// Clamp cursor
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1
@@ -158,6 +163,82 @@ func (m *Model) clampScrollOffset() {
 	if m.scrollOffset < 0 {
 		m.scrollOffset = 0
 	}
+}
+
+// filterDashboardRows narrows rows to the applied query. Workspace and
+// shelved rows match on name/root/branch; a project header survives when
+// the project itself (name/path) or any of its child rows matches, and a
+// surviving project keeps its "+ New" row. Home/spacer rows are structural
+// and always stay. Match is case-insensitive substring — the same shape as
+// the Changes filter.
+func filterDashboardRows(rows []Row, query string) []Row {
+	q := strings.ToLower(query)
+	matchWS := func(ws *data.Workspace) bool {
+		if ws == nil {
+			return false
+		}
+		return strings.Contains(strings.ToLower(ws.Name), q) ||
+			strings.Contains(strings.ToLower(ws.Root), q) ||
+			strings.Contains(strings.ToLower(ws.Branch), q)
+	}
+	matchProject := func(p *data.Project) bool {
+		if p == nil {
+			return false
+		}
+		return strings.Contains(strings.ToLower(p.Name), q) ||
+			strings.Contains(strings.ToLower(p.Path), q)
+	}
+
+	// Pass 1: which project sections survive — own match or any child match.
+	survives := make(map[*data.Project]bool)
+	var cur *data.Project
+	curSurvives := false
+	flush := func() {
+		if cur != nil {
+			survives[cur] = curSurvives
+		}
+	}
+	for i := range rows {
+		r := rows[i]
+		switch r.Type {
+		case RowProject:
+			flush()
+			cur = r.Project
+			curSurvives = matchProject(r.Project)
+		case RowWorkspace, RowShelved:
+			if cur != nil && matchWS(r.Workspace) {
+				curSurvives = true
+			}
+		}
+	}
+	flush()
+
+	// Pass 2: keep structural rows, surviving projects, matching children,
+	// and each surviving project's create row.
+	out := make([]Row, 0, len(rows))
+	keep := false
+	for i := range rows {
+		r := rows[i]
+		switch r.Type {
+		case RowProject:
+			keep = survives[r.Project]
+			if keep {
+				out = append(out, r)
+			}
+		case RowWorkspace, RowShelved:
+			if keep && matchWS(r.Workspace) {
+				out = append(out, r)
+			}
+		case RowCreate:
+			if keep {
+				out = append(out, r)
+			}
+		default:
+			// RowHome/RowSpacer/RowAddProject — structural chrome.
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {

@@ -64,7 +64,7 @@ func TestRunScriptKeyIgnoredWhileFiltering(t *testing.T) {
 	m := newRunScriptModel(ws)
 
 	m, _ = m.Update(keyPress('/'))
-	if !m.filterMode {
+	if !m.filter.Active() {
 		t.Fatal("'/' did not enter filter mode")
 	}
 
@@ -74,8 +74,8 @@ func TestRunScriptKeyIgnoredWhileFiltering(t *testing.T) {
 			t.Fatal("'r' typed into the filter box started the run script")
 		}
 	}
-	if !strings.Contains(m.filterQuery, "r") {
-		t.Fatalf("filter query = %q, want it to contain the typed 'r'", m.filterQuery)
+	if !strings.Contains(m.filter.Query(), "r") {
+		t.Fatalf("filter query = %q, want it to contain the typed 'r'", m.filter.Query())
 	}
 }
 

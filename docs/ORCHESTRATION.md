@@ -544,6 +544,12 @@ discarded), and reads are bounded so a wedged mount delays its directories
 rather than the whole UI. There is no configuration or session surface for the
 queue; keyboard and mouse actions are unchanged.
 
+The `/` filter narrows the loaded tree to matching entries plus their
+ancestors without mutating `Expanded` state — clearing restores the identical
+view. It matches only what has been read: children of a never-expanded
+directory cannot match, so filtering is a lens on the loaded tree, not a
+filesystem search.
+
 ## Diff viewer scroll contract
 
 Tools driving amux via tmux keys can rely on the diff viewer reaching every

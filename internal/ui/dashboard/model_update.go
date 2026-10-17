@@ -86,6 +86,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		}
 		m.clearPendingSelection()
+		// Filter input captures every key while active — the widget's own
+		// esc/enter contract decides when it releases.
+		if m.filter.Active() {
+			cmd, handled, changed := m.filter.Update(msg)
+			if handled {
+				if changed {
+					m.rebuildRows()
+				}
+				return m, cmd
+			}
+		}
 		toolbarItems := m.toolbarItems()
 		if m.toolbarFocused {
 			return m.handleToolbarKey(msg, toolbarItems)
@@ -198,6 +209,11 @@ func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*
 	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 		if m.MarkedCount() > 0 {
 			m.clearMarks()
+		} else if m.filter.Query() != "" {
+			// Dismiss an applied filter — marks-clear keeps precedence as
+			// the older esc contract.
+			m.filter.Clear()
+			m.rebuildRows()
 		}
 	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 		return m, m.refresh()
@@ -213,6 +229,9 @@ func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*
 			m.cursor = idx
 			return m, m.activateCurrentRow()
 		}
+	case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+		// Enter filter mode — the shared FilterInput widget owns esc/enter.
+		return m, m.filter.Start()
 	}
 	return m, nil
 }
@@ -245,9 +264,10 @@ func (m *Model) View() string {
 		b.WriteString("\n")
 	}
 
-	// Pad to the inner pane height (border excluded), reserving toolbar and help lines.
+	// Pad to the inner pane height (border excluded), reserving toolbar,
+	// the filter-status line, and help lines.
 	contentHeight := strings.Count(b.String(), "\n") + 1
-	targetHeight := innerHeight - m.toolbarHeight() - m.helpLineCount()
+	targetHeight := innerHeight - m.toolbarHeight() - m.helpLineCount() - m.filterLineCount()
 	if targetHeight < 0 {
 		targetHeight = 0
 	}
@@ -263,6 +283,13 @@ func (m *Model) View() string {
 	// Render toolbar
 	toolbar := m.renderToolbar()
 	b.WriteString(toolbar)
+
+	// Filter status — functional state, not a keymap hint, so it renders
+	// even when showKeymapHints is off.
+	if line := m.filterLine(); line != "" {
+		b.WriteString("\n")
+		b.WriteString(line)
+	}
 
 	// Help lines
 	if m.showKeymapHints {

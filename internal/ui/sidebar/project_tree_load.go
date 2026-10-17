@@ -330,6 +330,10 @@ func (m *ProjectTree) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.workspace = ws
 	m.cursor = 0
 	m.scrollOffset = 0
+	// Fully clear the filter (query and mode) so a workspace switch
+	// mid-filter doesn't leave a phantom filter capturing subsequent
+	// keystrokes — the Changes SetWorkspace contract.
+	m.filter.Clear()
 	m.invalidatePending()
 	m.rootErr = ""
 	if ws == nil {

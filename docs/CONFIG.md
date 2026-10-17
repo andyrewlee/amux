@@ -305,7 +305,10 @@ sidebar's Project tab loads directories asynchronously. `l`/`enter` expansion,
 and fill rows in as reads complete; a pending directory shows `…`, a failed
 one shows a brief error retried via `r`. The number of concurrent directory
 reads is a fixed internal bound — there is no setting for it, and nothing in
-the config or session files records tree state.
+the config or session files records tree state. The tree's `/` filter matches
+only loaded entries (children of a never-expanded directory are not read yet);
+matching entries render with their ancestor directories, expansion state
+untouched.
 
 ## Overriding a built-in's command
 

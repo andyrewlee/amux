@@ -223,6 +223,27 @@ func (m *Model) helpItem(key, desc string) string {
 	return common.RenderHelpItem(m.styles, key, desc)
 }
 
+// filterLine renders the filter status row — the input while typing, the
+// applied query otherwise. Empty when no filter is engaged.
+func (m *Model) filterLine() string {
+	if m.filter.Active() {
+		return m.styles.Muted.Render("/") + m.filter.View()
+	}
+	if m.filter.Query() != "" {
+		return m.styles.Muted.Render("filter: ") + m.styles.BranchName.Render(m.filter.Query())
+	}
+	return ""
+}
+
+// filterLineCount reports the rendered height of the filter status row —
+// independent of showKeymapHints since the row is functional state.
+func (m *Model) filterLineCount() int {
+	if m.filter.Active() || m.filter.Query() != "" {
+		return 1
+	}
+	return 0
+}
+
 // helpLineCount returns the number of help lines that will be displayed.
 // This encapsulates the showKeymapHints check to avoid bugs where callers
 // forget to check it.
@@ -242,6 +263,7 @@ func (m *Model) helpLines(contentWidth int) []string {
 		m.helpItem("k/↑", "up"),
 		m.helpItem("j/↓", "down"),
 		m.helpItem("enter", "open"),
+		m.helpItem("/", "filter"),
 	}
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		switch m.rows[m.cursor].Type {

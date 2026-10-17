@@ -16,8 +16,8 @@ func TestChangesSetWorkspaceSameIDPreservesState(t *testing.T) {
 	model.SetWorkspace(ws1)
 	model.cursor = 4
 	model.scrollOffset = 2
-	model.filterQuery = "abc"
-	model.filterInput.SetValue("abc")
+	model.filter.SetQuery("abc")
+	model.filter.SetValue("abc")
 
 	ws2 := data.NewWorkspace("feature", "updated-branch", "main", "/tmp/repo", "/tmp/workspaces/repo/feature")
 	model.SetWorkspace(ws2)
@@ -31,11 +31,11 @@ func TestChangesSetWorkspaceSameIDPreservesState(t *testing.T) {
 	if model.scrollOffset != 2 {
 		t.Fatalf("scrollOffset = %d, want 2", model.scrollOffset)
 	}
-	if model.filterQuery != "abc" {
-		t.Fatalf("filterQuery = %q, want %q", model.filterQuery, "abc")
+	if model.filter.Query() != "abc" {
+		t.Fatalf("filterQuery = %q, want %q", model.filter.Query(), "abc")
 	}
-	if model.filterInput.Value() != "abc" {
-		t.Fatalf("filterInput = %q, want %q", model.filterInput.Value(), "abc")
+	if model.filter.Value() != "abc" {
+		t.Fatalf("filterInput = %q, want %q", model.filter.Value(), "abc")
 	}
 }
 
@@ -47,8 +47,8 @@ func TestChangesSetWorkspaceDifferentIDResetsState(t *testing.T) {
 	model.SetWorkspace(ws1)
 	model.cursor = 4
 	model.scrollOffset = 2
-	model.filterQuery = "abc"
-	model.filterInput.SetValue("abc")
+	model.filter.SetQuery("abc")
+	model.filter.SetValue("abc")
 
 	model.SetWorkspace(ws2)
 
@@ -58,11 +58,11 @@ func TestChangesSetWorkspaceDifferentIDResetsState(t *testing.T) {
 	if model.scrollOffset != 0 {
 		t.Fatalf("scrollOffset = %d, want 0", model.scrollOffset)
 	}
-	if model.filterQuery != "" {
-		t.Fatalf("filterQuery = %q, want empty", model.filterQuery)
+	if model.filter.Query() != "" {
+		t.Fatalf("filterQuery = %q, want empty", model.filter.Query())
 	}
-	if model.filterInput.Value() != "" {
-		t.Fatalf("filterInput = %q, want empty", model.filterInput.Value())
+	if model.filter.Value() != "" {
+		t.Fatalf("filterInput = %q, want empty", model.filter.Value())
 	}
 }
 
@@ -117,8 +117,8 @@ func TestChangesSetWorkspaceCanonicalMatchDifferentIDPreservesState(t *testing.T
 	model.SetWorkspace(ws1)
 	model.cursor = 4
 	model.scrollOffset = 2
-	model.filterQuery = "abc"
-	model.filterInput.SetValue("abc")
+	model.filter.SetQuery("abc")
+	model.filter.SetValue("abc")
 
 	model.SetWorkspace(ws2)
 
@@ -131,11 +131,11 @@ func TestChangesSetWorkspaceCanonicalMatchDifferentIDPreservesState(t *testing.T
 	if model.scrollOffset != 2 {
 		t.Fatalf("scrollOffset = %d, want 2", model.scrollOffset)
 	}
-	if model.filterQuery != "abc" {
-		t.Fatalf("filterQuery = %q, want %q", model.filterQuery, "abc")
+	if model.filter.Query() != "abc" {
+		t.Fatalf("filterQuery = %q, want %q", model.filter.Query(), "abc")
 	}
-	if model.filterInput.Value() != "abc" {
-		t.Fatalf("filterInput = %q, want %q", model.filterInput.Value(), "abc")
+	if model.filter.Value() != "abc" {
+		t.Fatalf("filterInput = %q, want %q", model.filter.Value(), "abc")
 	}
 }
 

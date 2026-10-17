@@ -81,14 +81,14 @@ func (m *ChangesModel) renderChanges() string {
 	}
 
 	// Filter input when in filter mode
-	if m.filterMode {
+	if m.filter.Active() {
 		b.WriteString(m.styles.Muted.Render("/"))
-		b.WriteString(m.filterInput.View())
+		b.WriteString(m.filter.View())
 		b.WriteString("\n")
-	} else if m.filterQuery != "" {
+	} else if m.filter.Query() != "" {
 		// Show active filter
 		b.WriteString(m.styles.Muted.Render("filter: "))
-		b.WriteString(m.styles.BranchName.Render(m.filterQuery))
+		b.WriteString(m.styles.BranchName.Render(m.filter.Query()))
 		b.WriteString("\n")
 	}
 

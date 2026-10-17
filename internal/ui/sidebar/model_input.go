@@ -23,29 +23,15 @@ func (m *ChangesModel) Update(msg tea.Msg) (*ChangesModel, tea.Cmd) {
 	defer m.markContentDirty()
 	var cmds []tea.Cmd
 
-	// Handle filter input when in filter mode
-	if m.filterMode {
-		switch msg := msg.(type) {
-		case tea.KeyPressMsg:
-			switch {
-			case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-				m.filterMode = false
-				m.filterQuery = ""
-				m.filterInput.SetValue("")
-				m.filterInput.Blur()
+	// Handle filter input when in filter mode — every key routes to the
+	// shared widget; a reported query change rebuilds the display list.
+	if m.filter.Active() {
+		cmd, handled, changed := m.filter.Update(msg)
+		if handled {
+			if changed {
 				m.rebuildDisplayList()
-				return m, nil
-			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-				m.filterMode = false
-				m.filterInput.Blur()
-				return m, nil
-			default:
-				newInput, cmd := m.filterInput.Update(msg)
-				m.filterInput = newInput
-				m.filterQuery = m.filterInput.Value()
-				m.rebuildDisplayList()
-				return m, cmd
 			}
+			return m, cmd
 		}
 	}
 
@@ -129,9 +115,7 @@ func (m *ChangesModel) Update(msg tea.Msg) (*ChangesModel, tea.Cmd) {
 			cmds = append(cmds, m.openWorkspaceStatus())
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
 			// Enter filter mode
-			m.filterMode = true
-			m.filterInput.Focus()
-			return m, m.filterInput.Focus()
+			return m, m.filter.Start()
 		}
 	}
 

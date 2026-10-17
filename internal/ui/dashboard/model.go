@@ -84,11 +84,16 @@ type Model struct {
 	scrollOffset    int
 	canFocusRight   bool
 	showKeymapHints bool
-	toolbarHits     []toolbarButton // Clickable toolbar buttons
-	toolbarY        int             // Y position of toolbar in content coordinates
-	toolbarFocused  bool            // Whether toolbar actions are focused
-	toolbarIndex    int             // Focused toolbar action index
-	deleteIconX     int             // X position of delete "x" icon for currently selected row
+	// filter is the shared `/` widget (common.FilterInput) — while Active
+	// every key routes to it; while a Query is applied rebuildRows hides
+	// non-matching workspace/shelved rows (project headers survive when the
+	// project itself or any child row matches).
+	filter         common.FilterInput
+	toolbarHits    []toolbarButton // Clickable toolbar buttons
+	toolbarY       int             // Y position of toolbar in content coordinates
+	toolbarFocused bool            // Whether toolbar actions are focused
+	toolbarIndex   int             // Focused toolbar action index
+	deleteIconX    int             // X position of delete "x" icon for currently selected row
 	// pendingSelectID holds a workspace ID the cursor should land on as soon as
 	// that workspace has a row. A just-created workspace is activated before the
 	// projects reload carrying it arrives, so the selection has to wait for the
@@ -153,6 +158,7 @@ func New() *Model {
 		marked:             make(map[string]bool),
 		cursor:             0,
 		focused:            true,
+		filter:             common.NewFilterInput(),
 		styles:             common.DefaultStyles(),
 	}
 }
@@ -364,6 +370,8 @@ func (m *Model) Blur() {
 		return
 	}
 	m.focused = false
+	// Exit filter-input mode on focus loss (the query stays applied)
+	m.filter.ExitKeep()
 	m.markContentDirty()
 }
 
@@ -399,7 +407,8 @@ func (m *Model) visibleHeight() int {
 	headerHeight := 0
 	helpHeight := m.helpLineCount()
 	toolbarHeight := m.toolbarHeight()
-	visibleHeight := innerHeight - headerHeight - toolbarHeight - helpHeight
+	filterHeight := m.filterLineCount()
+	visibleHeight := innerHeight - headerHeight - toolbarHeight - helpHeight - filterHeight
 	if visibleHeight < 1 {
 		visibleHeight = 1
 	}
