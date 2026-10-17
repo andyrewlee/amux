@@ -24,11 +24,14 @@ type Toast struct {
 	Duration time.Duration
 }
 
-// ToastModel manages toast notifications
+// ToastModel manages toast notifications. It also owns the session event
+// ring: Show is the single funnel every producer reaches, so pushing here
+// captures all notifications with no producer changes.
 type ToastModel struct {
 	current   *Toast
 	showUntil time.Time
 	styles    Styles
+	events    EventRing
 }
 
 // NewToastModel creates a new toast model
@@ -54,10 +57,17 @@ func (m *ToastModel) Show(message string, toastType ToastType, duration time.Dur
 		Duration: duration,
 	}
 	m.showUntil = time.Now().Add(duration)
+	m.events.Push(SessionEvent{Time: time.Now(), Type: toastType, Text: message})
 
 	return SafeTick(duration, func(t time.Time) tea.Msg {
 		return ToastDismissed{}
 	})
+}
+
+// Events returns the session's captured notifications newest-first — the
+// recall overlay's render order.
+func (m *ToastModel) Events() []SessionEvent {
+	return m.events.Snapshot()
 }
 
 // ShowSuccess shows a success toast

@@ -273,6 +273,12 @@ type ShowWorkspaceStatus struct {
 	Workspace *data.Workspace
 }
 
+// ShowEventLog requests the session notification recall surface — the
+// bounded ring of every toast the app showed, newest-first, in a read-only
+// viewer. It is app-global (no workspace subject): the ring is "what the
+// app told me this session".
+type ShowEventLog struct{}
+
 // ShowWorkspaceScriptsDialog requests showing the workspace scripts editor
 // (user-entered setup/run/archive commands + run mode) for the given
 // workspace.

@@ -348,6 +348,10 @@ func (a *App) updateDialogShowMsg(msg tea.Msg, cmds *[]tea.Cmd) bool {
 		if cmd := a.handleShowWorkspaceStatus(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)
 		}
+	case messages.ShowEventLog:
+		if cmd := a.handleShowEventLog(); cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	case lifecycleScriptExitedMsg:
 		if cmd := a.handleLifecycleScriptExited(msg); cmd != nil {
 			*cmds = append(*cmds, cmd)

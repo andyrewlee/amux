@@ -40,6 +40,7 @@ var prefixCommandTable = []prefixCommand{
 	{Sequence: []string{"h"}, Desc: "focus left", Action: prefixActionFocusLeft},
 	{Sequence: []string{"l"}, Desc: "focus right", Action: prefixActionFocusRight},
 	{Sequence: []string{"n"}, Desc: "next attention", Action: prefixActionNextAttention},
+	{Sequence: []string{"e"}, Desc: "event log", Action: prefixActionEventLog},
 	{Sequence: []string{"t", "a"}, Desc: "new agent tab", Action: prefixActionNewAgentTab},
 	{Sequence: []string{"t", "t"}, Desc: "new terminal tab", Action: prefixActionNewTerminalTab},
 	{Sequence: []string{"t", "n"}, Desc: "next tab", Action: prefixActionNextTab},
@@ -251,6 +252,8 @@ func (a *App) runPrefixAction(action prefixAction) tea.Cmd {
 		return a.saveTranscriptCommand()
 	case prefixActionBrowseScripts:
 		return a.browseTranscriptsCommand()
+	case prefixActionEventLog:
+		return func() tea.Msg { return messages.ShowEventLog{} }
 	default:
 		return nil
 	}
