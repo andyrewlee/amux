@@ -44,6 +44,13 @@ per-identity flock, never assumed from the atomic write.
   write may reclaim the slot there: the quarantine is best-effort, not a
   durable archive.
 
+Both per-project stores share their envelope mechanics
+(load → decode+schema-check → mutate → flock → `fsatomic.WriteJSON`) in
+`internal/data/json_envelope.go` (`projectEnvelope[V]`) — the table above
+describes behavior; the helper is the single implementation of it. Each
+store supplies only its record type, wire shape, empty-record rule, and
+copy boundary.
+
 `port-reservations.json` has one extra contract: the first-adoption guard
 (see `Initialize`) runs only while this process has never seen an existing
 registry. A registry file deleted mid-run is recreated empty without the

@@ -2,14 +2,8 @@ package data
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
-	"sync"
-
-	"github.com/andyrewlee/amux/internal/fsatomic"
 )
 
 // ProjectScriptStore persists user-level per-project script defaults — the
@@ -20,80 +14,51 @@ import (
 //
 // The backing file is a single versioned JSON envelope keyed by normalized
 // repo path — sibling to project-env.json in ~/.amux — read on demand so
-// edits apply without a create-time snapshot.
+// edits apply without a create-time snapshot. Load/mutate/flock/atomic-write
+// mechanics are shared with the other per-project envelope stores via
+// projectEnvelope; the wire shape and empty-record rule below are this
+// store's own.
 type ProjectScriptStore struct {
-	path string
-	mu   sync.Mutex
-	// readFile is a per-instance test seam; nil means os.ReadFile.
-	readFile func(string) ([]byte, error)
+	*projectEnvelope[ScriptsConfig]
 }
 
 // NewProjectScriptStore returns a store whose backing file is
 // dir/project-scripts.json.
 func NewProjectScriptStore(dir string) *ProjectScriptStore {
-	return &ProjectScriptStore{path: filepath.Join(dir, "project-scripts.json")}
+	return &ProjectScriptStore{&projectEnvelope[ScriptsConfig]{
+		path: filepath.Join(dir, "project-scripts.json"),
+		decodeEnvelope: func(raw []byte) (map[string]ScriptsConfig, error) {
+			var file projectScriptsFile
+			if err := json.Unmarshal(raw, &file); err != nil {
+				return nil, err
+			}
+			if file.Version > projectScriptsFileVersion {
+				return nil, fmt.Errorf("unsupported project-scripts.json schema version %d (newest known: %d): %w", file.Version, projectScriptsFileVersion, ErrUnsupportedSchemaVersion)
+			}
+			if file.Scripts == nil {
+				return map[string]ScriptsConfig{}, nil
+			}
+			return file.Scripts, nil
+		},
+		encodeEnvelope: func(all map[string]ScriptsConfig) any {
+			return projectScriptsFile{Version: projectScriptsFileVersion, Scripts: all}
+		},
+		emptyEntry: func(v ScriptsConfig) bool { return v == (ScriptsConfig{}) },
+	}}
 }
-
-// Path exposes the backing file path for diagnostics.
-func (s *ProjectScriptStore) Path() string { return s.path }
 
 // ForRepo returns the project's script defaults (normalized key); the zero
 // ScriptsConfig when the project has none or the file is unreadable — a
 // corrupt or missing file must never block script execution.
 func (s *ProjectScriptStore) ForRepo(repoPath string) ScriptsConfig {
-	key := NormalizePath(repoPath)
-	if key == "" {
-		return ScriptsConfig{}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	all, err := s.load()
-	if err != nil {
-		return ScriptsConfig{}
-	}
-	return all[key]
+	return s.forRepo(repoPath, ScriptsConfig{})
 }
 
 // Set replaces the project's script defaults and persists them atomically.
 // An all-empty ScriptsConfig removes the entry rather than storing a
 // useless empty object — an empty layer means absence, not override-to-empty.
 func (s *ProjectScriptStore) Set(repoPath string, scripts ScriptsConfig) error {
-	key := NormalizePath(repoPath)
-	if key == "" {
-		return errors.New("project repo path is required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// The sibling flock serializes the whole load→mutate→write against other
-	// amux processes — fsatomic prevents torn writes, not lost updates.
-	lockFile, err := lockRegistryFile(s.path+".lock", false)
-	if err != nil {
-		return err
-	}
-	defer unlockRegistryFile(lockFile)
-	all, err := s.load()
-	if err != nil {
-		if isStoreDecodeError(err) {
-			// User-authored data: preserve the corrupt bytes beside the
-			// store and refuse this write — zeroing the file would
-			// silently drop every project's scripts at once.
-			preserved, occupied := preserveCorruptPrimary(s.path)
-			return &CorruptStoreError{Path: s.path, Preserved: preserved, BackupOccupied: occupied, Err: err}
-		}
-		// A newer schema or any non-decode read failure is existing
-		// state this binary cannot inspect — refuse rather than
-		// clobbering bytes that may hold other projects' scripts.
-		return err
-	}
-	if scripts == (ScriptsConfig{}) {
-		delete(all, key)
-	} else {
-		all[key] = scripts
-	}
-	return fsatomic.WriteJSON(s.path, projectScriptsFile{
-		Version: projectScriptsFileVersion,
-		Scripts: all,
-	})
+	return s.set(repoPath, scripts)
 }
 
 // projectScriptsFileVersion is the newest project-scripts.json schema
@@ -107,29 +72,4 @@ const projectScriptsFileVersion = 1
 type projectScriptsFile struct {
 	Version int                      `json:"version"`
 	Scripts map[string]ScriptsConfig `json:"scripts"`
-}
-
-func (s *ProjectScriptStore) load() (map[string]ScriptsConfig, error) {
-	read := os.ReadFile
-	if s.readFile != nil {
-		read = s.readFile
-	}
-	raw, err := read(s.path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return map[string]ScriptsConfig{}, nil
-		}
-		return nil, err
-	}
-	var file projectScriptsFile
-	if err := json.Unmarshal(raw, &file); err != nil {
-		return nil, err
-	}
-	if file.Version > projectScriptsFileVersion {
-		return nil, fmt.Errorf("unsupported project-scripts.json schema version %d (newest known: %d): %w", file.Version, projectScriptsFileVersion, ErrUnsupportedSchemaVersion)
-	}
-	if file.Scripts == nil {
-		return map[string]ScriptsConfig{}, nil
-	}
-	return file.Scripts, nil
 }
