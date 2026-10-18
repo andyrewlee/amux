@@ -34,7 +34,7 @@ STRICT_RATCHET_LINTERS := --enable funlen --enable gocyclo --enable nestif
 GOLANGCI ?= golangci-lint
 lint lint-strict lint-strict-new lint-strict-base check-golangci-version: GOLANGCI := $(shell want=`tr -d '[:space:]' < .golangci-version 2>/dev/null | sed 's/^v//'`; local="$(CURDIR)/.cache/bin/golangci-lint"; have=`"$$local" version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//'`; if [ -x "$$local" ] && [ "$$have" = "$$want" ]; then echo "$$local"; else echo golangci-lint; fi)
 
-.PHONY: build install test test-race test-race-tmux soak fuzz tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config check-fmt-versions fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
+.PHONY: build install test test-race test-race-tmux soak fuzz tidy-check govulncheck windows-build ci ci-nightly ci-tmux-matrix bench lint lint-tools lint-strict lint-strict-new lint-strict-base lint-config-drift check-golangci-version check-file-length check-fmt-config check-fmt-versions docs-check fmt fmt-check vet clean run dev devcheck verify-loop tmux-skip-check help release-check release-tag release-push release harness-center harness-sidebar harness-monitor harness-presets harness-smoke harness-golden perf-check doctor
 
 build:
 	go build -o $(BINARY_NAME) $(MAIN_PACKAGE)
@@ -180,6 +180,7 @@ devcheck:
 	$(MAKE) lint-config-drift
 	$(MAKE) check-fmt-config
 	$(MAKE) check-fmt-versions
+	$(MAKE) docs-check
 	$(MAKE) lint
 
 # tmux-skip-check is the single `make test`/`make devcheck` execution of the
@@ -464,6 +465,12 @@ lint-strict-base: check-golangci-version # CACHE_ROOT defaults to a gitignored r
 # shared with `make check-file-length` (run inside `make lint`).
 check-file-length:
 	@./scripts/check_file_length.sh
+
+# docs-check guards the narrow user-facing contract pairs — the prefix table
+# vs README's Controls table, STORAGE.md's metadata roots, CONTRIBUTING's
+# harness assert flag — so the docs can't silently drift from the code.
+docs-check:
+	@./scripts/check_docs_drift.sh
 
 # check-fmt-config guards the LOCAL_PREFIXES ↔ .golangci.yml local-prefixes
 # mirror (two consumers, two formats — kept in sync by this drift check, same

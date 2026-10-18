@@ -35,7 +35,7 @@ amux builds every session name with `tmux.SessionName(parts...)`
 and the surviving parts are joined with `-`. If nothing survives, the name is
 the bare string `amux`.
 
-`sanitize` (same file) does, per part:
+`sanitize` (`internal/tmux/options.go`) does, per part:
 
 - lowercase the whole part;
 - keep `a`–`z`, `0`–`9`, `-`, and `_` as-is;
@@ -259,7 +259,7 @@ tmux -L "${AMUX_TMUX_SERVER:-amux}" send-keys -t '=amux-<ws>-<tabPart>' -l 'your
 
 The `=` exact-match prefix on the target is not optional: amux uses it for every
 session-scoped `send-keys`/`has-session`/`kill-session` for exactly this reason
-(`sessionTarget` in `internal/tmux/tmux.go`). (Note: tmux's `set-option` and
+(`sessionTarget` in `internal/tmux/options.go`). (Note: tmux's `set-option` and
 `show-options` reject the `=` prefix, so tag reads/writes use the bare name —
 see `exactSessionOptionTarget` in the same file. Prefix collisions are still
 avoided there because names carry both workspace and tab IDs.)

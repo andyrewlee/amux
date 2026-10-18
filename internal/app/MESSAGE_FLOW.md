@@ -55,10 +55,17 @@ Three surfacing channels exist; every `messages.Error` is handled in one place
   toast + log** (`Error{Logged:true}` paired with `Toast{ToastError}`). Use it
   for failures the user must notice even if they dismiss the overlay quickly
   — a failed settings save, a failed workspace setup, missing tmux.
-- Bare `messages.Toast` → **transient toast only**. For soft-validation and
-  informational notices ("select a workspace first", "project path is
-  required", "session disconnected") — neither operation failures nor
-  something to route through the error overlay.
+- Bare `messages.Toast` → **transient toast, plus a recallable record**.
+  For soft-validation and informational notices ("select a workspace
+  first", "project path is required", "session disconnected") — neither
+  operation failures nor something to route through the error overlay.
+  "Transient" describes only the on-screen dwell: every toast — including
+  the error toasts `ReportError` emits — is also pushed onto the session
+  event ring (`internal/ui/common/event_ring.go`, capacity 64,
+  newest-first), so a missed notification is recallable via `C-Space e`
+  (`prefixActionEventLog` → `messages.ShowEventLog` →
+  `internal/app/app_event_log.go`, which opens a read-only
+  `common.OutputDialog` over the captured entries).
 
 The `safecmd.go` panic wrappers intentionally emit `Error{Logged:true}` with
 no toast: a panic already owns the overlay.
