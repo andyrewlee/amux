@@ -61,7 +61,7 @@ func TestPersistOneTabSnapshot_NoOpRecordsNoMarker(t *testing.T) {
 		seq:       1,
 		tabs:      tabs,
 		activeIdx: ws.ActiveTabIndex,
-		fallback:  snapshotWorkspaceForSave(ws),
+		fallback:  cloneForCmd(ws),
 	})
 	if err != nil {
 		t.Fatalf("persistOneTabSnapshot error = %v", err)
@@ -100,7 +100,7 @@ func TestPersistOneTabSnapshot_ExternalChangeThenNoOp(t *testing.T) {
 		seq:       1,
 		tabs:      tabs,
 		activeIdx: ws.ActiveTabIndex,
-		fallback:  snapshotWorkspaceForSave(ws),
+		fallback:  cloneForCmd(ws),
 	})
 	if err != nil {
 		t.Fatalf("persistOneTabSnapshot error = %v", err)
@@ -131,7 +131,7 @@ func TestPersistOneTabSnapshot_RealWriteSuppresses(t *testing.T) {
 		seq:       1,
 		tabs:      newTabs,
 		activeIdx: ws.ActiveTabIndex,
-		fallback:  snapshotWorkspaceForSave(ws),
+		fallback:  cloneForCmd(ws),
 	})
 	if err != nil {
 		t.Fatalf("persistOneTabSnapshot error = %v", err)
@@ -162,7 +162,7 @@ func TestPersistOneTabSnapshot_SupersededRecordsNoMarker(t *testing.T) {
 		seq:       5,
 		tabs:      newTabs,
 		activeIdx: ws.ActiveTabIndex,
-		fallback:  snapshotWorkspaceForSave(ws),
+		fallback:  cloneForCmd(ws),
 	}); err != nil {
 		t.Fatalf("seed persist error = %v", err)
 	}
@@ -178,7 +178,7 @@ func TestPersistOneTabSnapshot_SupersededRecordsNoMarker(t *testing.T) {
 		seq:       3, // older than the committed seq 5
 		tabs:      ws.OpenTabs,
 		activeIdx: ws.ActiveTabIndex,
-		fallback:  snapshotWorkspaceForSave(ws),
+		fallback:  cloneForCmd(ws),
 	})
 	if err != nil {
 		t.Fatalf("persistOneTabSnapshot error = %v", err)

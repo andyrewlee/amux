@@ -48,7 +48,7 @@ func (a *App) captureTabSnapshot(ws *data.Workspace, wsID string) tabPersistSnap
 		seq:       a.lifecycle.persistSeq,
 		tabs:      tabs,
 		activeIdx: activeIdx,
-		fallback:  snapshotWorkspaceForSave(ws),
+		fallback:  cloneForCmd(ws),
 	}
 }
 

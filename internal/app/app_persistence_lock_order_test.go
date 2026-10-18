@@ -79,7 +79,7 @@ func TestTabPersistLifecycleGuardDoesNotReenter(t *testing.T) {
 		seq:       1,
 		tabs:      []data.TabInfo{{Name: "tab-a"}},
 		activeIdx: 0,
-		fallback:  snapshotWorkspaceForSave(ws),
+		fallback:  cloneForCmd(ws),
 	}
 	saveDone := make(chan error, 1)
 	go func() {
