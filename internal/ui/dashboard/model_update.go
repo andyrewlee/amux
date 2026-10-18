@@ -86,7 +86,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// delivery on FilterActive and the widget refuses when inactive.
 		if cmd, handled, changed := m.filter.Update(msg); handled {
 			if changed {
-				m.rebuildRows()
+				// Query-only change: re-filter the cached structural rows.
+				m.applyRowFilter()
 			}
 			return m, cmd
 		}
@@ -103,7 +104,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			cmd, handled, changed := m.filter.Update(msg)
 			if handled {
 				if changed {
-					m.rebuildRows()
+					m.applyRowFilter()
 				}
 				return m, cmd
 			}
@@ -224,7 +225,7 @@ func (m *Model) handleNavKey(msg tea.KeyPressMsg, toolbarItems []toolbarItem) (*
 			// Dismiss an applied filter — marks-clear keeps precedence as
 			// the older esc contract.
 			m.filter.Clear()
-			m.rebuildRows()
+			m.applyRowFilter()
 		}
 	case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 		return m, m.refresh()

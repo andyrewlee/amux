@@ -196,14 +196,14 @@ devcheck:
 # `-v` output and false-green (or false-fail STRICT_TMUX).
 tmux-skip-check:
 	@output=$$(mktemp); trap 'rm -f "$$output"' EXIT INT TERM; \
-	if ! go test -count=1 ./internal/tmux/... ./internal/e2e/... ./internal/app ./internal/pty/... ./internal/ui/sidebar/... -v >"$$output" 2>&1; then \
+	if ! go test -count=1 ./internal/tmux/... ./internal/e2e/... ./internal/app ./internal/pty/... ./internal/ui/sidebar/... ./internal/process/... -v >"$$output" 2>&1; then \
 		cat "$$output"; \
 		exit 1; \
 	fi; \
 	skipped=$$(awk '\
 		/^[[:space:]]+[^[:space:]]+\.go:[0-9]+:/ { reason=$$0 } \
 		/^--- SKIP:/ { \
-			if (reason ~ /cannot start PTY-backed tmux attach|client never attached|tmux version does not emit DEC 2026 synchronized-output markers/) whitelisted++; \
+			if (reason ~ /cannot start PTY-backed tmux attach|client never attached|tmux version does not emit DEC 2026 synchronized-output markers|signal permissions restricted in this environment|orphaned child did not survive leader exit in this environment/) whitelisted++; \
 			else skipped++; \
 			reason=""; \
 		} \

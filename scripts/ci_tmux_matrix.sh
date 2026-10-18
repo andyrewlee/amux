@@ -50,6 +50,8 @@ go_sha() {
   case "$1:$2" in
     1.26.8:amd64) echo "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b" ;;
     1.26.8:arm64) echo "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0" ;;
+    1.26.9:amd64) echo "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d" ;;
+    1.26.9:arm64) echo "4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052" ;;
     *) return 1 ;;
   esac
 }

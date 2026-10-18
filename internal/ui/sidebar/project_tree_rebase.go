@@ -25,6 +25,7 @@ func (m *ProjectTree) rebaseTreePaths(oldRoot, newRoot string) bool {
 			return false
 		}
 		node.Path = rebased
+		node.lowerPath = strings.ToLower(rebased)
 		for _, child := range node.Children {
 			if !walk(child) {
 				return false
