@@ -439,8 +439,17 @@ script and is documented rather than implemented.
 The repository itself is the other side of the boundary: amux treats a
 delivered `.git` as hostile. Every git invocation runs with repo hooks,
 `core.fsmonitor`, and GPG signing neutralized and inherited `GIT_*` state
-dropped. Repo-configured drivers that would execute code during amux's own
-git operations are refused rather than run: an attributed `merge.*.driver`
+dropped. Two redirect vectors in the same class are also pinned or refused:
+git commands run with `--work-tree` pinned to the directory they were
+invoked on, so a delivered `core.worktree` cannot relocate
+merge/abort/writeback writes (or the reads that would mask them) into an
+arbitrary directory — the flag beats file config, and `GIT_WORK_TREE`, its
+env equivalent, is stripped with the other `GIT_*` vars; and a `commondir`
+file inside a checkout's `.git` directory — which git only ever writes
+under `<common>/worktrees/<id>/`, never in a checkout — is treated as
+forged state and refused outright. Repo-configured drivers that would
+execute code during amux's own git operations are refused rather than run:
+an attributed `merge.*.driver`
 blocks the merge, and a repo-configured `filter.*` driver (`clean`/`smudge`/
 `process`/`command`) attributed by the current index OR the
 checked-out/incoming tree blocks workspace create/attach, `add -A`

@@ -428,18 +428,6 @@ func (a *App) handleUpgradeComplete(msg messages.UpgradeComplete) tea.Cmd {
 	return a.toast.ShowSuccess("Upgraded to " + msg.NewVersion + " - restart amux to use new version")
 }
 
-// handleOpenFileInVim handles the OpenFileInVim message from the project tree.
-// This opens the file in vim in the center pane.
-func (a *App) handleOpenFileInVim(msg messages.OpenFileInVim) tea.Cmd {
-	if msg.Workspace == nil || msg.Path == "" {
-		return nil
-	}
-	logging.Info("Opening file in editor: %s", msg.Path)
-	newCenter, cmd := a.center.Update(msg)
-	a.center = newCenter
-	return cmd
-}
-
 // dialogResultRunSessionPicker opens the run-output viewer pinned to the
 // picked session. dlg.runSessions is the enumeration the picker's Index
 // addresses; a vanished or never-recorded selection reports rather than

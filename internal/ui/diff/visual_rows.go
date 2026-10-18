@@ -161,9 +161,11 @@ func (m *Model) buildVisualRows() visualRows {
 		out.firstRow[i] = len(out.rows)
 
 		// Diff content is repo-controlled bytes: strip terminal escapes
-		// (OSC8 hyperlinks, OSC52 clipboard writes, CSI) before styling so a
-		// crafted file can't inject sequences into the host terminal.
-		content := ansi.Strip(line.Content)
+		// (OSC8 hyperlinks, OSC52 clipboard writes, CSI) and unsafe display
+		// runes — bidi embed/override and isolates (Trojan-Source class,
+		// where a crafted line renders reordered/concealed text) — before
+		// styling. Uncapped: the hardwrap/truncate below bounds display.
+		content := common.SanitizeDisplayText(line.Content, 1<<30)
 		style := lineContentStyle(line.Kind)
 
 		var segments []string

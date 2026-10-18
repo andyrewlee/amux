@@ -145,6 +145,25 @@ func TestVisualRowsBuild(t *testing.T) {
 		}
 	})
 
+	t.Run("bidi and format controls stripped before styling", func(t *testing.T) {
+		m := newSizedModel()
+		// Trojan-Source shape: bidi override/isolate runes would render
+		// "safe" as reordered text over the real bytes.
+		m.diff = &git.DiffResult{Lines: []git.DiffLine{
+			{Kind: git.DiffLineAdd, Content: "safe\u202eevil\u202c\u202d ok"},
+			{Kind: git.DiffLineDelete, Content: "del\u2066rlm\u2069\u200f line"},
+		}}
+		for i, r := range m.rows().rows {
+			plain := ansi.Strip(r.text)
+			if strings.ContainsAny(plain, "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u200e\u200f\u061c") {
+				t.Fatalf("row %d leaked a bidi/format rune: %q", i, plain)
+			}
+		}
+		if got := ansi.Strip(m.rows().rows[0].text); !strings.Contains(got, "safeevil") {
+			t.Fatalf("bidi strip lost visible text: %q", got)
+		}
+	})
+
 	t.Run("continuation rows have blank gutter", func(t *testing.T) {
 		m := newSizedModel()
 		m.width = 30

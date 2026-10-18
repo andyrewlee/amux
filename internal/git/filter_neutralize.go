@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,7 +54,13 @@ var filterNeutralCache = struct {
 // neutralized — config reads execute no filters, and the enumeration below
 // goes through the same runners (the skip is the recursion guard).
 func neutralizeGitArgs(ctx context.Context, dir string, args []string) ([]string, error) {
-	if ops.allowRepoGitHooks || len(args) == 0 || args[0] == "config" {
+	if ops.allowRepoGitHooks {
+		return args, nil
+	}
+	if err := forgedCommondirError(dir); err != nil {
+		return nil, err
+	}
+	if len(args) == 0 || args[0] == "config" {
 		return args, nil
 	}
 	overrides, err := neutralizingFilterArgs(ctx, dir)
@@ -185,6 +192,27 @@ func configInputPaths(gitdir, commondir string) []string {
 		filepath.Join(gitdir, "HEAD"),
 	}
 	return paths
+}
+
+// forgedCommondirError refuses to run git against a checkout whose `.git`
+// is a directory carrying a `commondir` file. Git only ever writes
+// commondir inside the per-worktree gitdirs under a shared dir
+// (<common>/worktrees/<id>/commondir) — a primary checkout's `.git` dir
+// never has one, and linked worktrees reach the shared dir through a
+// `gitdir:` .git FILE instead. So a commondir file sitting in a
+// checkout's .git directory is forged state: git honors it and resolves
+// refs/objects — and `worktree add` metadata writes — against the
+// attacker-chosen common dir. Refusing every operation fails closed
+// (repo reads/writes error out) rather than letting the redirect stand.
+func forgedCommondirError(dir string) error {
+	dotgit := filepath.Join(dir, ".git")
+	if fi, err := os.Stat(dotgit); err != nil || !fi.IsDir() {
+		return nil // .git file (linked worktree) or no repo at dir — nothing to check
+	}
+	if _, err := os.Stat(filepath.Join(dotgit, "commondir")); err == nil {
+		return fmt.Errorf("refusing to run git in %s: .git/commondir present in a primary checkout is forged state that redirects the common dir", dir)
+	}
+	return nil
 }
 
 // stampsMatch reports whether the cached key still describes the live
