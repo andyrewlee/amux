@@ -61,11 +61,21 @@ func (f *FilterInput) Clear() {
 // Update routes one message through the filter while Active. handled: the
 // message was consumed (every KeyPressMsg is — that is what makes digit
 // keys type into the filter). changed: the applied query changed and the
-// list must rebuild — typed edits and the Esc clear; Enter exits without
-// changing the query, so it reports no rebuild.
+// list must rebuild — typed edits, paste, and the Esc clear; Enter exits
+// without changing the query, so it reports no rebuild.
+//
+// Paste appends its first line (sanitized like every other single-line
+// field) to the query — unlike the output dialog's search, a pasted
+// newline does NOT accept: list filters apply live, so Enter owns accept.
 func (f *FilterInput) Update(msg tea.Msg) (cmd tea.Cmd, handled, changed bool) {
+	if !f.mode {
+		return nil, false, false
+	}
+	if pm, ok := msg.(tea.PasteMsg); ok {
+		return f.paste(pm.Content)
+	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
-	if !ok || !f.mode {
+	if !ok {
 		return nil, false, false
 	}
 	switch {
@@ -81,6 +91,28 @@ func (f *FilterInput) Update(msg tea.Msg) (cmd tea.Cmd, handled, changed bool) {
 		f.query = f.input.Value()
 		return cmd, true, true
 	}
+}
+
+// paste appends the payload's first sanitized line to the query within the
+// CharLimit — consumed but unchanged when the payload sanitizes to nothing
+// or the input is already full. Caller guarantees mode is on.
+func (f *FilterInput) paste(content string) (tea.Cmd, bool, bool) {
+	content = PasteFirstLine(content)
+	if content == "" {
+		return nil, true, false
+	}
+	combined := f.input.Value() + content
+	if limit := f.input.CharLimit; limit > 0 {
+		if rs := []rune(combined); len(rs) > limit {
+			combined = string(rs[:limit])
+		}
+	}
+	if combined == f.input.Value() {
+		return nil, true, false
+	}
+	f.input.SetValue(combined)
+	f.query = combined
+	return nil, true, true
 }
 
 // View renders the input line's text portion — callers render their own

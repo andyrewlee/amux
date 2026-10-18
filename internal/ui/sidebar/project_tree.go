@@ -180,6 +180,17 @@ func (m *ProjectTree) Update(msg tea.Msg) (*ProjectTree, tea.Cmd) {
 			return m, m.handleEnter()
 		}
 
+	case tea.PasteMsg:
+		// Paste lands in the live `/` filter only — the app router gates
+		// delivery on FilterActive and the widget refuses when inactive.
+		if cmd, handled, changed := m.filter.Update(msg); handled {
+			if changed {
+				m.rebuildFlatList()
+			}
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		// Filter input captures every key while active — the widget's own
 		// esc/enter contract decides when it releases.
@@ -388,22 +399,6 @@ func (m *ProjectTree) rebuildFlatList() {
 	}
 }
 
-// treeNodeVisible reports whether a node belongs in the filtered list: its
-// own path matches the query (case-insensitive substring, the Changes
-// shape) or a loaded descendant's does. An unexpanded directory's unloaded
-// children cannot match — the honest bound of lazy loading.
-func treeNodeVisible(node *projectTreeNode, query string) bool {
-	if strings.Contains(strings.ToLower(node.Path), query) {
-		return true
-	}
-	for _, child := range node.Children {
-		if treeNodeVisible(child, query) {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *ProjectTree) visibleHeight() int {
 	help := m.helpLineCount()
 	visible := m.height - help - m.filterLineCount()
@@ -411,22 +406,6 @@ func (m *ProjectTree) visibleHeight() int {
 		visible = 1
 	}
 	return visible
-}
-
-// filterLineCount reports the height of the filter status row rendered
-// above the node list — independent of showKeymapHints since the row is
-// functional state.
-func (m *ProjectTree) filterLineCount() int {
-	if m.filter.Active() || m.filter.Query() != "" {
-		return 1
-	}
-	return 0
-}
-
-// FilterActive reports whether the tree is in filter-input mode — the
-// tab bar must not steal digit keys meant for the filter.
-func (m *ProjectTree) FilterActive() bool {
-	return m.filter.Active()
 }
 
 func (m *ProjectTree) rowIndexAt(screenY int) (int, bool) {

@@ -380,6 +380,13 @@ func (m *Model) Focused() bool {
 	return m.focused
 }
 
+// FilterActive reports whether the `/` filter is capturing input — the app
+// routes PasteMsg to the dashboard only while it is (Blur exits the mode,
+// so an active filter implies focus).
+func (m *Model) FilterActive() bool {
+	return m.filter.Active()
+}
+
 // SetProjects sets the projects list
 func (m *Model) SetProjects(projects []data.Project) {
 	prevCursor := m.cursor

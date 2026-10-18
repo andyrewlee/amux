@@ -1,12 +1,15 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/sidebar"
 )
 
 func TestHandleWindowSize_UpdatesDimensionsReadyAndLayout(t *testing.T) {
@@ -57,8 +60,8 @@ func TestHandlePaste_RoutesByFocusedPane(t *testing.T) {
 	}{
 		{name: "center focused routes paste", focused: messages.PaneCenter, wantRouted: true},
 		{name: "sidebar terminal focused routes paste", focused: messages.PaneSidebarTerminal, wantRouted: true},
-		{name: "dashboard focused drops paste", focused: messages.PaneDashboard, wantRouted: false},
-		{name: "sidebar focused drops paste", focused: messages.PaneSidebar, wantRouted: false},
+		{name: "dashboard focused with no live filter drops paste", focused: messages.PaneDashboard, wantRouted: false},
+		{name: "sidebar focused with no live filter drops paste", focused: messages.PaneSidebar, wantRouted: false},
 	}
 
 	for _, tt := range tests {
@@ -71,6 +74,8 @@ func TestHandlePaste_RoutesByFocusedPane(t *testing.T) {
 
 			centerBefore := app.center
 			sidebarTermBefore := app.sidebarTerminal
+			dashboardVersion := app.dashboard.ContentVersion()
+			sidebarVersion := app.sidebar.ContentVersion()
 
 			// Must not panic for any focused pane. The returned tea.Cmd is
 			// intentionally discarded: routed handlers return a nil cmd in this
@@ -94,8 +99,71 @@ func TestHandlePaste_RoutesByFocusedPane(t *testing.T) {
 				if app.sidebarTerminal != sidebarTermBefore {
 					t.Fatal("expected sidebar terminal untouched when not focused")
 				}
+				if app.dashboard.ContentVersion() != dashboardVersion {
+					t.Fatal("drop-path paste still reached the dashboard model")
+				}
+				if app.sidebar.ContentVersion() != sidebarVersion {
+					t.Fatal("drop-path paste still reached the sidebar model")
+				}
 			}
 		})
+	}
+}
+
+// Paste reaches the dashboard's `/` filter while it is capturing input —
+// the routed PasteMsg lands in FilterInput and narrows the row set like
+// typed keys.
+func TestHandlePaste_DashboardFilterReceivesPaste(t *testing.T) {
+	h := newCenterHarness(nil, HarnessOptions{Width: 120, Height: 40, Tabs: 1})
+	app := h.app
+	app.focusedPane = messages.PaneDashboard
+	app.dashboard.Focus()
+	// `/` enters filter-input mode through the real key path.
+	app.handleKeyPress(tea.KeyPressMsg{Code: '/', Text: "/"})
+	if !app.dashboard.FilterActive() {
+		t.Fatal("setup: / did not activate the dashboard filter")
+	}
+
+	app.handlePaste(tea.PasteMsg{Content: "prim"})
+
+	// The harness project is named "primary"; the pasted query must narrow
+	// the dashboard's rendered filter line and row set.
+	if got := app.dashboard.View(); !strings.Contains(got, "prim") {
+		t.Fatalf("pasted query missing from the dashboard filter line:\n%s", got)
+	}
+}
+
+// Same routing for the sidebar: the paste lands in whichever surface's `/`
+// filter is live — the Changes list or the project tree.
+func TestHandlePaste_SidebarFiltersReceivePaste(t *testing.T) {
+	for _, tab := range []sidebar.SidebarTab{sidebar.TabChanges, sidebar.TabProject} {
+		h := newCenterHarness(nil, HarnessOptions{Width: 120, Height: 40, Tabs: 1})
+		app := h.app
+		app.focusedPane = messages.PaneSidebar
+		app.sidebar.Focus()
+		app.sidebar.SetActiveTab(tab)
+		// The Changes view renders its filter line only once a status is
+		// loaded; seed a non-clean one so the query echo is observable. The
+		// project tree likewise needs a workspace before its filter row
+		// renders — the async root load is never pumped here.
+		app.sidebar.SetWorkspace(harnessWorkspace())
+		app.sidebar.SetGitStatus(&git.StatusResult{
+			Unstaged: []git.Change{{Path: "needle.go", Kind: git.ChangeModified}},
+		})
+		app.handleKeyPress(tea.KeyPressMsg{Code: '/', Text: "/"})
+		if !app.sidebar.FilterActive() {
+			t.Fatalf("setup: / did not activate the sidebar filter (tab %d)", tab)
+		}
+
+		before := app.sidebar.ContentVersion()
+		app.handlePaste(tea.PasteMsg{Content: "needle"})
+
+		if app.sidebar.ContentVersion() == before {
+			t.Fatalf("paste did not reach the sidebar filter (tab %d)", tab)
+		}
+		if got := app.sidebar.View(); !strings.Contains(got, "needle") {
+			t.Fatalf("pasted query missing from the sidebar filter (tab %d):\n%s", tab, got)
+		}
 	}
 }
 

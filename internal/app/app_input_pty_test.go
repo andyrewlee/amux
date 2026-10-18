@@ -155,16 +155,53 @@ func TestHandleTabInputFailed_EmptyWorkspaceShowsToastAndSkipsDetach(t *testing.
 
 	cmds := app.handleTabInputFailed(center.TabInputFailed{WorkspaceID: ""})
 
-	// With no workspace id there is no detach command, leaving the warning toast
-	// plus the active-workspace persist command.
-	if len(cmds) != 2 {
-		t.Fatalf("expected 2 commands (toast + persist), got %d", len(cmds))
+	// With no workspace id there is no detach command and persist no-ops on
+	// the empty id — only the warning toast remains.
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 command (toast; persist no-ops on empty id), got %d", len(cmds))
 	}
 	if !app.toast.Visible() {
 		t.Fatal("expected a warning toast to be visible")
 	}
 	if got := app.toast.View(); !strings.Contains(got, "Session disconnected") {
 		t.Fatalf("expected disconnect warning in toast view, got %q", got)
+	}
+}
+
+// The failed tab belongs to msg.WorkspaceID, which need not be the active
+// workspace — a background tab's queued write can fail while another
+// workspace is selected. Persist must mark THAT workspace dirty, matching
+// the sibling detach/state handlers; persisting the active workspace would
+// leave the background workspace's on-disk tabs claiming "running".
+func TestHandleTabInputFailed_PersistsMessageWorkspace(t *testing.T) {
+	active := ptyTestWorkspace()
+	background := data.NewWorkspace("bg", "bg-work", "bg-work", "/bg-repo", "/bg-root")
+	centerModel := newPTYTestCenter(t, active)
+
+	app := &App{
+		center:          centerModel,
+		toast:           common.NewToastModel(),
+		activeWorkspace: active,
+		lifecycle:       newWorkspaceLifecycleState(),
+	}
+
+	bgID := string(background.ID())
+	activeID := string(active.ID())
+	cmds := app.handleTabInputFailed(center.TabInputFailed{
+		WorkspaceID: bgID,
+		TabID:       center.TabID("bg-ghost"),
+		// Gen 0 is the untagged control-path form — the tab isn't tracked
+		// here, so nothing detaches, but the persist still targets bgID.
+	})
+
+	if !app.lifecycle.dirty[bgID] {
+		t.Fatal("background workspace was not marked dirty")
+	}
+	if app.lifecycle.dirty[activeID] {
+		t.Fatal("active workspace wrongly marked dirty by a background failure")
+	}
+	if len(cmds) != 2 {
+		t.Fatalf("expected toast + persist commands, got %d", len(cmds))
 	}
 }
 
@@ -236,8 +273,8 @@ func TestHandleTabInputFailed_NilActiveWorkspaceSkipsPersist(t *testing.T) {
 		lifecycle:       newWorkspaceLifecycleState(),
 	}
 
-	// No active workspace means persistActiveWorkspaceTabs returns nil; with an
-	// empty workspace id there is also no detach, so only the toast remains.
+	// The persist targets the message's workspace — an empty id no-ops
+	// regardless of the active workspace, so only the toast remains.
 	cmds := app.handleTabInputFailed(center.TabInputFailed{WorkspaceID: ""})
 	if len(cmds) != 1 {
 		t.Fatalf("expected only the toast command, got %d", len(cmds))

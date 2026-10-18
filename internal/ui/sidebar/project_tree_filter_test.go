@@ -151,6 +151,33 @@ func TestProjectTreeFilterDigitsCapturedByWidget(t *testing.T) {
 	}
 }
 
+// A routed PasteMsg lands in the live filter like typed keys — the flat
+// list narrows on the pasted query. The app router only delivers paste
+// while FilterActive; this covers the in-model half.
+func TestProjectTreeFilterPasteNarrowsNodes(t *testing.T) {
+	m := newSeededProjectTree(t)
+	m.Focus()
+	m = treeKey(m, '/')
+	m2, _ := m.Update(tea.PasteMsg{Content: "bet"})
+	m = m2
+	if got := treeNodeNames(m); len(got) != 1 || got[0] != "beta" {
+		t.Fatalf("paste-filtered nodes = %v, want [beta]", got)
+	}
+	if !m.filter.Active() {
+		t.Fatal("paste exited filter-input mode — only Enter accepts")
+	}
+}
+
+// Paste with no live filter is ignored — the FilterInput refuses it.
+func TestProjectTreePasteWithoutFilterIgnored(t *testing.T) {
+	m := newSeededProjectTree(t)
+	m.Focus()
+	m.Update(tea.PasteMsg{Content: "bet"})
+	if got := treeNodeNames(m); len(got) != 4 {
+		t.Fatalf("paste without a filter narrowed nodes to %v", got)
+	}
+}
+
 func TestProjectTreeFilterNoMatchesRendersHint(t *testing.T) {
 	m := newSeededProjectTree(t)
 	m.Focus()
