@@ -252,12 +252,13 @@ func TestDashboardFilterBlurExitsInputKeepsQuery(t *testing.T) {
 func TestFilterDashboardRowsShelvedAndCreateSurvival(t *testing.T) {
 	proj := &data.Project{Name: "repo", Path: "/repo"}
 	shelved := data.Workspace{Name: "old-api", Branch: "old", Root: "/shelved/old-api"}
+	web := &data.Workspace{Name: "web", Root: "/w/web"}
 	rows := []Row{
 		{Type: RowHome},
 		{Type: RowSpacer},
-		{Type: RowProject, Project: proj},
-		{Type: RowWorkspace, Project: proj, Workspace: &data.Workspace{Name: "web", Root: "/w/web"}},
-		{Type: RowShelved, Project: proj, Workspace: &shelved},
+		{Type: RowProject, Project: proj, matchText: projectMatchText(proj)},
+		{Type: RowWorkspace, Project: proj, Workspace: web, matchText: workspaceMatchText(web)},
+		{Type: RowShelved, Project: proj, Workspace: &shelved, matchText: workspaceMatchText(&shelved)},
 		{Type: RowCreate, Project: proj},
 		{Type: RowSpacer},
 	}
@@ -304,6 +305,38 @@ func TestDashboardPasteWithoutFilterIgnored(t *testing.T) {
 	m.Update(tea.PasteMsg{Content: "api"})
 	if got := workspaceRowNames(m); len(got) != 3 {
 		t.Fatalf("paste without a filter narrowed rows to %v", got)
+	}
+}
+
+// Query edits re-filter the cached structural rows — they must leave the
+// cache itself untouched so clearing the filter restores the full registry.
+func TestDashboardFilterPreservesStructuralRows(t *testing.T) {
+	m := twoProjectFixture()
+	m.Focus()
+	m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	typeKeys(m, 'a', 'p', 'i')
+	if len(m.structuralRows) == 0 {
+		t.Fatal("structural rows never built")
+	}
+	var structuralWS []string
+	for _, r := range m.structuralRows {
+		if r.Type == RowWorkspace && r.Workspace != nil {
+			structuralWS = append(structuralWS, r.Workspace.Name)
+		}
+	}
+	if len(structuralWS) != 3 {
+		t.Fatalf("structural rows lost workspaces to the filter: %v", structuralWS)
+	}
+	// And the filtered view still narrowed.
+	if got := workspaceRowNames(m); len(got) != 1 || got[0] != "api" {
+		t.Fatalf("filtered rows = %v, want [api]", got)
+	}
+	// Re-filtering widens back out from the intact cache.
+	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if got := workspaceRowNames(m); len(got) != 3 {
+		t.Fatalf("unfiltered rows = %v, want all 3 back", got)
 	}
 }
 

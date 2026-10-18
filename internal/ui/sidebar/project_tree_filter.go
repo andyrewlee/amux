@@ -10,9 +10,10 @@ import "strings"
 // treeNodeVisible reports whether a node belongs in the filtered list: its
 // own path matches the query (case-insensitive substring, the Changes
 // shape) or a loaded descendant's does. An unexpanded directory's unloaded
-// children cannot match — the honest bound of lazy loading.
+// children cannot match — the honest bound of lazy loading. Nodes carry
+// their lowercased path so a query edit never re-lowercases the tree.
 func treeNodeVisible(node *projectTreeNode, query string) bool {
-	if strings.Contains(strings.ToLower(node.Path), query) {
+	if strings.Contains(node.lowerPath, query) {
 		return true
 	}
 	for _, child := range node.Children {

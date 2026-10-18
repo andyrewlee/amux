@@ -52,6 +52,10 @@ type Row struct {
 	ActivityWorkspaceID string
 	// MainWorkspace points to a project's primary/main workspace for project rows.
 	MainWorkspace *data.Workspace
+	// matchText is the pre-lowercased filter haystack, computed once when the
+	// structural row is built so a query edit never re-lowercases registry
+	// fields. Empty for rows the filter never matches on (Home/Spacer/Create).
+	matchText string
 }
 
 // toolbarButtonKind identifies toolbar buttons
@@ -71,10 +75,14 @@ type toolbarButton struct {
 // Model is the Bubbletea model for the dashboard pane
 type Model struct {
 	// Data
-	projects    []data.Project
-	rows        []Row
-	activeRoot  string // Currently active workspace root
-	statusCache map[string]*git.StatusResult
+	projects []data.Project
+	rows     []Row
+	// structuralRows is the registry-derived row list before query filtering.
+	// rebuildRows rebuilds it; the query-edit path (applyRowFilter) only
+	// re-filters it, so a keystroke never re-flattens/re-sorts the registry.
+	structuralRows []Row
+	activeRoot     string // Currently active workspace root
+	statusCache    map[string]*git.StatusResult
 
 	// UI state
 	cursor          int

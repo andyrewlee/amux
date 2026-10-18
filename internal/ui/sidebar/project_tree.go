@@ -16,13 +16,17 @@ import (
 
 // projectTreeNode represents a file or directory in the tree
 type projectTreeNode struct {
-	Name     string
-	Path     string
-	IsDir    bool
-	Expanded bool
-	Depth    int
-	Children []*projectTreeNode
-	Parent   *projectTreeNode
+	Name string
+	Path string
+	// lowerPath is the pre-lowercased Path, computed at construction and on
+	// rebase — the filter walks it per keystroke so it must never
+	// re-lowercase live.
+	lowerPath string
+	IsDir     bool
+	Expanded  bool
+	Depth     int
+	Children  []*projectTreeNode
+	Parent    *projectTreeNode
 
 	// pendingRequest is the in-flight directory read for this node (0 =
 	// none). It is both the loading marker and the staleness token: a result
@@ -325,12 +329,14 @@ func (m *ProjectTree) installChildren(node *projectTreeNode, entries []ProjectTr
 		if !m.showHidden && strings.HasPrefix(e.Name, ".") {
 			continue
 		}
+		path := filepath.Join(node.Path, e.Name)
 		child := &projectTreeNode{
-			Name:   e.Name,
-			Path:   filepath.Join(node.Path, e.Name),
-			IsDir:  e.IsDir,
-			Depth:  node.Depth + 1,
-			Parent: node,
+			Name:      e.Name,
+			Path:      path,
+			lowerPath: strings.ToLower(path),
+			IsDir:     e.IsDir,
+			Depth:     node.Depth + 1,
+			Parent:    node,
 		}
 		if e.IsDir {
 			dirs = append(dirs, child)

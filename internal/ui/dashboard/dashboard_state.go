@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -74,9 +75,20 @@ func (m *Model) SetWorkspaceBusy(root string, op WorkspaceOp, on bool) tea.Cmd {
 	return nil
 }
 
-// rebuildRows rebuilds the row list from projects
+// rebuildRows rebuilds the structural row list from the registry, then
+// reapplies the live filter — the full path for registry changes (project
+// set, creating set, shelve/restore).
 func (m *Model) rebuildRows() {
-	m.rows = []Row{
+	m.rebuildStructuralRows()
+	m.applyRowFilter()
+}
+
+// rebuildStructuralRows flattens and sorts the registry into
+// m.structuralRows — the expensive half (registry flatten + per-project
+// sort + matchText construction). Query edits must NOT call this; they go
+// through applyRowFilter.
+func (m *Model) rebuildStructuralRows() {
+	m.structuralRows = []Row{
 		{Type: RowHome},
 		{Type: RowSpacer},
 	}
@@ -89,11 +101,12 @@ func (m *Model) rebuildRows() {
 			mainWSID = string(mainWS.ID())
 		}
 
-		m.rows = append(m.rows, Row{
+		m.structuralRows = append(m.structuralRows, Row{
 			Type:                RowProject,
 			Project:             project,
 			ActivityWorkspaceID: mainWSID,
 			MainWorkspace:       mainWS,
+			matchText:           projectMatchText(project),
 		})
 
 		for _, ws := range m.sortedWorkspaces(project) {
@@ -102,33 +115,43 @@ func (m *Model) rebuildRows() {
 				continue
 			}
 
-			m.rows = append(m.rows, Row{
+			m.structuralRows = append(m.structuralRows, Row{
 				Type:                RowWorkspace,
 				Project:             project,
 				Workspace:           ws,
 				ActivityWorkspaceID: string(ws.ID()),
+				matchText:           workspaceMatchText(ws),
 			})
 		}
 
 		for i := range project.ShelvedWorkspaces {
 			ws := &project.ShelvedWorkspaces[i]
-			m.rows = append(m.rows, Row{
+			m.structuralRows = append(m.structuralRows, Row{
 				Type:      RowShelved,
 				Project:   project,
 				Workspace: ws,
+				matchText: workspaceMatchText(ws),
 			})
 		}
 
-		m.rows = append(m.rows, Row{
+		m.structuralRows = append(m.structuralRows, Row{
 			Type:    RowCreate,
 			Project: project,
 		})
 
-		m.rows = append(m.rows, Row{Type: RowSpacer})
+		m.structuralRows = append(m.structuralRows, Row{Type: RowSpacer})
 	}
+}
 
+// applyRowFilter derives m.rows from the cached structural rows for the
+// live query, then repairs cursor/scroll. The cached structural rows are
+// immutable — applyRowFilter must never mutate them; filterDashboardRows
+// returns a new slice.
+func (m *Model) applyRowFilter() {
 	if q := m.filter.Query(); q != "" {
-		m.rows = filterDashboardRows(m.rows, q)
+		m.rows = filterDashboardRows(m.structuralRows, q)
+	} else {
+		m.rows = slices.Clone(m.structuralRows)
 	}
 
 	// Clamp cursor
@@ -149,6 +172,24 @@ func (m *Model) rebuildRows() {
 
 	m.clampScrollOffset()
 	m.markContentDirty()
+}
+
+// projectMatchText returns a project's pre-lowercased filter haystack.
+// Fields join on \x00 so a query can never match across a field boundary —
+// equivalent to per-field Contains since typed/pasted queries are printable.
+func projectMatchText(p *data.Project) string {
+	if p == nil {
+		return ""
+	}
+	return strings.ToLower(p.Name + "\x00" + p.Path)
+}
+
+// workspaceMatchText is the workspace-row equivalent: name, root, branch.
+func workspaceMatchText(ws *data.Workspace) string {
+	if ws == nil {
+		return ""
+	}
+	return strings.ToLower(ws.Name + "\x00" + ws.Root + "\x00" + ws.Branch)
 }
 
 // clampScrollOffset ensures scrollOffset stays within valid bounds.
@@ -173,21 +214,12 @@ func (m *Model) clampScrollOffset() {
 // the Changes filter.
 func filterDashboardRows(rows []Row, query string) []Row {
 	q := strings.ToLower(query)
-	matchWS := func(ws *data.Workspace) bool {
-		if ws == nil {
-			return false
-		}
-		return strings.Contains(strings.ToLower(ws.Name), q) ||
-			strings.Contains(strings.ToLower(ws.Root), q) ||
-			strings.Contains(strings.ToLower(ws.Branch), q)
+	// Rows carry their fields pre-lowercased in matchText — the query path
+	// never re-lowercases registry data.
+	matchWS := func(r Row) bool {
+		return r.matchText != "" && strings.Contains(r.matchText, q)
 	}
-	matchProject := func(p *data.Project) bool {
-		if p == nil {
-			return false
-		}
-		return strings.Contains(strings.ToLower(p.Name), q) ||
-			strings.Contains(strings.ToLower(p.Path), q)
-	}
+	matchProject := matchWS
 
 	// Pass 1: which project sections survive — own match or any child match.
 	survives := make(map[*data.Project]bool)
@@ -204,9 +236,9 @@ func filterDashboardRows(rows []Row, query string) []Row {
 		case RowProject:
 			flush()
 			cur = r.Project
-			curSurvives = matchProject(r.Project)
+			curSurvives = matchProject(r)
 		case RowWorkspace, RowShelved:
-			if cur != nil && matchWS(r.Workspace) {
+			if cur != nil && matchWS(r) {
 				curSurvives = true
 			}
 		}
@@ -226,7 +258,7 @@ func filterDashboardRows(rows []Row, query string) []Row {
 				out = append(out, r)
 			}
 		case RowWorkspace, RowShelved:
-			if keep && matchWS(r.Workspace) {
+			if keep && matchWS(r) {
 				out = append(out, r)
 			}
 		case RowCreate:

@@ -252,12 +252,13 @@ func (m *ProjectTree) reloadTree() tea.Cmd {
 	}
 
 	m.pendingRoot = &projectTreeNode{
-		Name:     filepath.Base(m.workspace.Root),
-		Path:     m.workspace.Root,
-		IsDir:    true,
-		Expanded: true,
-		Depth:    -1, // Root is at depth -1 so children are at 0
-		Parent:   nil,
+		Name:      filepath.Base(m.workspace.Root),
+		Path:      m.workspace.Root,
+		lowerPath: strings.ToLower(m.workspace.Root),
+		IsDir:     true,
+		Expanded:  true,
+		Depth:     -1, // Root is at depth -1 so children are at 0
+		Parent:    nil,
 	}
 	m.rootErr = ""
 	return m.enqueueLoad(m.pendingRoot)
@@ -342,11 +343,12 @@ func (m *ProjectTree) SetWorkspace(ws *data.Workspace) tea.Cmd {
 		return nil
 	}
 	m.root = &projectTreeNode{
-		Name:     filepath.Base(ws.Root),
-		Path:     ws.Root,
-		IsDir:    true,
-		Expanded: true,
-		Depth:    -1,
+		Name:      filepath.Base(ws.Root),
+		Path:      ws.Root,
+		lowerPath: strings.ToLower(ws.Root),
+		IsDir:     true,
+		Expanded:  true,
+		Depth:     -1,
 	}
 	m.rebuildFlatList()
 	return m.enqueueLoad(m.root)

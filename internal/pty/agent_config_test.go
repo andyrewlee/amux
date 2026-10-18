@@ -41,9 +41,12 @@ func TestAgentManager_CreateAgentWithConfig_UsesSuppliedSnapshot(t *testing.T) {
 	}
 	// The snapshot deliberately differs from testConfig()'s "echo claude"
 	// entry on every field — any observed map value means the spawn re-read
-	// the shared map.
+	// the shared map. The trailing sleep keeps the marker on-grid until the
+	// attaching client lands — a bare echo exits in milliseconds and the
+	// drop-to-shell wrapper's RIS wipe clears it before the attach replays
+	// the pane (the CreateViewer `marker; sleep` convention).
 	snapshot := config.AssistantConfig{
-		Command:          "echo snapshot-cfg",
+		Command:          "echo snapshot-cfg; sleep 300",
 		InterruptCount:   7,
 		InterruptDelayMs: 900,
 	}
