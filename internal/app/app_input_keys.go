@@ -166,6 +166,22 @@ func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {
 		newTerm, cmd := a.sidebarTerminal.Update(msg)
 		a.sidebarTerminal = newTerm
 		return cmd
+	case messages.PaneDashboard:
+		// Paste reaches the dashboard only while its `/` filter is live —
+		// an inactive filter keeps the historical drop.
+		if a.dashboard != nil && a.dashboard.FilterActive() {
+			newDashboard, cmd := a.dashboard.Update(msg)
+			a.dashboard = newDashboard
+			return cmd
+		}
+	case messages.PaneSidebar:
+		// Same contract for the sidebar: the active tab's `/` filter takes
+		// the paste; with no live filter the paste is dropped as before.
+		if a.sidebar != nil && a.sidebar.FilterActive() {
+			newSidebar, cmd := a.sidebar.Update(msg)
+			a.sidebar = newSidebar
+			return cmd
+		}
 	}
 	return nil
 }

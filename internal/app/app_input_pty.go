@@ -118,7 +118,11 @@ func (a *App) handleTabInputFailed(msg center.TabInputFailed) []tea.Cmd {
 	if detach != nil {
 		cmds = append(cmds, detach)
 	}
-	if cmd := a.persistActiveWorkspaceTabs(); cmd != nil {
+	// Persist the MESSAGE's workspace — the detached tab belongs to
+	// msg.WorkspaceID, which is not necessarily the active workspace (a
+	// background tab's queued write can fail while another workspace is
+	// selected; the sibling detach/state handlers already use this form).
+	if cmd := a.persistWorkspaceTabs(msg.WorkspaceID); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return cmds

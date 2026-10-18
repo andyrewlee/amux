@@ -411,6 +411,15 @@ func (m *TabbedSidebar) RefreshAheadBehind() tea.Cmd {
 	return m.changes.refreshAheadBehind()
 }
 
+// FilterActive reports whether the ACTIVE tab's list is in filter-input
+// mode — the same predicate the digit guard uses. The app router gates
+// PasteMsg delivery on it; a background tab's still-applied query doesn't
+// capture paste (blur exits input mode on tab switch anyway).
+func (m *TabbedSidebar) FilterActive() bool {
+	return (m.activeTab == TabChanges && m.changes.FilterActive()) ||
+		(m.activeTab == TabProject && m.projectTree.FilterActive())
+}
+
 // ActiveTab returns the currently active tab
 func (m *TabbedSidebar) ActiveTab() SidebarTab {
 	return m.activeTab

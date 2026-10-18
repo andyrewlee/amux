@@ -4,8 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -171,6 +173,38 @@ func TestSidebarModelBlurWhenNotFilteringLeavesFilterInputUntouched(t *testing.T
 	}
 	if m.Focused() {
 		t.Fatal("Blur() should clear sidebar focus")
+	}
+}
+
+// A routed PasteMsg lands in the live filter like typed keys — the display
+// list narrows on the pasted query. The app router only delivers paste
+// while FilterActive; this covers the in-model half (the Changes filter
+// gate sits at the top of Update, ahead of the focus check).
+func TestSidebarChangesFilterPasteNarrowsList(t *testing.T) {
+	m := NewChangesModel()
+	m.Focus()
+	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
+	m.SetGitStatus(&git.StatusResult{
+		Unstaged: []git.Change{
+			{Path: "api/server.go", Kind: git.ChangeModified},
+			{Path: "docs/readme.md", Kind: git.ChangeModified},
+		},
+	})
+	m.filter.Start()
+
+	m.Update(tea.PasteMsg{Content: "api"})
+
+	var paths []string
+	for _, item := range m.displayItems {
+		if !item.isHeader {
+			paths = append(paths, item.change.Path)
+		}
+	}
+	if len(paths) != 1 || paths[0] != "api/server.go" {
+		t.Fatalf("paste-filtered paths = %v, want [api/server.go]", paths)
+	}
+	if !m.filter.Active() {
+		t.Fatal("paste exited filter-input mode — only Enter accepts")
 	}
 }
 

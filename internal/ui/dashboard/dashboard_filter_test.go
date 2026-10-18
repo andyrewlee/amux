@@ -279,6 +279,34 @@ func TestFilterDashboardRowsShelvedAndCreateSurvival(t *testing.T) {
 	}
 }
 
+// A routed PasteMsg lands in the live filter like typed keys — the row set
+// narrows on the pasted query. (The app router only delivers paste while
+// FilterActive; this covers the in-model half of that contract.)
+func TestDashboardFilterPasteNarrowsRows(t *testing.T) {
+	m := twoProjectFixture()
+	m.Focus()
+	m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m.Update(tea.PasteMsg{Content: "api"})
+
+	got := workspaceRowNames(m)
+	if len(got) != 1 || got[0] != "api" {
+		t.Fatalf("paste-filtered workspace rows = %v, want [api]", got)
+	}
+	if !m.filter.Active() {
+		t.Fatal("paste exited filter-input mode — only Enter accepts")
+	}
+}
+
+// A paste with no live filter is ignored — the FilterInput refuses it.
+func TestDashboardPasteWithoutFilterIgnored(t *testing.T) {
+	m := twoProjectFixture()
+	m.Focus()
+	m.Update(tea.PasteMsg{Content: "api"})
+	if got := workspaceRowNames(m); len(got) != 3 {
+		t.Fatalf("paste without a filter narrowed rows to %v", got)
+	}
+}
+
 func TestDashboardFilterCursorClampsAfterNarrowing(t *testing.T) {
 	m := twoProjectFixture()
 	// Park the cursor on the last row, then narrow to one workspace — the

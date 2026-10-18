@@ -81,6 +81,17 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, m.handleEnter()
 		}
 
+	case tea.PasteMsg:
+		// Paste lands in the live `/` filter only — the app router gates
+		// delivery on FilterActive and the widget refuses when inactive.
+		if cmd, handled, changed := m.filter.Update(msg); handled {
+			if changed {
+				m.rebuildRows()
+			}
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		if !m.focused {
 			return m, nil

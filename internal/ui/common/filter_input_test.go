@@ -137,6 +137,94 @@ func TestFilterInputClearDropsEverything(t *testing.T) {
 	}
 }
 
+func TestFilterInputPasteAppendsSanitizedText(t *testing.T) {
+	f := NewFilterInput()
+	f.Start()
+	f.Update(keyRune('a'))
+	_, handled, changed := f.Update(tea.PasteMsg{Content: "pi"})
+	if !handled || !changed {
+		t.Fatalf("paste should append and report a change, handled=%v changed=%v", handled, changed)
+	}
+	if got := f.Query(); got != "api" {
+		t.Fatalf("Query() = %q, want %q", got, "api")
+	}
+	if !f.Active() {
+		t.Fatal("paste exited filter-input mode")
+	}
+}
+
+func TestFilterInputPasteMultiLineKeepsFirstLine(t *testing.T) {
+	f := NewFilterInput()
+	f.Start()
+	// Unlike the output dialog's search, a pasted newline does NOT accept —
+	// list filters apply live, so only the first line lands as query text.
+	_, handled, changed := f.Update(tea.PasteMsg{Content: "ap\r\ni"})
+	if !handled || !changed {
+		t.Fatalf("multi-line paste handled=%v changed=%v", handled, changed)
+	}
+	if got := f.Query(); got != "ap" {
+		t.Fatalf("Query() = %q, want first line %q", got, "ap")
+	}
+	if !f.Active() {
+		t.Fatal("pasted newline accepted/exited — list filters must not")
+	}
+}
+
+func TestFilterInputPasteDropsControlBytes(t *testing.T) {
+	f := NewFilterInput()
+	f.Start()
+	f.Update(tea.PasteMsg{Content: "x\x07\x1by"})
+	if got := f.Query(); got != "xy" {
+		t.Fatalf("Query() = %q, want %q — control runes must not enter", got, "xy")
+	}
+}
+
+func TestFilterInputPasteControlOnlyReportsNoChange(t *testing.T) {
+	f := NewFilterInput()
+	f.Start()
+	_, handled, changed := f.Update(tea.PasteMsg{Content: "\x00\x07"})
+	if !handled || changed {
+		t.Fatalf("control-only paste handled=%v changed=%v, want consumed-but-unchanged", handled, changed)
+	}
+	if f.Query() != "" {
+		t.Fatalf("control-only paste changed the query: %q", f.Query())
+	}
+}
+
+func TestFilterInputPasteWhileInactivePassesThrough(t *testing.T) {
+	f := NewFilterInput()
+	if _, handled, _ := f.Update(tea.PasteMsg{Content: "x"}); handled {
+		t.Fatal("inactive filter consumed a paste")
+	}
+	// ExitKeep (blur) leaves input mode too — paste must not resurrect it.
+	f.Start()
+	f.Update(keyRune('q'))
+	f.ExitKeep()
+	if _, handled, _ := f.Update(tea.PasteMsg{Content: "z"}); handled {
+		t.Fatal("paste reached a blurred filter")
+	}
+	if got := f.Query(); got != "q" {
+		t.Fatalf("inactive paste changed Query() to %q, want %q", got, "q")
+	}
+}
+
+func TestFilterInputPasteHonorsCharLimit(t *testing.T) {
+	f := NewFilterInput()
+	f.Start()
+	f.input.CharLimit = 4
+	f.Update(keyRune('a'))
+	f.Update(keyRune('b'))
+	f.Update(tea.PasteMsg{Content: "cdefgh"})
+	if got := f.Query(); got != "abcd" {
+		t.Fatalf("Query() = %q, want %q truncated at CharLimit", got, "abcd")
+	}
+	// A paste while already at the limit is consumed but reports no change.
+	_, handled, changed := f.Update(tea.PasteMsg{Content: "z"})
+	if !handled || changed {
+		t.Fatalf("at-limit paste handled=%v changed=%v, want consumed-unchanged", handled, changed)
+	}
+}
+
 func TestFilterInputIgnoresNonKeyMessages(t *testing.T) {
 	f := NewFilterInput()
 	f.Start()
