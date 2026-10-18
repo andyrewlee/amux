@@ -7,7 +7,9 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/sidebar"
+	"github.com/andyrewlee/amux/internal/ui/theme"
 	"github.com/andyrewlee/amux/internal/vterm"
 )
 
@@ -385,6 +387,41 @@ func TestCenterStaticGate_SkipsRebuildWhenClean(t *testing.T) {
 	h.Render()
 	if got := h.app.centerStaticBuilds; got <= builds {
 		t.Fatalf("static center not rebuilt after pane-focus change: builds stayed at %d", builds)
+	}
+	builds = h.app.centerStaticBuilds
+
+	// The remaining folded inputs — a dropped fold means the fingerprint
+	// stops changing for that field and the gate serves a stale pane every
+	// frame with no test noticing. Mirror diff/version_test.go's
+	// TestContentVersion_MutationsBump shape: one row per folded field.
+	prevTheme := common.GetCurrentTheme().ID
+	defer common.SetCurrentTheme(prevTheme)
+	otherTheme := theme.ThemeNord
+	if otherTheme == prevTheme {
+		otherTheme = theme.ThemeDracula
+	}
+	folds := []struct {
+		name   string
+		mutate func()
+	}{
+		{"ws.Branch", func() { ws.Branch = "feature-xyz" }},
+		{"ws.Root", func() { ws.Root = "/repo/other-root" }},
+		{"project.Name", func() { h.app.activeProject.Name = "renamed-project" }},
+		{"centerBtnIndex", func() { h.app.centerBtnIndex++ }},
+		{"config.UI.ShowKeymapHints", func() {
+			h.app.config.UI.ShowKeymapHints = !h.app.config.UI.ShowKeymapHints
+		}},
+		{"theme ID", func() { common.SetCurrentTheme(otherTheme) }},
+		{"focusedPane back off-center", func() { h.app.focusedPane = messages.PaneSidebar }},
+	}
+	for _, fold := range folds {
+		fold.mutate()
+		h.Render()
+		if got := h.app.centerStaticBuilds; got <= builds {
+			t.Fatalf("static center not rebuilt after %s changed: builds stayed at %d — "+
+				"the fingerprint fold for this input was likely dropped", fold.name, builds)
+		}
+		builds = h.app.centerStaticBuilds
 	}
 }
 

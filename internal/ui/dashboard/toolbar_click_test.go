@@ -148,63 +148,60 @@ func TestToolbarYCalculation(t *testing.T) {
 	})
 }
 
+// TestDeleteButtonClick exercises the real delete affordance: the "x" icon
+// rendered on the selected row (deleteIconX, recorded during View). The
+// toolbar itself only carries Commands/Settings — a click at the recorded
+// icon slot must route to handleDelete and emit ShowDeleteWorkspaceDialog.
 func TestDeleteButtonClick(t *testing.T) {
 	m := setupClickTestModel()
-
-	// Select a workspace row to make Delete button visible
+	m.focused = true
 	m.cursor = 3 // Workspace row
 	_ = m.View()
 
-	// Find the Delete button position
-	// Toolbar items when workspace selected: Commands, Settings, Delete
-	// [Commands] [Settings] [Delete]
-	toolbarScreenY := m.toolbarY + 1
-
-	// Delete should be on same row, after Settings
-	cmd := m.handleToolbarClick(12, toolbarScreenY) // Same row, right side
-	if cmd != nil {
-		msg := cmd()
-		if _, ok := msg.(messages.ShowDeleteWorkspaceDialog); ok {
-			// Success - Delete button was clicked
-			return
-		}
+	if m.deleteIconX <= 0 {
+		t.Fatalf("delete icon position not recorded for selected workspace row (deleteIconX=%d)", m.deleteIconX)
+	}
+	screenY := m.cursor - m.scrollOffset + 1 // +1 for top border
+	// contentX = X - borderLeft(1); aim one cell into the [x, x+3) icon slot.
+	_, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.deleteIconX + 2, Y: screenY})
+	if cmd == nil {
+		t.Fatalf("click on delete icon at (%d, %d) produced no command", m.deleteIconX+2, screenY)
+	}
+	msg := cmd()
+	if _, ok := msg.(messages.ShowDeleteWorkspaceDialog); !ok {
+		t.Fatalf("delete icon click produced %T, want ShowDeleteWorkspaceDialog", msg)
 	}
 
-	// Try alternative position - the exact X depends on button width
-	for x := 8; x < 20; x++ {
-		cmd := m.handleToolbarClick(x, toolbarScreenY+1)
-		if cmd != nil {
-			msg := cmd()
-			if _, ok := msg.(messages.ShowDeleteWorkspaceDialog); ok {
-				return // Found it
-			}
+	// One cell left of the icon slot is a plain row click, not a delete —
+	// without this the test can't tell a too-wide slot from a real hit.
+	m2 := setupClickTestModel()
+	m2.focused = true
+	m2.cursor = 3
+	_ = m2.View()
+	_, cmd2 := m2.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m2.deleteIconX, Y: screenY})
+	if cmd2 != nil {
+		if _, ok := cmd2().(messages.ShowDeleteWorkspaceDialog); ok {
+			t.Fatal("click left of the icon slot produced ShowDeleteWorkspaceDialog; slot window too wide")
 		}
 	}
-
-	t.Log("Note: Delete button click test may need coordinate adjustment based on actual button layout")
 }
 
 func TestRemoveButtonClickOnProject(t *testing.T) {
 	m := setupClickTestModel()
-
-	// Select a project row to make Remove button visible
+	m.focused = true
 	m.cursor = 2 // Project row
 	_ = m.View()
 
-	// Toolbar items when project selected: Commands, Settings, Remove
-	// [Commands] [Settings] [Remove]
-	toolbarScreenY := m.toolbarY + 1
-
-	// Try to find Remove button on same row
-	for x := 8; x < 20; x++ {
-		cmd := m.handleToolbarClick(x, toolbarScreenY)
-		if cmd != nil {
-			msg := cmd()
-			if _, ok := msg.(messages.ShowRemoveProjectDialog); ok {
-				return // Found it
-			}
-		}
+	if m.deleteIconX <= 0 {
+		t.Fatalf("delete icon position not recorded for selected project row (deleteIconX=%d)", m.deleteIconX)
 	}
-
-	t.Log("Note: Remove button click test may need coordinate adjustment based on actual button layout")
+	screenY := m.cursor - m.scrollOffset + 1 // +1 for top border
+	_, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.deleteIconX + 2, Y: screenY})
+	if cmd == nil {
+		t.Fatalf("click on remove icon at (%d, %d) produced no command", m.deleteIconX+2, screenY)
+	}
+	msg := cmd()
+	if _, ok := msg.(messages.ShowRemoveProjectDialog); !ok {
+		t.Fatalf("remove icon click produced %T, want ShowRemoveProjectDialog", msg)
+	}
 }
