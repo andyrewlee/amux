@@ -24,7 +24,7 @@ func (a *App) handleDeleteWorkspace(msg messages.DeleteWorkspace) []tea.Cmd {
 		logging.Warn("DeleteWorkspace received with nil project or workspace")
 		return nil
 	}
-	msg.Workspace = snapshotWorkspaceForSave(msg.Workspace)
+	msg.Workspace = cloneForCmd(msg.Workspace)
 	if !a.markWorkspaceMutationInFlight(msg.Workspace, true) {
 		logging.Warn("DeleteWorkspace rejected while workspace %s is in another lifecycle phase", msg.Workspace.ID())
 		return nil

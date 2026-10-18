@@ -153,11 +153,9 @@ func (fp *FilePicker) inputBasePath() string {
 func (fp *FilePicker) Update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 	updated, cmd := fp.update(msg)
 	if load := updated.dueLoadCmd(); load != nil {
-		if cmd == nil {
-			cmd = load
-		} else {
-			cmd = tea.Batch(cmd, load)
-		}
+		// SafeBatch wraps each leaf — a panic in the ReadDir closure or the
+		// inner cmd degrades to messages.Error instead of exiting the TUI.
+		cmd = SafeBatch(cmd, load)
 	}
 	return updated, cmd
 }

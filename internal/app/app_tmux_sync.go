@@ -78,7 +78,7 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 		}
 	}
 	if changed {
-		wsSnapshot := snapshotWorkspaceForSave(ws)
+		wsSnapshot := cloneForCmd(ws)
 		tabs := wsSnapshot.OpenTabs
 		wsID := string(wsSnapshot.ID())
 		cmds = append(cmds, func() tea.Msg {

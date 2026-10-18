@@ -6,6 +6,7 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 	"github.com/andyrewlee/amux/internal/ui/ptyio"
 )
 
@@ -95,7 +96,7 @@ func (m *Model) closeTabAt(index int) tea.Cmd {
 			}
 			return nil
 		}
-		return tea.Batch(closedCmd, killCmd)
+		return common.SafeBatch(closedCmd, killCmd)
 	}
 
 	return closedCmd

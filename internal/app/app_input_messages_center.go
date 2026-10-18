@@ -5,6 +5,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // handleOpenDiff handles the OpenDiff message.
@@ -12,7 +13,7 @@ func (a *App) handleOpenDiff(msg messages.OpenDiff) tea.Cmd {
 	logging.Info("Opening diff: change=%v", msg.Change)
 	newCenter, cmd := a.center.Update(msg)
 	a.center = newCenter
-	return tea.Batch(cmd, a.focusPane(messages.PaneCenter))
+	return common.SafeBatch(cmd, a.focusPane(messages.PaneCenter))
 }
 
 // handleLaunchAgent handles the LaunchAgent message.
@@ -38,5 +39,5 @@ func (a *App) handleTabCreated(msg messages.TabCreated) tea.Cmd {
 		a.setFocusedPane(messages.PaneCenter)
 		return cmd
 	}
-	return tea.Batch(cmd, a.focusPane(messages.PaneCenter))
+	return common.SafeBatch(cmd, a.focusPane(messages.PaneCenter))
 }

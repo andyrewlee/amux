@@ -76,24 +76,24 @@ func (a *App) handleShowWorkspaceStatus(msg messages.ShowWorkspaceStatus) tea.Cm
 	}
 	a.overlays.runOutputToken++
 	token, svc := a.overlays.runOutputToken, a.workspaceService
-	snap := ws.Clone() // async closure convention — the live model may mutate
+	snap := cloneForCmd(ws) // async closure convention — the live model may mutate
 	// Live + shelved workspace snapshot for the reclaimable-reservation
 	// probe — captured on the loop because it walks a.projects (same
 	// convention as the orphan GC's known-IDs set).
 	knownIDs := a.collectPortReservationOwnerIDs()
 	opts := a.tmuxOptions
 	return func() tea.Msg {
-		alive, lastExit := svc.RunScriptStatus(&snap)
-		base, end, found, portErr := svc.WorkspacePortInterval(&snap)
+		alive, lastExit := svc.RunScriptStatus(snap)
+		base, end, found, portErr := svc.WorkspacePortInterval(snap)
 		// Read-only tombstone probe: IsDeleting + os.Stat, off the Update
 		// loop like the tmux/registry reads it rides alongside.
-		cleanup := svc.WorkspaceCleanupSnapshot(&snap)
+		cleanup := svc.WorkspaceCleanupSnapshot(snap)
 		reclaimable := a.reclaimablePortReservations(svc, knownIDs, opts)
 		return workspaceStatusReadyMsg{
 			token: token, ws: ws, runAlive: alive, runLastExit: lastExit,
 			portBase: base, portEnd: end, portFound: found, portErr: portErr,
 			cleanup: cleanup, reclaimablePorts: reclaimable,
-			reads: a.fetchWorkspaceStatusReads(&snap),
+			reads: a.fetchWorkspaceStatusReads(snap),
 		}
 	}
 }
