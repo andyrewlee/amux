@@ -380,8 +380,10 @@ func TestClickAfterDeleteAndAddProject(t *testing.T) {
 
 	initialOffset := m.scrollOffset
 	if initialOffset == 0 {
-		// Verify we actually scrolled (sanity check for test setup)
-		t.Log("warning: scrollOffset is 0 after scrolling to bottom; test may not exercise the bug")
+		// The scroll precondition is the whole point of this test — a zero
+		// offset means the fixture no longer overflows the viewport and the
+		// assertions below can't exercise the bug. Fail, don't warn.
+		t.Fatalf("scrollOffset is 0 after scrolling to bottom of %d rows in height-10 viewport; fixture no longer exercises the regression", len(m.rows))
 	}
 
 	// Step 2: Simulate deleting a project (remove last project, now 4 projects)
