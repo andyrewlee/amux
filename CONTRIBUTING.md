@@ -120,7 +120,8 @@ Dev-side environment variables:
   (default `origin/main`).
 - `AMUX_HARNESS_CENTER_ARGS="..."` — override the pre-push harness args
   (default `--mode=center --tabs=8 --frames=200 --warmup=20 --hot-tabs=1
-  --payload-bytes=128`).
+  --payload-bytes=128 --assert-min-visible=100` — the assert is part of the
+  gate; an override that drops it disables the render check).
 
 E2e fixture isolation: `StartPTYSession` pins `HOME` *and*
 `AMUX_WORKSPACES_ROOT` under the test's temporary home, so a parent shell
@@ -146,7 +147,7 @@ center/sidebar/monitor. `make harness-smoke` (part of `make ci`) uses shorter
 direct invocations, e.g. center:
 
 ```bash
-go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4
+go run ./cmd/amux-harness -mode center -frames 5 -warmup 1 -tabs 8 -width 160 -height 48 -hot-tabs 2 -payload-bytes 64 -newline-every 4 -assert-min-visible 100
 ```
 
 #### Inspecting a rendered frame

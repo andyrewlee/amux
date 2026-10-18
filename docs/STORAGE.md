@@ -14,12 +14,12 @@ per-identity flock, never assumed from the atomic write.
 | File | Store | Missing primary | Corrupt/undecodable primary | Newer schema version | Backup behavior |
 |------|-------|-----------------|-----------------------------|----------------------|-----------------|
 | `~/.amux/projects.json` | `Registry` | read falls back to `.bak` silently; absent backup = empty list | read recovers from `.bak`; both bad = joined error | read **refuses** (`ErrUnsupportedSchemaVersion`) — a newer-schema primary is intact data from a newer binary, never recovered over | `WriteJSON` rewrites primary after any backup recovery, healing the file |
-| `~/.amux/workspaces/<id>/workspace.json` | `WorkspaceStore` | read falls back to `workspace.json.bak` | read errors (record skipped by `List`/`ByRepo` callers); **no** corrupt→backup fallback | read errors; load refuses version > current | `.bak` only exists as an fsatomic rename artifact; used when primary is absent |
+| `~/.amux/workspaces-metadata/<id>/workspace.json` | `WorkspaceStore` | read falls back to `workspace.json.bak` | read errors (record skipped by `List`/`ByRepo` callers); **no** corrupt→backup fallback | read errors; load refuses version > current | `.bak` only exists as an fsatomic rename artifact; used when primary is absent |
 | `~/.amux/project-env.json` | `ProjectEnvStore` | empty map | read → empty map (a corrupt file never blocks script execution); **write preserves** the corrupt file to `.bak` and **refuses** (`CorruptStoreError`) — the retry writes clean | read → empty map; **write refuses** | `.bak` quarantines the corrupt bytes for manual recovery — reads never consult it |
 | `~/.amux/project-scripts.json` | `ProjectScriptStore` | empty config | same split as env: read → zero config, write → preserve to `.bak` + refuse (`CorruptStoreError`) | read → zero config; **write refuses** | same quarantine `.bak` as env |
 | `~/.amux/port-reservations.json` | `PortReservationStore` | empty non-nil map | **fails closed** — full-envelope validation rejects truncated, null, overlapping, or undecodable bytes; reads never substitute an empty map | refuses (v1 only, exactly) | none |
-| `~/.amux/workspaces/<id>/script-transcripts.json` | `ScriptTranscriptStore` | empty map | read → skip dir silently; **write refuses** the whole transaction (never replaces unknown data) | read → skip; write refuses | none |
-| `~/.amux/workspaces/<id>/.deleting` | tombstone marker | n/a (presence/absence only) | n/a — a 1-byte marker, not decoded | n/a | n/a |
+| `~/.amux/workspaces-metadata/<id>/script-transcripts.json` | `ScriptTranscriptStore` | empty map | read → skip dir silently; **write refuses** the whole transaction (never replaces unknown data) | read → skip; write refuses | none |
+| `~/.amux/workspaces-metadata/<id>/.deleting` | tombstone marker | n/a (presence/absence only) | n/a — a 1-byte marker, not decoded | n/a | n/a |
 
 ## Read/write asymmetry is the pattern
 
