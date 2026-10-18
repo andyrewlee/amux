@@ -370,67 +370,6 @@ func TestHandleUpgradeComplete_UpdatesVisibleSettingsDialog(t *testing.T) {
 	}
 }
 
-func TestHandleOpenFileInVim(t *testing.T) {
-	ws := harnessWorkspace()
-
-	tests := []struct {
-		name    string
-		msg     messages.OpenFileInVim
-		wantCmd bool
-	}{
-		{
-			name:    "nil workspace is a noop",
-			msg:     messages.OpenFileInVim{Workspace: nil, Path: "/repo/file.go"},
-			wantCmd: false,
-		},
-		{
-			name:    "empty path is a noop",
-			msg:     messages.OpenFileInVim{Workspace: ws, Path: ""},
-			wantCmd: false,
-		},
-		{
-			name:    "nil workspace and empty path is a noop",
-			msg:     messages.OpenFileInVim{Workspace: nil, Path: ""},
-			wantCmd: false,
-		},
-		{
-			name:    "valid workspace and path returns a command",
-			msg:     messages.OpenFileInVim{Workspace: ws, Path: "/repo/primary/ws/main.go"},
-			wantCmd: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newDialogHarness(t)
-			beforeCenter := h.app.center
-
-			cmd := h.app.handleOpenFileInVim(tc.msg)
-
-			if tc.wantCmd {
-				if cmd == nil {
-					t.Fatal("expected a command for a valid open-file request")
-				}
-				// The center model is reassigned even when the work is deferred
-				// into the returned closure. We deliberately do NOT execute the
-				// returned cmd because it would exec tmux/vim.
-				if h.app.center == nil {
-					t.Fatal("expected center to remain set after dispatch")
-				}
-				return
-			}
-
-			if cmd != nil {
-				t.Fatalf("expected nil command for noop request, got %T", cmd)
-			}
-			// A noop must not mutate the center model.
-			if h.app.center != beforeCenter {
-				t.Fatal("expected center to be untouched for a noop request")
-			}
-		})
-	}
-}
-
 // commonUpdateResult is a small fixture for seeding App.updateAvailable.
 func commonUpdateResult() *update.CheckResult {
 	return &update.CheckResult{

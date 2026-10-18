@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -63,7 +64,9 @@ const noHooksPath = "/dev/null"
 // config is enumerated, so the user's own global lfs install is unaffected.
 // NOT neutralized: diff textconv/external-diff drivers named in-tree —
 // diff/browse read paths pass --no-ext-diff/--no-textconv per call site
-// instead (see diff.go).
+// instead (see diff.go). core.worktree is pinned separately by newGitCmd
+// (it needs the target dir) and core.bare is left alone — bare repos are
+// legitimate project roots for `worktree add`.
 func hardenedGitArgs(args []string) []string {
 	if ops.allowRepoGitHooks {
 		return args
@@ -88,8 +91,30 @@ func hardenedGitArgs(args []string) []string {
 // its own process group so cancellation can reach descendants, not just the
 // leader (a no-op on Windows), and WaitDelay keeps an orphaned pipe writer
 // from blocking Wait past the drain allowance.
+//
+// When dir is a worktree root (it carries a .git entry — directory for a
+// primary checkout, file for a linked worktree) the command also pins
+// --work-tree to dir's absolute path. A delivered .git/config can set
+// core.worktree to an attacker-chosen directory; git honors it over the
+// cwd-derived worktree, so merge/abort/add/commit writes would land in
+// that directory while status/diff read it too. Neither `-c` config nor a
+// forged value can override the --work-tree flag (and GIT_WORK_TREE, the
+// env equivalent, is stripped by filteredGitEnv). The pin is skipped for
+// bare-layout dirs (no .git entry — a bare repo IS the gitdir, and pinning
+// a worktree onto it breaks `worktree add`) and under the repo-hooks
+// opt-in, where the user has chosen to trust the repo's config wholesale.
+// Callers must pass the repo/worktree ROOT as dir — every amux call site
+// does; a subdirectory dir lacks a .git entry and runs unpinned.
 func newGitCmd(dir string, args ...string) *exec.Cmd {
-	cmd := exec.Command("git", hardenedGitArgs(args)...)
+	args = hardenedGitArgs(args)
+	if !ops.allowRepoGitHooks {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			if abs, err := filepath.Abs(dir); err == nil {
+				args = append([]string{"--work-tree=" + abs}, args...)
+			}
+		}
+	}
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = filteredGitEnv()
 	process.SetProcessGroup(cmd)
