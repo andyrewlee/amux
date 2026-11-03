@@ -52,6 +52,8 @@ go_sha() {
     1.26.8:arm64) echo "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0" ;;
     1.26.9:amd64) echo "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d" ;;
     1.26.9:arm64) echo "4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052" ;;
+    1.26.10:amd64) echo "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5" ;;
+    1.26.10:arm64) echo "3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797" ;;
     *) return 1 ;;
   esac
 }
