@@ -35,14 +35,13 @@ import (
 // bootstrap capture, returning (live-session-exists, failure) — the
 // "captureExisting" flag for steps 3/5/6.
 type sidebarSpawnParams struct {
-	ws             *data.Workspace
-	sessionName    string
-	loginShell     string
-	root           string
-	envFn          func(*data.Workspace) ([]string, error)
-	tags           tmux.SessionTags
-	detachExisting bool
-	opts           tmux.Options
+	ws          *data.Workspace
+	sessionName string
+	loginShell  string
+	root        string
+	envFn       func(*data.Workspace) ([]string, error)
+	tags        tmux.SessionTags
+	opts        tmux.Options
 	// attachWidth/Height drive the PTY winsize and the default capture dims.
 	attachWidth, attachHeight int
 	// termWidth/Height drive the bootstrap capture's viewport dims.
@@ -101,12 +100,11 @@ func spawnSidebarTerminal(p sidebarSpawnParams) (*sidebarSpawnResult, error) {
 		bootstrap = ptyio.DefaultBootstrap().CaptureExisting(p.sessionName, p.termWidth, p.termHeight, p.opts)
 	}
 	prepared, err := tmux.NewClientCommand(p.sessionName, tmux.ClientCommandParams{
-		WorkDir:        p.root,
-		Command:        p.loginShell,
-		Environment:    env,
-		Options:        p.opts,
-		Tags:           p.tags,
-		DetachExisting: p.detachExisting,
+		WorkDir:     p.root,
+		Command:     p.loginShell,
+		Environment: env,
+		Options:     p.opts,
+		Tags:        p.tags,
 	})
 	if err != nil {
 		return nil, err

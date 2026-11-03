@@ -9,8 +9,13 @@ func TestAttachOnlyClientCommand(t *testing.T) {
 	opts := Options{ServerName: "amux-test", ConfigPath: "/tmp/cfg"}
 	cmd := AttachOnlyClientCommand("amux-ws-run", opts)
 
-	if !strings.Contains(cmd, "attach -dt") {
-		t.Errorf("missing attach -dt: %s", cmd)
+	if !strings.Contains(cmd, "attach -t ") {
+		t.Errorf("missing attach -t: %s", cmd)
+	}
+	// Run sessions are shared read-only views (other instances, external
+	// orchestrators); the attach must never pass -d and evict a viewer.
+	if strings.Contains(cmd, "attach -dt") {
+		t.Errorf("attach-only command must never detach other clients: %s", cmd)
 	}
 	if !strings.Contains(cmd, "-L 'amux-test'") {
 		t.Errorf("missing server flag: %s", cmd)

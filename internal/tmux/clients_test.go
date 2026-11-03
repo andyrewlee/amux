@@ -1,12 +1,9 @@
 package tmux
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/creack/pty"
 )
 
 // These tests cover clients.go. The exec-free early-return guards (the
@@ -113,24 +110,15 @@ func TestSessionClientCount_Attached(t *testing.T) {
 // attachClient attaches a real client to a session over a PTY. It registers a
 // cleanup that detaches the client and skips the test (rather than failing) if
 // the environment cannot provide a PTY / accept the attach, so CI boxes without
-// a controlling terminal degrade gracefully.
+// a controlling terminal degrade gracefully. The PTY-attach machinery itself
+// lives in startAttachedClient (attach_share_integration_test.go) — this
+// wrapper only adds the attached-poll convenience.
 // ---------------------------------------------------------------------------
 
 func attachClient(t *testing.T, opts Options, session string) {
 	t.Helper()
 
-	args := tmuxArgs(opts, "attach-session", "-t", session)
-	cmd := exec.Command("tmux", args...)
-
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
-		t.Skipf("cannot start PTY-backed tmux attach: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		_ = ptmx.Close()
-	})
+	startAttachedClient(t, opts, session)
 
 	// Poll until tmux registers the attached client (attach is asynchronous).
 	// The probe must NOT go through SessionClientCount/SessionHasClients —

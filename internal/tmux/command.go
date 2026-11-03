@@ -11,12 +11,11 @@ import (
 
 // ClientCommandParams holds the parameters for building a tmux client command.
 type ClientCommandParams struct {
-	WorkDir        string
-	Command        string
-	Environment    []string
-	Options        Options
-	Tags           SessionTags
-	DetachExisting bool // Detach other clients attached to this session.
+	WorkDir     string
+	Command     string
+	Environment []string
+	Options     Options
+	Tags        SessionTags
 }
 
 // NewClientCommand builds the shell command that creates (or reattaches to) a
@@ -59,12 +58,17 @@ func NewClientCommand(sessionName string, p ClientCommandParams) (*PreparedComma
 
 	settings := sessionSettingArgs(optionTgt, opts, p.Tags)
 
-	// Attach to the session, optionally detaching other clients.
-	attachFlag := "-t"
-	if p.DetachExisting {
-		attachFlag = "-dt"
-	}
-	attach := fmt.Sprintf("%s attach %s %s", base, attachFlag, sessionTgt)
+	// Attach WITHOUT -d, always. amux sessions are routinely viewed by more
+	// than one client: a second amux instance sharing the workspace discovers
+	// and adopts the same session, and external orchestrators may attach per
+	// docs/ORCHESTRATION.md. A -d attach evicts every other client, so two
+	// instances re-attaching in a loop detach-war until one exhausts its PTY
+	// restart budget — and even a single -d timed between a creator's
+	// new-session and its attach (the set-option round-trips in between open
+	// a real window) kicks the creator's just-attached client. Creator
+	// exclusivity never needed -d anyway: fresh creates mint a unique session
+	// name, so there is no one to detach.
+	attach := fmt.Sprintf("%s attach -t %s", base, sessionTgt)
 
 	// The settings are braced so their internal `||` fallback cannot bind to the
 	// preceding `&&`. Without the braces, sh's equal-precedence left-associative
@@ -82,7 +86,9 @@ func NewClientCommand(sessionName string, p ClientCommandParams) (*PreparedComma
 // It exists for sessions the client does not own (run sessions): NewClientCommand
 // would re-stamp amux's session settings and tab tags on attach, rewriting the
 // session's identity out from under its real owner. If the session is gone the
-// bare attach fails and the caller reports it — nothing is recreated.
+// bare attach fails and the caller reports it — nothing is recreated. The
+// attach is -t, never -dt: evicting another viewer (another amux instance, an
+// external orchestrator) starts a detach war; see NewClientCommand.
 func AttachOnlyClientCommand(sessionName string, opts Options) string {
 	if opts == (Options{}) {
 		opts = DefaultOptions()
@@ -90,7 +96,7 @@ func AttachOnlyClientCommand(sessionName string, opts Options) string {
 	base := tmuxBase(opts)
 	sessionTgt := shellutil.ShellQuote(sessionTarget(sessionName))
 	syncFeatureSet := "(" + base + " set-option -s 'terminal-features[16]' 'xterm*:sync' 2>/dev/null || true)"
-	return fmt.Sprintf("%s; %s attach -dt %s", syncFeatureSet, base, sessionTgt)
+	return fmt.Sprintf("%s; %s attach -t %s", syncFeatureSet, base, sessionTgt)
 }
 
 // The pane's working directory and environment ride in the private launch

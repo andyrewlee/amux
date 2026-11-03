@@ -63,7 +63,6 @@ func TestClientCommandAppliesOptionsAndTagsOnRealTmux(t *testing.T) {
 			SessionOwner: "inst-create",
 			LeaseAtMS:    1700000000000,
 		},
-		DetachExisting: true,
 	})
 	if err != nil {
 		t.Fatalf("NewClientCommand() error = %v", err)

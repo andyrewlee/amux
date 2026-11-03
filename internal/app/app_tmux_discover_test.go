@@ -184,11 +184,11 @@ func TestBuildSidebarSessionAttachInfosOrdersByCreatedAt(t *testing.T) {
 	}
 }
 
-func TestDiscoverSidebarAttachFlags(t *testing.T) {
+func TestDiscoverSidebarSessionsAllAttach(t *testing.T) {
 	sessions := []sidebarSessionInfo{
-		{name: "a1", instanceID: "a", createdAt: 100, hasClients: true},
-		{name: "a2", instanceID: "b", createdAt: 101, hasClients: false},
-		{name: "b1", instanceID: "c", createdAt: 200, hasClients: false},
+		{name: "a1", instanceID: "a", createdAt: 100},
+		{name: "a2", instanceID: "b", createdAt: 101},
+		{name: "b1", instanceID: "c", createdAt: 200},
 	}
 	out := buildSidebarSessionAttachInfos(sessions)
 	if len(out) != 3 {
@@ -197,16 +197,6 @@ func TestDiscoverSidebarAttachFlags(t *testing.T) {
 	for _, sess := range out {
 		if !sess.Attach {
 			t.Fatalf("expected %s to have Attach=true", sess.Name)
-		}
-		switch sess.Name {
-		case "a1":
-			if sess.DetachExisting {
-				t.Fatal("expected a1 to attach without detaching (has clients)")
-			}
-		case "a2", "b1":
-			if !sess.DetachExisting {
-				t.Fatalf("expected %s to attach with detach (no clients)", sess.Name)
-			}
 		}
 	}
 }

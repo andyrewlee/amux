@@ -70,20 +70,19 @@ func (m *TerminalModel) createTerminalTab(ws *data.Workspace) tea.Cmd {
 			return true, nil
 		}
 		res, err := spawnSidebarTerminal(sidebarSpawnParams{
-			ws:             ws,
-			sessionName:    sessionName,
-			loginShell:     loginShellCommand,
-			root:           root,
-			envFn:          envFn,
-			tags:           ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, true),
-			detachExisting: true,
-			opts:           opts,
-			attachWidth:    attachWidth,
-			attachHeight:   attachHeight,
-			termWidth:      termWidth,
-			termHeight:     termHeight,
-			precheck:       precheck,
-			verifyLabel:    "create",
+			ws:           ws,
+			sessionName:  sessionName,
+			loginShell:   loginShellCommand,
+			root:         root,
+			envFn:        envFn,
+			tags:         ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, true),
+			opts:         opts,
+			attachWidth:  attachWidth,
+			attachHeight: attachHeight,
+			termWidth:    termWidth,
+			termHeight:   termHeight,
+			precheck:     precheck,
+			verifyLabel:  "create",
 		})
 		if err != nil {
 			return SidebarTerminalCreateFailed{WorkspaceID: wsID, Err: err}
@@ -157,7 +156,7 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 	if sessionName == "" {
 		sessionName = tmux.SessionName("amux", string(ws.ID()), string(tab.ID))
 	}
-	return m.attachToSession(ws, tab.ID, sessionName, true, "reattach", epoch)
+	return m.attachToSession(ws, tab.ID, sessionName, "reattach", epoch)
 }
 
 // RestartActiveTab starts a fresh tmux session for the active terminal tab.
@@ -200,7 +199,7 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	if !began {
 		return nil
 	}
-	return m.attachToSession(ws, tab.ID, sessionName, true, "restart", epoch)
+	return m.attachToSession(ws, tab.ID, sessionName, "restart", epoch)
 }
 
 // attachFailure builds the epoch-stamped failure result for an attach
@@ -245,7 +244,7 @@ func reattachTargetCheck(ws *data.Workspace, sessionName string, opts tmux.Optio
 	return nil
 }
 
-func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName string, detachExisting bool, action string, epoch uint64) tea.Cmd {
+func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID, sessionName, action string, epoch uint64) tea.Cmd {
 	if ws == nil {
 		return nil
 	}
@@ -268,18 +267,17 @@ func (m *TerminalModel) attachToSession(ws *data.Workspace, tabID TerminalTabID,
 			}
 		}
 		res, err := spawnSidebarTerminal(sidebarSpawnParams{
-			ws:             ws,
-			sessionName:    sessionName,
-			loginShell:     loginShellCommand,
-			root:           root,
-			envFn:          envFn,
-			tags:           ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, action != "reattach"),
-			detachExisting: detachExisting,
-			opts:           opts,
-			attachWidth:    attachWidth,
-			attachHeight:   attachHeight,
-			termWidth:      termWidth,
-			termHeight:     termHeight,
+			ws:           ws,
+			sessionName:  sessionName,
+			loginShell:   loginShellCommand,
+			root:         root,
+			envFn:        envFn,
+			tags:         ptyio.AttachSessionTags(ws, string(tabID), "terminal", "terminal", instanceID, action != "reattach"),
+			opts:         opts,
+			attachWidth:  attachWidth,
+			attachHeight: attachHeight,
+			termWidth:    termWidth,
+			termHeight:   termHeight,
 			precheck: func() (bool, error) {
 				// The reattach path's existence/ownership check ran above;
 				// here the flag only gates the bootstrap-capture lifecycle.

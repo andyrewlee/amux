@@ -386,6 +386,20 @@ timestamps are in milliseconds. amux parses these back with
 lease tags coordinate ownership between concurrent amux instances; an external
 orchestrator should treat them as read-only telemetry and not forge them.
 
+Attach exclusivity follows the same coordination: amux NEVER detaches a
+session's existing clients — every attach it issues is plain `tmux attach`
+without `-d` (`tmux.NewClientCommand` and `tmux.AttachOnlyClientCommand`, the
+only two attach renderers in the codebase). A second viewer — another amux
+instance sharing the workspace, or an external orchestrator — always attaches
+alongside the first. This is deliberate: a `-d` attach anywhere starts a
+detach war between restart loops (each instance re-attaches with `-d`, kicks
+the other, gets kicked back), and even a "detach only when client-free" probe
+loses the race against a concurrent creator, whose fresh session is briefly
+client-free between `new-session` and its own attach. Creator exclusivity
+never needs `-d`: fresh creates mint unique session names, so there is no one
+to detach. An orchestrator that wants a session to itself should kill the
+session and create its own rather than expect amux to evict viewers.
+
 `@amux_agent_state` is amux's own idle/working/done classification (the same
 hysteresis that drives the working indicator and the bell-on-done), published
 per session so an external orchestrator does not have to re-derive it from the

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"slices"
 	"sort"
 	"strconv"
@@ -34,7 +33,6 @@ type sidebarSessionInfo struct {
 	name       string
 	instanceID string
 	createdAt  int64
-	hasClients bool
 }
 
 // discoverWorkspaceTabsFromTmux populates missing tabs from live tmux sessions.
@@ -155,17 +153,19 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			logging.Warn("tmux sidebar discovery failed: %v", err)
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Err: err}
 		}
-		// Two batched calls replace per-row SessionStateFor / SessionHasClients /
-		// SessionCreatedAt probes. A failed batch yields empty maps; rows then hit
-		// the same conservative defaults their per-call error paths used.
+		// Two batched calls replace per-row SessionStateFor / SessionCreatedAt
+		// probes. The state batch always runs (it gates every row); the meta
+		// batch is lazy — only a row actually missing @amux_created_at needs
+		// it, so steady state skips the fork entirely (the agent-tab path
+		// above made its identical fetch lazy for the same reason). A failed
+		// batch yields empty maps; rows then hit the same conservative
+		// defaults their per-call error paths used.
 		allStates, stateErr := svc.AllSessionStates(opts)
 		if stateErr != nil {
 			logging.Warn("tmux sidebar discovery: session states unavailable: %v", stateErr)
 		}
-		meta, metaErr := svc.AllSessionMeta(opts)
-		if metaErr != nil {
-			logging.Warn("tmux sidebar discovery: session meta unavailable: %v", metaErr)
-		}
+		var meta map[string]tmux.SessionMeta
+		var metaFetched bool
 		sessions := make([]sidebarSessionInfo, 0, len(rows))
 		for _, row := range rows {
 			if row.Name == "" {
@@ -175,16 +175,14 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 			if !ok || !state.Exists || !state.HasLivePane {
 				continue
 			}
-			// Assume clients exist when the batched listing lacks the session —
-			// same fail-closed default the per-call error path used.
-			attached := true
-			if m, ok := meta[row.Name]; ok {
-				attached = m.Attached > 0
-			}
 			rowInstanceID := strings.TrimSpace(row.Tags["@amux_instance"])
 			var createdAt int64
 			if raw := strings.TrimSpace(row.Tags["@amux_created_at"]); raw != "" {
 				createdAt, _ = strconv.ParseInt(raw, 10, 64)
+			}
+			if createdAt == 0 && !metaFetched {
+				meta, _ = svc.AllSessionMeta(opts)
+				metaFetched = true
 			}
 			if createdAt == 0 {
 				if m, ok := meta[row.Name]; ok {
@@ -195,16 +193,15 @@ func (a *App) discoverSidebarTerminalsFromTmux(ws *data.Workspace) tea.Cmd {
 				name:       row.Name,
 				instanceID: rowInstanceID,
 				createdAt:  createdAt,
-				hasClients: attached,
 			})
 		}
 		if len(sessions) == 0 {
-			// Rows existed but every one dropped out while a metadata batch
-			// was failing — an empty result here is untrustworthy (the state
+			// Rows existed but every one dropped out while a state batch was
+			// failing — an empty result here is untrustworthy (the state
 			// gate rejects rows whose session simply isn't in a failed map),
 			// so flag it rather than let the handler auto-create.
-			if len(rows) > 0 && (stateErr != nil || metaErr != nil) {
-				return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Err: errors.Join(stateErr, metaErr)}
+			if len(rows) > 0 && stateErr != nil {
+				return tmuxSidebarDiscoverResult{WorkspaceID: wsID, Err: stateErr}
 			}
 			return tmuxSidebarDiscoverResult{WorkspaceID: wsID}
 		}
@@ -267,9 +264,8 @@ func buildSidebarSessionAttachInfos(sessions []sidebarSessionInfo) []sidebar.Ses
 	out := make([]sidebar.SessionAttachInfo, 0, len(sorted))
 	for _, session := range sorted {
 		out = append(out, sidebar.SessionAttachInfo{
-			Name:           session.name,
-			Attach:         true,
-			DetachExisting: !session.hasClients,
+			Name:   session.name,
+			Attach: true,
 		})
 	}
 	return out

@@ -73,6 +73,12 @@ func (m *Model) attachSessionPipeline(p attachPipelineParams) tea.Msg {
 	if !owned {
 		return fail(errors.New("tmux session is not owned by this workspace"), true)
 	}
+	// The attach below never detaches other clients: a second amux instance
+	// sharing this workspace adopts the same sessions, and a -d attach evicts
+	// that instance's client — its restart loop re-attaches with -d, kicking
+	// ours back, and the two war until one exhausts its PTY restart budget.
+	// Creator exclusivity never needed -d either: fresh names are minted per
+	// tab, so there is no one to detach. See tmux.NewClientCommand.
 	tags := ptyio.AttachSessionTags(p.ws, string(p.tabID), "agent", p.assistant, m.instanceID, false)
 	bootstrap := ptyio.DefaultBootstrap().CaptureExisting(p.sessionName, p.termWidth, p.termHeight, opts)
 	ptyRows, ptyCols, _ := appPty.WinsizeFromInts(p.attachHeight, p.attachWidth)

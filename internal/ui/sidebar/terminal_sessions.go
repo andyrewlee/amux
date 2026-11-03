@@ -6,10 +6,19 @@ import (
 	"github.com/andyrewlee/amux/internal/data"
 )
 
+// SessionAttachInfo describes one discovered tmux session for automatic tab
+// attach. Attaching never detaches the session's existing clients — amux
+// sessions are shared across instances (see tmux.NewClientCommand) — so there
+// is no detach policy to carry.
+//
+// Attach is an explicit seam: production discovery currently lists only
+// sessions it wants attached (the sole producer,
+// app.buildSidebarSessionAttachInfos, always writes true), and the false
+// branch — file the tab without starting an attach — exists for restore-style
+// flows and is pinned by tests.
 type SessionAttachInfo struct {
-	Name           string
-	Attach         bool
-	DetachExisting bool
+	Name   string
+	Attach bool
 }
 
 func (m *TerminalModel) tabBySession(wsID, sessionName string) *TerminalTab {
@@ -61,7 +70,7 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 		if existing != nil {
 			if session.Attach {
 				if epoch, ok := shouldAttachExistingTerminalTab(existing); ok {
-					cmds = append(cmds, m.attachToSession(ws, existing.ID, session.Name, session.DetachExisting, "reattach", epoch))
+					cmds = append(cmds, m.attachToSession(ws, existing.ID, session.Name, "reattach", epoch))
 				}
 			}
 			continue
@@ -90,7 +99,7 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 				})
 			}
 			if epoch != 0 {
-				cmds = append(cmds, m.attachToSession(ws, tabID, session.Name, session.DetachExisting, "reattach", epoch))
+				cmds = append(cmds, m.attachToSession(ws, tabID, session.Name, "reattach", epoch))
 			}
 		}
 	}

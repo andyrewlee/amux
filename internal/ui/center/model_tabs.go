@@ -149,6 +149,9 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			ProjectName:   data.ProjectNameForRepo(ws.Repo),
 		}
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
+		// The minted tab ID names a brand-new session; the attach still never
+		// passes -d (tmux.NewClientCommand policy) — another instance sharing
+		// the workspace could already be adopting it.
 		agent, err := createAgentWithConfigFn(m.agentManager, ws, appPty.AgentType(assistant), sessionName, ptyRows, ptyCols, tags, assistantCfg)
 		if err != nil {
 			logging.Error("Failed to create agent: %v", err)

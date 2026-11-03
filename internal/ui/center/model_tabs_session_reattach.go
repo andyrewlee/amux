@@ -202,13 +202,14 @@ func (m *Model) RestartActiveTab() tea.Cmd {
 		// KillSession is synchronous: it calls cmd.Run() which blocks until the
 		// tmux server processes the kill and returns. By the time it completes,
 		// the session is fully removed from tmux's perspective.
-		// The subsequent CreateAgentWithConfig uses `new-session -Ads` which is
-		// atomic (attach-if-exists, create-if-not), providing an additional
-		// safety net in the unlikely event of cleanup lag.
+		// The subsequent CreateAgentWithConfig command is ensure-session-shaped
+		// (`has-session || new-session -ds`), so a session that somehow
+		// survived the kill is re-attached rather than duplicated.
 		if err := ptyio.KillSessionFn(sessionName, tmuxOpts); err != nil {
-			// new-session -Ads below reattaches the survivor when the kill
-			// failed — a restart that silently keeps the old session must be
-			// diagnosable.
+			// The create below reattaches the survivor when the kill failed —
+			// a restart that silently keeps the old session must be
+			// diagnosable, and the reattach shares it (never detaching its
+			// clients) per the attach policy in tmux.NewClientCommand.
 			logging.Error("Failed to kill tmux session %s during agent restart: %v", sessionName, err)
 		}
 

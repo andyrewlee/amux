@@ -14,8 +14,8 @@ func TestAddTabsFromSessionInfosAttachRespectsFlag(t *testing.T) {
 	wsID := string(ws.ID())
 
 	cmds := m.AddTabsFromSessionInfos(ws, []SessionAttachInfo{
-		{Name: "sess-1", Attach: true, DetachExisting: true},
-		{Name: "sess-2", Attach: true, DetachExisting: false},
+		{Name: "sess-1", Attach: true},
+		{Name: "sess-2", Attach: true},
 	})
 	if len(cmds) != 2 {
 		t.Fatalf("expected 2 cmds for attachable sessions, got %d", len(cmds))

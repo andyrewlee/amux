@@ -116,11 +116,10 @@ func TestNewClientCommand(t *testing.T) {
 	}
 
 	prepared, err := NewClientCommand("test-session", ClientCommandParams{
-		WorkDir:        "/tmp/work",
-		Command:        "echo hello",
-		Environment:    []string{"WORKSPACE_ROOT=/tmp/work", "WORKSPACE_NAME=demo"},
-		Options:        opts,
-		DetachExisting: true,
+		WorkDir:     "/tmp/work",
+		Command:     "echo hello",
+		Environment: []string{"WORKSPACE_ROOT=/tmp/work", "WORKSPACE_NAME=demo"},
+		Options:     opts,
 	})
 	if err != nil {
 		t.Fatalf("NewClientCommand() error = %v", err)
@@ -148,9 +147,15 @@ func TestNewClientCommand(t *testing.T) {
 		t.Error("Command should disable prefix2 for session")
 	}
 
-	// Should use attach -d (detach other clients)
-	if !strings.Contains(cmd, "attach -dt") {
-		t.Error("Command should use attach -dt to detach other clients")
+	// Invariant: the client attach NEVER passes -d. Detaching other clients
+	// evicts whoever is viewing the session — another amux instance sharing
+	// the workspace, an external orchestrator — and their restart loop kicks
+	// back, producing a detach war. See NewClientCommand.
+	if strings.Contains(cmd, "attach -dt") {
+		t.Error("Command must never use attach -dt")
+	}
+	if !strings.Contains(cmd, "attach -t") {
+		t.Error("Command should attach to the session")
 	}
 	// Should use && not ; for chaining
 	if !strings.Contains(cmd, " && ") {
@@ -183,7 +188,7 @@ func TestNewClientCommand(t *testing.T) {
 	syncSet := "set-option -s 'terminal-features[16]' 'xterm*:sync'"
 	syncIdx := strings.Index(cmd, syncSet)
 	createIdx := strings.Index(cmd, "new-session -ds")
-	attachIdx := strings.Index(cmd, "attach -dt")
+	attachIdx := strings.Index(cmd, "attach -t")
 	if syncIdx < 0 {
 		t.Error("Command should set the sync terminal-feature")
 	}
@@ -239,11 +244,10 @@ func TestNewClientCommandWithTags(t *testing.T) {
 	}
 
 	prepared, err := NewClientCommand("test-session", ClientCommandParams{
-		WorkDir:        "/tmp/work",
-		Command:        "echo hello",
-		Options:        opts,
-		Tags:           tags,
-		DetachExisting: true,
+		WorkDir: "/tmp/work",
+		Command: "echo hello",
+		Options: opts,
+		Tags:    tags,
 	})
 	if err != nil {
 		t.Fatalf("NewClientCommand() error = %v", err)
@@ -284,11 +288,10 @@ func TestNewClientCommandWithInstanceIDOnly(t *testing.T) {
 	}
 
 	prepared, err := NewClientCommand("test-session", ClientCommandParams{
-		WorkDir:        "/tmp/work",
-		Command:        "echo hello",
-		Options:        opts,
-		Tags:           SessionTags{InstanceID: "inst-only"},
-		DetachExisting: true,
+		WorkDir: "/tmp/work",
+		Command: "echo hello",
+		Options: opts,
+		Tags:    SessionTags{InstanceID: "inst-only"},
 	})
 	if err != nil {
 		t.Fatalf("NewClientCommand() error = %v", err)
@@ -313,10 +316,9 @@ func TestNewClientCommandSharedAttach(t *testing.T) {
 		DefaultTerminal: "xterm-256color",
 	}
 	prepared, err := NewClientCommand("test-session", ClientCommandParams{
-		WorkDir:        "/tmp/work",
-		Command:        "echo hello",
-		Options:        opts,
-		DetachExisting: false,
+		WorkDir: "/tmp/work",
+		Command: "echo hello",
+		Options: opts,
 	})
 	if err != nil {
 		t.Fatalf("NewClientCommand() error = %v", err)
@@ -324,10 +326,10 @@ func TestNewClientCommandSharedAttach(t *testing.T) {
 	defer prepared.AbortBeforeStart()
 	cmd := prepared.Command
 	if strings.Contains(cmd, "attach -dt") {
-		t.Error("Command should not detach other clients when detachExisting=false")
+		t.Error("Command must never use attach -dt")
 	}
 	if !strings.Contains(cmd, "attach -t") {
-		t.Error("Command should attach without detaching other clients")
+		t.Error("Command should attach to the session")
 	}
 	if !strings.Contains(cmd, "new-session -ds") {
 		t.Error("Command should create detached before shared attach")

@@ -152,6 +152,9 @@ func (m *AgentManager) CreateAgentWithTags(ws *data.Workspace, agentType AgentTy
 // value — an immutable snapshot captured by the caller before dispatch. It
 // never reads m.config.Assistants, so a concurrent settings save cannot race
 // or retarget the launch. The value is stored on the returned Agent unchanged.
+// The attach never passes -d: another amux instance sharing the workspace, or
+// an external orchestrator, may already be viewing the session, and evicting
+// them starts a detach war between PTY restart loops.
 func (m *AgentManager) CreateAgentWithConfig(ws *data.Workspace, agentType AgentType, sessionName string, rows, cols uint16, tags tmux.SessionTags, assistantCfg config.AssistantConfig) (*Agent, error) {
 	if ws == nil {
 		return nil, errors.New("workspace is required")
@@ -183,12 +186,11 @@ func (m *AgentManager) CreateAgentWithConfig(ws *data.Workspace, agentType Agent
 	fullCommand := fmt.Sprintf("%s; stty sane; printf '\\033[?1049l\\033[?25h\\033[0m\\033c'; echo 'Agent exited. Dropping to shell...'; export TERM=xterm-256color; %s", assistantCfg.Command, loginShellCommand)
 
 	prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
-		WorkDir:        ws.Root,
-		Command:        fullCommand,
-		Environment:    env,
-		Options:        m.getTmuxOptions(),
-		Tags:           tags,
-		DetachExisting: true,
+		WorkDir:     ws.Root,
+		Command:     fullCommand,
+		Environment: env,
+		Options:     m.getTmuxOptions(),
+		Tags:        tags,
 	})
 	if err != nil {
 		return nil, err
@@ -234,12 +236,11 @@ func (m *AgentManager) CreateViewerWithTags(ws *data.Workspace, command, session
 	}
 
 	prepared, err := tmux.NewClientCommand(sessionName, tmux.ClientCommandParams{
-		WorkDir:        ws.Root,
-		Command:        command,
-		Environment:    env,
-		Options:        m.getTmuxOptions(),
-		Tags:           tags,
-		DetachExisting: true,
+		WorkDir:     ws.Root,
+		Command:     command,
+		Environment: env,
+		Options:     m.getTmuxOptions(),
+		Tags:        tags,
 	})
 	if err != nil {
 		return nil, err
