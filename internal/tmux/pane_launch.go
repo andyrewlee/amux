@@ -2,9 +2,9 @@ package tmux
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
+	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/panelaunch"
 	"github.com/andyrewlee/amux/internal/shellutil"
 )
@@ -47,9 +47,11 @@ type preparedLaunch struct {
 
 // prepareLaunch writes the private payload and renders the quoted helper
 // argv for both pane consumption and unused-attempt discard. The launcher is
-// this executable: the same binary that renders the command is guaranteed
-// present at pane spawn time, and test binaries dispatch the helper through
-// their TestMain.
+// this executable, resolved through panelaunch.LauncherPath so a running
+// binary whose original path was deleted or replaced (git clean, rebuild to
+// a new path) falls back to the stable launcher instead of spawning panes
+// that die before their first attach. Test binaries dispatch the helper
+// through their TestMain.
 func prepareLaunch(workDir, command string, environment []string) (*preparedLaunch, error) {
 	// The consumer merges over the pane's inherited environment and replaces
 	// itself with `sh -lc <command>`; keep the historical tmux-var strip at
@@ -58,10 +60,13 @@ func prepareLaunch(workDir, command string, environment []string) (*preparedLaun
 	if err != nil {
 		return nil, err
 	}
-	exe, err := os.Executable()
+	exe, viaStable, err := panelaunch.LauncherPath()
 	if err != nil {
 		_ = payload.Discard()
-		return nil, fmt.Errorf("pane launch: resolve launcher: %w", err)
+		return nil, err
+	}
+	if viaStable {
+		logging.Warn("pane launcher: running binary no longer exists at its original path; pane launches use the stable launcher at %s", exe)
 	}
 	return &preparedLaunch{
 		runArgv:     quoteArgv(panelaunch.InvocationArgv(exe, "run", payload.Path())),

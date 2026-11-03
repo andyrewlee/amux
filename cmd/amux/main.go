@@ -126,6 +126,15 @@ func runTUI() {
 	}
 	defer logging.Close()
 
+	// Publish a stable pane launcher: dev workflows (git clean, rebuild to a
+	// new path) can delete the running binary's file, and every pane spawned
+	// afterwards would otherwise die before its first attach, surfacing only
+	// as tmux's "can't find session". Best effort — on failure pane launches
+	// keep the old single-path behavior.
+	if err := panelaunch.EnsureStableLauncher(filepath.Join(home, ".amux", "var")); err != nil {
+		logging.Warn("stable pane launcher not installed: %v", err)
+	}
+
 	// Sweep stale test/e2e tmux sockets off the launch-critical path: each stale
 	// socket costs a blocking net.Dial (75ms timeout), so run the janitor in a
 	// panic-safe background goroutine instead of before app.New/p.Run. Cleanup
