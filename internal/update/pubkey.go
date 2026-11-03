@@ -13,10 +13,16 @@ import (
 // secret key used by `goreleaser release --clean` in the release operator's
 // local environment, and the MINISIGN_PUBKEY value in install.sh.
 //
+// Rotated 2026-11-03: the original keypair (provisioned 2026-07-16) was
+// lost, so binaries built before this rotation cannot verify releases
+// signed by the new key — their in-app updater refuses the checksums, and
+// installing such a release requires AMUX_ALLOW_UNVERIFIED=1 (install.sh)
+// or a manual download. Fresh installs pin this key.
+//
 // A placeholder empty value disables signature verification ONLY for dev
 // builds via verifyReleaseSignature below — release (non-dev) builds fail
 // closed rather than silently skipping verification.
-var minisignPublicKey = "RWQtWAYbPCb3AH9id1CLjcfy/KdeL6Uyo68qC6oKRJz1gyBOZS3Xm54P"
+var minisignPublicKey = "RWRo9OMQinVnxL1KMY2M3oepJ+iEVnQLy/Dy8RNkW77/BQ7F6oBntn5F"
 
 // verifyReleaseSignature enforces the release-signing policy for a build with
 // the given version string: with an embedded public key it verifies sig over
