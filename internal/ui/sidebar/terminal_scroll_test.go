@@ -31,7 +31,7 @@ func setupScrollModel(t *testing.T) (*TerminalModel, *TerminalState) {
 
 	ts := &TerminalState{
 		VTerm:      vt,
-		Running:    true,
+		tab:        tabRunning,
 		lastWidth:  80,
 		lastHeight: 24,
 	}

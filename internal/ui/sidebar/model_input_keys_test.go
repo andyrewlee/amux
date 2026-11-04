@@ -27,15 +27,15 @@ func keyedWorkspaceModel(t *testing.T) (*ChangesModel, *data.Workspace) {
 
 func TestInputB_TogglesBranchMode(t *testing.T) {
 	m, _ := keyedWorkspaceModel(t)
-	if m.branchMode {
+	if m.branchModeOn() {
 		t.Fatal("fixture unexpectedly started in branch mode")
 	}
 
 	_, cmd := m.Update(keyPress('b'))
-	if !m.branchMode {
+	if !m.branchModeOn() {
 		t.Fatal("b did not enter branch mode")
 	}
-	if !m.branchLoading {
+	if m.branch != fetchLoading {
 		t.Fatal("b did not mark the branch list loading")
 	}
 	if cmd == nil {
@@ -44,7 +44,7 @@ func TestInputB_TogglesBranchMode(t *testing.T) {
 	// Do not execute cmd — loadBranchChanges shells git.BranchChangesVsBase.
 
 	m2, _ := m.Update(keyPress('b'))
-	if m2.branchMode {
+	if m2.branchModeOn() {
 		t.Fatal("second b did not leave branch mode")
 	}
 }

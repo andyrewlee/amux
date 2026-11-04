@@ -79,7 +79,7 @@ func TestDashboardSetActiveWorkspaces(t *testing.T) {
 		}
 
 		// A deleting main workspace supersedes active styling.
-		m.busyWorkspaces[main.Root] = WorkspaceOpDelete
+		m.workspaceOps[main.Root] = workspaceOpEntry{state: opBusy, op: WorkspaceOpDelete}
 		if m.projectRowActive("ws-id", main) {
 			t.Fatalf("expected projectRowActive to be false while main workspace is deleting")
 		}
@@ -407,8 +407,8 @@ func TestDashboardDoneAck(t *testing.T) {
 
 		// A new work cycle starts — SetAgentStates with StateWorking must clear the ack.
 		m.SetAgentStates(map[string]data.AgentState{wsID: data.StateWorking})
-		if m.doneAcked[wsID] {
-			t.Fatalf("expected doneAcked to be cleared when workspace transitions to StateWorking")
+		if m.attention[wsID] == attAcked {
+			t.Fatalf("expected the ack to be cleared when workspace transitions to StateWorking")
 		}
 
 		// Workspace finishes again — back to StateDone (not active).

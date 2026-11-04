@@ -49,8 +49,7 @@ func (m *TerminalModel) createTerminalStateForTabWithSizeAndRefresh(
 	ts := &TerminalState{
 		Terminal:    term,
 		VTerm:       nil, // set below
-		Running:     true,
-		Detached:    false,
+		tab:         tabRunning,
 		SessionName: sessionName,
 		lastWidth:   termWidth,
 		lastHeight:  termHeight,
@@ -118,7 +117,7 @@ func (m *TerminalModel) startPTYReader(wsID string, tabID TerminalTabID) tea.Cmd
 			MaxPendingBytes: ptyMaxPendingBytes,
 		},
 		func() io.Reader {
-			if ts.Terminal == nil || !ts.Running {
+			if ts.Terminal == nil || ts.tab != tabRunning {
 				return nil
 			}
 			return ts.Terminal
@@ -202,7 +201,7 @@ func (m *TerminalModel) teardownTabState(ts *TerminalState, reason string) (sess
 		// Same for the input binding: queued keypresses belong to the dead
 		// terminal — retire fences them and any late failure report.
 		retiredInput = ts.retireSidebarInputWriterLocked()
-		ts.Running = false
+		ts.stepTabLocked(evTeardown)
 		ts.RestartBackoff = 0
 		ts.pendingBufferedBytes = 0
 	})
@@ -226,6 +225,10 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 	if ts == nil {
 		return
 	}
+	cause := evDetachAuto
+	if userInitiated {
+		cause = evDetachUser
+	}
 	m.stopPTYReader(ts)
 	var (
 		clip          []byte
@@ -245,9 +248,9 @@ func (m *TerminalModel) detachState(ts *TerminalState, userInitiated bool) {
 		retiredInput = ts.retireSidebarInputWriterLocked()
 		term = ts.Terminal
 		ts.Terminal = nil
-		ts.Running = false
-		ts.Detached = true
-		ts.UserDetached = userInitiated
+		// The detach's cause (user vs automatic) is recorded by the landing
+		// state of the machine step.
+		ts.stepTabLocked(cause)
 		ts.PendingOutput = nil
 		ts.pendingBufferedBytes = 0
 		ts.NoiseTrailing = nil

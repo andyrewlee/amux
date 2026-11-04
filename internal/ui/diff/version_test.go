@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/git"
+	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
 // testDiffResult builds a loaded diff result with recognizable content.
@@ -36,10 +37,14 @@ func TestContentVersion_MutationsBump(t *testing.T) {
 		{"width", func(m *Model) { m.width++ }},
 		{"height", func(m *Model) { m.height++ }},
 		{"stylesRev", func(m *Model) { m.stylesRev++ }},
-		{"searching", func(m *Model) { m.searching = true }},
+		{"searching", func(m *Model) { m.search.Apply(common.SearchOpenField) }},
 		{"query", func(m *Model) { m.query = "needle" }},
 		{"matchIdx", func(m *Model) { m.matchIdx = 4 }},
-		{"searchWrapped", func(m *Model) { m.searchWrapped = true }},
+		{"searchWrapped", func(m *Model) {
+			m.search.Apply(common.SearchOpenField)
+			m.search.Apply(common.SearchCloseMatched)
+			m.search.Apply(common.SearchJumpWrap)
+		}},
 		{"matchCount", func(m *Model) { m.matches = append(m.matches, diffMatch{lineIdx: 0}) }},
 		{"loading", func(m *Model) { m.loading = !m.loading }},
 		{"errStr", func(m *Model) { m.err = errors.New("boom") }},

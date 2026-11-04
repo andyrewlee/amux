@@ -298,7 +298,7 @@ func TestHandlePasteUnfocusedIsNoop(t *testing.T) {
 		t.Fatal("expected (m, nil) when unfocused")
 	}
 	state.mu.Lock()
-	detached := state.Detached
+	detached := state.tab == tabDetachedAuto
 	term := state.Terminal
 	state.mu.Unlock()
 	if detached {
@@ -362,7 +362,7 @@ func TestHandlePasteWriteFailureDetaches(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m, state := scrollableTermModel(t, true, 0)
 			state.Terminal = &appPty.Terminal{}
-			state.Running = true
+			state.tab = tabRunning
 			sink := make(chan tea.Msg, 8)
 			m.SetMsgSink(func(msg tea.Msg) { sink <- msg })
 
@@ -373,9 +373,9 @@ func TestHandlePasteWriteFailureDetaches(t *testing.T) {
 			}
 			m.Update(awaitInputFailure(t, sink))
 			state.mu.Lock()
-			detached := state.Detached
-			running := state.Running
-			userDetached := state.UserDetached
+			detached := state.tab == tabDetachedAuto || state.tab == tabDetachedUser
+			running := state.tab == tabRunning
+			userDetached := state.tab == tabDetachedUser
 			term := state.Terminal
 			state.mu.Unlock()
 			if !detached {
@@ -399,7 +399,7 @@ func TestHandlePasteRoutedThroughUpdate(t *testing.T) {
 	// on the writer goroutine and its report detaches on the next Update.
 	m, state := scrollableTermModel(t, true, 0)
 	state.Terminal = &appPty.Terminal{}
-	state.Running = true
+	state.tab = tabRunning
 	sink := make(chan tea.Msg, 8)
 	m.SetMsgSink(func(msg tea.Msg) { sink <- msg })
 
@@ -407,7 +407,7 @@ func TestHandlePasteRoutedThroughUpdate(t *testing.T) {
 	_, _ = m.Update(awaitInputFailure(t, sink))
 
 	state.mu.Lock()
-	detached := state.Detached
+	detached := state.tab == tabDetachedAuto
 	state.mu.Unlock()
 	if !detached {
 		t.Fatal("expected Update to route the paste and detach on write failure")

@@ -160,7 +160,7 @@ func (m *TerminalModel) AddTerminalForHarness(ws *data.Workspace) {
 		Name: "Terminal 1",
 		State: &TerminalState{
 			VTerm:      vt,
-			Running:    true,
+			tab:        tabRunning,
 			lastWidth:  termWidth,
 			lastHeight: termHeight,
 		},

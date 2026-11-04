@@ -79,13 +79,13 @@ func (m *ChangesModel) SetWorkspace(ws *data.Workspace) tea.Cmd {
 	m.filter.Clear()
 	// Branch-mode data (list + ahead/behind) belongs to the previous
 	// workspace; drop it rather than showing stale results under the new one.
-	m.branchMode = false
+	// One reset per fetch instance returns both to idle (see fetch_model.go).
+	m.branch.step(evFetchReset)
 	m.branchChanges = nil
 	m.branchErr = nil
-	m.branchLoading = false
+	m.aheadBehind.step(evFetchReset)
 	m.ahead = 0
 	m.behind = 0
-	m.aheadBehindErr = nil
 	m.rebuildDisplayList()
 	return m.refreshAheadBehind()
 }

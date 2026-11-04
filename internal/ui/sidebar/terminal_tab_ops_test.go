@@ -254,7 +254,7 @@ func TestCloseActiveTabRemovesTabAndStopsRunning(t *testing.T) {
 	m.setWorkspace(&data.Workspace{Repo: "/repo", Root: "/repo/ws"})
 	first := newWorkspaceTab(t, "Terminal 1")
 	second := newWorkspaceTab(t, "Terminal 2")
-	first.State.Running = true
+	first.State.tab = tabRunning
 	first.State.RestartBackoff = 3
 	seedTabs(t, m, first, second)
 	m.setActiveTabIdx(0)
@@ -274,7 +274,7 @@ func TestCloseActiveTabRemovesTabAndStopsRunning(t *testing.T) {
 	}
 	// The closed tab's state must have been torn down.
 	first.State.mu.Lock()
-	running := first.State.Running
+	running := first.State.tab == tabRunning
 	backoff := first.State.RestartBackoff
 	first.State.mu.Unlock()
 	if running {
@@ -391,8 +391,8 @@ func TestAddTerminalForHarness(t *testing.T) {
 		if tab.State.Terminal != nil {
 			t.Fatal("expected no live PTY for the harness tab")
 		}
-		if !tab.State.Running {
-			t.Fatal("expected harness tab marked Running")
+		if tab.State.tab != tabRunning {
+			t.Fatal("expected harness tab marked running")
 		}
 		if got := m.getActiveTabIdx(); got != 0 {
 			t.Fatalf("expected active index 0, got %d", got)

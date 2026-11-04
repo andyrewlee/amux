@@ -34,10 +34,13 @@ func (m *ProjectTree) View() string {
 			content := m.filterStatusLine() + "\n" + m.styles.Muted.Render("(no matching files)")
 			return m.renderWithHelp(content)
 		}
-		if m.root != nil && m.root.pendingRequest != 0 {
+		// Single phase read (see project_tree_model.go): any in-flight work
+		// shows the loading affordance — including a refresh whose old tree
+		// is empty, which previously fell through to "Empty directory".
+		switch m.phase {
+		case treeLoadingDirs, treeRefreshing:
 			return m.renderWithHelp(m.styles.Muted.Render("Loading project tree…"))
-		}
-		if m.rootErr != "" {
+		case treeRootErr:
 			return m.renderWithHelp(m.styles.Muted.Render("Load failed: " + m.rootErr + " · r to retry"))
 		}
 		return m.renderWithHelp(m.styles.Muted.Render("Empty directory"))

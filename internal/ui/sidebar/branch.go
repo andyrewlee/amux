@@ -35,6 +35,16 @@ func (m *ChangesModel) refreshAheadBehind() tea.Cmd {
 	root := m.workspace.Root
 	m.aheadBehindLoadID++
 	loadID := m.aheadBehindLoadID
+	// From loaded or error this is a plain re-entry; from loading the new
+	// fetch supersedes the old one, whose late result drops via load ID.
+	// Starting from error, the stale counts are dropped too: the pre-machine
+	// code kept the badge hidden from the first failure until a fresh
+	// success, and re-showing pre-error numbers for the whole retry window
+	// would be new behavior.
+	if m.aheadBehind == fetchError {
+		m.ahead, m.behind = 0, 0
+	}
+	m.aheadBehind.step(evFetchStart)
 	return func() tea.Msg {
 		ahead, behind, err := git.AheadBehind(root)
 		return messages.AheadBehindLoaded{Root: root, LoadID: loadID, Ahead: ahead, Behind: behind, Err: err}
@@ -50,10 +60,16 @@ func (m *ChangesModel) handleBranchChangesLoaded(msg messages.BranchChangesLoade
 	if m.workspace == nil || msg.Root != m.workspace.Root {
 		return
 	}
-	m.branchLoading = false
+	// The load guards above proved this result belongs to the in-flight
+	// fetch; the phase step records its outcome.
+	if msg.Err != nil {
+		m.branch.step(evFetchFail)
+	} else {
+		m.branch.step(evFetchSucceed)
+	}
 	m.branchErr = msg.Err
 	m.branchChanges = msg.Changes
-	if m.branchMode {
+	if m.branchModeOn() {
 		m.rebuildDisplayList()
 	}
 }
@@ -67,23 +83,28 @@ func (m *ChangesModel) handleAheadBehindLoaded(msg messages.AheadBehindLoaded) {
 	if m.workspace == nil || msg.Root != m.workspace.Root {
 		return
 	}
-	m.aheadBehindErr = msg.Err
-	if msg.Err == nil {
-		m.ahead = msg.Ahead
-		m.behind = msg.Behind
+	if msg.Err != nil {
+		m.aheadBehind.step(evFetchFail)
+		return
 	}
+	m.aheadBehind.step(evFetchSucceed)
+	m.ahead = msg.Ahead
+	m.behind = msg.Behind
 }
 
 // toggleBranchMode flips branch mode. Turning it on (re-)triggers a fetch;
 // turning it off just falls back to the staged/unstaged/untracked list built
-// from the already-loaded gitStatus — no fetch needed.
+// from the already-loaded gitStatus — no fetch needed. A fetch still in
+// flight when the mode turns off is reset: its late result is dropped by the
+// phase machine rather than applied invisibly.
 func (m *ChangesModel) toggleBranchMode() tea.Cmd {
-	m.branchMode = !m.branchMode
 	var cmd tea.Cmd
-	if m.branchMode {
-		m.branchLoading = true
+	if m.branch == fetchIdle {
+		m.branch.step(evFetchStart)
 		m.branchErr = nil
 		cmd = m.loadBranchChanges()
+	} else {
+		m.branch.step(evFetchReset)
 	}
 	m.rebuildDisplayList()
 	return cmd

@@ -216,14 +216,12 @@ func (a *App) handleWorkspaceStatusReady(msg workspaceStatusReadyMsg) tea.Cmd {
 		if msg.token != a.overlays.runOutputToken {
 			return
 		}
+		a.overlays.beginRunOutputFlavor(runOutputFlavorStatus)
 		a.overlays.runOutputWorkspace = ws
-		a.overlays.runOutputSession = ""
-		a.overlays.runOutputAttachable = false
 		a.overlays.runOutputReleaseCount = st.reclaimablePorts
 		// The U intercept is armed only when a grant is actually recorded —
 		// the same trusted+config pair the status row advertises.
 		a.overlays.runOutputUntrustable = st.repoConfig && st.repoTrusted
-		a.overlays.runOutputLifecycle = false
 		a.overlays.runOutput = common.NewOutputDialog("Workspace — "+ws.Name, content)
 		a.overlays.runOutput.SetSize(a.width, a.height)
 		a.overlays.runOutput.Show()

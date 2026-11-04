@@ -237,7 +237,12 @@ func IsBranchNotFoundError(err error) bool {
 	return strings.Contains(msg, "not found")
 }
 
-// RemoveWorkspace removes a workspace backed by a git worktree
+// RemoveWorkspace removes a workspace backed by a git worktree. The
+// recovery-path selection runs through the checked classifier in
+// workspace_remove_recovery.go: probes are gathered in the historical order
+// (so error precedence is unchanged), reduced to a removalClass, and the
+// destructive classes are reachable only through proven-foreign or
+// proven-broken ownership.
 func RemoveWorkspace(repoPath, workspacePath string) error {
 	state, marked, err := readWorkspaceCleanupState(workspacePath)
 	if err != nil {
@@ -252,66 +257,74 @@ func RemoveWorkspace(repoPath, workspacePath string) error {
 	regCtx, regCancel := context.WithTimeout(context.Background(), ops.worktreeTimeout)
 	registered, regErr := isRegisteredWorktreeCtx(regCtx, repoPath, workspacePath)
 	regCancel()
-	if regErr == nil && !registered {
-		return cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath)
+
+	// Sentinel probes run only where the original tree ran them: when git's
+	// list could not prove ownership. Probe errors propagate verbatim.
+	probes := removalProbes{dir: sentinelUnknown, gitFile: sentinelUnknown}
+	if regErr == nil {
+		probes.ownership = ownershipUnregistered
+		if registered {
+			probes.ownership = ownershipRegistered
+		}
+	} else {
+		p, err := probeUnprovenOwnershipSentinels(repoPath, workspacePath)
+		if err != nil {
+			return err
+		}
+		probes = p
 	}
-	if regErr != nil {
-		if _, statErr := os.Stat(workspacePath); os.IsNotExist(statErr) {
-			return nil
-		} else if statErr != nil {
-			return statErr
+
+	switch classifyWorkspaceRemoval(false, probes) {
+	case removalClassSucceedAbsent:
+		// Proven gone: nothing to remove.
+		return nil
+	case removalClassCleanUnregistered:
+		return cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath)
+	case removalClassLegacyRecovery:
+		// git cannot list worktrees, the dir exists with no .git file, no
+		// retry marker claims it, and the path sits under a legacy managed
+		// root — amux's own leftover, so its cleanup may be resumed with
+		// unregister.
+		recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
+		defer recoveryCancel()
+		if removeErr := persistAndResumeWorkspaceCleanup(recoveryCtx, repoPath, workspacePath, true); removeErr != nil {
+			return errors.Join(regErr, removeErr)
 		}
-		gitFile := filepath.Join(workspacePath, ".git")
-		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
-			if _, marked, retryErr := readWorkspaceCleanupRetryMetadata(workspacePath); retryErr != nil {
-				return retryErr
-			} else if marked {
-				return cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath)
-			}
-			if isLegacyManagedWorkspacePathForRepo(repoPath, workspacePath) {
-				recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
-				defer recoveryCancel()
-				if removeErr := persistAndResumeWorkspaceCleanup(recoveryCtx, repoPath, workspacePath, true); removeErr != nil {
-					return errors.Join(regErr, removeErr)
-				}
-				return nil
-			}
-			return cleanupOrValidateUnregisteredWorkspacePath(repoPath, workspacePath)
-		} else if statErr != nil {
-			return statErr
-		}
+		return nil
+	case removalClassFail:
+		// Ownership unprovable with the dir intact: surface the list error.
 		return regErr
 	}
 
+	// removalClassForceRemove: git knows the worktree.
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeRemoveCommandTimeout())
 	defer cancel()
 	_, err = ops.runGitCtx(ctx, repoPath, "worktree", "remove", "--force", "--", workspacePath)
-	if err != nil {
-		if isGitContextError(err) {
-			recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
-			defer recoveryCancel()
-			if removeErr := persistAndResumeWorkspaceCleanup(recoveryCtx, repoPath, workspacePath, true); removeErr != nil {
-				return errors.Join(err, removeErr)
-			}
-			return nil
+	if err == nil {
+		return nil
+	}
+	gitFileSentinel, _ := probeSentinel(filepath.Join(workspacePath, ".git"))
+	switch classifyForceFailure(isGitContextError(err), gitFileSentinel, isSafeWorkspaceCleanupPath(workspacePath)) {
+	case forceClassContextRecovery:
+		// git itself is broken — the remove never reached the worktree.
+		recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
+		defer recoveryCancel()
+		if removeErr := persistAndResumeWorkspaceCleanup(recoveryCtx, repoPath, workspacePath, true); removeErr != nil {
+			return errors.Join(err, removeErr)
 		}
-
-		// git worktree remove --force unregisters the workspace (removes .git file)
-		// but fails to delete the directory if it contains untracked files.
-		// If the .git file is gone, the workspace was successfully unregistered
-		// and we can safely remove the remaining directory ourselves.
-		gitFile := filepath.Join(workspacePath, ".git")
-		if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
-			if !isSafeWorkspaceCleanupPath(workspacePath) {
-				return fmt.Errorf("refusing to remove unsafe path: %s", workspacePath)
-			}
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
-			defer cleanupCancel()
-			return persistAndResumeWorkspaceCleanup(cleanupCtx, repoPath, workspacePath, false)
-		}
+		return nil
+	case forceClassRemnantRecovery:
+		// git worktree remove --force unregistered the workspace (removed
+		// .git) but failed to delete the directory (untracked files); remove
+		// the leftover ourselves.
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), worktreeRemoveRecoveryTimeout())
+		defer cleanupCancel()
+		return persistAndResumeWorkspaceCleanup(cleanupCtx, repoPath, workspacePath, false)
+	case forceClassRefuseUnsafe:
+		return fmt.Errorf("refusing to remove unsafe path: %s", workspacePath)
+	default:
 		return err
 	}
-	return nil
 }
 
 func rejectReusedWorkspacePathDuringCleanup(workspacePath string, state workspaceCleanupState) error {

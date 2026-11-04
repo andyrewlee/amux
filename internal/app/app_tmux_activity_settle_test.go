@@ -20,7 +20,7 @@ func TestHandleTmuxActivityResult_SettlesAfterTwoSuccessfulScans(t *testing.T) {
 	app := &App{
 		tmuxActivity: tmuxActivityState{
 			token:              1,
-			scanInFlight:       true,
+			scan:               scanInFlightState(),
 			sessionStates:      make(map[string]*activity.SessionState),
 			activeWorkspaceIDs: make(map[string]bool),
 		},
@@ -40,7 +40,7 @@ func TestHandleTmuxActivityResult_SettlesAfterTwoSuccessfulScans(t *testing.T) {
 	}
 
 	app.tmuxActivity.token = 2
-	app.tmuxActivity.scanInFlight = true
+	app.tmuxActivity.scan = scanInFlightState()
 	app.handleTmuxActivityResult(tmuxActivityResult{
 		Token:              2,
 		ActiveWorkspaceIDs: map[string]bool{"ws1": true},

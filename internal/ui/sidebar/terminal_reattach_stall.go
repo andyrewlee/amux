@@ -30,6 +30,13 @@ func (ts *TerminalState) beginReattachLocked() bool {
 	if ts.Reattach.InFlight {
 		return false
 	}
+	if _, ok := ts.stepTabLocked(evBeginReattach); !ok {
+		// The table rejects a begin from a running, attaching, or torn-down
+		// tab. The bool-era code trusted every caller to check Running
+		// first; the machine now rejects the combination outright, so a
+		// missed check can no longer produce Running∧InFlight.
+		return false
+	}
 	ts.Reattach.Begin()
 	ts.reattachEpoch++
 	return true
@@ -41,13 +48,6 @@ func (ts *TerminalState) beginReattachLocked() bool {
 // already-accepted outcome all make it stale.
 func (ts *TerminalState) reattachAttemptCurrentLocked(epoch uint64) bool {
 	return ts.Reattach.InFlight && epoch == ts.reattachEpoch
-}
-
-// finishReattachLocked releases the attempt's lock on an accepted outcome.
-// The epoch is left unchanged, so reattachAttemptCurrentLocked stays false
-// for a duplicate delivery of the same result — InFlight no longer holds.
-func (ts *TerminalState) finishReattachLocked() {
-	ts.Reattach.InFlight = false
 }
 
 // invalidateReattachLocked ends the current attempt without an outcome:
@@ -75,11 +75,14 @@ func (m *TerminalModel) SweepStalledReattaches() tea.Cmd {
 			}
 			ts := tab.State
 			stalled := withMuVal(&ts.mu, func() bool {
-				if ts.Reattach.Sweep(now, ts.Running) {
+				if ts.Reattach.Sweep(now, ts.tab == tabRunning) {
 					// Invalidate the expired attempt's epoch, not just its lock:
 					// the abandoned attach may still complete, and its result
 					// must be rejected even before the retry begins.
 					ts.invalidateReattachLocked()
+					// The released attempt never produced an outcome — step
+					// the tab back to a retryable state in the same hold.
+					ts.stepTabLocked(evReattachStalled)
 					return true
 				}
 				return false
@@ -117,7 +120,10 @@ func (m *TerminalModel) StallReattachForTest(ws *data.Workspace) {
 		}
 		ts := tab.State
 		withMu(&ts.mu, func() {
-			ts.Running = false
+			// Synthesize the stalled-attach state directly: Running must be
+			// false (the sweep never releases a running tab's attempt) and
+			// the attempt in flight with a long-expired stamp.
+			ts.tab = tabAttaching
 			ts.Reattach.InFlight = true
 			ts.Reattach.StartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
 			ts.reattachEpoch++

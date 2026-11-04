@@ -191,7 +191,7 @@ func TestHandleShowScriptOutput_LiveSetupFlow(t *testing.T) {
 	if app.overlays.runOutput == nil || !app.overlays.runOutput.Visible() {
 		t.Fatal("script output dialog did not open during live setup")
 	}
-	if !app.overlays.runOutputLifecycle {
+	if app.overlays.runOutputFlavor != runOutputFlavorScript {
 		t.Fatal("open did not mark the dialog as the lifecycle flavor")
 	}
 	if len(app.drainedOverlayCmds) == 0 {

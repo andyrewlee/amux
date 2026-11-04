@@ -38,13 +38,15 @@ type TerminalTab struct {
 
 // TerminalState holds the terminal state for a workspace
 type TerminalState struct {
-	Terminal     *pty.Terminal
-	VTerm        *vterm.VTerm
-	Running      bool
-	Detached     bool
-	UserDetached bool
+	Terminal *pty.Terminal
+	VTerm    *vterm.VTerm
+	// tab is the tab's lifecycle state — the explicit form of the former
+	// Running/Detached/UserDetached bool trio; see terminal_tab_model.go for
+	// the machine and its checked invariants. Guarded by mu.
+	tab tabState
 	// Reattach is the reattach lock+stamp shared with center agent tabs;
-	// see ptyio.ReattachGuard for the sweep contract.
+	// see ptyio.ReattachGuard for the sweep contract. InFlight holds
+	// exactly while tab == tabAttaching.
 	Reattach ptyio.ReattachGuard
 	// reattachEpoch increments on every beginReattachLocked acquisition and
 	// every invalidateReattachLocked so a reattach result can be matched to

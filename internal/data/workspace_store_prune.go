@@ -177,21 +177,39 @@ func (s *WorkspaceStore) pruneWorkspaceIfStale(
 		return "", err
 	}
 
+	// The dir probe doubles as the lifecycle input: pathMissing fails safe
+	// (a permission error reads as present), so RecordLifecycleState never
+	// sees a proven-absent dir that was merely unprovable.
+	missing := pathMissing(ws.Root)
+	presence := WorktreePresent
+	if missing {
+		presence = WorktreeAbsent
+	}
+	state := ws.RecordLifecycleState(presence)
+
 	reason := ""
 	repo := canonicalLookupPath(ws.Repo)
 	_, repoRegistered := registered[repo]
 	switch {
 	case repo != "" && !repoRegistered && oldEnough(modTime, now, options.OrphanGracePeriod):
 		reason = "unregistered"
-	case ws.Archived && !ws.Shelved && oldEnough(archiveReferenceTime(ws, modTime), now, options.ArchivedRetention):
+	case state == RecordAccidentalArchived && oldEnough(archiveReferenceTime(ws, modTime), now, options.ArchivedRetention):
 		// Intentional shelves never expire — only accidental archives (a
 		// worktree that vanished under us) are bounded by ArchivedRetention.
+		// The state gate IS the historical Archived && !Shelved comparison;
+		// workspaceRecordMachine checks that retention purges never fire
+		// from a shelved state.
 		reason = "archived"
-	case repoRegistered && !ws.Shelved && !ws.IsPrimaryCheckout() &&
+	case repoRegistered && !state.ShelvedFlag() && !ws.IsPrimaryCheckout() &&
 		withinManagedRoot(options.ManagedRoot, ws.Root) &&
-		pathMissing(ws.Root) && oldEnough(modTime, now, options.OrphanGracePeriod):
+		missing && oldEnough(modTime, now, options.OrphanGracePeriod):
 		// A shelved workspace's root is missing by design; without the
-		// !ws.Shelved gate it would be reaped here before the archive check.
+		// !Shelved gate it would be reaped here before the archive check.
+		// !state.ShelvedFlag() is that gate, table-checked: it exempts
+		// live shelves AND ghost rows (Shelved && !Archived), exactly as
+		// the historical !ws.Shelved comparison did — a ghost is
+		// corruption, and a background sweep must not destructively
+		// repair it.
 		reason = "missing_root"
 	}
 	if reason == "" {

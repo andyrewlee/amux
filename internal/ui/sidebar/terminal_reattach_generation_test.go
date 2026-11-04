@@ -26,13 +26,17 @@ func beginAttachAttempt(t *testing.T, ts *TerminalState) uint64 {
 	return ts.reattachEpoch
 }
 
-// invalidateAttachAttempt mirrors the detach/teardown invalidation so tests
-// can supersede an in-flight attempt without running a whole lifecycle.
+// invalidateAttachAttempt mirrors the detach invalidation so tests can
+// supersede an in-flight attempt without running a whole lifecycle: the
+// attempt's epoch advances AND the tab steps to the automatic-detach state,
+// because every production invalidate site (detachState, teardown, the stall
+// sweep) does both under the same hold.
 func invalidateAttachAttempt(t *testing.T, ts *TerminalState) {
 	t.Helper()
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.invalidateReattachLocked()
+	ts.stepTabLocked(evDetachAuto)
 }
 
 // attachAttemptFixture builds a model with one detached tab that has an
@@ -44,7 +48,7 @@ func attachAttemptFixture(t *testing.T) (*TerminalModel, *data.Workspace, Termin
 	tabID := generateTerminalTabID()
 	state := &TerminalState{
 		SessionName: "session-1",
-		Detached:    true,
+		tab:         tabDetachedAuto,
 	}
 	epoch := beginAttachAttempt(t, state)
 	m := NewTerminalModel()
@@ -83,7 +87,7 @@ func TestSidebarReattachGeneration_OldSuccessAfterNewerSuccess(t *testing.T) {
 	_, _ = m.Update(reattachResult(ws, tabID, epoch2, term2))
 
 	state.mu.Lock()
-	if state.Terminal != term2 || !state.Running {
+	if state.Terminal != term2 || state.tab != tabRunning {
 		state.mu.Unlock()
 		t.Fatal("expected the newer attempt's terminal to be applied")
 	}
@@ -133,7 +137,7 @@ func TestSidebarReattachGeneration_OldFailureAfterNewerSuccess(t *testing.T) {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if !state.Running || state.Terminal == nil {
+	if state.tab != tabRunning || state.Terminal == nil {
 		t.Fatal("stale failure marked the newer attachment stopped")
 	}
 }
@@ -151,10 +155,10 @@ func TestSidebarReattachGeneration_UserDetachWhilePending(t *testing.T) {
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.Terminal != nil || state.Running {
+	if state.Terminal != nil || state.tab == tabRunning {
 		t.Fatal("late success resurrected a user-detached tab")
 	}
-	if !state.Detached || !state.UserDetached {
+	if state.tab != tabDetachedUser {
 		t.Fatal("user detach intent must be retained")
 	}
 	if !term.IsClosed() {
@@ -174,7 +178,7 @@ func TestSidebarReattachGeneration_DuplicateSuccessKeepsAcceptedClient(t *testin
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.Terminal != term || !state.Running {
+	if state.Terminal != term || state.tab != tabRunning {
 		t.Fatal("expected the accepted terminal to stay current")
 	}
 	if term.IsClosed() {
@@ -220,7 +224,7 @@ func TestSidebarReattachGeneration_StallInvalidatesThenRetryApplies(t *testing.T
 	_, _ = m.Update(reattachResult(ws, tabID, epoch2, term2))
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.Terminal != term2 || !state.Running {
+	if state.Terminal != term2 || state.tab != tabRunning {
 		t.Fatal("expected the retry attempt's result to apply")
 	}
 }
@@ -291,7 +295,7 @@ func TestSidebarReattachGeneration_NilTerminalSuccessIsFailure(t *testing.T) {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.Running || state.Reattach.InFlight {
+	if state.tab == tabRunning || state.tab == tabAttaching {
 		t.Fatal("nil-terminal success must release the attempt, not mark running")
 	}
 }
@@ -335,7 +339,7 @@ func TestSidebarReattachGeneration_AttemptSurvivesWorkspaceRebind(t *testing.T) 
 	})
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.Terminal != term || !state.Running {
+	if state.Terminal != term || state.tab != tabRunning {
 		t.Fatal("a current attempt's result must apply across workspace rebind")
 	}
 }
@@ -359,10 +363,10 @@ func TestSidebarReattachGeneration_AutoAttachGates(t *testing.T) {
 	// User-detached: refused.
 	invalidateAttachAttempt(t, state)
 	state.mu.Lock()
-	state.UserDetached = true
+	state.tab = tabDetachedUser
 	state.mu.Unlock()
 	if _, ok := shouldAttachExistingTerminalTab(tab); ok {
-		t.Fatal("auto attach must honor UserDetached")
+		t.Fatal("auto attach must honor the user-detached state")
 	}
 	_ = ws
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/coalesce"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/dashboard"
@@ -192,8 +193,10 @@ func TestGitStatusRequestMessage_RoutesThroughDedup(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("request while in-flight must coalesce, got a cmd")
 	}
-	if !app2.gitStatusPending[root] || !app2.gitStatusPendingFull[root] {
-		t.Fatalf("coalesced request must mark pending+full, got pending=%v full=%v",
-			app2.gitStatusPending[root], app2.gitStatusPendingFull[root])
+	if got := app2.gitStatusDedupEntry(root).State(); got != coalesce.InFlightPending {
+		t.Fatalf("coalesced request must leave a pending obligation, got state %v", got)
+	}
+	if rerun, want := app2.gitStatusDedupEntry(root).Complete(); !rerun || !want.full {
+		t.Fatalf("the obligation must discharge one full follow-up: rerun=%v full=%v", rerun, want.full)
 	}
 }

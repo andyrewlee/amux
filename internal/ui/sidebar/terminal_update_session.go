@@ -129,8 +129,7 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 			// A current-attempt success with no terminal is a failed attach:
 			// release the attempt so the tab can be retried instead of wedging,
 			// and surface it like any other attach failure.
-			ts.Running = false
-			ts.finishReattachLocked()
+			ts.reattachOutcomeLocked(evReattachFailed)
 			emptyTerminal = true
 			return
 		}
@@ -156,10 +155,14 @@ func (m *TerminalModel) handleReattachResult(msg SidebarTerminalReattachResult) 
 		}
 		restoreSidebarVTermLocked(ts, msg, termWidth, termHeight)
 		ts.Terminal = msg.Terminal
-		ts.Running = true
-		ts.Detached = false
-		ts.UserDetached = false
-		ts.finishReattachLocked()
+		if !ts.reattachOutcomeLocked(evReattachSucceeded) {
+			// reattachAttemptCurrentLocked above already proved the attempt
+			// is current; a rejected step here would mean the tab left
+			// tabAttaching under this hold — unreachable, and a programming
+			// error rather than a user-visible operation failure, so Warn.
+			logging.Warn("Sidebar attach result for tab %s could not apply; tab state %s", tab.ID, ts.tab)
+			return
+		}
 		ts.SessionName = msg.SessionName
 		ts.PendingOutput = nil
 		ts.pendingBufferedBytes = 0
@@ -252,11 +255,14 @@ func (m *TerminalModel) handleReattachFailed(msg SidebarTerminalReattachFailed) 
 				current = false
 				return
 			}
-			ts.Running = false
-			ts.finishReattachLocked()
+			// A Stopped failure means the tmux session ended — the tab is no
+			// longer detached from anything live. Any other failure leaves it
+			// detached (reattach can retry).
+			outcome := evReattachFailed
 			if msg.Stopped {
-				ts.Detached = false
+				outcome = evReattachDead
 			}
+			ts.reattachOutcomeLocked(outcome)
 		})
 		if !current {
 			return nil

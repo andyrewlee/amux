@@ -174,7 +174,7 @@ func TestCloseTabAtRemovesTabAndTearsDownState(t *testing.T) {
 	tabs := m.getTabs()
 	first := tabs[0]
 	second := tabs[1]
-	first.State.Running = true
+	first.State.tab = tabRunning
 	first.State.RestartBackoff = 4
 
 	gotM, cmd := m.closeTabAt(0)
@@ -194,7 +194,7 @@ func TestCloseTabAtRemovesTabAndTearsDownState(t *testing.T) {
 		t.Fatal("expected the second tab to survive")
 	}
 	first.State.mu.Lock()
-	running := first.State.Running
+	running := first.State.tab == tabRunning
 	backoff := first.State.RestartBackoff
 	first.State.mu.Unlock()
 	if running {

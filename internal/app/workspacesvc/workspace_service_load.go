@@ -318,9 +318,10 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 }
 
 // archiveWorkspaceRecord marks ws archived and persists it under the mutation
-// guard — the shared tail of the rescan's two stored-workspace archival paths.
-// kind is the log label ("workspace" or "unmanaged workspace"). Returns false
-// when the mutation guard rejected the write; the workspace is left untouched.
+// guard — the shared tail of the rescan's two stored-workspace archival paths
+// (the record-lifecycle table's rescan-missing event). kind is the log label
+// ("workspace" or "unmanaged workspace"). Returns false when the mutation
+// guard rejected the write; the workspace is left untouched.
 func (s *Service) archiveWorkspaceRecord(ws *data.Workspace, kind string) bool {
 	if ws.Archived {
 		return true

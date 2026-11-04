@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/coalesce"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -68,33 +69,40 @@ func (a *App) handleWorkspaceCommitted(msg messages.WorkspaceCommitted) tea.Cmd 
 	return common.SafeBatch(cmds...)
 }
 
-// enqueueGitStatus coalesces status refreshes per root: while a refresh is in
-// flight the request records a pending flag (and whether any waiter wanted
-// full stats) instead of forking another git status. The result handler
-// drains the pending flag into a single follow-up — the same
-// in-flight/rescan shape scanTmuxActivityNow uses.
+// gitStatusWant is the coalesced payload for a git-status refresh: whether
+// any waiter wanted full line stats. Merged with boolean OR.
+type gitStatusWant struct{ full bool }
+
+func mergeGitStatusWant(a, b gitStatusWant) gitStatusWant {
+	return gitStatusWant{full: a.full || b.full}
+}
+
+// enqueueGitStatus coalesces status refreshes per root through the formally
+// verified internal/coalesce machine: while a refresh is in flight the
+// request merges into the pending obligation instead of forking another git
+// status. The result handler discharges the obligation into a single
+// follow-up.
 func (a *App) enqueueGitStatus(root string, full bool) tea.Cmd {
 	if root == "" {
 		return nil
 	}
-	a.initGitStatusDedup()
-	if a.gitStatusInFlight[root] {
-		a.gitStatusPending[root] = true
-		if full {
-			a.gitStatusPendingFull[root] = true
-		}
-		return nil
+	entry := a.gitStatusDedupEntry(root)
+	if start, want := entry.Admit(gitStatusWant{full: full}); start {
+		return a.gitStatusCmd(root, want.full)
 	}
-	a.gitStatusInFlight[root] = true
-	return a.gitStatusCmd(root, full)
+	return nil
 }
 
-func (a *App) initGitStatusDedup() {
-	if a.gitStatusInFlight == nil {
-		a.gitStatusInFlight = make(map[string]bool)
-		a.gitStatusPending = make(map[string]bool)
-		a.gitStatusPendingFull = make(map[string]bool)
+func (a *App) gitStatusDedupEntry(root string) *coalesce.Entry[gitStatusWant] {
+	if a.gitStatusCoalesce == nil {
+		a.gitStatusCoalesce = make(map[string]*coalesce.Entry[gitStatusWant])
 	}
+	entry := a.gitStatusCoalesce[root]
+	if entry == nil {
+		entry = coalesce.New(mergeGitStatusWant)
+		a.gitStatusCoalesce[root] = entry
+	}
+	return entry
 }
 
 func (a *App) gitStatusCmd(root string, full bool) tea.Cmd {
@@ -121,18 +129,21 @@ func (a *App) gitStatusCmd(root string, full bool) tea.Cmd {
 }
 
 // gitStatusFollowUp runs on the Update goroutine when a tracked result lands:
-// it clears the root's in-flight mark and, if requests coalesced meanwhile,
+// it discharges the root's coalescer and, if requests coalesced meanwhile,
 // emits exactly one follow-up refresh — full if any waiter asked for it.
 func (a *App) gitStatusFollowUp(root string) tea.Cmd {
-	a.initGitStatusDedup()
-	delete(a.gitStatusInFlight, root)
-	if !a.gitStatusPending[root] {
+	if root == "" {
 		return nil
 	}
-	delete(a.gitStatusPending, root)
-	full := a.gitStatusPendingFull[root]
-	delete(a.gitStatusPendingFull, root)
-	return a.enqueueGitStatus(root, full)
+	entry := a.gitStatusCoalesce[root]
+	if entry == nil {
+		return nil
+	}
+	rerun, want := entry.Complete()
+	if !rerun {
+		return nil
+	}
+	return a.enqueueGitStatus(root, want.full)
 }
 
 // requestGitStatus requests git status for a workspace using fast mode (skips line stats).
@@ -149,18 +160,16 @@ func (a *App) requestGitStatusBatch(roots []string) tea.Cmd {
 	if len(roots) == 0 {
 		return nil
 	}
-	a.initGitStatusDedup()
 	run := make([]string, 0, len(roots))
 	for _, root := range roots {
 		if root == "" {
 			continue
 		}
-		if a.gitStatusInFlight[root] {
-			a.gitStatusPending[root] = true
-			continue
+		// Fast-mode batch admits: a root already refreshing coalesces into
+		// its pending obligation rather than joining the batch.
+		if start, _ := a.gitStatusDedupEntry(root).Admit(gitStatusWant{full: false}); start {
+			run = append(run, root)
 		}
-		a.gitStatusInFlight[root] = true
-		run = append(run, root)
 	}
 	if len(run) == 0 {
 		return nil

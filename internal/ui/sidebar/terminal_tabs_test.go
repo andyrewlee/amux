@@ -78,8 +78,8 @@ func TestAddTabsFromSessionInfos(t *testing.T) {
 		if len(tabs) != 1 {
 			t.Fatalf("expected 1 tab, got %d", len(tabs))
 		}
-		if !tabs[0].State.Detached || tabs[0].State.Running {
-			t.Fatalf("expected detached non-running tab, got %+v", tabs[0].State)
+		if tabs[0].State.tab != tabDetachedAuto {
+			t.Fatalf("expected detached non-running tab, got %v", tabs[0].State.tab)
 		}
 	})
 
@@ -102,7 +102,7 @@ func TestAddTabsFromSessionInfos(t *testing.T) {
 	t.Run("user-detached existing tab is not resurrected", func(t *testing.T) {
 		m := NewTerminalModel()
 		ws, wsID := newWS()
-		seedTab(m, wsID, "s", &TerminalState{UserDetached: true, Detached: true})
+		seedTab(m, wsID, "s", &TerminalState{tab: tabDetachedUser})
 		cmds := m.AddTabsFromSessionInfos(ws, []SessionAttachInfo{{Name: "s", Attach: true}})
 		if len(cmds) != 0 {
 			t.Fatalf("expected no cmd for user-detached tab, got %d", len(cmds))
@@ -116,10 +116,9 @@ func TestAddTabsFromSessionInfos(t *testing.T) {
 		m := NewTerminalModel()
 		ws, wsID := newWS()
 		seedTab(m, wsID, "s", &TerminalState{
-			Running:  true,
+			tab:      tabRunning,
 			Terminal: &pty.Terminal{},
 			VTerm:    vterm.New(10, 3),
-			Detached: false,
 		})
 		cmds := m.AddTabsFromSessionInfos(ws, []SessionAttachInfo{{Name: "s", Attach: true}})
 		if len(cmds) != 0 {

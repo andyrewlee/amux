@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/tmux"
@@ -21,17 +22,13 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 				if name == "" {
 					continue
 				}
-				status := strings.ToLower(strings.TrimSpace(tab.Status))
-				if status == "" {
-					status = "running"
-				}
 				assistant := strings.TrimSpace(tab.Assistant)
 				// Single source of truth for chat-classification so activity
 				// detection and the center renderer agree, including when no
 				// config is loaded (empty-config falls back to the registry).
 				isChat := a.config.IsChatAssistant(assistant)
 				infoBySession[name] = activity.SessionInfo{
-					Status:      status,
+					Status:      data.ParseSessionStatus(string(tab.Status)),
 					WorkspaceID: string(ws.ID()),
 					Assistant:   assistant,
 					IsChat:      isChat,
@@ -42,29 +39,30 @@ func (a *App) tabSessionInfoByName() map[string]activity.SessionInfo {
 	return infoBySession
 }
 
-// activityDemotionMissThreshold is the number of consecutive non-live activity
-// observations required before a running session is demoted to stopped. A single
-// best-effort AllSessionStates call can miss a live session under load, so one
-// miss must not tear down a working background agent.
-const activityDemotionMissThreshold = 2
-
-// recordSessionMiss increments the consecutive-non-live counter for a session and,
-// once the hysteresis threshold is reached, marks it stopped. It returns the
-// (possibly updated) info and whether a stopped message should be emitted — true
-// only on the transition from a running-like status.
-func recordSessionMiss(missBySession map[string]int, sessionName string, info activity.SessionInfo) (activity.SessionInfo, bool) {
-	// A nil counter disables hysteresis (single-miss demotion). The production
+// recordSessionMiss advances the session's demotion-hysteresis tracker (the
+// checked liveness machine in internal/app/activity) and, once the tracker
+// has demoted, maps the session's status through the checked session-status
+// table. It returns the (possibly updated) info and whether a stopped
+// message should be emitted — true only while the info still reads
+// running-like, exactly the historical emit rule.
+func recordSessionMiss(missBySession map[string]*activity.Liveness, sessionName string, info activity.SessionInfo) (activity.SessionInfo, bool) {
+	// A nil map disables hysteresis (single-miss demotion). The production
 	// caller always passes a real map; some unit tests opt out to assert the
 	// per-observation decision directly.
+	tracker := activity.NewLiveness()
 	if missBySession != nil {
-		missBySession[sessionName]++
-		if missBySession[sessionName] < activityDemotionMissThreshold {
-			return info, false
+		if existing := missBySession[sessionName]; existing != nil {
+			tracker = existing
+		} else {
+			missBySession[sessionName] = tracker
 		}
+	} else {
+		tracker.DemoteNow()
 	}
+	tracker.ObserveMiss()
 	wasRunningLike := activity.IsRunningSession(info, true)
-	info.Status = "stopped"
-	return info, wasRunningLike
+	info.Status = tracker.StatusFor(info.Status)
+	return info, wasRunningLike && tracker.Demoted()
 }
 
 func appendStoppedTabStatus(stoppedTabs []messages.TabSessionStatus, sessionName string, info activity.SessionInfo) []messages.TabSessionStatus {
@@ -75,7 +73,7 @@ func appendStoppedTabStatus(stoppedTabs []messages.TabSessionStatus, sessionName
 	return append(stoppedTabs, messages.TabSessionStatus{
 		WorkspaceID: wsID,
 		SessionName: sessionName,
-		Status:      "stopped",
+		Status:      string(data.SessionStopped),
 	})
 }
 
@@ -92,7 +90,7 @@ func syncActivitySessionStates(
 	sessions []activity.TaggedSession,
 	svc TmuxOps,
 	opts tmux.Options,
-	missBySession map[string]int,
+	missBySession map[string]*activity.Liveness,
 ) ([]messages.TabSessionStatus, map[string]tmux.SessionState) {
 	stoppedTabs := make([]messages.TabSessionStatus, 0)
 	if len(infoBySession) == 0 {
@@ -130,10 +128,14 @@ func syncActivitySessionStates(
 
 		if state.Exists && state.HasLivePane {
 			// Live again: reset the miss counter and revive a previously-stopped
-			// session so it is no longer treated as dead.
+			// session so it is no longer treated as dead. The revival runs
+			// through the checked session-status table (stopped --live-->
+			// running); detached and other statuses are untouched.
 			delete(missBySession, sessionName)
-			if strings.EqualFold(info.Status, "stopped") {
-				info.Status = "running"
+			if info.Status == data.SessionStopped {
+				if next, ok := data.NextSessionStatus(info.Status, data.SessionObservedLive); ok {
+					info.Status = next
+				}
 			}
 			infoBySession[sessionName] = info
 			continue

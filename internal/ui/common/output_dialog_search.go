@@ -47,7 +47,7 @@ func (d *OutputDialog) updateQueryEdit(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("esc"))):
-		d.editing = false
+		d.search.Apply(d.search.LeaveEvent(d.query, len(d.matches), d.matchIdx))
 		return d, nil
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))):
 		d.acceptSearch()
@@ -72,22 +72,23 @@ func (d *OutputDialog) updateQueryEdit(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 // acceptSearch leaves edit mode: an empty query clears search state
 // entirely; with matches it selects the first and centers it (a manual
 // scroll, so follow disengages); with none it keeps the query so `0
-// matches` shows in the footer and n/N stay inert.
+// matches` shows in the footer and n/N stay inert. The close events step
+// the shared search machine (search_model.go).
 func (d *OutputDialog) acceptSearch() {
-	d.editing = false
-	d.wrapped = false
-	if d.query == "" {
+	switch {
+	case d.query == "":
 		d.matches = nil
 		d.matchIdx = -1
-		return
-	}
-	if len(d.matches) == 0 {
+		d.search.Apply(SearchCloseIdle)
+	case len(d.matches) == 0:
 		d.matchIdx = -1
-		return
+		d.search.Apply(SearchCloseNoMatch)
+	default:
+		d.matchIdx = 0
+		d.following = false
+		d.search.Apply(SearchCloseMatched)
+		d.centerOnMatch()
 	}
-	d.matchIdx = 0
-	d.following = false
-	d.centerOnMatch()
 }
 
 // jumpMatch advances the match selection by dir, wrapping at the ends and
@@ -100,20 +101,29 @@ func (d *OutputDialog) jumpMatch(dir int) {
 		return
 	}
 	next := d.matchIdx + dir
-	d.wrapped = false
 	switch {
 	case d.matchIdx < 0:
+		// Cleared (refresh evicted the selection): n re-selects the first
+		// match and N the last — the cleared state is recoverable, not
+		// dead. Recovery never arms the wrap marker.
 		if dir > 0 {
 			next = 0
 		} else {
 			next = len(d.matches) - 1
 		}
+		d.matchIdx = next
+		d.following = false
+		d.search.Apply(SearchJumpRecover)
+		d.centerOnMatch()
+		return
 	case next >= len(d.matches):
 		next = 0
-		d.wrapped = true
+		d.search.Apply(SearchJumpWrap)
 	case next < 0:
 		next = len(d.matches) - 1
-		d.wrapped = true
+		d.search.Apply(SearchJumpWrap)
+	default:
+		d.search.Apply(SearchJumpStay)
 	}
 	d.matchIdx = next
 	d.following = false
@@ -141,7 +151,6 @@ func (d *OutputDialog) recomputeMatches() {
 	d.matches = d.matches[:0]
 	if d.query == "" {
 		d.matchIdx = -1
-		d.wrapped = false
 		return
 	}
 	search := NewLiteralSearch(d.query)
@@ -151,6 +160,7 @@ func (d *OutputDialog) recomputeMatches() {
 		}
 	}
 	d.repairMatchSelection(prevLine)
+	d.search.Apply(d.search.RefreshEvent(len(d.matches), d.matchIdx >= 0))
 }
 
 // repairMatchSelection keeps the selection pointing at the same line after

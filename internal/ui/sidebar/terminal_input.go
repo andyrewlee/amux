@@ -294,9 +294,9 @@ func (m *TerminalModel) detachStateForInputGen(ts *TerminalState, gen uint64) {
 		retiredWriter = ts.stopSidebarWriterLocked()
 		term = ts.Terminal
 		ts.Terminal = nil
-		ts.Running = false
-		ts.Detached = true
-		ts.UserDetached = false
+		// A failed input binding detaches automatically — not the user's
+		// decision — so the landing state records the automatic cause.
+		ts.stepTabLocked(evDetachAuto)
 		ts.PendingOutput = nil
 		ts.pendingBufferedBytes = 0
 		ts.NoiseTrailing = nil

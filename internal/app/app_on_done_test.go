@@ -253,7 +253,7 @@ func TestOnDoneHook_OwnerEpochResetDoesNotReplay(t *testing.T) {
 	// New ownership epoch: baseline + hysteresis reset inside the same result
 	// handler, then this scan's payload applies — the session classifies Done
 	// as a first observation, which must not fire.
-	app.tmuxActivity.scanInFlight = true
+	app.tmuxActivity.scan = scanInFlightState()
 	app.handleTmuxActivityResult(tmuxActivityResult{
 		Token:              3,
 		RoleKnown:          true,

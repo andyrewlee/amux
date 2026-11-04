@@ -57,8 +57,10 @@ func (m *TerminalModel) renderTabBar() string {
 		name = common.SanitizeDisplayText(name, 256)
 		disconnected := false
 		if tab.State != nil {
+			// Single enum read under the lock — every non-running state
+			// renders dimmed (see terminal_tab_model.go).
 			disconnected = withMuVal(&tab.State.mu, func() bool {
-				return tab.State.Detached || !tab.State.Running
+				return tab.State.tab != tabRunning
 			})
 		}
 
@@ -209,21 +211,26 @@ func (m *TerminalModel) StatusLine() string {
 			Background(common.ColorInfo())
 		return scrollStyle.Render(" SCROLL: " + formatScrollPos(offset, total) + " ")
 	}
-	if ts.Detached {
+	// The lifecycle enum replaces the former Detached/Running flag pair: a
+	// detached (user or auto) or attaching tab shows DETACHED, a stopped or
+	// torn-down tab shows STOPPED. An attaching tab was necessarily detached
+	// to get here, so it shows DETACHED while the attempt is in flight.
+	switch ts.tab {
+	case tabDetachedUser, tabDetachedAuto, tabAttaching:
 		statusStyle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(common.ColorBackground()).
 			Background(common.ColorWarning())
 		return statusStyle.Render(" DETACHED ")
-	}
-	if !ts.Running {
+	case tabStopped, tabTornDown:
 		statusStyle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(common.ColorBackground()).
 			Background(common.ColorError())
 		return statusStyle.Render(" STOPPED ")
+	default: // tabRunning
+		return ""
 	}
-	return ""
 }
 
 // HelpLines returns the help lines for the given width, respecting visibility and height.

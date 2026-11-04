@@ -116,8 +116,9 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m.handleNavKey(msg, toolbarItems)
 
 	case SpinnerTickMsg:
-		// Advance spinner frame if we have loading items or active agents
-		if len(m.creatingWorkspaces) > 0 || len(m.busyWorkspaces) > 0 {
+		// Advance spinner frame while any root is Creating or Busy — the
+		// single op-state map is the whole derivation.
+		if len(m.workspaceOps) > 0 {
 			m.spinnerFrame++
 			m.markContentDirty()
 			cmds = append(cmds, m.tickSpinner())

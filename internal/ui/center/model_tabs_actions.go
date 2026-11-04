@@ -244,11 +244,11 @@ func (m *Model) GetTabsInfo() ([]data.TabInfo, int) {
 			}
 			createdAt = tab.createdAt
 		})
-		status := "stopped"
+		status := data.SessionStopped
 		if detached {
-			status = "detached"
+			status = data.SessionDetached
 		} else if running {
-			status = "running"
+			status = data.SessionRunning
 		}
 		result = append(result, data.TabInfo{
 			Assistant:   tab.Assistant,
@@ -281,11 +281,11 @@ func (m *Model) GetTabsInfoForWorkspace(wsID string) ([]data.TabInfo, int) {
 			}
 			createdAt = tab.createdAt
 		})
-		status := "stopped"
+		status := data.SessionStopped
 		if detached {
-			status = "detached"
+			status = data.SessionDetached
 		} else if running {
-			status = "running"
+			status = data.SessionRunning
 		}
 		result = append(result, data.TabInfo{
 			Assistant:   tab.Assistant,

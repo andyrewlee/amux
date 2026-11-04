@@ -18,8 +18,7 @@ func TestReattachPrependsScrollbackWhenCaptureExcludesScreen(t *testing.T) {
 
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     false,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
 		{ID: tabID, State: state},
@@ -61,8 +60,7 @@ func TestReattachHistoryOnlyResizesExistingVTermBeforeRecordingSize(t *testing.T
 
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     false,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 		VTerm:       vterm.New(oldWidth, oldHeight),
 		lastWidth:   oldWidth,
 		lastHeight:  oldHeight,
@@ -111,8 +109,7 @@ func TestReattachLoadsPaneCapture(t *testing.T) {
 
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     false,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 		VTerm:       term,
 	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
@@ -166,8 +163,7 @@ func TestReattachReconcilesPostAttachHistoryAfterFullPaneRestore(t *testing.T) {
 
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     false,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 		VTerm:       vterm.New(20, 2),
 	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
@@ -300,8 +296,7 @@ func TestReattachBlankPaneCaptureClearsStaleFrame(t *testing.T) {
 
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     false,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 		VTerm:       term,
 	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
@@ -356,8 +351,7 @@ func TestReattachPreservesExistingAltScreenStateWithoutSnapshotModes(t *testing.
 
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     false,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 		VTerm:       term,
 	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{

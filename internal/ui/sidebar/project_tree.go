@@ -78,6 +78,10 @@ type ProjectTree struct {
 	pendingRoot   *projectTreeNode
 	rootErr       string
 	readSlots     chan struct{}
+	// phase is the model-level load phase — the explicit form of the
+	// refresh/in-flight lifecycle (see project_tree_model.go for the
+	// checked machine). rootErr is its error payload.
+	phase treePhase
 	// pendingExpanded/pendingSelectedPath carry expansion and selection
 	// intent across an in-flight reload; navVersion records the cursor
 	// movement counter at refresh start so a user navigation while loading

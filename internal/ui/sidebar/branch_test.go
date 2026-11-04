@@ -37,11 +37,11 @@ func TestToggleBranchModeFetchesAndPopulatesDisplayItems(t *testing.T) {
 	m.SetWorkspace(ws)
 
 	cmd := m.toggleBranchMode()
-	if !m.branchMode {
+	if !m.branchModeOn() {
 		t.Fatal("toggleBranchMode() should turn branch mode on")
 	}
-	if !m.branchLoading {
-		t.Fatal("toggleBranchMode() should mark branchLoading while the fetch is in flight")
+	if m.branch != fetchLoading {
+		t.Fatal("toggleBranchMode() should enter the loading phase while the fetch is in flight")
 	}
 	if cmd == nil {
 		t.Fatal("toggleBranchMode() should return a fetch command when turning on")
@@ -64,8 +64,8 @@ func TestToggleBranchModeFetchesAndPopulatesDisplayItems(t *testing.T) {
 	if followUpCmd != nil {
 		t.Errorf("Update(messages.BranchChangesLoaded) returned a command, want nil")
 	}
-	if m.branchLoading {
-		t.Error("branchLoading should be false once the result lands")
+	if m.branch != fetchLoaded {
+		t.Errorf("phase should be loaded once the result lands, got %v", m.branch)
 	}
 
 	var fileItems int
@@ -90,7 +90,7 @@ func TestToggleBranchModeFetchesAndPopulatesDisplayItems(t *testing.T) {
 	if cmd := m.toggleBranchMode(); cmd != nil {
 		t.Error("toggling branch mode off should not issue a fetch")
 	}
-	if m.branchMode {
+	if m.branchModeOn() {
 		t.Error("branch mode should be off")
 	}
 }
@@ -104,12 +104,12 @@ func TestToggleBranchModeOffRestoresWorkingTreeList(t *testing.T) {
 	})
 
 	// Force branch mode on synthetically (skip the real fetch) then back off.
-	m.branchMode = true
+	m.branch = fetchLoaded
 	m.branchChanges = []git.Change{{Path: "b.go", Kind: git.ChangeAdded}}
 	m.rebuildDisplayList()
 
 	m.toggleBranchMode()
-	if m.branchMode {
+	if m.branchModeOn() {
 		t.Fatal("expected branch mode to toggle off")
 	}
 
@@ -126,7 +126,7 @@ func TestToggleBranchModeOffRestoresWorkingTreeList(t *testing.T) {
 
 func TestRebuildBranchDisplayListRespectsFilter(t *testing.T) {
 	m := NewChangesModel()
-	m.branchMode = true
+	m.branch = fetchLoaded
 	// Pre-sorted, mirroring what BranchChangesVsBase returns in production
 	// (rebuildBranchDisplayList itself doesn't sort — it trusts its input).
 	m.branchChanges = []git.Change{
@@ -155,8 +155,7 @@ func TestRebuildBranchDisplayListRespectsFilter(t *testing.T) {
 func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 	m := NewChangesModel()
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
-	m.branchMode = true
-	m.branchLoading = true
+	m.branch = fetchLoading
 	m.branchLoadID = 2 // a newer toggle already bumped this past the in-flight fetch's ID
 
 	m.handleBranchChangesLoaded(messages.BranchChangesLoaded{
@@ -164,8 +163,8 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 		LoadID:  1, // stale
 		Changes: []git.Change{{Path: "stale.go", Kind: git.ChangeModified}},
 	})
-	if !m.branchLoading || m.branchChanges != nil {
-		t.Fatalf("stale LoadID result should be dropped, got loading=%v changes=%+v", m.branchLoading, m.branchChanges)
+	if m.branch != fetchLoading || m.branchChanges != nil {
+		t.Fatalf("stale LoadID result should be dropped, got phase=%v changes=%+v", m.branch, m.branchChanges)
 	}
 
 	m.handleBranchChangesLoaded(messages.BranchChangesLoaded{
@@ -173,8 +172,8 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 		LoadID:  2,
 		Changes: []git.Change{{Path: "other.go", Kind: git.ChangeModified}},
 	})
-	if !m.branchLoading || m.branchChanges != nil {
-		t.Fatalf("result for a different workspace root should be dropped, got loading=%v changes=%+v", m.branchLoading, m.branchChanges)
+	if m.branch != fetchLoading || m.branchChanges != nil {
+		t.Fatalf("result for a different workspace root should be dropped, got phase=%v changes=%+v", m.branch, m.branchChanges)
 	}
 
 	m.handleBranchChangesLoaded(messages.BranchChangesLoaded{
@@ -182,8 +181,8 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 		LoadID:  2,
 		Changes: []git.Change{{Path: "current.go", Kind: git.ChangeModified}},
 	})
-	if m.branchLoading {
-		t.Error("matching LoadID/Root should clear branchLoading")
+	if m.branch != fetchLoaded {
+		t.Errorf("matching LoadID/Root should land the loaded phase, got %v", m.branch)
 	}
 	if len(m.branchChanges) != 1 || m.branchChanges[0].Path != "current.go" {
 		t.Fatalf("branchChanges = %+v, want [current.go]", m.branchChanges)
@@ -193,6 +192,7 @@ func TestHandleBranchChangesLoadedDropsStaleResults(t *testing.T) {
 func TestHandleAheadBehindLoadedUpdatesAndDropsStale(t *testing.T) {
 	m := NewChangesModel()
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
+	m.aheadBehind = fetchLoading // the in-flight refresh refreshAheadBehind issued
 	m.aheadBehindLoadID = 3
 
 	m.handleAheadBehindLoaded(messages.AheadBehindLoaded{Root: "/tmp/repo", LoadID: 2, Ahead: 5, Behind: 5})
@@ -206,10 +206,11 @@ func TestHandleAheadBehindLoadedUpdatesAndDropsStale(t *testing.T) {
 	}
 
 	wantErr := errors.New("boom")
+	m.aheadBehind = fetchLoading
 	m.aheadBehindLoadID = 4
 	m.handleAheadBehindLoaded(messages.AheadBehindLoaded{Root: "/tmp/repo", LoadID: 4, Err: wantErr})
-	if m.aheadBehindErr == nil {
-		t.Fatal("expected aheadBehindErr to be set")
+	if m.aheadBehind != fetchError {
+		t.Fatalf("expected the error phase after a failed fetch, got %v", m.aheadBehind)
 	}
 	// An error result must not clobber the last-known good counts.
 	if m.ahead != 2 || m.behind != 1 {
@@ -222,12 +223,12 @@ func TestSetWorkspaceResetsBranchStateAndFetchesAheadBehind(t *testing.T) {
 
 	m := NewChangesModel()
 	m.SetWorkspace(data.NewWorkspace("other", "other", "main", "/tmp/other", "/tmp/other"))
-	m.branchMode = true
+	m.branch = fetchLoaded
 	m.branchChanges = []git.Change{{Path: "leftover.go"}}
 	m.ahead, m.behind = 9, 9
 
 	cmd := m.SetWorkspace(ws)
-	if m.branchMode {
+	if m.branchModeOn() {
 		t.Error("SetWorkspace should turn branch mode off for the new workspace")
 	}
 	if m.branchChanges != nil {
@@ -286,7 +287,7 @@ func TestRenderAheadBehindBadge(t *testing.T) {
 		t.Fatalf("badge = %q, want it to mention ahead count 2", got)
 	}
 
-	m.aheadBehindErr = errors.New("boom")
+	m.aheadBehind = fetchError
 	if got := m.renderAheadBehindBadge(); got != "" {
 		t.Fatalf("badge after error = %q, want empty (hide rather than show stale/wrong data)", got)
 	}
@@ -296,19 +297,20 @@ func TestRenderBranchSectionStates(t *testing.T) {
 	m := NewChangesModel()
 	m.SetSize(60, 20)
 	m.SetWorkspace(data.NewWorkspace("ws", "ws", "main", "/tmp/repo", "/tmp/repo"))
-	m.branchMode = true
+	m.branch = fetchLoaded
 
-	m.branchLoading = true
+	m.branch = fetchLoading
 	if got := m.renderBranchSection(); !strings.Contains(got, "Loading") {
 		t.Fatalf("loading state = %q, want it to mention Loading", got)
 	}
 
-	m.branchLoading = false
+	m.branch = fetchError
 	m.branchErr = errors.New("git exploded")
 	if got := m.renderBranchSection(); !strings.Contains(got, "git exploded") {
 		t.Fatalf("error state = %q, want it to surface the error", got)
 	}
 
+	m.branch = fetchLoaded
 	m.branchErr = nil
 	m.branchChanges = nil
 	if got := m.renderBranchSection(); !strings.Contains(got, "No commits ahead of base") {

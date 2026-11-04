@@ -92,11 +92,8 @@ func TestCreateTerminalStateForTab(t *testing.T) {
 			if ts.VTerm == nil {
 				t.Fatal("expected a VTerm allocated for the new tab")
 			}
-			if !ts.Running {
-				t.Fatal("expected a freshly created tab marked Running")
-			}
-			if ts.Detached {
-				t.Fatal("expected a freshly created tab not Detached")
+			if ts.tab != tabRunning {
+				t.Fatalf("expected a freshly created tab running, got %v", ts.tab)
 			}
 			if ts.SessionName != tt.sessionName {
 				t.Fatalf("SessionName = %q, want %q", ts.SessionName, tt.sessionName)
@@ -216,12 +213,12 @@ func TestStartPTYReaders(t *testing.T) {
 	notRunning := &TerminalTab{
 		ID:    generateTerminalTabID(),
 		Name:  "Terminal 1",
-		State: &TerminalState{Terminal: &pty.Terminal{}, Running: false},
+		State: &TerminalState{Terminal: &pty.Terminal{}},
 	}
 	detached := &TerminalTab{
 		ID:    generateTerminalTabID(),
 		Name:  "Terminal 2",
-		State: &TerminalState{Terminal: nil, Running: true},
+		State: &TerminalState{Terminal: nil, tab: tabRunning},
 	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{notRunning, detached}
 	m.tabs.ActiveByWorkspace[wsID] = 0
@@ -269,7 +266,7 @@ func TestCloseTerminal(t *testing.T) {
 		Name: "Terminal 1",
 		State: &TerminalState{
 			Terminal: term,
-			Running:  true,
+			tab:      tabRunning,
 		},
 	}
 	// RestartBackoff is a promoted field of the embedded ptyio.State, so it
@@ -288,7 +285,7 @@ func TestCloseTerminal(t *testing.T) {
 		t.Fatal("expected the live terminal closed")
 	}
 	tab.State.mu.Lock()
-	running := tab.State.Running
+	running := tab.State.tab == tabRunning
 	backoff := tab.State.RestartBackoff
 	tab.State.mu.Unlock()
 	if running {
@@ -323,10 +320,10 @@ func TestCloseAll(t *testing.T) {
 	termA := &pty.Terminal{}
 	termB := &pty.Terminal{}
 	m.tabs.ByWorkspace[string(wsA.ID())] = []*TerminalTab{
-		{ID: generateTerminalTabID(), Name: "Terminal 1", State: &TerminalState{Terminal: termA, Running: true}},
+		{ID: generateTerminalTabID(), Name: "Terminal 1", State: &TerminalState{Terminal: termA, tab: tabRunning}},
 	}
 	m.tabs.ByWorkspace[string(wsB.ID())] = []*TerminalTab{
-		{ID: generateTerminalTabID(), Name: "Terminal 1", State: &TerminalState{Terminal: termB, Running: true}},
+		{ID: generateTerminalTabID(), Name: "Terminal 1", State: &TerminalState{Terminal: termB, tab: tabRunning}},
 	}
 	m.tabs.ActiveByWorkspace[string(wsA.ID())] = 0
 	m.tabs.ActiveByWorkspace[string(wsB.ID())] = 0
@@ -363,7 +360,7 @@ func TestDetachState(t *testing.T) {
 			term := &pty.Terminal{}
 			ts := &TerminalState{
 				Terminal: term,
-				Running:  true,
+				tab:      tabRunning,
 			}
 			// PendingOutput/NoiseTrailing are promoted fields of the embedded
 			// ptyio.State; seed them so detach's nil-out is observable.
@@ -377,14 +374,12 @@ func TestDetachState(t *testing.T) {
 			if ts.Terminal != nil {
 				t.Fatal("expected Terminal cleared on detach")
 			}
-			if ts.Running {
-				t.Fatal("expected Running cleared on detach")
+			want := tabDetachedAuto
+			if tt.userInitiated {
+				want = tabDetachedUser
 			}
-			if !ts.Detached {
-				t.Fatal("expected Detached set on detach")
-			}
-			if ts.UserDetached != tt.userInitiated {
-				t.Fatalf("UserDetached = %v, want %v", ts.UserDetached, tt.userInitiated)
+			if ts.tab != want {
+				t.Fatalf("tab state = %v, want %v", ts.tab, want)
 			}
 			if ts.PendingOutput != nil {
 				t.Fatal("expected PendingOutput cleared on detach")
@@ -407,12 +402,12 @@ func TestDetachStateNilIsNoop(t *testing.T) {
 
 func TestDetachStateNilTerminalIsSafe(t *testing.T) {
 	m := NewTerminalModel()
-	ts := &TerminalState{Terminal: nil, Running: true}
+	ts := &TerminalState{Terminal: nil, tab: tabRunning}
 	m.detachState(ts, false)
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if !ts.Detached || ts.Running {
-		t.Fatal("expected detach flags applied even without a live terminal")
+	if ts.tab != tabDetachedAuto {
+		t.Fatal("expected the automatic detach state applied even without a live terminal")
 	}
 }
 
@@ -427,7 +422,7 @@ func TestSendToTerminal(t *testing.T) {
 
 	t.Run("nil terminal on active tab is a no-op", func(t *testing.T) {
 		m, wsID := newBoundModel(t)
-		tab := &TerminalTab{ID: generateTerminalTabID(), Name: "Terminal 1", State: &TerminalState{Terminal: nil, Running: true}}
+		tab := &TerminalTab{ID: generateTerminalTabID(), Name: "Terminal 1", State: &TerminalState{Terminal: nil, tab: tabRunning}}
 		m.tabs.ByWorkspace[wsID] = []*TerminalTab{tab}
 		m.tabs.ActiveByWorkspace[wsID] = 0
 
@@ -435,7 +430,7 @@ func TestSendToTerminal(t *testing.T) {
 
 		// A nil terminal means the write never happens, so Running stays true.
 		tab.State.mu.Lock()
-		running := tab.State.Running
+		running := tab.State.tab == tabRunning
 		tab.State.mu.Unlock()
 		if !running {
 			t.Fatal("expected Running untouched when there is no terminal to write to")
@@ -456,7 +451,7 @@ func TestSendToTerminal(t *testing.T) {
 		tab := &TerminalTab{
 			ID:    generateTerminalTabID(),
 			Name:  "Terminal 1",
-			State: &TerminalState{Terminal: &pty.Terminal{}, Running: true, UserDetached: true},
+			State: &TerminalState{Terminal: &pty.Terminal{}, tab: tabRunning},
 		}
 		m.tabs.ByWorkspace[wsID] = []*TerminalTab{tab}
 		m.tabs.ActiveByWorkspace[wsID] = 0
@@ -478,14 +473,8 @@ func TestSendToTerminal(t *testing.T) {
 
 		tab.State.mu.Lock()
 		defer tab.State.mu.Unlock()
-		if tab.State.Running {
-			t.Fatal("expected Running cleared after a failed send")
-		}
-		if !tab.State.Detached {
-			t.Fatal("expected Detached set after a failed send")
-		}
-		if tab.State.UserDetached {
-			t.Fatal("expected UserDetached cleared (the detach was not user-initiated)")
+		if tab.State.tab != tabDetachedAuto {
+			t.Fatalf("expected the automatic detach state after a failed send (not user-initiated), got %v", tab.State.tab)
 		}
 		// Teardown parity with paste/key: a flag-flip-only detach would
 		// leave the dead terminal and its queued bytes behind.

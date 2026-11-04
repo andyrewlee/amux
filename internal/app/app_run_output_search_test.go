@@ -35,7 +35,7 @@ func searchableRunOutputApp(t *testing.T) *App {
 	a.overlays.runOutput.SetAttachHint(true)
 	a.overlays.runOutput.SetSize(120, 40)
 	a.overlays.runOutput.Show()
-	a.overlays.runOutputAttachable = true
+	a.overlays.runOutputFlavor = runOutputFlavorRun
 	a.overlays.runOutputWorkspace = &data.Workspace{Name: "ws"}
 	a.overlays.runOutputSession = "amux-ws-x-run"
 	return a

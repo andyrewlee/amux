@@ -12,6 +12,9 @@ import (
 )
 
 func TestLifecyclePhaseTransitionTable(t *testing.T) {
+	if err := lifecycleMachineCheck(); err != nil {
+		t.Fatalf("workspace lifecycle machine failed model checking: %v", err)
+	}
 	cases := []struct {
 		name string
 		from lifecyclePhase

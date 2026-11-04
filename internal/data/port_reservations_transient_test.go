@@ -156,3 +156,47 @@ func TestIsTransientReservationID(t *testing.T) {
 		}
 	}
 }
+
+// TestTransientHoldMachineFormallyChecked verifies the hold lifecycle by
+// exhaustive model checking: the sweep releases only a dead owner's hold, a
+// durable mint never disturbs a hold, and explicit release removes anything.
+func TestTransientHoldMachineFormallyChecked(t *testing.T) {
+	if err := TransientHoldCheck(); err != nil {
+		t.Fatalf("transient hold machine failed model checking: %v", err)
+	}
+}
+
+func TestClassifyTransientHold(t *testing.T) {
+	always := func(int) bool { return true }
+	never := func(int) bool { return false }
+	cases := []struct {
+		name  string
+		id    string
+		alive func(int) bool
+		want  transientHoldState
+	}{
+		{"durable key", "durable-ws", always, holdDurable},
+		{"live owner", TransientReservationKey(42, "/r"), always, holdOwnerLive},
+		{"dead owner", TransientReservationKey(42, "/r"), never, holdOwnerDead},
+		{"malformed: no PID", "transient-abc-x", always, holdMalformed},
+		{"malformed: zero PID", "transient-0-ff", always, holdMalformed},
+	}
+	for _, tc := range cases {
+		if got := classifyTransientHold(tc.id, tc.alive); got != tc.want {
+			t.Errorf("%s: classifyTransientHold = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestTransientSweepDecisionTableSweep pins the sweep's behavior through the
+// machine over every classification: only holdOwnerDead steps to released
+// on the sweep event — the exact delete condition
+// sweepDeadTransientReservationsLocked uses.
+func TestTransientSweepDecisionTableSweep(t *testing.T) {
+	for _, from := range []transientHoldState{holdDurable, holdOwnerLive, holdOwnerDead, holdMalformed} {
+		next, _ := transientHoldMachine.Next(from, evtTransientSweep)
+		if (next == holdReleased) != (from == holdOwnerDead) {
+			t.Fatalf("sweep from %v lands on %v: release must happen exactly for a dead owner", from, next)
+		}
+	}
+}

@@ -113,6 +113,8 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/git` | git worktree-per-workspace model: worktrees, branches, diff, watcher | `operations.go`, `workspace.go` |
 | `internal/data` | Persistence + shared records: workspace records via WorkspaceStore, project registry (lockfile, recovery), AgentState enum, canonical path helpers | `workspace_store.go`, `registry.go` |
 | `internal/fsatomic` | Crash-safe single-file writes: temp-write, fsync, atomic rename-over (with .bak restore on Windows) | `fsatomic.go` |
+| `internal/coalesce` | In-flight/pending request coalescing machine shared by the git-status and activity-scan refresh paths (formally verified via `internal/fsm`) | `coalesce.go` |
+| `internal/fsm` | Declarative finite-state machines: shared transition tables for runtime and an exhaustive model checker (reachability, invariants, deadlocks, witness paths) that runs in `go test` | `fsm.go`, `check.go` |
 | `internal/update` | Self-update: version check, download, verify, install | `updater.go` |
 | `internal/config` | Configuration: assistants, UI settings, resolved paths | `config.go` |
 | `internal/supervisor` | Named background workers with restart/backoff and error surfacing | `supervisor.go` |

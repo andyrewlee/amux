@@ -102,10 +102,11 @@ type Model struct {
 	toolbarFocused bool            // Whether toolbar actions are focused
 	toolbarIndex   int             // Focused toolbar action index
 	deleteIconX    int             // X position of delete "x" icon for currently selected row
-	// pendingSelectID holds a workspace ID the cursor should land on as soon as
-	// that workspace has a row. A just-created workspace is activated before the
-	// projects reload carrying it arrives, so the selection has to wait for the
-	// rebuild rather than being dropped.
+	// pendingSelectID holds the workspace ID an armed selection (see the
+	// pendingSelectState machine in dashboard_navigation.go) is waiting to
+	// land on, as soon as that workspace has a row. A just-created workspace
+	// is activated before the projects reload carrying it arrives, so the
+	// selection has to wait for the rebuild rather than being dropped.
 	pendingSelectID string
 	// pendingSelectLoads bounds how many rebuilds that wait may span. A creation
 	// that never yields a row (created-with-warning, deleted before its reload
@@ -116,6 +117,9 @@ type Model struct {
 	// flow deliberately parks focus on the center pane and every input-side
 	// clear is gated on being focused.
 	pendingSelectLoads int
+	// pendingSelectState is the debounce machine's control state — Idle or
+	// Armed. It governs the ID above; the ID alone is not the state.
+	pendingSelectState pendingSelectState
 
 	// marked holds workspace marks for bulk lifecycle ops, keyed by
 	// string(ws.MetadataID()) — the persisted store key, stable across row
@@ -124,19 +128,24 @@ type Model struct {
 	// stale mark simply never matches.
 	marked map[string]bool
 
-	// Loading state
-	creatingWorkspaces map[string]*data.Workspace // Workspaces currently being created
-	busyWorkspaces     map[string]WorkspaceOp     // Workspaces mid-mutation (root -> op label)
-	spinnerFrame       int                        // Current spinner animation frame
-	spinnerActive      bool                       // Whether spinner ticks are active
+	// Loading state. workspaceOps holds one lifecycle-machine entry per root
+	// that is Creating or Busy (see dashboard_state.go) — presence is
+	// non-Idle, so the spinner derivation below can never desync from a
+	// leaked entry the way two parallel maps could.
+	workspaceOps  map[string]workspaceOpEntry // root -> lifecycle machine state + payload
+	spinnerFrame  int                         // Current spinner animation frame
+	spinnerActive bool                        // Whether spinner ticks are active
 
 	// Agent activity state
-	activeWorkspaceIDs map[string]bool            // Workspace IDs with active agents (synced from center)
-	agentStates        map[string]data.AgentState // Per-workspace semantic agent states
-	doneAcked          map[string]bool            // Workspace IDs whose "done" indicator has been seen by the user
-	donePending        map[string]bool            // Unacked done latch — survives ClassifyState's Done→Idle decay
-	attentionPending   map[string]bool            // Unacked agent-attention latch (BEL) — unlike donePending it survives Working publishes: an agent ringing the bell mid-task still needs a look
-	notifyOnDone       bool                       // Ring a terminal bell on the unacked Working→Done edge
+	activeWorkspaceIDs map[string]bool // Workspace IDs with active agents (synced from center)
+	// agentStates is the last published per-workspace semantic state — the
+	// input to the dirty gate and to the attention machine's event reduction
+	// (it is NOT read at render time; rendering reads m.attention).
+	agentStates map[string]data.AgentState
+	// attention is the per-workspace badge machine state (see
+	// attention_state.go) — the single source the render loop looks up.
+	attention    map[string]attentionState
+	notifyOnDone bool // Ring a terminal bell on the unacked Working→Done edge
 
 	// Styles
 	styles common.Styles
@@ -157,12 +166,9 @@ func New() *Model {
 		projects:           []data.Project{},
 		rows:               []Row{},
 		statusCache:        make(map[string]*git.StatusResult),
-		creatingWorkspaces: make(map[string]*data.Workspace),
-		busyWorkspaces:     make(map[string]WorkspaceOp),
+		workspaceOps:       make(map[string]workspaceOpEntry),
 		activeWorkspaceIDs: make(map[string]bool),
-		doneAcked:          make(map[string]bool),
-		donePending:        make(map[string]bool),
-		attentionPending:   make(map[string]bool),
+		attention:          make(map[string]attentionState),
 		marked:             make(map[string]bool),
 		cursor:             0,
 		focused:            true,
@@ -208,51 +214,42 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 	m.markContentDirty()
 }
 
-// ackDone marks a workspace's "done" indicator as seen so it stops rendering —
-// the live Done state, the latched donePending badge, and the BEL attention
-// latch.
-func (m *Model) ackDone(wsID string) {
-	if wsID == "" {
-		return
+// SetAgentStates publishes the per-workspace semantic agent states, stepping
+// each workspace's attention machine (see attention_state.go): a Working
+// publish re-arms the done badge, a watched Working→Done edge latches it
+// past the state's Idle decay, and the BEL attention latch survives Working
+// publishes entirely.
+//
+// It returns a bell command exactly once per unacked watched Working→Done
+// edge when notify-on-done is enabled: the edge is derived from the previous
+// publish, so a workspace that stays Done across frames does not re-bell. A
+// frame with several simultaneous edges still rings a single bell.
+func (m *Model) SetAgentStates(states map[string]data.AgentState) tea.Cmd {
+	prev := m.agentStates
+	m.agentStates = states
+	if !maps.Equal(prev, states) {
+		m.markContentDirty()
 	}
-	if m.doneAcked == nil {
-		m.doneAcked = make(map[string]bool)
+	bell := false
+	// Walk the union: every workspace whose live publish changed (including
+	// one that dropped out of the map — its live Done badge must decay) steps
+	// its machine. Equal maps still walk, so latch bookkeeping is never
+	// skipped behind the dirty gate; unchanged publishes are self-loops.
+	for wsID, newLive := range states {
+		if m.stepAttention(wsID, prev[wsID], newLive) {
+			bell = true
+		}
 	}
-	m.doneAcked[wsID] = true
-	delete(m.donePending, wsID)
-	delete(m.attentionPending, wsID)
-}
-
-// doneBadgeVisible reports whether the attention badge renders for a
-// workspace: the live Done state or the donePending latch (both suppressed
-// once seen via doneAcked), OR the attentionPending latch — which gates only
-// on itself: a bell raised after the user already viewed the workspace must
-// still surface, while ackDone clears it like the others.
-func (m *Model) doneBadgeVisible(wsID string) bool {
-	if m.attentionPending[wsID] {
-		return true
+	for wsID, prevLive := range prev {
+		if _, kept := states[wsID]; kept {
+			continue
+		}
+		m.stepAttention(wsID, prevLive, data.StateIdle)
 	}
-	return (m.agentStates[wsID] == data.StateDone || m.donePending[wsID]) &&
-		!m.doneAcked[wsID]
-}
-
-// MarkAttention raises the unacked attention latch for a workspace — the same
-// surface the Working→Done edge uses (badge renders, `n` jumps to the row),
-// cleared when the user views the row via ackDone. Agent-emitted BEL lands
-// here: the agent escalated, so the workspace needs a look even though its
-// activity state may still read Working — hence a distinct latch: donePending
-// is deleted on every Working publish, which would swallow a bell raised
-// during a permission prompt. Repeated marks coalesce — the latch is boolean
-// by design.
-func (m *Model) MarkAttention(wsID string) {
-	if wsID == "" || m.attentionPending[wsID] {
-		return
+	if bell && m.notifyOnDone {
+		return bellCmd()
 	}
-	if m.attentionPending == nil {
-		m.attentionPending = make(map[string]bool)
-	}
-	m.attentionPending[wsID] = true
-	m.markContentDirty()
+	return nil
 }
 
 // SetNotifyOnDone controls whether a terminal bell fires when a workspace
@@ -265,49 +262,6 @@ func (m *Model) SetNotifyOnDone(enabled bool) {
 // Interface section reads it back for its toggle row).
 func (m *Model) NotifyOnDone() bool {
 	return m.notifyOnDone
-}
-
-// SetAgentStates updates the per-workspace semantic agent states.
-// It also clears the doneAcked flag for any workspace that has started
-// working again, so the next "done" is visible to the user.
-//
-// It returns a bell command exactly once per unacked Working→Done edge when
-// notify-on-done is enabled: the previous state is compared against the new one
-// so a workspace that stays Done across frames does not re-bell. A frame with
-// several simultaneous edges still rings a single bell.
-func (m *Model) SetAgentStates(states map[string]data.AgentState) tea.Cmd {
-	if m.donePending == nil {
-		m.donePending = make(map[string]bool)
-	}
-	prev := m.agentStates
-	m.agentStates = states
-	if !maps.Equal(prev, states) {
-		m.markContentDirty()
-	}
-	bell := false
-	for wsID, st := range states {
-		switch st {
-		case data.StateWorking:
-			delete(m.doneAcked, wsID)
-			delete(m.donePending, wsID)
-		case data.StateDone:
-			// Fire only on the fresh, unacked Working→Done transition. Gating on
-			// prev == Working de-dupes steady-state Done (prev is already Done)
-			// and skips Idle/absent→Done, which is not a finish the user watched.
-			if prev[wsID] == data.StateWorking {
-				// The done badge latches past DoneWindow's decay — it stays
-				// visible until ackDone (row activation) or a new Working edge.
-				m.donePending[wsID] = true
-				if m.notifyOnDone && !m.doneAcked[wsID] {
-					bell = true
-				}
-			}
-		}
-	}
-	if bell {
-		return bellCmd()
-	}
-	return nil
 }
 
 // GitStatusUnchanged reports whether a GitStatusResult would leave

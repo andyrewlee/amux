@@ -50,8 +50,8 @@ func TestHandleShowEventLog_RendersNewestFirst(t *testing.T) {
 		}
 	}
 	// Static flavor: no refresh/session/attach semantics may leak in.
-	if app.overlays.runOutputSession != "" || app.overlays.runOutputAttachable ||
-		app.overlays.runOutputLifecycle || app.overlays.runOutputReleaseCount > 0 {
+	if app.overlays.runOutputFlavor != runOutputFlavorEvents ||
+		app.overlays.runOutputSession != "" || app.overlays.runOutputReleaseCount > 0 {
 		t.Fatal("event log viewer picked up non-static flavor flags")
 	}
 }

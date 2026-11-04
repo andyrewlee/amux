@@ -148,7 +148,7 @@ func TestTriggerTmuxActivityScan_StaleTickIgnoredByHandler(t *testing.T) {
 	if len(cmds) != 1 {
 		t.Fatalf("expected only ticker reschedule for stale tick, got %d cmds", len(cmds))
 	}
-	if app.tmuxActivity.scanInFlight {
+	if app.tmuxActivity.scanEntry().InFlight() {
 		t.Fatal("expected no scan to start for a stale tick")
 	}
 }
@@ -172,7 +172,7 @@ func TestTriggerTmuxActivityScan_FreshTickStartsScan(t *testing.T) {
 	if len(cmds) != 2 {
 		t.Fatalf("expected reschedule + scan for fresh tick, got %d cmds", len(cmds))
 	}
-	if !app.tmuxActivity.scanInFlight {
+	if !app.tmuxActivity.scanEntry().InFlight() {
 		t.Fatal("expected scan to be marked in flight for a fresh tick")
 	}
 	if app.tmuxActivity.token != 9 {

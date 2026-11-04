@@ -92,16 +92,16 @@ func TestSearchCycleWraps(t *testing.T) {
 		t.Fatalf("beta should match 3 spans (+beta line, @@ header, +beta again), got %d", len(m.matches))
 	}
 	pressKey(m, 'n')
-	if m.matchIdx != 1 || m.searchWrapped {
-		t.Fatalf("n should advance to match 2, got idx=%d wrapped=%v", m.matchIdx, m.searchWrapped)
+	if m.matchIdx != 1 || m.search.WrapMarked() {
+		t.Fatalf("n should advance to match 2, got idx=%d wrapped=%v", m.matchIdx, m.search.WrapMarked())
 	}
 	pressKey(m, 'n')
 	pressKey(m, 'n') // wraps 2 → 0
-	if m.matchIdx != 0 || !m.searchWrapped {
-		t.Fatalf("third n should wrap to 0 with wrapped flag, got idx=%d wrapped=%v", m.matchIdx, m.searchWrapped)
+	if m.matchIdx != 0 || !m.search.WrapMarked() {
+		t.Fatalf("third n should wrap to 0 with wrapped flag, got idx=%d wrapped=%v", m.matchIdx, m.search.WrapMarked())
 	}
 	pressKey(m, 'N') // wraps 0 → 2
-	if m.matchIdx != 2 || !m.searchWrapped {
+	if m.matchIdx != 2 || !m.search.WrapMarked() {
 		t.Fatalf("N from 0 should wrap to last, got idx=%d", m.matchIdx)
 	}
 }

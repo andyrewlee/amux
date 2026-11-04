@@ -52,11 +52,13 @@ func (a *App) dialogOpen() bool {
 // The picker owns it: set by dialogResultCreateWorkspace, consumed by
 // dialogResultAgentPicker, cleared by the picker's cancel. Anything that
 // displaces or supersedes the picker without a result must clear it too —
-// otherwise a later plain assistant pick fires a stale CreateWorkspace.
+// otherwise a later plain assistant pick fires a stale CreateWorkspace. The
+// handoff-machine step is a declared no-op when nothing is staged.
 func (a *App) clearPendingWorkspaceCreate() {
 	a.pendingWorkspaceCreate.project = nil
 	a.pendingWorkspaceCreate.name = ""
 	a.pendingWorkspaceCreate.base = ""
+	a.stepDialogHandoff(handoffEvtCancelCreate)
 }
 
 func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
@@ -66,7 +68,8 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 			// The dialog that produced this result has been replaced by a
 			// newer instance. Applying it would act on the replacement's
 			// context, and clearing a.dialog would destroy the live dialog —
-			// drop it instead.
+			// drop it instead (the dialog-slot machine's stale-drop edge).
+			a.stepDialogSlot(slotEvtResultStale)
 			if m.result.ID == common.AgentPickerDialogID {
 				// The displaced picker never resolves — its create handoff
 				// must die with it.
@@ -75,7 +78,7 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 			if m.result.ID == DialogLaunchTask {
 				// Same for a displaced task dialog: its pending launch must
 				// die with it so a later result can't fire a stale LaunchAgent.
-				a.pendingLaunchTask = pendingLaunchTaskState{}
+				a.cancelPendingLaunch()
 			}
 			logging.Debug("Dropping stale dialog result: id=%s seq=%d openSeq=%d", m.result.ID, m.seq, a.dialogOpenSeq)
 			return true, nil
@@ -84,6 +87,7 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 		a.dialog = nil
 		a.dlg = dialogContext{}
 		a.dialogOpenSeq = 0
+		a.stepDialogSlot(slotEvtResultBound)
 		return true, common.SafeCmd(a.handleDialogResult(m.result, m.dlg))
 	case common.DialogResult:
 		logging.Info("Received DialogResult: id=%s confirmed=%v", m.ID, m.Confirmed)
@@ -91,7 +95,9 @@ func (a *App) handleDialogResultMsg(msg tea.Msg) (bool, tea.Cmd) {
 			// The only legitimate unbound producer of an app dialog ID is the
 			// FilePicker (DialogAddProject): it is not a.dialog, so this path
 			// must not clear a.dialog — and its handler reads result.Value,
-			// never the dialog context.
+			// never the dialog context. The slot machine's unbound-result
+			// self-loops record that the live dialog is untouched.
+			a.stepDialogSlot(slotEvtResultUnbound)
 			return true, common.SafeCmd(a.handleDialogResult(m, a.dlg))
 		}
 		// If not an App-level dialog, let it fall through to components.

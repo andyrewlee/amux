@@ -29,7 +29,7 @@ func TestSidebarWriteActorOrdersChunks(t *testing.T) {
 	results := make(chan SidebarTabWritten, 64)
 	m.SetMsgSink(collectWritten(results))
 
-	ts := &TerminalState{VTerm: vterm.New(40, 10), Running: true}
+	ts := &TerminalState{VTerm: vterm.New(40, 10), tab: tabRunning}
 	ts.PendingOutput = append(ts.PendingOutput, 'x')
 	ts.LastOutputAt = time.Now().Add(-time.Second)
 
@@ -75,7 +75,7 @@ func TestSidebarWriteActorStopsOnDetach(t *testing.T) {
 	m := NewTerminalModel()
 	results := make(chan SidebarTabWritten, 8)
 	m.SetMsgSink(collectWritten(results))
-	ts := &TerminalState{VTerm: vterm.New(40, 10), Running: true}
+	ts := &TerminalState{VTerm: vterm.New(40, 10), tab: tabRunning}
 	ts.PendingOutput = append(ts.PendingOutput, 'x')
 	ts.LastOutputAt = time.Now().Add(-time.Second)
 	m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}

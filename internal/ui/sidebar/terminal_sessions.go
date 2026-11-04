@@ -35,7 +35,8 @@ func (m *TerminalModel) tabBySession(wsID, sessionName string) *TerminalTab {
 
 // shouldAttachExistingTerminalTab begins an automatic attach attempt on the
 // tab when it is eligible, returning the attempt's epoch. A user-detached,
-// already-live, or already-attaching tab is skipped without side effects.
+// already-live, already-attaching, or torn-down tab is skipped without side
+// effects.
 func shouldAttachExistingTerminalTab(tab *TerminalTab) (epoch uint64, ok bool) {
 	if tab == nil || tab.State == nil {
 		return 0, false
@@ -43,10 +44,8 @@ func shouldAttachExistingTerminalTab(tab *TerminalTab) (epoch uint64, ok bool) {
 	ts := tab.State
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if ts.UserDetached {
-		return 0, false
-	}
-	if ts.Running && ts.Terminal != nil && ts.VTerm != nil && !ts.Detached {
+	switch ts.tab {
+	case tabDetachedUser, tabRunning, tabAttaching, tabTornDown:
 		return 0, false
 	}
 	if !ts.beginReattachLocked() {
@@ -81,8 +80,9 @@ func (m *TerminalModel) AddTabsFromSessionInfos(ws *data.Workspace, sessions []S
 			Name: nextTerminalName(m.tabs.ByWorkspace[wsID]),
 			State: &TerminalState{
 				SessionName: session.Name,
-				Running:     false,
-				Detached:    true,
+				// Discovered but not yet attached: no client PTY exists, and
+				// auto-attach (not the user) owns the decision.
+				tab: tabDetachedAuto,
 			},
 		}
 		m.tabs.ByWorkspace[wsID] = append(m.tabs.ByWorkspace[wsID], tab)

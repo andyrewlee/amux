@@ -130,14 +130,12 @@ func (m *TerminalModel) ReattachActiveTab() tea.Cmd {
 	var sessionName string
 	var epoch uint64
 	withMu(&ts.mu, func() {
-		running = ts.Running
+		running = ts.tab == tabRunning
 		sessionName = ts.SessionName
-		began = !running && ts.beginReattachLocked()
-		if began {
-			// An explicit reattach is consent to attach again — the attempt's own
-			// outcome now owns clearing the flag.
-			ts.UserDetached = false
-		}
+		// The begin step from tabDetachedUser is the user's consent to
+		// attach again: the attempt's own outcome now owns clearing the
+		// user-detached cause.
+		began = ts.beginReattachLocked()
 		epoch = ts.reattachEpoch
 	})
 	if running {
@@ -169,7 +167,7 @@ func (m *TerminalModel) RestartActiveTab() tea.Cmd {
 	var running bool
 	var sessionName string
 	withMu(&ts.mu, func() {
-		running = ts.Running
+		running = ts.tab == tabRunning
 		sessionName = ts.SessionName
 	})
 	if running {

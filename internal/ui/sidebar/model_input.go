@@ -177,7 +177,7 @@ func (m *ChangesModel) openSelectedFile() tea.Cmd {
 }
 
 func (m *ChangesModel) rowIndexAt(screenY int) (int, bool) {
-	if !m.branchMode && (m.gitStatus == nil || m.gitStatus.Clean) {
+	if !m.branchModeOn() && (m.gitStatus == nil || m.gitStatus.Clean) {
 		return -1, false
 	}
 	if len(m.displayItems) == 0 {

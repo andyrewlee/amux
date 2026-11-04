@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/andyrewlee/amux/internal/app/activity"
+	"github.com/andyrewlee/amux/internal/coalesce"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/testutil/tmuxops"
@@ -15,27 +16,27 @@ import (
 )
 
 func TestScanTmuxActivityNow_QueuesWhenInFlight(t *testing.T) {
-	app := &App{tmuxActivity: tmuxActivityState{scanInFlight: true}}
+	app := &App{tmuxActivity: tmuxActivityState{scan: scanInFlightState()}}
 	cmd := app.scanTmuxActivityNow()
 	if cmd != nil {
 		t.Fatal("expected nil cmd when scan already in flight")
 	}
-	if !app.tmuxActivity.rescanPending {
-		t.Fatal("expected pending rescan to be queued")
+	if got := app.tmuxActivity.scanEntry().State(); got != coalesce.InFlightPending {
+		t.Fatalf("expected pending rescan to be queued, got state %v", got)
 	}
 }
 
 func TestHandleTmuxActivityTick_QueuesWhenInFlight(t *testing.T) {
 	app := &App{
-		tmuxActivity:  tmuxActivityState{token: 7, scanInFlight: true},
+		tmuxActivity:  tmuxActivityState{token: 7, scan: scanInFlightState()},
 		tmuxAvailable: true,
 	}
 	cmds := app.handleTmuxActivityTick(tmuxActivityTick{Token: 7})
 	if len(cmds) != 1 {
 		t.Fatalf("expected only ticker reschedule while in flight, got %d cmds", len(cmds))
 	}
-	if !app.tmuxActivity.rescanPending {
-		t.Fatal("expected pending rescan to be queued")
+	if got := app.tmuxActivity.scanEntry().State(); got != coalesce.InFlightPending {
+		t.Fatalf("expected pending rescan to be queued, got state %v", got)
 	}
 	if app.tmuxActivity.token != 7 {
 		t.Fatalf("expected token unchanged while in flight, got %d", app.tmuxActivity.token)
@@ -46,8 +47,7 @@ func TestHandleTmuxActivityResult_ConsumesPendingRescan(t *testing.T) {
 	app := &App{
 		tmuxActivity: tmuxActivityState{
 			token:              2,
-			scanInFlight:       true,
-			rescanPending:      true,
+			scan:               scanInFlightPendingState(),
 			sessionStates:      make(map[string]*activity.SessionState),
 			activeWorkspaceIDs: make(map[string]bool),
 		},
@@ -65,11 +65,11 @@ func TestHandleTmuxActivityResult_ConsumesPendingRescan(t *testing.T) {
 	if app.tmuxActivity.token != 3 {
 		t.Fatalf("expected next scan token to be allocated, got %d", app.tmuxActivity.token)
 	}
-	if !app.tmuxActivity.scanInFlight {
+	if !app.tmuxActivity.scanEntry().InFlight() {
 		t.Fatal("expected follow-up scan to be marked in flight")
 	}
-	if app.tmuxActivity.rescanPending {
-		t.Fatal("expected pending flag to be cleared")
+	if rerun, _ := app.tmuxActivity.scanEntry().Complete(); rerun {
+		t.Fatal("expected pending obligation to be cleared")
 	}
 }
 

@@ -67,6 +67,7 @@ func (m *ProjectTree) enqueueLoad(node *projectTreeNode) tea.Cmd {
 		path:       node.Path,
 		node:       node,
 	})
+	m.phase.step(evLoadScheduled)
 	return m.scheduleLoads()
 }
 
@@ -129,6 +130,12 @@ func (m *ProjectTree) applyDirectoryLoaded(msg ProjectTreeDirectoryLoaded) tea.C
 	}
 	delete(m.executing, msg.RequestID)
 	followup := m.scheduleLoads()
+	if len(m.executing) == 0 && len(m.loadQueue) == 0 {
+		// The last read under the current generation settled; a no-op while
+		// a refresh is parked (the table has no drain edge from refreshing —
+		// the parked root's own result moves that phase).
+		m.phase.step(evLoadsDrained)
+	}
 
 	if msg.Generation != m.generation || job.node == nil || job.node.pendingRequest != msg.RequestID {
 		return followup
@@ -137,6 +144,14 @@ func (m *ProjectTree) applyDirectoryLoaded(msg ProjectTreeDirectoryLoaded) tea.C
 	node.pendingRequest = 0
 
 	if node == m.pendingRoot {
+		// The parked root's result is the only thing that may apply a
+		// refresh — matched by pointer identity, then stepped as an
+		// explicit machine transition (see project_tree_model.go).
+		if msg.Err != nil {
+			m.phase.step(evRefreshRootFailed)
+		} else {
+			m.phase.step(evRefreshRootApplied)
+		}
 		return common.SafeBatch(followup, m.applyRootResult(msg))
 	}
 
@@ -261,7 +276,11 @@ func (m *ProjectTree) reloadTree() tea.Cmd {
 		Parent:    nil,
 	}
 	m.rootErr = ""
-	return m.enqueueLoad(m.pendingRoot)
+	// The enqueue steps through loading-dirs (invalidate returned the tree
+	// to idle); parking the shadow root then takes the phase to refreshing.
+	cmd := m.enqueueLoad(m.pendingRoot)
+	m.phase.step(evRefreshStarted)
+	return cmd
 }
 
 // invalidatePending bumps the generation, clears the queue, and resets every
@@ -276,6 +295,7 @@ func (m *ProjectTree) invalidatePending() {
 	m.pendingExpanded = nil
 	m.pendingSelectedPath = ""
 	m.executing = map[uint64]projectTreeLoadJob{}
+	m.phase.step(evTreeCleared)
 	if m.root != nil {
 		var clearPending func(n *projectTreeNode)
 		clearPending = func(n *projectTreeNode) {
@@ -380,6 +400,10 @@ func (m *ProjectTree) reRequestRebasedTree() tea.Cmd {
 		m.pendingRoot.pendingRequest = 0
 		pending = append(pending, m.pendingRoot)
 		m.pendingRoot = nil
+		// The parked refresh does not survive the rebase: its shadow root
+		// becomes an ordinary re-requested load, so the phase stops being a
+		// refresh (see project_tree_model.go).
+		m.phase.step(evRefreshRebased)
 	}
 	var cmd tea.Cmd
 	for _, node := range pending {

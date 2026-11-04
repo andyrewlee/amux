@@ -23,7 +23,7 @@ func TestSidebarWriterPendingBufferTracking(t *testing.T) {
 		m.height = 20
 		wsID := "ws-pub"
 		tabID := TerminalTabID("t")
-		ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 		m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: ts}}
 		m.tabs.ActiveByWorkspace[wsID] = 0
 
@@ -74,7 +74,7 @@ func TestSidebarWriterPendingBufferTracking(t *testing.T) {
 		m.SetMsgSink(func(tea.Msg) {})
 		wsID := "ws-end"
 		tabID := TerminalTabID("t")
-		ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 		m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: ts}}
 		m.tabs.ActiveByWorkspace[wsID] = 0
 		installTestWriter(t, m, ts, nil)

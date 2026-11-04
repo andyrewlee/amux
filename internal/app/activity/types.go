@@ -4,7 +4,6 @@
 package activity
 
 import (
-	"strings"
 	"time"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -47,7 +46,7 @@ const (
 
 // SessionInfo maps a tmux session name to known tab metadata.
 type SessionInfo struct {
-	Status      string
+	Status      data.SessionStatus
 	WorkspaceID string
 	Assistant   string
 	IsChat      bool
@@ -90,8 +89,7 @@ func IsRunningSession(info SessionInfo, hasInfo bool) bool {
 	if !hasInfo {
 		return true
 	}
-	status := strings.ToLower(strings.TrimSpace(info.Status))
-	return status == "" || status == "running" || status == "detached"
+	return data.ParseSessionStatus(string(info.Status)).RunningLike()
 }
 
 // CaptureFn captures the tail of a tmux pane.

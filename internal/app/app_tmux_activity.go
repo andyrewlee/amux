@@ -89,12 +89,9 @@ func (a *App) scanTmuxActivityNow() tea.Cmd {
 // snapshot the inputs, clamp the command timeout, and return the off-loop
 // scan cmd.
 func (a *App) beginTmuxActivityScan() tea.Cmd {
-	if a.tmuxActivity.scanInFlight {
-		a.tmuxActivity.rescanPending = true
+	if start, _ := a.tmuxActivity.scanEntry().Admit(scanWant{}); !start {
 		return nil
 	}
-	a.tmuxActivity.scanInFlight = true
-	a.tmuxActivity.rescanPending = false
 	a.tmuxActivity.token++
 	scanToken := a.tmuxActivity.token
 	infoBySession := a.tabSessionInfoByName()
@@ -360,7 +357,7 @@ func (a *App) fetchAndSyncActivitySessionStates(
 	a.tmuxActivity.missMu.Lock()
 	defer a.tmuxActivity.missMu.Unlock()
 	if a.tmuxActivity.missBySession == nil {
-		a.tmuxActivity.missBySession = make(map[string]int)
+		a.tmuxActivity.missBySession = make(map[string]*activity.Liveness)
 	}
 	stoppedTabs, allStates := syncActivitySessionStates(infoBySession, sessions, svc, opts, a.tmuxActivity.missBySession)
 	return sessions, stoppedTabs, allStates, nil

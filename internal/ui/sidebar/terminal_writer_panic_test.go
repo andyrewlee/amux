@@ -19,7 +19,7 @@ func TestSidebarWriter_PanicReleasesTSMu(t *testing.T) {
 	m := NewTerminalModel()
 	results := make(chan SidebarTabWritten, 8)
 	m.SetMsgSink(collectWritten(results))
-	ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+	ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 	m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 	w := installTestWriter(t, m, ts, nil)
 

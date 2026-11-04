@@ -72,7 +72,7 @@ func TestSidebarWriteIntegrity(t *testing.T) {
 	t.Run("fallback drain cannot overtake the queued seed", func(t *testing.T) {
 		m := NewTerminalModel()
 		m.SetMsgSink(func(tea.Msg) {})
-		ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 		m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 		hook, entered, release := pauseOnceHook()
 		installTestWriter(t, m, ts, hook)
@@ -132,7 +132,7 @@ func TestSidebarWriteIntegrity(t *testing.T) {
 	t.Run("split UTF-8 fragments stay ordered across the fallback", func(t *testing.T) {
 		m := NewTerminalModel()
 		m.SetMsgSink(func(tea.Msg) {})
-		ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 		m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 		hook, entered, release := pauseOnceHook()
 		installTestWriter(t, m, ts, hook)
@@ -177,7 +177,7 @@ func TestSidebarWriteIntegrity(t *testing.T) {
 	t.Run("retired worker cannot apply after restore", func(t *testing.T) {
 		m := NewTerminalModel()
 		m.SetMsgSink(func(tea.Msg) {})
-		ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 		m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 		hook, entered, release := pauseOnceHook()
 		installTestWriter(t, m, ts, hook)
@@ -210,7 +210,7 @@ func TestSidebarWriteIntegrity(t *testing.T) {
 	t.Run("queued requests die with the stream", func(t *testing.T) {
 		m := NewTerminalModel()
 		m.SetMsgSink(func(tea.Msg) {})
-		ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 		m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 		hook, entered, release := pauseOnceHook()
 		installTestWriter(t, m, ts, hook)
@@ -265,7 +265,7 @@ func TestSidebarWriterEpoch(t *testing.T) {
 
 	t.Run("stale completion has no clipboard side effects", func(t *testing.T) {
 		m := NewTerminalModel()
-		ts := &TerminalState{VTerm: vterm.New(40, 10), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(40, 10), tab: tabRunning}
 		ts.writeEpoch = 7
 		tabID := TerminalTabID("t")
 		m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: tabID, State: ts}}
@@ -301,7 +301,7 @@ func TestSidebarWriterEpoch(t *testing.T) {
 
 	t.Run("workspace rebind still routes a current completion", func(t *testing.T) {
 		m := NewTerminalModel()
-		ts := &TerminalState{VTerm: vterm.New(40, 10), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(40, 10), tab: tabRunning}
 		ts.writeEpoch = 3
 		tabID := TerminalTabID("t")
 		// The tab migrated keys but kept its stream — a completion stamped
@@ -320,7 +320,7 @@ func TestSidebarWriterEpoch(t *testing.T) {
 	t.Run("repeated stop/start joins every worker and bumps the epoch", func(t *testing.T) {
 		m := NewTerminalModel()
 		m.SetMsgSink(func(tea.Msg) {})
-		ts := &TerminalState{VTerm: vterm.New(40, 10), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(40, 10), tab: tabRunning}
 		m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 
 		var lastEpoch uint64
@@ -369,7 +369,7 @@ func TestSidebarWriterPendingPublication(t *testing.T) {
 	t.Run("published count gates the idle noise release", func(t *testing.T) {
 		m := NewTerminalModel()
 		m.SetMsgSink(func(tea.Msg) {})
-		ts := &TerminalState{VTerm: vterm.New(60, 20), Running: true}
+		ts := &TerminalState{VTerm: vterm.New(60, 20), tab: tabRunning}
 		m.tabs.ByWorkspace["ws"] = []*TerminalTab{{ID: "t", State: ts}}
 		installTestWriter(t, m, ts, nil)
 

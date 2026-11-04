@@ -86,7 +86,7 @@ func TestOutputDialogSearchWideQueryEditingFooter(t *testing.T) {
 			d := searchableDialog("needle line\n")
 			d.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 			typeQuery(d, tc.query)
-			if !d.editing {
+			if !d.search.Editing() {
 				t.Fatal("footer case must stay in editing mode")
 			}
 			footer := d.renderFooter(tc.w, 1, lipgloss.NewStyle())

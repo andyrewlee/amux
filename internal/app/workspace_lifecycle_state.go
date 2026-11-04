@@ -1,8 +1,10 @@
 package app
 
 import (
+	"errors"
 	"sync"
 
+	"github.com/andyrewlee/amux/internal/fsm"
 	"github.com/andyrewlee/amux/internal/logging"
 )
 
@@ -31,21 +33,80 @@ func (p lifecyclePhase) String() string {
 	}
 }
 
-// lifecycleTransitionAllowed is the transition table: creating and mutating
-// are mutually exclusive, entered only from active, and always allowed to
-// settle back to active. Same-phase moves are idempotent no-ops.
+// lifecycleEvent is the workspace lifecycle machine's alphabet.
+type lifecycleEvent uint8
+
+const (
+	lifecycleEvtCreate lifecycleEvent = iota
+	lifecycleEvtMutate
+	lifecycleEvtSettle
+)
+
+func (e lifecycleEvent) String() string {
+	switch e {
+	case lifecycleEvtCreate:
+		return "create"
+	case lifecycleEvtMutate:
+		return "mutate"
+	default:
+		return "settle"
+	}
+}
+
+// lifecycleMachine is the workspace create/mutate lifecycle table: creating
+// and mutating are mutually exclusive, both entered only from active, and
+// both settle back to active. Same-phase moves are idempotent self-loops at
+// table level — the re-entry guard lives in markCreating/markMutating, which
+// reject a repeated mark before consulting this table.
+var lifecycleMachine = fsm.MustCompile(fsm.Machine[lifecyclePhase, lifecycleEvent]{
+	Name:    "workspace-lifecycle",
+	Initial: lifecycleActive,
+	Steps: []fsm.Step[lifecyclePhase, lifecycleEvent]{
+		{From: lifecycleActive, Event: lifecycleEvtCreate, To: lifecycleCreating},
+		{From: lifecycleActive, Event: lifecycleEvtMutate, To: lifecycleMutating},
+		{From: lifecycleCreating, Event: lifecycleEvtSettle, To: lifecycleActive},
+		{From: lifecycleMutating, Event: lifecycleEvtSettle, To: lifecycleActive},
+		{From: lifecycleCreating, Event: lifecycleEvtCreate, To: lifecycleCreating},
+		{From: lifecycleMutating, Event: lifecycleEvtMutate, To: lifecycleMutating},
+	},
+})
+
+// lifecycleMachineCheck formally verifies the lifecycle table: every phase
+// reachable, settling always lands on active, and no event crosses between
+// creating and mutating.
+func lifecycleMachineCheck() error {
+	return lifecycleMachine.Check(fsm.Checker[lifecyclePhase, lifecycleEvent]{
+		Alphabet:             []lifecycleEvent{lifecycleEvtCreate, lifecycleEvtMutate, lifecycleEvtSettle},
+		AllDeclaredReachable: true,
+		Edge: func(from lifecyclePhase, event lifecycleEvent, to lifecyclePhase) error {
+			if event == lifecycleEvtSettle && to != lifecycleActive {
+				return errors.New("settling must always land on active")
+			}
+			if event == lifecycleEvtCreate && to == lifecycleMutating {
+				return errors.New("a create must never yield mutating")
+			}
+			if event == lifecycleEvtMutate && to == lifecycleCreating {
+				return errors.New("a mutation must never yield creating")
+			}
+			return nil
+		},
+	})
+}
+
+// lifecycleTransitionAllowed is derived from the checked lifecycleMachine
+// table: a move is allowed when some event leads from → to. Same-phase
+// moves are idempotent no-ops (the dispatch-level re-entry guard is applied
+// by the markers before this predicate is consulted).
 func lifecycleTransitionAllowed(from, to lifecyclePhase) bool {
 	if from == to {
 		return true
 	}
-	switch from {
-	case lifecycleActive:
-		return true
-	case lifecycleCreating, lifecycleMutating:
-		return to == lifecycleActive
-	default:
-		return false
+	for _, e := range lifecycleMachine.Events() {
+		if next, ok := lifecycleMachine.Next(from, e); ok && next == to {
+			return true
+		}
 	}
+	return false
 }
 
 // workspaceLifecycleState holds the workspace create/mutate/persist

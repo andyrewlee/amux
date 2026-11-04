@@ -265,14 +265,14 @@ func (m *Model) RestoreTabsFromWorkspace(ws *data.Workspace) tea.Cmd {
 		if _, ok := m.config.Assistants[tab.Assistant]; !ok {
 			continue
 		}
-		status := strings.ToLower(strings.TrimSpace(tab.Status))
-		if status == "stopped" {
+		status := data.ParseSessionStatus(string(tab.Status))
+		if status == data.SessionStopped {
 			continue
 		}
 		if i <= activeIdx {
 			lastBeforeActive = restoreCount
 		}
-		if status == "detached" {
+		if status == data.SessionDetached {
 			m.addDetachedTab(ws, tab)
 			restoreCount++
 			continue
@@ -332,11 +332,11 @@ func (m *Model) AddTabsFromWorkspace(ws *data.Workspace, tabs []data.TabInfo) te
 			}
 			existing[sessionName] = struct{}{}
 		}
-		status := strings.ToLower(strings.TrimSpace(tab.Status))
-		if status == "stopped" {
+		status := data.ParseSessionStatus(string(tab.Status))
+		if status == data.SessionStopped {
 			continue
 		}
-		if status == "detached" {
+		if status == data.SessionDetached {
 			m.addDetachedTab(ws, tab)
 			continue
 		}

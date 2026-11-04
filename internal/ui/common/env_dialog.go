@@ -72,10 +72,14 @@ type EnvDialog struct {
 	values map[string]string
 	cursor int
 
-	// Add-mode state (see the doc comment above). notice is a transient
-	// footer line shown after an add/cancel/duplicate outcome; it clears on
-	// the next keypress. keyValidator is the optional domain hook from
-	// SetKeyValidator ("" return = accept).
+	// Add-mode state (see the doc comment above). The mode's transition
+	// shape is the checked table addModeMachine (add_model.go); the fields
+	// below are that machine's runtime projection ((adding, addField) ↔
+	// browsing/name-entry/cmd-entry), which add_model_test.go asserts
+	// step-for-step. notice is a transient footer line shown after an
+	// add/cancel/duplicate outcome; it clears on the next keypress.
+	// keyValidator is the optional domain hook from SetKeyValidator
+	// ("" return = accept).
 	adding       bool
 	addField     int // 0 = name, 1 = value
 	addName      string

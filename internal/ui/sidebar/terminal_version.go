@@ -18,8 +18,10 @@ func (m *TerminalModel) TabBarVersion() uint64 {
 		fp = common.FoldFingerprintString(fp, tab.Name)
 		disconnected := false
 		if tab.State != nil {
+			// Single enum read under the lock — every non-running state
+			// fingerprints as disconnected, matching renderTabBar.
 			disconnected = withMuVal(&tab.State.mu, func() bool {
-				return tab.State.Detached || !tab.State.Running
+				return tab.State.tab != tabRunning
 			})
 		}
 		fp = common.FoldFingerprintBool(fp, tab.State == nil)
@@ -42,8 +44,9 @@ func (m *TerminalModel) StatusLineVersion() uint64 {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	fp = common.FoldFingerprintBool(fp, ts.VTerm != nil)
-	fp = common.FoldFingerprintBool(fp, ts.Running)
-	fp = common.FoldFingerprintBool(fp, ts.Detached)
+	// One enum fold covers the former Running/Detached pair (and now also
+	// distinguishes the user-vs-auto detach causes and attaching).
+	fp = common.FoldFingerprint(fp, uint64(ts.tab))
 	if ts.VTerm != nil {
 		fp = common.FoldFingerprintBool(fp, ts.VTerm.IsScrolled())
 		offset, total := ts.VTerm.GetScrollInfo()

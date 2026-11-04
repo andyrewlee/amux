@@ -189,7 +189,7 @@ func TestMarkAttention_CoalescesAndAckClears(t *testing.T) {
 func TestMarkAttention_EmptyIDIgnored(t *testing.T) {
 	m, _, _ := makeAttentionModel(t)
 	m.MarkAttention("")
-	if len(m.attentionPending) != 0 {
+	if len(m.attention) != 0 {
 		t.Fatal("empty workspace ID must not latch")
 	}
 }

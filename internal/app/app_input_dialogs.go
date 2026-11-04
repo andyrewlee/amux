@@ -105,16 +105,12 @@ func (a *App) handleDialogResult(result common.DialogResult, dlg dialogContext) 
 
 	if !result.Confirmed {
 		if result.ID == common.AgentPickerDialogID {
-			a.pendingWorkspaceCreate.project = nil
-			a.pendingWorkspaceCreate.name = ""
-			a.pendingWorkspaceCreate.base = ""
+			a.clearPendingWorkspaceCreate()
 		}
 		if result.ID == DialogLaunchTask {
 			// Esc leaves task entry, not the pick itself: drop the handoff
 			// and reopen the picker so the launch stays one keystroke away.
-			armed := a.pendingLaunchTask.assistant != ""
-			a.pendingLaunchTask = pendingLaunchTaskState{}
-			if armed {
+			if a.cancelPendingLaunch() {
 				return func() tea.Msg {
 					return messages.ShowSelectAssistantDialog{}
 				}
@@ -171,9 +167,7 @@ func dialogResultCreateWorkspace(a *App, result common.DialogResult, dlg dialogC
 			}
 		}
 	}
-	a.pendingWorkspaceCreate.project = dlg.project
-	a.pendingWorkspaceCreate.name = name
-	a.pendingWorkspaceCreate.base = base // empty resolves to the default branch
+	a.stagePendingWorkspaceCreate(dlg.project, name, base)
 	return func() tea.Msg {
 		return messages.ShowSelectAssistantDialog{}
 	}

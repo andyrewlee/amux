@@ -279,8 +279,8 @@ func TestSpinnerOnlyForCreateDelete(t *testing.T) {
 		if !m.spinnerActive {
 			t.Fatal("spinner should be active during creation")
 		}
-		if len(m.creatingWorkspaces) != 1 {
-			t.Fatalf("expected 1 creating workspace, got %d", len(m.creatingWorkspaces))
+		if len(m.workspaceOps) != 1 {
+			t.Fatalf("expected 1 creating workspace, got %d", len(m.workspaceOps))
 		}
 	})
 
@@ -292,8 +292,8 @@ func TestSpinnerOnlyForCreateDelete(t *testing.T) {
 			Root:   "/repo/.amux/workspaces/new-ws",
 		}
 		m.SetWorkspaceCreating(ws, false)
-		if len(m.creatingWorkspaces) != 0 {
-			t.Fatalf("expected 0 creating workspaces, got %d", len(m.creatingWorkspaces))
+		if len(m.workspaceOps) != 0 {
+			t.Fatalf("expected 0 creating workspaces, got %d", len(m.workspaceOps))
 		}
 	})
 
@@ -306,15 +306,15 @@ func TestSpinnerOnlyForCreateDelete(t *testing.T) {
 		if !m.spinnerActive {
 			t.Fatal("spinner should be active during deletion")
 		}
-		if len(m.busyWorkspaces) != 1 {
-			t.Fatalf("expected 1 mutating workspace, got %d", len(m.busyWorkspaces))
+		if len(m.workspaceOps) != 1 {
+			t.Fatalf("expected 1 mutating workspace, got %d", len(m.workspaceOps))
 		}
 	})
 
 	t.Run("spinner deactivates when deletion completes", func(t *testing.T) {
 		m.SetWorkspaceBusy("/some/root", WorkspaceOpDelete, false)
-		if len(m.busyWorkspaces) != 0 {
-			t.Fatalf("expected 0 mutating workspaces, got %d", len(m.busyWorkspaces))
+		if len(m.workspaceOps) != 0 {
+			t.Fatalf("expected 0 mutating workspaces, got %d", len(m.workspaceOps))
 		}
 	})
 

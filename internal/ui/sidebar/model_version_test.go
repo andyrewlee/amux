@@ -147,7 +147,7 @@ func TestTerminalChromeVersions(t *testing.T) {
 			t.Fatal("TabBarVersion not stable across identical reads")
 		}
 		m.getTabs()[0].State.mu.Lock()
-		m.getTabs()[0].State.Detached = true
+		m.getTabs()[0].State.tab = tabDetachedAuto
 		m.getTabs()[0].State.mu.Unlock()
 		if m.TabBarVersion() == v {
 			t.Fatal("detach did not move TabBarVersion")

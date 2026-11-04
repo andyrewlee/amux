@@ -48,36 +48,31 @@ type overlayState struct {
 	// scriptsWorkspace is read back in handleScriptsDialogResult.
 	scripts          *common.ScriptsDialog
 	scriptsWorkspace *data.Workspace
-	// runOutput is the read-only viewer for captured script/status output
-	// (last pane tail; live or post-exit). runOutputWorkspace is the refresh
-	// loop's fetch target and runOutputToken invalidates in-flight refreshes
-	// on close/reopen the way settingsSession does for stale theme previews.
+	// runOutput is the read-only viewer for captured output — one shared
+	// OutputDialog slot that four flavors own exclusively (run output,
+	// workspace status, script transcripts, session event log); see
+	// runOutputFlavor in app_run_output_flavor_state.go for the checked
+	// flavor machine. runOutputWorkspace is the refresh loop's fetch target
+	// and runOutputToken invalidates in-flight refreshes on close/reopen the
+	// way settingsSession does for stale theme previews.
 	runOutput          *common.OutputDialog
+	runOutputFlavor    runOutputFlavor
 	runOutputWorkspace *data.Workspace
-	// runOutputSession pins the viewer to one tmux run session — the
-	// picker's selection, or the sole session on the single-run fast path.
+	// runOutputSession pins the run flavor's viewer to one tmux run session —
+	// the picker's selection, or the sole session on the single-run fast path.
 	// Refresh ticks and the `a` attach target it, not "the newest", so the
-	// user keeps reading the run they picked.
+	// user keeps reading the run they picked. Empty for every other flavor
+	// (beginRunOutputFlavor guarantees it).
 	runOutputSession string
 	runOutputToken   int
-	// runOutputAttachable marks the live-run flavor of the shared OutputDialog
-	// (workspace-status and script-transcript viewers leave it false): only
-	// that flavor answers the `a` attach key.
-	runOutputAttachable bool
-	// runOutputReleaseCount marks the workspace-status flavor: the number of
-	// orphaned port reservations it reported. >0 answers the `R` typed-confirm
-	// release intercept; 0 disables it for every other flavor.
+	// runOutputReleaseCount and runOutputUntrustable are the workspace-status
+	// flavor's action data, recorded at open: the number of orphaned port
+	// reservations it reported (>0 arms the `R` typed-confirm release
+	// intercept) and whether the repo has a script config whose current
+	// content is trusted (arming the `U` revoke intercept). Reset by
+	// beginRunOutputFlavor for every other flavor.
 	runOutputReleaseCount int
-	// runOutputUntrustable marks the workspace-status flavor's other action:
-	// the repo has a script config AND its current content is trusted — the
-	// `U` typed-confirm revoke intercept is armed. False for every other
-	// flavor and whenever nothing is recorded to revoke.
-	runOutputUntrustable bool
-	// runOutputLifecycle marks the script-transcript flavor (`O`): its
-	// refresh tick composes recorded lifecycle transcripts plus the live
-	// setup tail instead of a run-session capture. Set at open time on every
-	// flavor so a dialog replacing a live one never inherits the branch.
-	runOutputLifecycle bool
+	runOutputUntrustable  bool
 }
 
 // overlayInputSlot feeds one message into a bespoke overlay and reports
@@ -124,9 +119,11 @@ func (a *App) overlayChain() []overlayInputSlot {
 // handleRunOutputInput is the runOutput overlay slot with app-level key
 // intercepts: `y` copies the viewer's retained snapshot (every flavor),
 // `a` attaches an interactive tab to the viewer's pinned run session — but
-// only for the live-run flavor (runOutputAttachable) — and `R`/`U` arm the
-// workspace-status flavor's typed-confirm actions. Every other key passes
-// through to the dialog unchanged.
+// only for the live-run flavor — and `R`/`U` arm the workspace-status
+// flavor's typed-confirm actions. Every other key passes through to the
+// dialog unchanged. Flavor gates are single enum compares (the checked
+// runOutputFlavor machine makes a cross-flavor leak unwritable), so the
+// per-keystroke chain gains no branches over the old boolean flags.
 func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	// `y` copies the viewer's full retained snapshot — every OutputDialog
 	// flavor (run output, workspace status, transcripts) shares it. Gated on
@@ -139,7 +136,7 @@ func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	}
 	// While the search query field is editing, `a`/`R` are literal query
 	// text — the dialog owns all input, so the intercepts are disabled.
-	if a.overlays.runOutputAttachable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
+	if a.overlays.runOutputFlavor == runOutputFlavorRun && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
 		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "a" {
 			*cmds = append(*cmds, a.attachRunViewerCmd(a.overlays.runOutputWorkspace, a.overlays.runOutputSession))
 			return true
@@ -149,7 +146,7 @@ func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	// release dialog. Overlay arbitration forbids stacking a dialog over the
 	// viewer, so the viewer closes first — cancel returns to the dashboard,
 	// confirm re-derives the orphan set fresh before releasing.
-	if a.overlays.runOutputReleaseCount > 0 && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
+	if a.overlays.runOutputFlavor == runOutputFlavorStatus && a.overlays.runOutputReleaseCount > 0 && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
 		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "R" {
 			a.openReservationReleaseDialog(a.overlays.runOutputReleaseCount)
 			return true
@@ -159,7 +156,7 @@ func (a *App) handleRunOutputInput(msg tea.Msg, cmds *[]tea.Cmd) bool {
 	// trust-revocation dialog. Same overlay-arbitration shape as `R` — the
 	// viewer closes first; cancel returns to the dashboard, confirm revokes
 	// off-loop and reports by toast.
-	if a.overlays.runOutputUntrustable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
+	if a.overlays.runOutputFlavor == runOutputFlavorStatus && a.overlays.runOutputUntrustable && a.overlays.runOutput != nil && a.overlays.runOutput.Visible() && !a.overlays.runOutput.Editing() {
 		if kp, ok := msg.(tea.KeyPressMsg); ok && kp.String() == "U" {
 			a.openUntrustScriptsDialog(a.overlays.runOutputWorkspace)
 			return true

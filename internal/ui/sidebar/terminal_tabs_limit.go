@@ -18,9 +18,10 @@ type DetachedTerminalTabInfo struct {
 //
 // Tabs of the currently selected workspace are never auto-detached: sidebar
 // session discovery re-attaches the active workspace's terminals on its
-// periodic scan, so detaching them would thrash. Auto-detached sessions stay
-// alive in tmux (UserDetached remains false) and are re-attached
-// transparently by discovery when their workspace is selected again.
+// periodic scan, so detaching them would thrash. Auto-detached tabs land in
+// the detached-auto state (the session stays alive in tmux and discovery
+// re-attaches transparently when their workspace is selected again — never
+// the user-detached state, which discovery must honor).
 //
 // A tab's recency is the later of its workspace's last selection and its own
 // last PTY output, so a background terminal still streaming (e.g. a build)
@@ -41,18 +42,22 @@ func (m *TerminalModel) EnforceAttachedTerminalTabLimit(maxAttached int) []Detac
 				continue
 			}
 			ts := tab.State
-			var attached, inFlight bool
+			var attached bool
 			var lastOutput time.Time
 			withMu(&ts.mu, func() {
-				attached = ts.Running && !ts.Detached
-				inFlight = ts.Reattach.InFlight
+				// An attaching tab is not attached (a reattach begins only
+				// from a detached or stopped tab — the lifecycle machine in
+				// terminal_tab_model.go), so an in-flight attempt can never
+				// be an LRU candidate and its attempt cannot be invalidated
+				// here.
+				attached = ts.tab == tabRunning
 				lastOutput = ts.LastOutputAt
 			})
 			if !attached {
 				continue
 			}
 			attachedCount++
-			if wsID == activeWorkspaceID || inFlight {
+			if wsID == activeWorkspaceID {
 				continue
 			}
 			lastActive := m.lastActiveAt[wsID]

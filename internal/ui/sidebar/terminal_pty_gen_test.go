@@ -41,11 +41,8 @@ func TestHandlePTYStopped_StaleGenLeavesCurrentReader(t *testing.T) {
 	if state.RestartBackoff != 0 {
 		t.Fatalf("stale SidebarPTYStopped consumed restart budget: backoff %v", state.RestartBackoff)
 	}
-	if state.Detached {
-		t.Fatal("stale SidebarPTYStopped marked the tab detached")
-	}
-	if !state.Running {
-		t.Fatal("stale SidebarPTYStopped stopped the live tab")
+	if state.tab != tabRunning {
+		t.Fatal("stale SidebarPTYStopped detached or stopped the live tab")
 	}
 }
 

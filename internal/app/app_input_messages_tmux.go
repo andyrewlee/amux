@@ -1,8 +1,6 @@
 package app
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -40,27 +38,27 @@ func (a *App) syncWorkspaceTabsFromTmux(ws *data.Workspace) tea.Cmd {
 				continue
 			}
 			state := allStates[tab.SessionName]
-			if strings.EqualFold(tab.Status, "detached") {
-				if !(state.Exists && state.HasLivePane) {
-					updates = append(updates, tmuxTabStatusUpdate{
-						SessionName:   tab.SessionName,
-						Status:        "stopped",
-						NotifyStopped: true,
-					})
-				}
+			live := state.Exists && state.HasLivePane
+			current := data.ParseSessionStatus(string(tab.Status))
+			// Detached is attach-ownership: a live session stays detached
+			// (no update); only death moves it. Every other status runs
+			// through the checked session-status table.
+			if current == data.SessionDetached && live {
 				continue
 			}
-			status := "stopped"
-			if state.Exists && state.HasLivePane {
-				status = "running"
+			event := data.SessionObservedDead
+			if live {
+				event = data.SessionObservedLive
 			}
-			if tab.Status != status {
-				updates = append(updates, tmuxTabStatusUpdate{
-					SessionName:   tab.SessionName,
-					Status:        status,
-					NotifyStopped: status == "stopped",
-				})
+			next, ok := data.NextSessionStatus(current, event)
+			if !ok || next == current {
+				continue
 			}
+			updates = append(updates, tmuxTabStatusUpdate{
+				SessionName:   tab.SessionName,
+				Status:        string(next),
+				NotifyStopped: next == data.SessionStopped,
+			})
 		}
 		return tmuxTabsSyncResult{
 			WorkspaceID: wsID,

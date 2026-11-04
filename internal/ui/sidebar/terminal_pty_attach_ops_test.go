@@ -154,10 +154,8 @@ func TestDetachActiveTab_DetachesRunningSession(t *testing.T) {
 	m := NewTerminalModel()
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	ts := &TerminalState{
-		SessionName:  "session-1",
-		Running:      true,
-		Detached:     false,
-		UserDetached: false,
+		SessionName: "session-1",
+		tab:         tabRunning,
 	}
 	registerActiveTab(m, ws, &TerminalTab{ID: generateTerminalTabID(), State: ts})
 
@@ -167,14 +165,8 @@ func TestDetachActiveTab_DetachesRunningSession(t *testing.T) {
 	}
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if ts.Running {
-		t.Fatal("expected Running to be cleared after detach")
-	}
-	if !ts.Detached {
-		t.Fatal("expected Detached to be set after detach")
-	}
-	if !ts.UserDetached {
-		t.Fatal("expected UserDetached to be set for a user-initiated detach")
+	if ts.tab != tabDetachedUser {
+		t.Fatalf("expected the user-detach state after a user-initiated detach, got %v", ts.tab)
 	}
 	if ts.Terminal != nil {
 		t.Fatal("expected Terminal to be cleared after detach")
@@ -230,7 +222,7 @@ func TestReattachActiveTab_NilWorkspace(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	registerActiveTab(m, ws, &TerminalTab{
 		ID:    generateTerminalTabID(),
-		State: &TerminalState{SessionName: "session-1", Detached: true},
+		State: &TerminalState{SessionName: "session-1", tab: tabDetachedAuto},
 	})
 	// Clear the workspace after registering the tab so the active tab exists
 	// but the workspace guard trips.
@@ -246,7 +238,7 @@ func TestReattachActiveTab_RunningEmitsToast(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	registerActiveTab(m, ws, &TerminalTab{
 		ID:    generateTerminalTabID(),
-		State: &TerminalState{SessionName: "session-1", Running: true},
+		State: &TerminalState{SessionName: "session-1", tab: tabRunning},
 	})
 
 	cmd := m.ReattachActiveTab()
@@ -275,7 +267,7 @@ func TestReattachActiveTab_DetachedReturnsAttachCmd(t *testing.T) {
 	tabID := generateTerminalTabID()
 	registerActiveTab(m, ws, &TerminalTab{
 		ID:    tabID,
-		State: &TerminalState{SessionName: "session-reattach", Running: false, Detached: true},
+		State: &TerminalState{SessionName: "session-reattach", tab: tabDetachedAuto},
 	})
 
 	cmd := m.ReattachActiveTab()
@@ -305,7 +297,7 @@ func TestReattachActiveTab_EmptySessionNameDerivesFromIDs(t *testing.T) {
 	tabID := generateTerminalTabID()
 	registerActiveTab(m, ws, &TerminalTab{
 		ID:    tabID,
-		State: &TerminalState{SessionName: "", Running: false, Detached: true},
+		State: &TerminalState{SessionName: "", tab: tabDetachedAuto},
 	})
 
 	cmd := m.ReattachActiveTab()
@@ -348,7 +340,7 @@ func TestRestartActiveTab_NilWorkspace(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	registerActiveTab(m, ws, &TerminalTab{
 		ID:    generateTerminalTabID(),
-		State: &TerminalState{SessionName: "session-1", Detached: true},
+		State: &TerminalState{SessionName: "session-1", tab: tabDetachedAuto},
 	})
 	m.workspace = nil
 
@@ -363,7 +355,7 @@ func TestRestartActiveTab_RunningEmitsToastWithoutKillingSession(t *testing.T) {
 	// session state was left untouched (no detach side effects).
 	m := NewTerminalModel()
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
-	ts := &TerminalState{SessionName: "session-1", Running: true, Detached: false}
+	ts := &TerminalState{SessionName: "session-1", tab: tabRunning}
 	registerActiveTab(m, ws, &TerminalTab{ID: generateTerminalTabID(), State: ts})
 
 	cmd := m.RestartActiveTab()
@@ -382,8 +374,8 @@ func TestRestartActiveTab_RunningEmitsToastWithoutKillingSession(t *testing.T) {
 	}
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if !ts.Running || ts.Detached {
-		t.Fatalf("expected running session to be left untouched, got Running=%v Detached=%v", ts.Running, ts.Detached)
+	if ts.tab != tabRunning {
+		t.Fatalf("expected running session to be left untouched, got %v", ts.tab)
 	}
 }
 

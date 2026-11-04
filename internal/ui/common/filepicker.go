@@ -33,8 +33,11 @@ type FilePicker struct {
 	primaryAction     string
 	lastContentHeight int // Cached from View() for click handling
 	// needsLoad flags a pending directory read; loadInFlight marks an issued
-	// ReadDir whose result has not landed. Together they keep every fs call
-	// inside tea.Cmd closures off the Update goroutine.
+	// ReadDir whose result has not landed. The pair is the runtime projection
+	// of the checked table pickerLoadMachine (filepicker_load.go) — a
+	// bijection with its clean/dirty/in-flight states, which
+	// filepicker_load_test.go asserts step-for-step — and together they keep
+	// every fs call inside tea.Cmd closures off the Update goroutine.
 	needsLoad    bool
 	loadInFlight bool
 }
@@ -172,7 +175,8 @@ func (fp *FilePicker) update(msg tea.Msg) (*FilePicker, tea.Cmd) {
 		if msg.path != fp.currentPath {
 			// Stale: the user navigated after this read was issued. needsLoad
 			// is still set, so the wrapper issues a fresh read for the new
-			// currentPath.
+			// currentPath. This is the table's stale-load → dirty edge
+			// (pickerLoadMachine): a stale result never yields clean.
 			return fp, nil
 		}
 		fp.needsLoad = false

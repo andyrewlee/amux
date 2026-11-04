@@ -194,10 +194,16 @@ func (m *TerminalModel) handlePTYStopped(msg messages.SidebarPTYStopped) tea.Cmd
 	withMu(&ts.mu, func() {
 		shouldRestart, backoff = ts.State.DecidePTYRestartLocked(termAlive, ptyio.PtyRestartWindow, ptyio.PtyRestartMax)
 		if !shouldRestart {
-			ts.Running = false
-			// Mark as detached (tmux session may still be alive)
-			ts.Detached = true
-			ts.UserDetached = false
+			// The give-up detach is automatic (the restart limit): the tab
+			// keeps its tmux session, so the landing state is retryable.
+			// Invalidate any in-flight reattach first, like every other
+			// detach site: a stopped-reader message can be processed after
+			// an attempt began (StopReader does not bump ReaderGen), and
+			// leaving the attempt current would let its late result accept
+			// a terminal the tab can no longer run — the attached-but-
+			// detached wedge.
+			ts.invalidateReattachLocked()
+			ts.stepTabLocked(evDetachAuto)
 		}
 	})
 	if shouldRestart {

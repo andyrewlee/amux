@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 	appPty "github.com/andyrewlee/amux/internal/pty"
@@ -308,7 +309,7 @@ func (m *Model) SweepStalledReattaches() tea.Cmd {
 
 // updateTabSessionStatus handles messages.TabSessionStatus.
 func (m *Model) updateTabSessionStatus(msg messages.TabSessionStatus) (*Model, tea.Cmd) {
-	if msg.Status != "stopped" {
+	if msg.Status != string(data.SessionStopped) {
 		return m, nil
 	}
 	tab := m.getTabBySession(msg.WorkspaceID, msg.SessionName)

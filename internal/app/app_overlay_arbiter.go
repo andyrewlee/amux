@@ -32,6 +32,32 @@ func (a *App) anyModalOverlayVisible() bool {
 		(o.runOutput != nil && o.runOutput.Visible())
 }
 
+// overlayArbiterState derives the arbiter machine's current state from the
+// live fields — the queue's emptiness and modal visibility ARE the state, so
+// there is no shadow copy to drift.
+func (a *App) overlayArbiterState() overlayArbiterState {
+	switch {
+	case len(a.pendingOverlayOpens) > 0 && a.anyModalOverlayVisible():
+		return arbQueuedShown
+	case len(a.pendingOverlayOpens) > 0:
+		return arbQueuedHidden
+	case a.anyModalOverlayVisible():
+		return arbFreeShown
+	default:
+		return arbFreeHidden
+	}
+}
+
+// stepOverlayArbiter validates one arbiter transition against the checked
+// table, warning on a rejected move — a rejection means the arbitration logic
+// left the shape the machine proves safe (e.g. an open applying while a modal
+// is visible, or a drain running under a visible modal).
+func (a *App) stepOverlayArbiter(from overlayArbiterState, e overlayArbiterEvent) {
+	if _, ok := overlayArbiterMachine.Next(from, e); !ok {
+		logging.Warn("overlay arbiter: rejected event %s in state %s", e, from)
+	}
+}
+
 // requestOverlayOpen is the single arbitration point for modal overlay
 // opens. When no modal overlay is visible the open runs immediately (the
 // synchronous fast path — existing behavior). When one IS visible the open
@@ -47,22 +73,35 @@ func (a *App) anyModalOverlayVisible() bool {
 // bespoke-editor producer rides this same contract.
 func (a *App) requestOverlayOpen(open func()) {
 	if !a.anyModalOverlayVisible() {
+		from := a.overlayArbiterState()
 		open()
+		// The applied open either presented a modal or ran quietly (a
+		// no-op closure, or one whose drain-time fence dropped it).
+		if a.anyModalOverlayVisible() {
+			a.stepOverlayArbiter(from, arbEvtOpenPresented)
+		} else {
+			a.stepOverlayArbiter(from, arbEvtOpenQuiet)
+		}
 		return
 	}
 	if len(a.pendingOverlayOpens) >= pendingOverlayOpenCap {
+		a.stepOverlayArbiter(a.overlayArbiterState(), arbEvtOverflowDrop)
 		logging.Error("overlay open queue full (%d); dropping pending open", pendingOverlayOpenCap)
 		return
 	}
+	a.stepOverlayArbiter(a.overlayArbiterState(), arbEvtDefer)
 	a.pendingOverlayOpens = append(a.pendingOverlayOpens, open)
 }
 
 // requestRunOutputOpen is requestOverlayOpen with refresh semantics for the
 // run-output slot: a fetch result for the ALREADY-VISIBLE viewer replaces
 // its content immediately (queueing it behind itself would deadlock), while
-// a fresh open behind a different overlay defers like any other open.
+// a fresh open behind a different overlay defers like any other open. The
+// slot-refresh machine edge records that shape: the open applies without
+// ever changing arbiter state.
 func (a *App) requestRunOutputOpen(open func()) {
 	if a.overlays.runOutput != nil && a.overlays.runOutput.Visible() {
+		a.stepOverlayArbiter(a.overlayArbiterState(), arbEvtSlotRefresh)
 		open()
 		return
 	}
@@ -76,11 +115,23 @@ func (a *App) requestRunOutputOpen(open func()) {
 // run-output refresh tick once the viewer actually presents) appends it to
 // drainedOverlayCmds, which this returns for Update to batch.
 func (a *App) drainPendingOverlayOpens() tea.Cmd {
+	from := a.overlayArbiterState()
+	drained := false
 	for len(a.pendingOverlayOpens) > 0 && !a.anyModalOverlayVisible() {
 		open := a.pendingOverlayOpens[0]
 		a.pendingOverlayOpens[0] = nil
 		a.pendingOverlayOpens = a.pendingOverlayOpens[1:]
 		open()
+		drained = true
+	}
+	if drained {
+		// Either the queue emptied or one of the applied opens presented a
+		// modal that blocks the remainder — the machine's two drain edges.
+		if len(a.pendingOverlayOpens) == 0 {
+			a.stepOverlayArbiter(from, arbEvtDrainCompleted)
+		} else {
+			a.stepOverlayArbiter(from, arbEvtDrainBlocked)
+		}
 	}
 	if len(a.drainedOverlayCmds) == 0 {
 		return nil
@@ -186,14 +237,4 @@ func (a *App) presentBulkTargetsDialog(targets []bulkops.Target, shelved bool, b
 		a.clearPendingWorkspaceCreate()
 		build(resolved)
 	})
-}
-
-// clearPendingHandoffs drops every staged dialog handoff — the create→
-// agent-picker binding and the picker→task binding. Called on paths that
-// abandon all in-flight flows at once (panic recovery); per-field clears
-// that run conditionally (the displaced-result path binds each to its own
-// dialog ID) stay manual at their sites.
-func (a *App) clearPendingHandoffs() {
-	a.pendingWorkspaceCreate = pendingWorkspaceCreateState{}
-	a.pendingLaunchTask = pendingLaunchTaskState{}
 }

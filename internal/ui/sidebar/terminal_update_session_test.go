@@ -21,8 +21,7 @@ func reattachFailedModel(t *testing.T) (*TerminalModel, *data.Workspace, Termina
 	tabID := generateTerminalTabID()
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     true,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 	}
 	beginAttachAttempt(t, state)
 	m := NewTerminalModel()
@@ -94,9 +93,9 @@ func TestHandleReattachFailedClearsRunningAndInFlight(t *testing.T) {
 			})
 
 			state.mu.Lock()
-			running := state.Running
+			running := state.tab == tabRunning
 			inFlight := state.Reattach.InFlight
-			detached := state.Detached
+			detached := state.tab == tabDetachedAuto || state.tab == tabDetachedUser
 			state.mu.Unlock()
 
 			if running {
@@ -239,9 +238,9 @@ func TestHandleReattachFailedRoutedThroughUpdate(t *testing.T) {
 	})
 
 	state.mu.Lock()
-	running := state.Running
+	running := state.tab == tabRunning
 	inFlight := state.Reattach.InFlight
-	detached := state.Detached
+	detached := state.tab == tabDetachedAuto || state.tab == tabDetachedUser
 	state.mu.Unlock()
 
 	if running || inFlight {
@@ -359,9 +358,9 @@ func TestHandleWorkspaceDeletedTearsDownTabs(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	wsID := string(ws.ID())
 
-	state1 := &TerminalState{Terminal: &appPty.Terminal{}, Running: true}
+	state1 := &TerminalState{Terminal: &appPty.Terminal{}, tab: tabRunning}
 	state1.RestartBackoff = 5 * time.Second
-	state2 := &TerminalState{Terminal: &appPty.Terminal{}, Running: true}
+	state2 := &TerminalState{Terminal: &appPty.Terminal{}, tab: tabRunning}
 	state2.RestartBackoff = 9 * time.Second
 
 	m := NewTerminalModel()
@@ -380,7 +379,7 @@ func TestHandleWorkspaceDeletedTearsDownTabs(t *testing.T) {
 
 	for i, st := range []*TerminalState{state1, state2} {
 		st.mu.Lock()
-		running := st.Running
+		running := st.tab == tabRunning
 		backoff := st.RestartBackoff
 		term := st.Terminal
 		st.mu.Unlock()
@@ -417,7 +416,7 @@ func TestHandleWorkspaceDeletedHandlesNilStateAndTerminal(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	wsID := string(ws.ID())
 
-	stateNoTerm := &TerminalState{Running: true}
+	stateNoTerm := &TerminalState{tab: tabRunning}
 	stateNoTerm.RestartBackoff = 3 * time.Second
 
 	m := NewTerminalModel()
@@ -434,7 +433,7 @@ func TestHandleWorkspaceDeletedHandlesNilStateAndTerminal(t *testing.T) {
 		t.Fatalf("expected nil command, got %T", cmd())
 	}
 	stateNoTerm.mu.Lock()
-	running := stateNoTerm.Running
+	running := stateNoTerm.tab == tabRunning
 	backoff := stateNoTerm.RestartBackoff
 	stateNoTerm.mu.Unlock()
 	if running {
@@ -456,7 +455,7 @@ func TestHandleWorkspaceDeletedUnknownWorkspaceIsSafe(t *testing.T) {
 	keepID := string(tracked.ID())
 	gone := data.NewWorkspace("gone", "main", "main", "/repo/gone", "/repo/gone")
 
-	keepState := &TerminalState{Running: true}
+	keepState := &TerminalState{tab: tabRunning}
 	m := NewTerminalModel()
 	m.tabs.ByWorkspace[keepID] = []*TerminalTab{{ID: generateTerminalTabID(), State: keepState}}
 	m.tabs.ActiveByWorkspace[keepID] = 0
@@ -470,7 +469,7 @@ func TestHandleWorkspaceDeletedUnknownWorkspaceIsSafe(t *testing.T) {
 		t.Fatal("expected an unrelated workspace's tabs to be preserved")
 	}
 	keepState.mu.Lock()
-	running := keepState.Running
+	running := keepState.tab == tabRunning
 	keepState.mu.Unlock()
 	if !running {
 		t.Fatal("expected an unrelated tab's Running flag left untouched")

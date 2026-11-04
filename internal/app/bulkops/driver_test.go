@@ -169,6 +169,27 @@ func TestForeignCompletionIgnored(t *testing.T) {
 	}
 }
 
+// TestStartWithEmptyTargetListCompletes pins the empty-batch contract:
+// Start steps idle→draining before advancing, so an empty target list must
+// fall straight through finish back to idle. Wedged draining, Active()
+// would report a phantom batch forever and reject every later Start.
+func TestStartWithEmptyTargetListCompletes(t *testing.T) {
+	d, f := newFakeDriver()
+	if cmd := d.Start(Shelve, nil); cmd != nil {
+		t.Fatalf("empty batch has nothing to run, got cmd %v", cmd)
+	}
+	if d.Active() {
+		t.Fatal("an empty batch must not leave the driver draining")
+	}
+	if len(f.warns) != 0 || len(f.successes) != 0 || len(f.cleared) != 0 {
+		t.Fatalf("empty batch must not summarize or clear marks: %+v", f)
+	}
+	// The driver stays usable afterwards.
+	if cmd := d.Start(Shelve, []Target{makeTarget("a")}); cmd == nil {
+		t.Fatal("driver must accept a batch after an empty start")
+	}
+}
+
 // TestStartRejectsReentry proves a second confirmed batch while one drains
 // is rejected — overwriting the state would orphan the in-flight head's
 // completion and run two worktree ops in parallel.

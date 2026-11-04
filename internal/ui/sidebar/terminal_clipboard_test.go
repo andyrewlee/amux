@@ -29,8 +29,8 @@ func TestHandlePTYFlush_DrainsPendingClipboard(t *testing.T) {
 	osc52 := []byte("\x1b]52;c;aGk=\x07")
 
 	ts := &TerminalState{
-		VTerm:   vterm.New(40, 10),
-		Running: true,
+		VTerm: vterm.New(40, 10),
+		tab:   tabRunning,
 	}
 	// Seed PendingOutput with the OSC 52 sequence so handlePTYFlush writes it.
 	ts.PendingOutput = append(ts.PendingOutput, osc52...)
@@ -80,8 +80,8 @@ func TestHandlePTYFlush_NilClipboardWhenNoOSC52(t *testing.T) {
 	tabID := generateTerminalTabID()
 
 	ts := &TerminalState{
-		VTerm:   vterm.New(40, 10),
-		Running: true,
+		VTerm: vterm.New(40, 10),
+		tab:   tabRunning,
 	}
 	ts.PendingOutput = append(ts.PendingOutput, []byte("hello world\n")...)
 	ts.LastOutputAt = time.Now().Add(-1 * time.Second)
@@ -118,7 +118,7 @@ func TestActiveTranscriptReturnsFullBuffer(t *testing.T) {
 	m.setWorkspace(ws)
 	wsID := m.workspaceID()
 
-	ts := &TerminalState{VTerm: vterm.New(40, 3), Running: true}
+	ts := &TerminalState{VTerm: vterm.New(40, 3), tab: tabRunning}
 	ts.VTerm.Write([]byte("scrollback-line\r\nmid\r\nrecent-line\r\nscreen-line"))
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: "t1", State: ts}}
 	m.tabs.ActiveByWorkspace[wsID] = 0

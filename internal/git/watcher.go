@@ -18,11 +18,19 @@ import (
 )
 
 // FileWatcher watches git directories for changes and triggers status refreshes
+//
+// The per-root debounce/trailing-timer policy (handleChange,
+// armTrailingTimerLocked, fireTrailing) is an implicit state machine —
+// idle vs trailing-armed, with a generation counter superseding stale
+// timers. Its shape is verified by the model + differential test in
+// watcher_debounce_model_test.go; the timestamps, timers, and generation
+// numbers are that machine's extended state and stay here.
 type FileWatcher struct {
 	mu sync.Mutex
 
 	watcher         *fsnotify.Watcher
 	addWatch        func(path string) error // seam for watcher.Add; overridable in tests
+	nowFunc         func() time.Time        // seam for the debounce clock; overridable in tests
 	watching        map[string]bool         // workspace root -> watching
 	watchPaths      map[string][]watchTarget
 	pathToRoot      map[string]string
@@ -55,6 +63,7 @@ func NewFileWatcher(onChanged func(root string)) (*FileWatcher, error) {
 	fw := &FileWatcher{
 		watcher:         watcher,
 		addWatch:        watcher.Add,
+		nowFunc:         time.Now,
 		watching:        make(map[string]bool),
 		watchPaths:      make(map[string][]watchTarget),
 		pathToRoot:      make(map[string]string),
@@ -186,7 +195,7 @@ func (fw *FileWatcher) Run(ctx context.Context) error {
 }
 
 func (fw *FileWatcher) handleChange(root string) {
-	now := time.Now()
+	now := fw.nowFunc()
 	var callback func(string)
 
 	fw.mu.Lock()
@@ -218,7 +227,7 @@ func (fw *FileWatcher) armTrailingTimerLocked(root string) {
 }
 
 func (fw *FileWatcher) fireTrailing(root string, generation uint64) {
-	now := time.Now()
+	now := fw.nowFunc()
 	var callback func(string)
 
 	fw.mu.Lock()
@@ -227,7 +236,10 @@ func (fw *FileWatcher) fireTrailing(root string, generation uint64) {
 		return
 	}
 	delete(fw.pendingTimers, root)
-	delete(fw.timerGeneration, root)
+	// Advance (never reset) the generation: a superseded timer from an
+	// earlier window may still be racing in with an older number, and a
+	// reset counter would let it collide with the next window's arming.
+	fw.timerGeneration[root]++
 	fw.lastChange[root] = now
 	callback = fw.onChanged
 	fw.mu.Unlock()
@@ -242,7 +254,14 @@ func (fw *FileWatcher) stopPendingTimerLocked(root string) {
 		timer.Stop()
 		delete(fw.pendingTimers, root)
 	}
-	delete(fw.timerGeneration, root)
+	// Advance the generation past the stopped timer instead of deleting
+	// it: timer.Stop cannot recall a callback that has already started, so
+	// the number it captured must never match a later arming. Keeping the
+	// counter monotonic per root (it is never deleted, only advanced —
+	// one entry per root ever watched) makes every stopped or superseded
+	// timer's late fire a guaranteed mismatch. The differential model test
+	// pins this: generations are unique across arming epochs.
+	fw.timerGeneration[root]++
 }
 
 // findRoot finds the workspace root for a given path

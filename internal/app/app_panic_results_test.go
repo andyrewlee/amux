@@ -33,13 +33,12 @@ type panicTmuxOps struct{ TmuxOps }
 // refreshing instead of freezing for the session.
 func TestGitStatusCmd_PanicEmitsTrackedResult(t *testing.T) {
 	a := &App{gitStatus: panicGitStatus{}}
-	a.initGitStatusDedup()
 
 	cmd := a.enqueueGitStatus("/repo", false)
 	if cmd == nil {
 		t.Fatal("expected the status cmd")
 	}
-	if !a.gitStatusInFlight["/repo"] {
+	if !a.gitStatusDedupEntry("/repo").InFlight() {
 		t.Fatal("dispatch did not mark the root in-flight")
 	}
 
@@ -52,7 +51,7 @@ func TestGitStatusCmd_PanicEmitsTrackedResult(t *testing.T) {
 	}
 
 	a.Update(res)
-	if a.gitStatusInFlight["/repo"] {
+	if a.gitStatusDedupEntry("/repo").InFlight() {
 		t.Fatal("in-flight mark not cleared by the panic result")
 	}
 }
@@ -67,7 +66,7 @@ func TestGitStatusBatch_PanicClearsAllMarks(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected the batch cmd")
 	}
-	if !a.gitStatusInFlight["/a"] || !a.gitStatusInFlight["/b"] {
+	if !a.gitStatusDedupEntry("/a").InFlight() || !a.gitStatusDedupEntry("/b").InFlight() {
 		t.Fatal("dispatch did not mark the roots in-flight")
 	}
 
@@ -80,8 +79,8 @@ func TestGitStatusBatch_PanicClearsAllMarks(t *testing.T) {
 	}
 
 	a.Update(res)
-	if a.gitStatusInFlight["/a"] || a.gitStatusInFlight["/b"] {
-		t.Fatalf("in-flight marks not cleared: %v", a.gitStatusInFlight)
+	if a.gitStatusDedupEntry("/a").InFlight() || a.gitStatusDedupEntry("/b").InFlight() {
+		t.Fatal("in-flight marks not cleared by the panic batch result")
 	}
 }
 
@@ -132,8 +131,8 @@ func TestTmuxActivityScan_PanicClearsScanInFlight(t *testing.T) {
 	if len(cmds) != 2 {
 		t.Fatalf("expected tick re-arm + scan cmd, got %d", len(cmds))
 	}
-	if !a.tmuxActivity.scanInFlight {
-		t.Fatal("dispatch did not set scanInFlight")
+	if !a.tmuxActivity.scanEntry().InFlight() {
+		t.Fatal("dispatch did not mark the scan in-flight")
 	}
 
 	res, ok := cmds[1]().(tmuxActivityResult)
@@ -145,8 +144,8 @@ func TestTmuxActivityScan_PanicClearsScanInFlight(t *testing.T) {
 	}
 
 	a.Update(res)
-	if a.tmuxActivity.scanInFlight {
-		t.Fatal("scanInFlight not cleared by the panic result")
+	if a.tmuxActivity.scanEntry().InFlight() {
+		t.Fatal("scan in-flight mark not cleared by the panic result")
 	}
 }
 

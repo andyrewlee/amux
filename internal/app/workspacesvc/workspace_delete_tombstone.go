@@ -130,21 +130,24 @@ func (s *Service) finishInterruptedDelete(ws *data.Workspace) bool {
 		return false
 	}
 	metadataID := ws.MetadataID()
-	switch ProbeDirState(ws.Root) {
-	case DirPresent:
+	// The destructive decision runs through the checked authorization table:
+	// finish-delete is reachable only with a tombstone AND proven absence;
+	// present and unknown both fail safe.
+	switch decideDeleteRecovery(true, ProbeDirState(ws.Root)) {
+	case actionKeepWorkspace:
 		// A surviving worktree means an earlier delete failed before removing it;
 		// do not finish the delete — the workspace must stay usable.
 		return false
-	case DirUnknown:
+	case actionDefer:
 		// Absence is unproven (permission/transient stat error): keep the
 		// tombstone and defer rather than destroy a root that may exist.
 		logging.Warn("startup recovery: cannot verify worktree absence, deferring delete recovery workspace_id=%s root=%s", metadataID, ws.Root)
 		return false
 	}
-	// The prior process may have exited after removing the worktree but before
-	// reaching the normal session cleanup. The missing root plus durable
-	// tombstone proves deletion passed validation, so no live agent for this
-	// workspace is safe to retain.
+	// actionFinishDelete: the prior process may have exited after removing
+	// the worktree but before reaching the normal session cleanup. The
+	// missing root plus durable tombstone proves deletion passed validation,
+	// so no live agent for this workspace is safe to retain.
 	if err := s.killWorkspaceSessionsForDeletedWorkspace(ws); err != nil {
 		logging.Warn("startup recovery: failed to stop sessions for interrupted delete workspace_id=%s error=%v", metadataID, err)
 		if markErr := s.markWorkspaceDeleteTombstones(ws); markErr != nil {

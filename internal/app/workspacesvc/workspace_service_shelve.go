@@ -27,7 +27,9 @@ import (
 // the existing worktree) or a prune-exempt shelved record (removal ran — the
 // flags already exempt it from archive-retention and missing-root reaping).
 // It never leaves Shelved-without-Archived — a record that is neither live
-// (listByRepo filters Archived) nor shelved (the shelf requires both).
+// (listByRepo filters Archived) nor shelved (the shelf requires both). That
+// lattice, including this one-write contract and the prune exemptions, is
+// table-checked: see data.WorkspaceRecordLifecycleCheck.
 func (s *Service) ShelveWorkspace(project *data.Project, ws *data.Workspace) tea.Cmd {
 	if project == nil || ws == nil {
 		return func() tea.Msg {
@@ -176,8 +178,28 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		// Stamp the identity keys up front so result handlers can release the
 		// lifecycle guard under every form the mark touched.
 		stampedIDs := WorkspaceIDStrings(ws)
-		fail := func(stage string, err error) tea.Msg {
-			logging.Error("workspace restore failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stage, ws.Root, err)
+		// The staging cursor tracks this call's position (and lineage) in
+		// restoreStagingMachine: adopting vs creating decides whether a later
+		// failure owes a rollback. The table is Check-verified so the
+		// obligation cannot be lost or gained mid-restore. projectPath is
+		// assigned during validation, before any failure can owe a rollback
+		// (validation-stage failures never do).
+		var projectPath string
+		stage := restoreValidating
+		fail := func(stageName string, err error) tea.Msg {
+			logging.Error("workspace restore failed workspace_id=%s stage=%s workspace_root=%s error=%v", wsID, stageName, ws.Root, err)
+			// A failure on the created lineage owes a best-effort rollback of
+			// the worktree this call created (folded here from the old
+			// explicit rollback() calls); an adopted worktree is never
+			// removed. The obligation must be read from the FAILING stage —
+			// after the step below the machine is already terminal.
+			owed := restoreStagingOwesRollback(stage)
+			stage = restoreStagingStep(stage, evtRestoreStageFailed)
+			if owed {
+				if removeErr := s.gitOps.RemoveWorkspace(projectPath, ws.Root); removeErr != nil {
+					logging.Error("workspace restore rollback failed workspace_id=%s workspace_root=%s error=%v", wsID, ws.Root, removeErr)
+				}
+			}
 			return messages.WorkspaceRestoreFailed{Project: project, Workspace: ws, Err: err, WorkspaceIDs: stampedIDs}
 		}
 
@@ -189,20 +211,23 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		// carries the pre-restore row. The store is authoritative — if the
 		// record is already live, this is a duplicate: skip rather than
 		// adopt/fail on the worktree the first restore just recreated.
+		// Shelved() over the record-lifecycle projection is exactly the old
+		// !(Archived && Shelved) skip test — accidental archives and ghost
+		// rows skip too, because only a real shelf is restorable.
 		if s.store != nil {
 			for _, id := range WorkspaceMetadataIDs(ws) {
 				fresh, err := s.store.Load(id)
 				if err != nil || fresh == nil {
 					continue
 				}
-				if !fresh.Shelved || !fresh.Archived {
+				if !fresh.RecordLifecycleState(data.WorktreeUnknown).Shelved() {
 					logging.Info("workspace restore skipped: record already live workspace_id=%s workspace_root=%s", wsID, ws.Root)
 					return messages.WorkspaceRestoreSkipped{Project: project, Workspace: ws, WorkspaceIDs: stampedIDs}
 				}
 				break
 			}
 		}
-		projectPath := data.NormalizePath(project.Path)
+		projectPath = data.NormalizePath(project.Path)
 		if projectPath == "" || data.NormalizePath(ws.Repo) != projectPath {
 			return fail("validate_repo_match", fmt.Errorf("workspace repo %s does not match project path %s", ws.Repo, project.Path))
 		}
@@ -221,8 +246,8 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 		// a foreign worktree (different repo or different branch) adopted as
 		// the user's workspace would silently skip the worktree add and serve
 		// the wrong contents.
-		adopted := false
 		if _, err := os.Stat(ws.Root); err == nil {
+			stage = restoreStagingStep(stage, evtRestoreDirPresent)
 			if _, gerr := os.Stat(filepath.Join(ws.Root, ".git")); gerr != nil {
 				return fail("validate_root_absent", fmt.Errorf("workspace path %s already exists", ws.Root))
 			}
@@ -236,13 +261,14 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 					ws.Root, dirRepo, dirBranch, ws.Repo, branch,
 				))
 			}
-			adopted = true
+			stage = restoreStagingStep(stage, evtRestoreAdoptVerified)
 		} else if !os.IsNotExist(err) {
 			return fail("validate_root_absent", err)
+		} else {
+			stage = restoreStagingStep(stage, evtRestoreDirAbsent)
 		}
 
-		created := false
-		if !adopted {
+		if stage == restoreAttaching {
 			// Attach-only: the branch is the user's data, kept deliberately by
 			// shelve — `worktree add -b` would silently fabricate a different
 			// history from ws.Base when the kept ref is gone. A missing branch
@@ -253,23 +279,12 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 			if err != nil {
 				return fail("worktree_add", err)
 			}
-			created = true
-		}
-		// Best-effort rollback of a worktree this call created when a later
-		// stage fails — without it the dir lingers and every retry adopted or
-		// rejected on it rather than recreating cleanly.
-		rollback := func() {
-			if !created {
-				return
-			}
-			if err := s.gitOps.RemoveWorkspace(projectPath, ws.Root); err != nil {
-				logging.Error("workspace restore rollback failed workspace_id=%s workspace_root=%s error=%v", wsID, ws.Root, err)
-			}
+			stage = restoreStagingStep(stage, evtRestoreAttached)
 		}
 		if err := waitForGitPath(filepath.Join(ws.Root, ".git"), s.gitPathWaitTimeout); err != nil {
-			rollback()
 			return fail("wait_git", err)
 		}
+		stage = restoreStagingStep(stage, evtRestoreGitReady)
 
 		if s.store != nil {
 			err := s.store.Update(ws.MetadataID(), func(fresh *data.Workspace) (bool, error) {
@@ -279,10 +294,10 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 				return true, nil
 			})
 			if err != nil {
-				rollback()
 				return fail("unarchive", err)
 			}
 		}
+		stage = restoreStagingStep(stage, evtRestoreFlagsCleared)
 		logging.Info("workspace restored workspace_id=%s workspace_root=%s", wsID, ws.Root)
 		return messages.WorkspaceRestored{Project: project, Workspace: ws, WorkspaceIDs: stampedIDs}
 	}
@@ -303,7 +318,10 @@ func (s *Service) listShelvedWorkspaces(set *data.WorkspaceRecordSet, repoPath s
 	}
 	shelved := make([]data.Workspace, 0, len(all))
 	for _, ws := range all {
-		if ws != nil && ws.Archived && ws.Shelved {
+		// Same membership rule as before (Archived && Shelved), derived from
+		// the record-lifecycle table so the shelf list and prune's exemptions
+		// can never disagree about what counts as a shelf.
+		if ws != nil && ws.RecordLifecycleState(data.WorktreeUnknown).Shelved() {
 			shelved = append(shelved, *ws)
 		}
 	}

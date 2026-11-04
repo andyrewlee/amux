@@ -17,7 +17,7 @@ func setupTerminalOwnerModel(t *testing.T) *TerminalModel {
 
 	ts := &TerminalState{
 		VTerm:      vterm.New(10, 3),
-		Running:    true,
+		tab:        tabRunning,
 		lastWidth:  10,
 		lastHeight: 3,
 	}

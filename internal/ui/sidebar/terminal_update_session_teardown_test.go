@@ -16,7 +16,7 @@ func TestHandleWorkspaceDeletedUsesStampedIDs(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	stamped := "resolved-form-id-" + string(ws.ID())
 
-	state := &TerminalState{Terminal: &appPty.Terminal{}, Running: true}
+	state := &TerminalState{Terminal: &appPty.Terminal{}, tab: tabRunning}
 	m := NewTerminalModel()
 	m.tabs.ByWorkspace[stamped] = []*TerminalTab{
 		{ID: generateTerminalTabID(), Name: "drifted", State: state},
@@ -49,7 +49,7 @@ func TestHandleWorkspaceShelvedTearsDownTabs(t *testing.T) {
 	ws := data.NewWorkspace("ws", "main", "main", "/repo/ws", "/repo/ws")
 	stamped := string(ws.ID())
 
-	state := &TerminalState{Terminal: &appPty.Terminal{}, Running: true}
+	state := &TerminalState{Terminal: &appPty.Terminal{}, tab: tabRunning}
 	m := NewTerminalModel()
 	m.tabs.ByWorkspace[stamped] = []*TerminalTab{
 		{ID: generateTerminalTabID(), Name: "shelved", State: state},
@@ -65,7 +65,7 @@ func TestHandleWorkspaceShelvedTearsDownTabs(t *testing.T) {
 		t.Fatalf("expected nil command, got %T", cmd())
 	}
 	state.mu.Lock()
-	running := state.Running
+	running := state.tab == tabRunning
 	state.mu.Unlock()
 	if running {
 		t.Fatal("expected Running cleared on shelve")
@@ -81,7 +81,7 @@ func TestHandleWorkspaceDeletedRoutedThroughUpdate(t *testing.T) {
 	wsID := string(ws.ID())
 	m := NewTerminalModel()
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{
-		{ID: generateTerminalTabID(), State: &TerminalState{Running: true}},
+		{ID: generateTerminalTabID(), State: &TerminalState{tab: tabRunning}},
 	}
 	m.tabs.ActiveByWorkspace[wsID] = 0
 

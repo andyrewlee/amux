@@ -314,7 +314,7 @@ func TestRunOutputAttachKey_DispatchesAttach(t *testing.T) {
 	h.app.workspaceService = workspacesvc.New(nil, store, runner, "")
 
 	openRunOutput(t, h, ws)
-	if !h.app.overlays.runOutputAttachable {
+	if h.app.overlays.runOutputFlavor != runOutputFlavorRun {
 		t.Fatal("live-run viewer must mark itself attachable")
 	}
 

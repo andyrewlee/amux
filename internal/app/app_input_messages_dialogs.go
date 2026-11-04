@@ -22,12 +22,19 @@ import (
 //
 // Each presentation is a new dialog instance: the seq stamp is what lets a
 // DialogResult emitted through handleDialogInput be bound to the instance
-// that produced it (and dropped when that instance has been replaced).
+// that produced it (and dropped when that instance has been replaced). The
+// dialog-slot machine step (present vs replace) is the checked control state
+// around that stamp.
 func (a *App) presentDialog(d *common.Dialog) {
 	d.SetSize(a.width, a.height)
 	d.SetShowKeymapHints(a.config.UI.ShowKeymapHints)
 	a.dialogSeq++
 	a.dialogOpenSeq = a.dialogSeq
+	if a.dialogSlot == dialogSlotOpen {
+		a.stepDialogSlot(slotEvtReplace)
+	} else {
+		a.stepDialogSlot(slotEvtPresent)
+	}
 	d.Show()
 }
 
@@ -287,26 +294,18 @@ func dialogResultAgentPicker(a *App, result common.DialogResult, _ dialogContext
 	// active workspace) falls through to the normal dispatch rather than
 	// dropping the pick.
 	if result.RequestTask && a.pendingWorkspaceCreate.project == nil && a.activeWorkspace != nil {
-		a.pendingLaunchTask = pendingLaunchTaskState{
-			assistant: assistant,
-			workspace: a.activeWorkspace,
-		}
+		a.stagePendingLaunch(assistant, a.activeWorkspace)
 		return func() tea.Msg {
 			return messages.ShowLaunchTaskDialog{}
 		}
 	}
 	if a.pendingWorkspaceCreate.project != nil && a.pendingWorkspaceCreate.name != "" {
-		pendingProject := a.pendingWorkspaceCreate.project
-		pendingName := a.pendingWorkspaceCreate.name
-		pendingBase := a.pendingWorkspaceCreate.base
-		a.pendingWorkspaceCreate.project = nil
-		a.pendingWorkspaceCreate.name = ""
-		a.pendingWorkspaceCreate.base = ""
+		pending := a.consumePendingWorkspaceCreate()
 		return func() tea.Msg {
 			return messages.CreateWorkspace{
-				Project:   pendingProject,
-				Name:      pendingName,
-				Base:      pendingBase,
+				Project:   pending.project,
+				Name:      pending.name,
+				Base:      pending.base, // empty resolves to the default branch
 				Assistant: assistant,
 			}
 		}
@@ -330,8 +329,7 @@ func dialogResultAgentPicker(a *App, result common.DialogResult, _ dialogContext
 // PasteFirstLine keeps only the first line of printable runes, matching every
 // other single-line field. Empty stays empty, preserving the no-task path.
 func dialogResultLaunchTask(a *App, result common.DialogResult, _ dialogContext) tea.Cmd {
-	pending := a.pendingLaunchTask
-	a.pendingLaunchTask = pendingLaunchTaskState{}
+	pending := a.consumePendingLaunch()
 	if pending.assistant == "" || pending.workspace == nil {
 		return nil
 	}

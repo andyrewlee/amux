@@ -19,12 +19,7 @@ func (a *App) handleShowEventLog() tea.Cmd {
 		return a.toast.ShowInfo("No notifications yet this session")
 	}
 	a.requestRunOutputOpen(func() {
-		a.overlays.runOutputWorkspace = nil
-		a.overlays.runOutputSession = ""
-		a.overlays.runOutputAttachable = false
-		a.overlays.runOutputReleaseCount = 0
-		a.overlays.runOutputUntrustable = false
-		a.overlays.runOutputLifecycle = false
+		a.overlays.beginRunOutputFlavor(runOutputFlavorEvents)
 		a.overlays.runOutputToken++
 		a.overlays.runOutput = common.NewOutputDialog("Notifications", formatSessionEvents(events))
 		a.overlays.runOutput.SetSearchable(true)

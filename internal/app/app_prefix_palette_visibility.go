@@ -24,7 +24,9 @@ func (a *App) prefixActionVisible(action prefixAction) bool {
 		if a.activeWorkspace == nil || a.activeProject == nil {
 			return false
 		}
-		return !a.tmuxCheckDone || a.tmuxAvailable
+		// tmuxAvailableOrUnchecked: an unfinished check counts as available
+		// (it settles long before a tab could be opened from the palette).
+		return a.tmuxAvailableOrUnchecked()
 	case prefixActionScrollUp, prefixActionScrollDown:
 		return a.centerScrollPrefixActive()
 	case prefixActionDeleteWorkspace:

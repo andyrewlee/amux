@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/andyrewlee/amux/internal/coalesce"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/center"
 )
@@ -14,7 +15,7 @@ func TestUpdate_TabReattachedSchedulesEagerScan(t *testing.T) {
 	app := &App{tmuxAvailable: true}
 
 	app.update(messages.TabReattached{WorkspaceID: "ws-a"})
-	if !app.tmuxActivity.scanInFlight {
+	if !app.tmuxActivity.scanEntry().InFlight() {
 		t.Fatal("expected an eager scan to be scheduled on TabReattached")
 	}
 	if app.tmuxActivity.token != 1 {
@@ -27,8 +28,8 @@ func TestUpdate_TabReattachedSchedulesEagerScan(t *testing.T) {
 	if app.tmuxActivity.token != 1 {
 		t.Fatalf("expected in-flight reattach to coalesce (token stays 1), got %d", app.tmuxActivity.token)
 	}
-	if !app.tmuxActivity.rescanPending {
-		t.Fatal("expected in-flight second reattach to set rescan-pending")
+	if got := app.tmuxActivity.scanEntry().State(); got != coalesce.InFlightPending {
+		t.Fatalf("expected in-flight second reattach to owe a rescan, got state %v", got)
 	}
 }
 
@@ -41,7 +42,7 @@ func TestUpdate_TabCreatedSchedulesEagerScan(t *testing.T) {
 	}
 
 	app.update(messages.TabCreated{Name: "claude"})
-	if !app.tmuxActivity.scanInFlight {
+	if !app.tmuxActivity.scanEntry().InFlight() {
 		t.Fatal("expected an eager scan to be scheduled on TabCreated")
 	}
 	if app.tmuxActivity.token != 1 {
@@ -55,7 +56,7 @@ func TestUpdate_TabReattachedNoScanWhenTmuxUnavailable(t *testing.T) {
 	app := &App{tmuxAvailable: false}
 
 	app.update(messages.TabReattached{WorkspaceID: "ws-a"})
-	if app.tmuxActivity.scanInFlight {
+	if app.tmuxActivity.scanEntry().InFlight() {
 		t.Fatal("expected no scan scheduled when tmux is unavailable")
 	}
 	if app.tmuxActivity.token != 0 {

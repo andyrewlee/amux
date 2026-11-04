@@ -13,7 +13,7 @@ func TestHandleTmuxActivityResult_OwnerTransitionErrorResetsHysteresis(t *testin
 	app := &App{
 		tmuxActivity: tmuxActivityState{
 			token:        5,
-			scanInFlight: true,
+			scan:         scanInFlightState(),
 			ownershipSet: true,
 			scannerOwner: false,
 			ownerEpoch:   1,
@@ -74,8 +74,8 @@ func TestHandleTmuxActivityResult_StaleTokenCannotRevertTag(t *testing.T) {
 	now := time.Now()
 	app := &App{
 		tmuxActivity: tmuxActivityState{
-			token:        9, // newer scan already in flight
-			scanInFlight: true,
+			token: 9, // newer scan already in flight
+			scan:  scanInFlightState(),
 			sessionStates: map[string]*activity.SessionState{
 				"sess": {Initialized: true, LastWorkingAt: now},
 			},
@@ -120,7 +120,7 @@ func TestHandleTmuxActivityResult_OwnerTransitionResetsSettlement(t *testing.T) 
 	app := &App{
 		tmuxActivity: tmuxActivityState{
 			token:              7,
-			scanInFlight:       true,
+			scan:               scanInFlightState(),
 			ownershipSet:       true,
 			scannerOwner:       false,
 			ownerEpoch:         1,
@@ -155,7 +155,7 @@ func TestHandleTmuxActivityResult_OwnerTransitionResetsSettlement(t *testing.T) 
 
 	// Second successful owner scan re-settles and republishes the active set.
 	app.tmuxActivity.token = 8
-	app.tmuxActivity.scanInFlight = true
+	app.tmuxActivity.scan = scanInFlightState()
 	app.handleTmuxActivityResult(tmuxActivityResult{
 		Token:              8,
 		RoleKnown:          true,

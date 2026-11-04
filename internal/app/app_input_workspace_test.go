@@ -243,7 +243,7 @@ func TestHandleWorkspaceDeleteFailedRequestsFreshActivityScan(t *testing.T) {
 	if got := dashboardActiveWorkspaceCount(app.dashboard); got != 0 {
 		t.Fatalf("expected cached active state to stay filtered until fresh scan, got %d", got)
 	}
-	if !app.tmuxActivity.scanInFlight {
+	if !app.tmuxActivity.scanEntry().InFlight() {
 		t.Fatal("expected failed delete to request a fresh tmux activity scan")
 	}
 }

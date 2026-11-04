@@ -198,12 +198,8 @@ func (a *App) handleShowScriptOutput(msg messages.ShowScriptOutput) tea.Cmd {
 		return a.toast.ShowInfo("No lifecycle script output for " + msg.Workspace.Name)
 	}
 	a.presentWorkspaceOverlay(msg.Workspace, func(ws *data.Workspace) {
+		a.overlays.beginRunOutputFlavor(runOutputFlavorScript)
 		a.overlays.runOutputWorkspace = ws
-		a.overlays.runOutputSession = ""
-		a.overlays.runOutputAttachable = false
-		a.overlays.runOutputReleaseCount = 0
-		a.overlays.runOutputUntrustable = false
-		a.overlays.runOutputLifecycle = true
 		a.overlays.runOutputToken++
 		a.overlays.runOutput = common.NewOutputDialog("Script output — "+ws.Name, content)
 		a.overlays.runOutput.SetSearchable(true)

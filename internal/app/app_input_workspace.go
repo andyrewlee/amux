@@ -146,13 +146,12 @@ func (a *App) activateCreatedWorkspace(ws *data.Workspace) tea.Cmd {
 // workspace can be started for the user. Agent tabs need tmux, so a host
 // without it is left alone: the explicit new-agent paths report that with an
 // install hint rather than failing silently from an auto-launch. An unfinished
-// tmux check is treated as available — it settles during startup, long before
-// a workspace can be created, and assuming otherwise would skip the launch.
+// tmux check is treated as available — see tmuxAvailableOrUnchecked.
 func (a *App) canAutoLaunchAssistant(assistant string) bool {
 	if assistant == "" || !a.isKnownAssistant(assistant) {
 		return false
 	}
-	return a.tmuxAvailable || !a.tmuxCheckDone
+	return a.tmuxAvailableOrUnchecked()
 }
 
 // hasPendingAgentLaunch reports whether ws is a workspace created moments ago

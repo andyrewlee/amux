@@ -33,12 +33,13 @@ type Model struct {
 	// Search state — mirrors the output viewers' `/` contract (literal
 	// substring, n/N cycling, wrap-around marker). While searching, all
 	// input edits the query; after accept, n/N cycle matches and the
-	// selected span renders in reverse video.
-	searching     bool
-	query         string
-	matches       []diffMatch
-	matchIdx      int
-	searchWrapped bool
+	// selected span renders in reverse video. search (common.SearchCtl,
+	// common/search_model.go) is the shared control state machine;
+	// query/matches/matchIdx are its extended state.
+	search   common.SearchCtl
+	query    string
+	matches  []diffMatch
+	matchIdx int
 
 	// Layout
 	width  int
@@ -82,21 +83,20 @@ type Model struct {
 // scroll/hunk position, wrap/focus flags, dimensions, and styles revision.
 // ContentVersion folds the same set — keep the two field lists in sync.
 type diffViewKey struct {
-	diff          *git.DiffResult
-	errStr        string
-	loading       bool
-	scroll        int
-	hunkIdx       int
-	wrap          bool
-	focused       bool
-	width         int
-	height        int
-	stylesRev     uint64
-	searching     bool
-	query         string
-	matchIdx      int
-	searchWrapped bool
-	matchCount    int
+	diff       *git.DiffResult
+	errStr     string
+	loading    bool
+	scroll     int
+	hunkIdx    int
+	wrap       bool
+	focused    bool
+	width      int
+	height     int
+	stylesRev  uint64
+	search     common.SearchCtl
+	query      string
+	matchIdx   int
+	matchCount int
 }
 
 // diffLoaded is sent when the diff has been loaded
@@ -232,7 +232,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Paste routes to the query field like keys do — without this case a
 		// PasteMsg fell through the type-switch and was silently dropped even
 		// though updateSearchEdit already handles it.
-		if !m.focused || !m.searching {
+		if !m.focused || !m.search.Editing() {
 			return m, nil
 		}
 		return m.updateSearchEdit(msg)
@@ -243,7 +243,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		// Query-edit mode owns all input — viewer bindings are inert while
 		// the field is open, and nothing here can close the tab.
-		if m.searching {
+		if m.search.Editing() {
 			return m.updateSearchEdit(msg)
 		}
 
@@ -265,7 +265,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		// Search — `/` opens the query; with a live selection n/N cycle
 		// matches (n falls through to hunk nav when no match is selected).
 		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
-			m.searching = true
+			m.search.Apply(common.SearchOpenField)
 		case key.Matches(msg, key.NewBinding(key.WithKeys("n"))):
 			if m.matchIdx >= 0 {
 				m.jumpMatch(1)

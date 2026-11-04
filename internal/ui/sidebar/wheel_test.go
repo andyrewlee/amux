@@ -280,7 +280,7 @@ func TestChangesCanConsumeWheelInBranchModeOnCleanTree(t *testing.T) {
 	m := NewChangesModel()
 	m.SetSize(80, 20)
 	m.SetGitStatus(&git.StatusResult{Clean: true})
-	m.branchMode = true
+	m.branch = fetchLoaded
 	m.branchChanges = []git.Change{
 		{Path: "a.go", Kind: git.ChangeModified},
 		{Path: "b.go", Kind: git.ChangeModified},

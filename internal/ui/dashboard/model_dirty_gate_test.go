@@ -94,8 +94,8 @@ func TestSetAgentStatesLatchRunsOnEqualMaps(t *testing.T) {
 
 	m.SetAgentStates(map[string]data.AgentState{"ws-a": data.StateWorking})
 	m.SetAgentStates(map[string]data.AgentState{"ws-a": data.StateDone})
-	if !m.donePending["ws-a"] {
-		t.Fatal("Working→Done edge did not latch donePending")
+	if m.attention["ws-a"] != attDoneFresh {
+		t.Fatal("Working→Done edge did not latch the done badge")
 	}
 	// Re-delivering the identical map must still run the latch loop without
 	// dirtying — and must not re-fire the edge (prev is already Done).
@@ -106,7 +106,7 @@ func TestSetAgentStatesLatchRunsOnEqualMaps(t *testing.T) {
 	if m.contentVersion != after {
 		t.Fatal("equal Done map bumped contentVersion")
 	}
-	if !m.donePending["ws-a"] {
-		t.Fatal("equal-map sync cleared donePending — latch logic must run unconditionally")
+	if m.attention["ws-a"] != attDoneFresh {
+		t.Fatal("equal-map sync cleared the done latch — latch logic must run unconditionally")
 	}
 }

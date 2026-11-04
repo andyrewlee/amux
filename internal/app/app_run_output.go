@@ -135,12 +135,9 @@ func (a *App) handleRunOutputOpened(msg runOutputOpenedMsg) tea.Cmd {
 		if msg.token != a.overlays.runOutputToken {
 			return
 		}
+		a.overlays.beginRunOutputFlavor(runOutputFlavorRun)
 		a.overlays.runOutputWorkspace = msg.ws
 		a.overlays.runOutputSession = msg.session.Name
-		a.overlays.runOutputAttachable = true
-		a.overlays.runOutputReleaseCount = 0
-		a.overlays.runOutputUntrustable = false
-		a.overlays.runOutputLifecycle = false
 		a.overlays.runOutput = common.NewOutputDialog("Run output — "+msg.ws.Name+runSessionTitleSuffix(msg.session), msg.content)
 		a.overlays.runOutput.SetAttachHint(true)
 		a.overlays.runOutput.SetSearchable(true)

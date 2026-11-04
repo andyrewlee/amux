@@ -19,7 +19,7 @@ func TestStatusLineNoTerminal(t *testing.T) {
 
 func TestStatusLineNilVTerm(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
-	seedTabs(t, m, &TerminalTab{ID: generateTerminalTabID(), Name: "T", State: &TerminalState{Running: true}})
+	seedTabs(t, m, &TerminalTab{ID: generateTerminalTabID(), Name: "T", State: &TerminalState{tab: tabRunning}})
 	if got := m.StatusLine(); got != "" {
 		t.Fatalf("expected empty status line with nil VTerm, got %q", got)
 	}
@@ -28,7 +28,7 @@ func TestStatusLineNilVTerm(t *testing.T) {
 func TestStatusLineRunningHasNoStatus(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
 	tab := newWorkspaceTab(t, "Terminal 1")
-	tab.State.Running = true
+	tab.State.tab = tabRunning
 	seedTabs(t, m, tab)
 	if got := m.StatusLine(); got != "" {
 		t.Fatalf("expected empty status line for a running, non-scrolled terminal, got %q", got)
@@ -38,7 +38,7 @@ func TestStatusLineRunningHasNoStatus(t *testing.T) {
 func TestStatusLineScrolled(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
 	tab := newWorkspaceTab(t, "Terminal 1")
-	tab.State.Running = true
+	tab.State.tab = tabRunning
 	tab.State.VTerm = scrolledVTerm(t)
 	seedTabs(t, m, tab)
 
@@ -54,8 +54,7 @@ func TestStatusLineScrolled(t *testing.T) {
 func TestStatusLineDetached(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
 	tab := newWorkspaceTab(t, "Terminal 1")
-	tab.State.Detached = true
-	tab.State.Running = true
+	tab.State.tab = tabDetachedAuto
 	seedTabs(t, m, tab)
 
 	if got := m.StatusLine(); !strings.Contains(got, "DETACHED") {
@@ -66,8 +65,7 @@ func TestStatusLineDetached(t *testing.T) {
 func TestStatusLineStopped(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
 	tab := newWorkspaceTab(t, "Terminal 1")
-	tab.State.Running = false
-	tab.State.Detached = false
+	tab.State.tab = tabStopped
 	seedTabs(t, m, tab)
 
 	if got := m.StatusLine(); !strings.Contains(got, "STOPPED") {
@@ -78,7 +76,7 @@ func TestStatusLineStopped(t *testing.T) {
 func TestStatusLineScrolledTakesPrecedenceOverDetached(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
 	tab := newWorkspaceTab(t, "Terminal 1")
-	tab.State.Detached = true
+	tab.State.tab = tabDetachedAuto
 	tab.State.VTerm = scrolledVTerm(t)
 	seedTabs(t, m, tab)
 
@@ -251,7 +249,7 @@ func TestViewWorkspaceNoTabsShowsNewButton(t *testing.T) {
 func TestViewRendersTabAndTerminal(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
 	tab := newWorkspaceTab(t, "Terminal 1")
-	tab.State.Running = true
+	tab.State.tab = tabRunning
 	seedTabs(t, m, tab)
 	m.width = 40
 	m.height = 10
@@ -282,7 +280,7 @@ func TestViewRespectsHeightCap(t *testing.T) {
 func TestViewShowsScrollIndicator(t *testing.T) {
 	m := newTerminalModelWithWorkspace(t)
 	tab := newWorkspaceTab(t, "Terminal 1")
-	tab.State.Running = true
+	tab.State.tab = tabRunning
 	tab.State.VTerm = scrolledVTerm(t)
 	seedTabs(t, m, tab)
 	m.width = 80

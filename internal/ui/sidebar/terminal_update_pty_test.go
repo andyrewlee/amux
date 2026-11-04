@@ -128,7 +128,7 @@ func TestHandlePTYRestart_TrimsSecondaryDAContinuationAfterEscapeCarry(t *testin
 func liveTerminalState() *TerminalState {
 	return &TerminalState{
 		Terminal: &pty.Terminal{},
-		Running:  true,
+		tab:      tabRunning,
 	}
 }
 
@@ -155,11 +155,8 @@ func TestHandlePTYStopped_RestartBackoffSchedulesTickAndGrows(t *testing.T) {
 		if cmd == nil {
 			t.Fatalf("call %d: expected a non-nil restart tick cmd while under the limit", i+1)
 		}
-		if state.Detached {
-			t.Fatalf("call %d: expected Detached==false while restarting, got true", i+1)
-		}
-		if !state.Running {
-			t.Fatalf("call %d: expected Running to stay true while restarting", i+1)
+		if state.tab != tabRunning {
+			t.Fatalf("call %d: expected the tab to stay running while restarting, got %v", i+1, state.tab)
 		}
 		got := int(state.RestartBackoff)
 		if got <= 0 {
@@ -187,7 +184,7 @@ func TestHandlePTYStopped_DetachesAfterRestartLimit(t *testing.T) {
 			t.Fatalf("call %d: expected restart tick while under the limit", i+1)
 		}
 	}
-	if state.Detached {
+	if state.tab != tabRunning {
 		t.Fatal("expected terminal to remain attached up to the restart limit")
 	}
 
@@ -197,13 +194,81 @@ func TestHandlePTYStopped_DetachesAfterRestartLimit(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected nil cmd once the restart limit is exceeded")
 	}
-	if !state.Detached {
-		t.Fatal("expected Detached==true after exceeding the restart limit")
+	if state.tab != tabDetachedAuto {
+		t.Fatalf("expected the automatic give-up detach state after exceeding the restart limit (not user-initiated), got %v", state.tab)
 	}
-	if state.Running {
-		t.Fatal("expected Running==false after exceeding the restart limit")
+}
+
+// TestHandlePTYStopped_GiveUpDuringReattachInvalidatesAttempt pins the
+// wedge fix: a stopped-reader message can be processed after a reattach
+// attempt began (StopReader never bumps ReaderGen), and the give-up detach
+// must invalidate that attempt — otherwise the attempt stays current and
+// its late result accepts a terminal the detached tab can never run,
+// wedging the tab detached-but-armed until the stall sweep fires.
+func TestHandlePTYStopped_GiveUpDuringReattachInvalidatesAttempt(t *testing.T) {
+	m := NewTerminalModel()
+	wsID := "ws-giveup-reattach"
+	tabID := TerminalTabID("term-giveup-reattach")
+	state := liveTerminalState()
+	originalTerm := state.Terminal
+	m.tabs.ByWorkspace[wsID] = []*TerminalTab{{ID: tabID, State: state}}
+
+	// Exhaust the restart budget while running, then give up: the tab
+	// lands detached-auto, from which a reattach attempt may begin.
+	for i := 0; i < ptyio.PtyRestartMax; i++ {
+		if cmd := m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID)}); cmd == nil {
+			t.Fatalf("call %d: expected restart tick while under the limit", i+1)
+		}
 	}
-	if state.UserDetached {
-		t.Fatal("expected UserDetached==false (give-up detach is not user-initiated)")
+	if cmd := m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID)}); cmd != nil {
+		t.Fatal("expected nil cmd once the restart limit is exceeded")
 	}
+	epoch := uint64(1)
+	withMu(&state.mu, func() {
+		if state.tab != tabDetachedAuto {
+			t.Fatalf("expected detached-auto after give-up, got %v", state.tab)
+		}
+		if !state.beginReattachLocked() {
+			t.Fatal("beginReattachLocked must arm from the detached state")
+		}
+		epoch = state.reattachEpoch
+	})
+
+	// A second stop arrives while the attempt is in flight (a stopped-reader
+	// message can outlive a detach: StopReader never bumps ReaderGen). The
+	// give-up detach must invalidate the attempt, not just step the tab.
+	if cmd := m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: wsID, TabID: string(tabID)}); cmd != nil {
+		t.Fatal("expected nil cmd once the restart limit is exceeded")
+	}
+	withMu(&state.mu, func() {
+		if state.tab != tabDetachedAuto {
+			t.Fatalf("expected detached-auto after give-up during attach, got %v", state.tab)
+		}
+		if state.Reattach.InFlight {
+			t.Fatal("the give-up detach must invalidate the in-flight attempt")
+		}
+		if state.reattachAttemptCurrentLocked(epoch) {
+			t.Fatal("the late result's epoch must be stale after invalidation")
+		}
+	})
+
+	// The attempt's own late result must be rejected as stale, leaving the
+	// tab retryably detached instead of accepting an unusable terminal.
+	m.handleReattachResult(SidebarTerminalReattachResult{
+		WorkspaceID: wsID,
+		TabID:       tabID,
+		Epoch:       epoch,
+		Terminal:    &pty.Terminal{},
+	})
+	withMu(&state.mu, func() {
+		if state.tab != tabDetachedAuto {
+			t.Fatalf("late result must not move the detached tab, got %v", state.tab)
+		}
+		if state.Reattach.InFlight {
+			t.Fatal("late result must not re-arm the released guard")
+		}
+		if state.Terminal != originalTerm {
+			t.Fatal("late result must not install its terminal on a detached tab")
+		}
+	})
 }

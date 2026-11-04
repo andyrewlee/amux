@@ -25,8 +25,7 @@ func TestReattach_UsesCaptureSizeBeforeResizingForHistoryOnly(t *testing.T) {
 
 	state := &TerminalState{
 		SessionName: "session-1",
-		Running:     false,
-		Detached:    true,
+		tab:         tabDetachedAuto,
 		VTerm:       vterm.New(currentWidth, currentHeight),
 	}
 	m.tabs.ByWorkspace[wsID] = []*TerminalTab{

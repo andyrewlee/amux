@@ -45,7 +45,7 @@ func (m *ChangesModel) canConsumeWheel() bool {
 	// state independently of the working tree, so a clean worktree still
 	// has scrollable content — the Clean early-out only applies to
 	// working-tree mode.
-	if !m.branchMode && (m.gitStatus == nil || m.gitStatus.Clean) {
+	if !m.branchModeOn() && (m.gitStatus == nil || m.gitStatus.Clean) {
 		return false
 	}
 	if len(m.displayItems) == 0 {

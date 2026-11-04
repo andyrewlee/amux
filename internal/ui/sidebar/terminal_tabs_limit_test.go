@@ -17,7 +17,7 @@ func limitTestWorkspace(name string) *data.Workspace {
 
 func seedAttachedTerminal(m *TerminalModel, wsID string, tabID TerminalTabID) *TerminalState {
 	ts := &TerminalState{
-		Running:     true,
+		tab:         tabRunning,
 		SessionName: "sess-" + string(tabID),
 	}
 	tab := &TerminalTab{ID: tabID, Name: "Terminal", State: ts}
@@ -32,17 +32,12 @@ func assertAttached(t *testing.T, ts *TerminalState, want bool) {
 	t.Helper()
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	attached := ts.Running && !ts.Detached
+	attached := ts.tab == tabRunning
 	if attached != want {
-		t.Fatalf("attached = %v, want %v (Running=%v Detached=%v)", attached, want, ts.Running, ts.Detached)
+		t.Fatalf("attached = %v, want %v (tab=%v)", attached, want, ts.tab)
 	}
-	if !want {
-		if !ts.Detached {
-			t.Fatal("expected Detached=true after auto-detach")
-		}
-		if ts.UserDetached {
-			t.Fatal("auto-detach must not set UserDetached")
-		}
+	if !want && ts.tab != tabDetachedAuto {
+		t.Fatalf("auto-detach must land in the automatic state, got %v", ts.tab)
 	}
 }
 
@@ -105,18 +100,32 @@ func TestEnforceAttachedTerminalTabLimit_SkipsReattachInFlight(t *testing.T) {
 	m := NewTerminalModel()
 	inFlightWs := limitTestWorkspace("inflight")
 	inFlight := seedAttachedTerminal(m, string(inFlightWs.ID()), "inflight-tab")
+	// A mid-reattach tab: the attempt is in flight, so the tab left the
+	// attached set (a reattach begins only from a detached or stopped tab —
+	// see terminal_tab_model.go). Enforcement must not touch it: the LRU
+	// sweep can never invalidate an in-flight attempt.
+	inFlight.mu.Lock()
+	inFlight.tab = tabAttaching
 	inFlight.Reattach.InFlight = true
+	inFlight.mu.Unlock()
 	idleWs := limitTestWorkspace("idle")
 	idle := seedAttachedTerminal(m, string(idleWs.ID()), "idle-tab")
 	m.setWorkspace(limitTestWorkspace("active"))
 
 	detached := m.EnforceAttachedTerminalTabLimit(1)
 
-	if len(detached) != 1 || detached[0].TabID != "idle-tab" {
-		t.Fatalf("expected only idle-tab detached, got %+v", detached)
+	// The only attached tab is under the limit of 1, so nothing detaches —
+	// in particular not the tab whose reattach is in flight.
+	if len(detached) != 0 {
+		t.Fatalf("expected no detaches with the only attached tab at the limit, got %+v", detached)
 	}
-	assertAttached(t, inFlight, true)
-	assertAttached(t, idle, false)
+	inFlight.mu.Lock()
+	stillAttaching := inFlight.tab == tabAttaching && inFlight.Reattach.InFlight
+	inFlight.mu.Unlock()
+	if !stillAttaching {
+		t.Fatal("enforcement disturbed a tab with a reattach attempt in flight")
+	}
+	assertAttached(t, idle, true)
 }
 
 func TestEnforceAttachedTerminalTabLimit_RecentOutputOutranksStaleSelection(t *testing.T) {

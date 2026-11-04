@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/app/bulkops"
+	"github.com/andyrewlee/amux/internal/coalesce"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -16,18 +17,16 @@ import (
 // every advisory mark so the next request can run.
 func TestUpdatePanicClearsAdvisoryLatches(t *testing.T) {
 	ch := make(chan messages.FileWatcherEvent, 1)
+	// Latch git-status mid-flight with a pending follow-up owed.
+	latched := coalesce.New(mergeGitStatusWant)
+	latched.Admit(gitStatusWant{full: true})
+	latched.Admit(gitStatusWant{full: true})
 	a := &App{
 		gitStatus:     panicGitStatus{}, // panics inside the watcher handler
 		fileWatcher:   &git.FileWatcher{},
 		fileWatcherCh: ch,
-		gitStatusInFlight: map[string]bool{
-			"/tmp/repo/ws": true,
-		},
-		gitStatusPending: map[string]bool{
-			"/tmp/repo/ws": true,
-		},
-		gitStatusPendingFull: map[string]bool{
-			"/tmp/repo/ws": true,
+		gitStatusCoalesce: map[string]*coalesce.Entry[gitStatusWant]{
+			"/tmp/repo/ws": latched,
 		},
 		pendingWorkspaceCreate: pendingWorkspaceCreateState{
 			project: &data.Project{Name: "repo", Path: "/repo"},
@@ -40,7 +39,7 @@ func TestUpdatePanicClearsAdvisoryLatches(t *testing.T) {
 		runScriptStatusInFlight: true,
 		upgradeRunning:          true,
 	}
-	a.tmuxActivity.scanInFlight = true
+	a.tmuxActivity.scanEntry().Admit(scanWant{})
 
 	model, _ := a.Update(messages.FileWatcherEvent{Root: "/tmp/repo/ws"})
 
@@ -50,14 +49,8 @@ func TestUpdatePanicClearsAdvisoryLatches(t *testing.T) {
 	if a.err == nil {
 		t.Fatal("expected a.err to record the recovered panic")
 	}
-	if len(a.gitStatusInFlight) != 0 {
-		t.Fatalf("gitStatusInFlight still latched: %v", a.gitStatusInFlight)
-	}
-	if len(a.gitStatusPending) != 0 {
-		t.Fatalf("gitStatusPending still latched: %v", a.gitStatusPending)
-	}
-	if len(a.gitStatusPendingFull) != 0 {
-		t.Fatalf("gitStatusPendingFull still latched: %v", a.gitStatusPendingFull)
+	if len(a.gitStatusCoalesce) != 0 {
+		t.Fatalf("git-status coalescer still latched: %v", a.gitStatusCoalesce)
 	}
 	if a.pendingWorkspaceCreate != (pendingWorkspaceCreateState{}) {
 		t.Fatal("pendingWorkspaceCreate still armed — a stale handoff survives panics")
@@ -71,8 +64,8 @@ func TestUpdatePanicClearsAdvisoryLatches(t *testing.T) {
 	if a.upgradeRunning {
 		t.Fatal("upgradeRunning still latched")
 	}
-	if a.tmuxActivity.scanInFlight {
-		t.Fatal("tmuxActivity.scanInFlight still latched")
+	if a.tmuxActivity.scanEntry().InFlight() {
+		t.Fatal("tmux activity scan still latched")
 	}
 }
 
@@ -86,20 +79,25 @@ func TestResetAdvisoryLatchesAfterPanic_NilSafe(t *testing.T) {
 
 // TestResetAdvisoryLatchesAfterPanic_LeavesObligationMarks proves the reset
 // clears only single-flight marks — retry-obligation state like
-// settingsUIPersistPending (a write still owed) and rescanPending (a scan
+// settingsUIPersistPending (a write still owed) and a pending rescan (a scan
 // still requested) must survive: clearing them would silently drop owed work.
 func TestResetAdvisoryLatchesAfterPanic_LeavesObligationMarks(t *testing.T) {
 	a := &App{}
 	a.overlays.settingsUIPersistPending = true
-	a.tmuxActivity.rescanPending = true
+	scan := a.tmuxActivity.scanEntry()
+	scan.Admit(scanWant{}) // start
+	scan.Admit(scanWant{}) // pending rescan owed
 
 	a.resetAdvisoryLatchesAfterPanic()
 
 	if !a.overlays.settingsUIPersistPending {
 		t.Fatal("settingsUIPersistPending cleared — a pending save must stay owed")
 	}
-	if !a.tmuxActivity.rescanPending {
-		t.Fatal("rescanPending cleared — a queued rescan must stay owed")
+	if got := a.tmuxActivity.scanEntry().State(); got != coalesce.IdlePending {
+		t.Fatalf("pending rescan cleared (state %v) — a queued rescan must stay owed", got)
+	}
+	if rerun, _ := a.tmuxActivity.scanEntry().Complete(); !rerun {
+		t.Fatal("the surviving obligation must still discharge a follow-up")
 	}
 }
 

@@ -67,7 +67,7 @@ func (m *TerminalModel) RebindWorkspaceID(previous, current *data.Workspace) tea
 		},
 		Lock: func(t *TerminalTab) *sync.Mutex { return &t.State.mu },
 		ExamineLocked: func(t *TerminalTab) bool {
-			return t.State.Running && t.State.Terminal != nil
+			return t.State.tab == tabRunning && t.State.Terminal != nil
 		},
 		Restart: func(t *TerminalTab) tea.Cmd {
 			m.stopPTYReader(t.State)

@@ -54,10 +54,19 @@ func (m *Model) workspaceRowIndex(wsID string) int {
 	return -1
 }
 
-// pendingSelectMaxLoads bounds how many project rebuilds a pending selection
-// may wait for. Two covers the reload the creation itself queued plus one
-// concurrent reload landing first.
-const pendingSelectMaxLoads = 2
+// armPendingSelection arms the debounce for wsID with a fresh load budget.
+func (m *Model) armPendingSelection(wsID string) {
+	m.pendingSelectID = wsID
+	m.pendingSelectLoads = pendingSelectMaxLoads
+	m.pendingSelectState = nextPendingSelect(m.pendingSelectState, pendingSelectArm)
+}
+
+// retirePendingSelection steps the machine back to Idle and drops the ID.
+func (m *Model) retirePendingSelection(ev pendingSelectEvent) {
+	m.pendingSelectState = nextPendingSelect(m.pendingSelectState, ev)
+	m.pendingSelectID = ""
+	m.pendingSelectLoads = 0
+}
 
 // SelectWorkspace moves the cursor onto the workspace row with the given ID. A
 // workspace that has no row yet (its projects reload is still in flight, as is
@@ -68,21 +77,22 @@ func (m *Model) SelectWorkspace(wsID string) {
 		return
 	}
 	m.markContentDirty()
-	m.pendingSelectID = wsID
-	m.pendingSelectLoads = pendingSelectMaxLoads
+	m.armPendingSelection(wsID)
 	m.applyPendingSelection()
 }
 
 // clearPendingSelection drops a selection that is still waiting on a row.
 func (m *Model) clearPendingSelection() {
-	m.pendingSelectID = ""
-	m.pendingSelectLoads = 0
+	if m.pendingSelectState != pendingSelectArmed {
+		return
+	}
+	m.retirePendingSelection(pendingSelectClear)
 }
 
 // applyPendingSelection lands the cursor on the pending workspace if its row
 // already exists. It reports whether the selection was consumed.
 func (m *Model) applyPendingSelection() bool {
-	if m.pendingSelectID == "" {
+	if m.pendingSelectState != pendingSelectArmed {
 		return false
 	}
 	idx := m.workspaceRowIndex(m.pendingSelectID)
@@ -90,7 +100,7 @@ func (m *Model) applyPendingSelection() bool {
 		return false
 	}
 	m.cursor = idx
-	m.clearPendingSelection()
+	m.retirePendingSelection(pendingSelectApply)
 	return true
 }
 
@@ -99,11 +109,11 @@ func (m *Model) applyPendingSelection() bool {
 // not there — so a row that never arrives cannot strand the ID (see the
 // pendingSelectLoads field comment).
 func (m *Model) applyPendingSelectionForLoad() {
-	if m.pendingSelectID == "" || m.applyPendingSelection() {
+	if m.pendingSelectState != pendingSelectArmed || m.applyPendingSelection() {
 		return
 	}
 	if m.pendingSelectLoads--; m.pendingSelectLoads <= 0 {
-		m.clearPendingSelection()
+		m.retirePendingSelection(pendingSelectExpire)
 	}
 }
 
@@ -125,8 +135,7 @@ func (m *Model) resolveCursorAfterRebuild(prevCursor int, selectedID string) {
 	// shelved row once the projects reload lands — pending lets that row
 	// re-take the cursor instead of stranding it on the predecessor. Deletes
 	// never reappear, so the pending ID simply expires within the bound.
-	m.pendingSelectID = selectedID
-	m.pendingSelectLoads = pendingSelectMaxLoads
+	m.armPendingSelection(selectedID)
 	// Land on the nearest selectable row strictly
 	// ABOVE its old slot (the predecessor) — not the successor that shifted up into
 	// that slot — so repeated deletes walk upward instead of chewing downward.

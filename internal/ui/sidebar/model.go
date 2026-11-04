@@ -34,15 +34,18 @@ type ChangesModel struct {
 	// input-mode/esc/enter contract).
 	filter common.FilterInput
 
-	// Branch mode: when true, displayItems lists files changed vs base
+	// Branch mode: when engaged, displayItems lists files changed vs base
 	// (BranchChangesVsBase) instead of working-tree status, feeding the
 	// existing DiffModeBranch diff viewer. Additive to staged/unstaged/
-	// untracked — toggled independently, off by default.
-	branchMode    bool
+	// untracked — toggled independently, off by default. The phase machine
+	// is the shared fetch table (fetch_model.go): idle means off, loading/
+	// loaded/error are the engaged phases; branchErr is the error payload
+	// carried beside the phase. branchLoadID guards a stale toggle-triggered
+	// fetch from clobbering a newer one.
+	branch        fetchState
 	branchChanges []git.Change
-	branchLoading bool
 	branchErr     error
-	branchLoadID  int // guards a stale toggle-triggered fetch from clobbering a newer one
+	branchLoadID  int
 
 	// scriptRunning mirrors whether the workspace's `run` script is live, as
 	// last reported by the app (which owns the ScriptRunner). It is keyed by
@@ -52,10 +55,13 @@ type ChangesModel struct {
 	scriptRunning     bool
 
 	// Ahead/behind vs base (git.AheadBehind), refreshed on workspace switch
-	// and manual refresh; rendered as a badge regardless of branchMode.
+	// and manual refresh; rendered as a badge regardless of branch mode.
+	// Same shared fetch table as the branch list (fetch_model.go); the
+	// ahead/behind ints are the loaded payload. aheadBehindLoadID guards a
+	// stale refresh from clobbering a newer one.
+	aheadBehind       fetchState
 	ahead             int
 	behind            int
-	aheadBehindErr    error
 	aheadBehindLoadID int // guards a stale refresh from clobbering a newer one
 
 	// Display list (flattened from grouped status, or from branchChanges when
@@ -83,6 +89,10 @@ type ChangesModel struct {
 // markContentDirty bumps contentVersion; see the field's invariant.
 func (m *ChangesModel) markContentDirty() { m.contentVersion++ }
 
+// branchModeOn reports whether the branch-vs-base list is engaged — the
+// projection of the branch fetch phase's idle state (see fetch_model.go).
+func (m *ChangesModel) branchModeOn() bool { return m.branch != fetchIdle }
+
 // ContentVersion returns the monotonic version of the inputs to View. The
 // compose layer in internal/app skips rebuilding the content string while
 // this version and the compose geometry are unchanged.
@@ -105,7 +115,7 @@ func NewChangesModel() *ChangesModel {
 func (m *ChangesModel) rebuildDisplayList() {
 	m.displayItems = nil
 
-	if m.branchMode {
+	if m.branchModeOn() {
 		m.rebuildBranchDisplayList()
 		m.clampCursorToDisplayItems()
 		return
@@ -216,7 +226,7 @@ func (m *ChangesModel) clampCursorToDisplayItems() {
 }
 
 func (m *ChangesModel) listHeaderLines() int {
-	if !m.branchMode && (m.gitStatus == nil || m.gitStatus.Clean) {
+	if !m.branchModeOn() && (m.gitStatus == nil || m.gitStatus.Clean) {
 		return 0
 	}
 	header := 0

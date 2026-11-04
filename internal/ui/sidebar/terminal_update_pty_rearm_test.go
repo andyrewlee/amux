@@ -19,7 +19,7 @@ func newRearmFixture(t *testing.T) (*TerminalModel, *TerminalState, string, Term
 	wsID := string(ws.ID())
 	tabID := generateTerminalTabID()
 	ts := &TerminalState{
-		Running: true,
+		tab: tabRunning,
 	}
 	ts.State.LastOutputAt = time.Now().Add(-time.Second)
 	ts.State.FlushPendingSince = time.Now().Add(-time.Second)

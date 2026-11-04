@@ -15,20 +15,19 @@ import (
 // viewKeyNow snapshots every input View() reads.
 func (m *Model) viewKeyNow() diffViewKey {
 	key := diffViewKey{
-		diff:          m.diff,
-		loading:       m.loading,
-		scroll:        m.scroll,
-		hunkIdx:       m.hunkIdx,
-		wrap:          m.wrap,
-		focused:       m.focused,
-		width:         m.width,
-		height:        m.height,
-		stylesRev:     m.stylesRev,
-		searching:     m.searching,
-		query:         m.query,
-		matchIdx:      m.matchIdx,
-		searchWrapped: m.searchWrapped,
-		matchCount:    len(m.matches),
+		diff:       m.diff,
+		loading:    m.loading,
+		scroll:     m.scroll,
+		hunkIdx:    m.hunkIdx,
+		wrap:       m.wrap,
+		focused:    m.focused,
+		width:      m.width,
+		height:     m.height,
+		stylesRev:  m.stylesRev,
+		search:     m.search,
+		query:      m.query,
+		matchIdx:   m.matchIdx,
+		matchCount: len(m.matches),
 	}
 	if m.err != nil {
 		key.errStr = m.err.Error()
@@ -52,10 +51,10 @@ func (m *Model) ContentVersion() uint64 {
 	fp = common.FoldFingerprint(fp, uint64(k.width))
 	fp = common.FoldFingerprint(fp, uint64(k.height))
 	fp = common.FoldFingerprint(fp, k.stylesRev)
-	fp = common.FoldFingerprintBool(fp, k.searching)
+	fp = common.FoldFingerprintBool(fp, k.search.Editing())
 	fp = common.FoldFingerprintString(fp, k.query)
 	fp = common.FoldFingerprint(fp, uint64(k.matchIdx))
-	fp = common.FoldFingerprintBool(fp, k.searchWrapped)
+	fp = common.FoldFingerprintBool(fp, k.search.WrapMarked())
 	fp = common.FoldFingerprint(fp, uint64(k.matchCount))
 	// loadID advances on every diff load, so it stands in for the *DiffResult
 	// pointer — a new result can only arrive under a new generation.
@@ -292,7 +291,7 @@ func (m *Model) renderFooter() string {
 	footerStyle := lipgloss.NewStyle().
 		Foreground(common.ColorMuted())
 
-	if m.searching {
+	if m.search.Editing() {
 		return footerStyle.Render("/"+m.query+"█") + footerStyle.Render("  esc done · enter accept")
 	}
 
@@ -318,7 +317,7 @@ func (m *Model) renderFooter() string {
 	if m.query != "" {
 		if len(m.matches) > 0 && m.matchIdx >= 0 {
 			hit := fmt.Sprintf("match %d/%d", m.matchIdx+1, len(m.matches))
-			if m.searchWrapped {
+			if m.search.WrapMarked() {
 				hit += " (wrapped)"
 			}
 			parts = append(parts, hit)

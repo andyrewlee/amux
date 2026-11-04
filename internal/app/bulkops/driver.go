@@ -98,6 +98,9 @@ type Seams struct {
 type Driver struct {
 	seams Seams
 
+	// phase is the driver's control state (the checked driver_phase machine
+	// above); kind/queue/markIDs/headID/counters are its extended state.
+	phase     Phase
 	kind      Kind
 	queue     []Target
 	markIDs   []string // every target's mark — cleared on the dashboard at drain
@@ -112,8 +115,19 @@ func New(seams Seams) Driver {
 	return Driver{seams: seams}
 }
 
+// step advances the phase machine, logging (and ignoring) any transition
+// the table rejects — by construction every runtime step is legal, so a
+// rejection is a programming error surfaced in the log, never a crash.
+func (d *Driver) step(event phaseEvent) {
+	if next, ok := phaseMachine.Next(d.phase, event); ok {
+		d.phase = next
+	} else {
+		logging.Warn("Bulk driver: rejected phase transition %s --%s-->", d.phase, event)
+	}
+}
+
 // Active reports whether any batch is in progress.
-func (d *Driver) Active() bool { return d.total > 0 }
+func (d *Driver) Active() bool { return d.phase == PhaseDraining }
 
 // ActiveFor reports whether a batch of the given kind is draining — used
 // to suppress that op's per-row toasts in favor of the batch summary at
@@ -138,6 +152,7 @@ func (d *Driver) Start(kind Kind, targets []Target) tea.Cmd {
 		logging.Warn("Bulk op rejected: a batch is already draining")
 		return d.seams.Warn("A bulk operation is already running")
 	}
+	d.step(evtBatchStart)
 	markIDs := make([]string, 0, len(targets))
 	for _, t := range targets {
 		markIDs = append(markIDs, t.MarkID)
@@ -161,6 +176,7 @@ func (d *Driver) Finished(ws *data.Workspace, ok bool) tea.Cmd {
 		return nil
 	}
 	d.headID = ""
+	d.step(evtHeadCompleted)
 	if ok {
 		d.succeeded++
 	} else {
@@ -178,6 +194,7 @@ func (d *Driver) Abandon() {
 	if !d.Active() {
 		return
 	}
+	d.step(evtBatchAbandoned)
 	d.seams.ClearMarks(d.markIDs)
 	d.reset()
 }
@@ -205,8 +222,10 @@ func (d *Driver) advance() tea.Cmd {
 			// — count and move on; no completion will arrive for it.
 			d.headID = ""
 			d.failed++
+			d.step(evtTargetSkipped)
 			continue
 		}
+		d.step(evtOpAccepted)
 		return common.SafeBatch(cmds...)
 	}
 	return d.finish()
@@ -217,8 +236,15 @@ func (d *Driver) advance() tea.Cmd {
 // failed) now.
 func (d *Driver) finish() tea.Cmd {
 	if d.total == 0 {
+		// An empty batch is still a batch: Start stepped idle→draining, so
+		// finish must step back or the driver wedges draining with nothing
+		// in flight (no head op will ever arrive to drain it). There is
+		// nothing to summarize and no one to clear marks for.
+		d.step(evtDrainFinished)
+		d.reset()
 		return nil
 	}
+	d.step(evtDrainFinished)
 	markIDs := d.markIDs
 	total, succeeded, failed := d.total, d.succeeded, d.failed
 	verb := d.kind.Verb()
@@ -230,8 +256,15 @@ func (d *Driver) finish() tea.Cmd {
 	return d.seams.Success(fmt.Sprintf("%s %d of %d", verb, succeeded, total))
 }
 
-// reset clears the batch state, keeping the injected seams.
+// reset clears the batch state, keeping the injected seams. The phase
+// field is owned by the machine table — callers that finished or abandoned
+// have already stepped to idle, and a future caller reaching reset
+// mid-drain steps the abandonment edge (logged if the table rejects it)
+// instead of writing the field directly.
 func (d *Driver) reset() {
+	if d.phase != PhaseIdle {
+		d.step(evtBatchAbandoned)
+	}
 	d.kind = Shelve
 	d.queue = nil
 	d.markIDs = nil

@@ -62,7 +62,7 @@ func TestDashboardProjectRowActive_BusySupersedesActive(t *testing.T) {
 
 	// Mark the project deleting: the row must no longer render active even though
 	// the workspace is still in the active set.
-	m.busyWorkspaces = map[string]WorkspaceOp{main.Root: WorkspaceOpDelete}
+	m.workspaceOps = map[string]workspaceOpEntry{main.Root: {state: opBusy, op: WorkspaceOpDelete}}
 	if m.projectRowActive(mainID, main) {
 		t.Fatal("a busy project must not render active")
 	}

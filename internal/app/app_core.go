@@ -10,6 +10,7 @@ import (
 
 	"github.com/andyrewlee/amux/internal/app/bulkops"
 	"github.com/andyrewlee/amux/internal/app/workspacesvc"
+	"github.com/andyrewlee/amux/internal/coalesce"
 	"github.com/andyrewlee/amux/internal/config"
 	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/git"
@@ -106,11 +107,9 @@ type App struct {
 
 	// Git-status request dedup: at most one refresh subprocess per
 	// root in flight; requests arriving during one coalesce into a single
-	// follow-up. All three maps are touched only on the Update goroutine —
-	// the worker Cmds never read them.
-	gitStatusInFlight    map[string]bool
-	gitStatusPending     map[string]bool
-	gitStatusPendingFull map[string]bool
+	// follow-up (the formally verified internal/coalesce machine). Touched
+	// only on the Update goroutine — the worker Cmds never read it.
+	gitStatusCoalesce map[string]*coalesce.Entry[gitStatusWant]
 
 	// Limits
 	maxAttachedAgentTabs    int
@@ -188,13 +187,20 @@ type App struct {
 	// presentDialog on each shown app dialog; dialogOpenSeq records the seq of
 	// the currently-open instance. A bound result whose seq no longer matches
 	// dialogOpenSeq is stale (its dialog was replaced) and is dropped.
+	// dialogSlot is the checked control state around the seq pair (see
+	// app_dialog_handoff_state.go's dialog-slot machine).
 	dialogSeq     int
 	dialogOpenSeq int
+	dialogSlot    dialogSlotState
 	// pendingWorkspaceCreate carries the create-workspace→agent-picker
 	// handoff: it is written inside a dialog result and consumed by the NEXT
 	// dialog's result (or its cancel), so it cannot live in dlg — a blanket
-	// clear at each result would wipe it before consumption.
+	// clear at each result would wipe it before consumption. dialogHandoff is
+	// the checked control state covering both staged handoffs (see
+	// app_dialog_handoff_state.go); the slots are written only through its
+	// stage/consume/cancel helpers.
 	pendingWorkspaceCreate pendingWorkspaceCreateState
+	dialogHandoff          dialogHandoffState
 	// pendingLaunchTask carries the assistant/workspace picked with ctrl+t
 	// across to the first-task dialog before the LaunchAgent dispatch.
 	pendingLaunchTask pendingLaunchTaskState

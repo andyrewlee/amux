@@ -23,7 +23,7 @@ type diffMatch struct {
 
 // Searching reports whether the query field owns input — used by the center
 // wrapper to keep viewer keys out of tab-level handling while typing.
-func (m *Model) Searching() bool { return m.searching }
+func (m *Model) Searching() bool { return m.search.Editing() }
 
 // updateSearchEdit is the query-field input loop: every key edits the query
 // and recomputes matches live (selection never jumps until accept), and
@@ -48,7 +48,7 @@ func (m *Model) updateSearchEdit(msg tea.Msg) (*Model, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("esc"))):
-		m.searching = false
+		m.search.Apply(m.search.LeaveEvent(m.query, len(m.matches), m.matchIdx))
 		return m, nil
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))):
 		m.acceptSearch()
@@ -72,21 +72,22 @@ func (m *Model) updateSearchEdit(msg tea.Msg) (*Model, tea.Cmd) {
 
 // acceptSearch leaves edit mode: an empty query clears search state; with
 // matches it selects the first and scrolls it (with hunk context) into view;
-// with none it keeps the query so `0 matches` shows and n/N stay inert.
+// with none it keeps the query so `0 matches` shows and n/N stay inert. The
+// close events step the shared search machine (common/search_model.go).
 func (m *Model) acceptSearch() {
-	m.searching = false
-	m.searchWrapped = false
-	if m.query == "" {
+	switch {
+	case m.query == "":
 		m.matches = nil
 		m.matchIdx = -1
-		return
-	}
-	if len(m.matches) == 0 {
+		m.search.Apply(common.SearchCloseIdle)
+	case len(m.matches) == 0:
 		m.matchIdx = -1
-		return
+		m.search.Apply(common.SearchCloseNoMatch)
+	default:
+		m.matchIdx = 0
+		m.search.Apply(common.SearchCloseMatched)
+		m.scrollToMatch()
 	}
-	m.matchIdx = 0
-	m.scrollToMatch()
 }
 
 // clearSearch drops the query state entirely — the browse-mode esc.
@@ -94,7 +95,7 @@ func (m *Model) clearSearch() {
 	m.query = ""
 	m.matches = nil
 	m.matchIdx = -1
-	m.searchWrapped = false
+	m.search.Apply(common.SearchDrop)
 }
 
 // jumpMatch advances the match selection by dir, wrapping at the ends and
@@ -105,13 +106,14 @@ func (m *Model) jumpMatch(dir int) {
 		return
 	}
 	next := m.matchIdx + dir
-	m.searchWrapped = false
 	if next >= len(m.matches) {
 		next = 0
-		m.searchWrapped = true
+		m.search.Apply(common.SearchJumpWrap)
 	} else if next < 0 {
 		next = len(m.matches) - 1
-		m.searchWrapped = true
+		m.search.Apply(common.SearchJumpWrap)
+	} else {
+		m.search.Apply(common.SearchJumpStay)
 	}
 	m.matchIdx = next
 	m.scrollToMatch()
@@ -205,7 +207,6 @@ func (m *Model) recomputeMatches() {
 	m.matches = m.matches[:0]
 	if m.diff == nil || m.query == "" {
 		m.matchIdx = -1
-		m.searchWrapped = false
 		return
 	}
 	search := common.NewLiteralSearch(m.query)
@@ -215,22 +216,25 @@ func (m *Model) recomputeMatches() {
 		}
 	}
 	// Keep the selection on the same line when possible — live-recompute
-	// while typing should not jump the viewport around.
-	if len(m.matches) == 0 {
+	// while typing should not jump the viewport around. The diff viewer's
+	// repair falls back to the LAST surviving match, so it never reaches
+	// the shared machine's cleared state (pinned drift — see
+	// common/search_model.go).
+	switch {
+	case len(m.matches) == 0:
 		m.matchIdx = -1
-		return
-	}
-	if prevLine < 0 {
+	case prevLine < 0:
 		m.matchIdx = 0
-		return
-	}
-	for i, mt := range m.matches {
-		if mt.lineIdx >= prevLine {
-			m.matchIdx = i
-			return
+	default:
+		m.matchIdx = len(m.matches) - 1
+		for i, mt := range m.matches {
+			if mt.lineIdx >= prevLine {
+				m.matchIdx = i
+				break
+			}
 		}
 	}
-	m.matchIdx = len(m.matches) - 1
+	m.search.Apply(m.search.RefreshEvent(len(m.matches), m.matchIdx >= 0))
 }
 
 // rowHighlight returns the rune span of the row's raw segment that the

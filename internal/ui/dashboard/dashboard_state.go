@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/fsm"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
 
@@ -17,39 +19,6 @@ func (m *Model) tickSpinner() tea.Cmd {
 	return common.SafeTick(spinnerInterval, func(t time.Time) tea.Msg {
 		return SpinnerTickMsg{}
 	})
-}
-
-// startSpinnerIfNeeded starts spinner ticks if we have pending activity.
-func (m *Model) startSpinnerIfNeeded() tea.Cmd {
-	if m.spinnerActive {
-		return nil
-	}
-	if len(m.creatingWorkspaces) == 0 && len(m.busyWorkspaces) == 0 {
-		return nil
-	}
-	m.spinnerActive = true
-	m.markContentDirty()
-	return m.tickSpinner()
-}
-
-// StartSpinnerIfNeeded is the public version for external callers.
-func (m *Model) StartSpinnerIfNeeded() tea.Cmd {
-	return m.startSpinnerIfNeeded()
-}
-
-// SetWorkspaceCreating marks a workspace as creating (or clears it).
-func (m *Model) SetWorkspaceCreating(ws *data.Workspace, creating bool) tea.Cmd {
-	if ws == nil {
-		return nil
-	}
-	if creating {
-		m.creatingWorkspaces[ws.Root] = ws
-		m.rebuildRows()
-		return m.startSpinnerIfNeeded()
-	}
-	delete(m.creatingWorkspaces, ws.Root)
-	m.rebuildRows()
-	return nil
 }
 
 // WorkspaceOp labels the lifecycle mutation a workspace row is busy with —
@@ -63,14 +32,174 @@ const (
 	WorkspaceOpRestore WorkspaceOp = "restoring"
 )
 
+// workspaceOpState is the per-root lifecycle machine: Idle → Creating | Busy
+// → Idle. Map presence IS non-Idle — clearing returns the root to Idle by
+// deleting the entry, so a leaked entry cannot hide behind an empty verb.
+type workspaceOpState int
+
+const (
+	opCreating workspaceOpState = iota + 1 // entry present: workspace being created
+	opBusy                                 // entry present: workspace mid-mutation
+)
+
+type workspaceOpEvent int
+
+const (
+	opEventCreate  workspaceOpEvent = iota // SetWorkspaceCreating(true)
+	opEventCreated                         // SetWorkspaceCreating(false)
+	opEventBegin                           // SetWorkspaceBusy(true)
+	opEventEnd                             // SetWorkspaceBusy(false)
+)
+
+// workspaceOpMachine is the checked lifecycle table. A begin on a
+// still-creating root supersedes the creating latch (the old code kept both
+// map entries; render already gave Busy precedence, so the visible status is
+// unchanged). Undefined (state, event) pairs — e.g. opEventEnd while only
+// Creating — are rejections the call sites treat as no-ops, matching the
+// old delete-from-the-other-map no-ops.
+var workspaceOpMachine = fsm.MustCompile(fsm.Machine[workspaceOpState, workspaceOpEvent]{
+	Name:    "dashboard-workspace-op",
+	Initial: 0, // Idle: no map entry
+	Steps: []fsm.Step[workspaceOpState, workspaceOpEvent]{
+		{From: 0, Event: opEventCreate, To: opCreating},
+		{From: 0, Event: opEventBegin, To: opBusy},
+		{From: opCreating, Event: opEventCreate, To: opCreating},
+		{From: opCreating, Event: opEventCreated, To: 0},
+		{From: opCreating, Event: opEventBegin, To: opBusy},
+		{From: opBusy, Event: opEventBegin, To: opBusy},
+		{From: opBusy, Event: opEventEnd, To: 0},
+	},
+})
+
+// nextWorkspaceOp applies an event through the checked table; a rejected
+// event leaves the state untouched (the no-op guard).
+func nextWorkspaceOp(prev workspaceOpState, ev workspaceOpEvent) workspaceOpState {
+	if next, ok := workspaceOpMachine.Next(prev, ev); ok {
+		return next
+	}
+	return prev
+}
+
+// workspaceOpEntry is one root's lifecycle state plus its extended state:
+// ws is the pending workspace while Creating (the row rebuildStructuralRows
+// renders), op is the mutation verb while Busy (the spinner label).
+type workspaceOpEntry struct {
+	state workspaceOpState
+	ws    *data.Workspace
+	op    WorkspaceOp
+}
+
+// workspaceOpMachineCheck formally verifies the lifecycle table: both
+// busy states are reachable, every finish event returns to Idle, and no
+// event can enter a busy state except its own start.
+func workspaceOpMachineCheck() error {
+	idle := workspaceOpState(0)
+	return workspaceOpMachine.Check(fsm.Checker[workspaceOpState, workspaceOpEvent]{
+		Alphabet:             []workspaceOpEvent{opEventCreate, opEventCreated, opEventBegin, opEventEnd},
+		AllDeclaredReachable: true,
+		Edge: func(from workspaceOpState, ev workspaceOpEvent, to workspaceOpState) error {
+			if (ev == opEventCreated || ev == opEventEnd) && to != idle {
+				return fmt.Errorf("event %v must return to Idle, got %v", ev, to)
+			}
+			if ev == opEventCreate && to != opCreating {
+				return fmt.Errorf("opEventCreate must land Creating, got %v", to)
+			}
+			if ev == opEventBegin && to != opBusy {
+				return fmt.Errorf("opEventBegin must land Busy, got %v", to)
+			}
+			return nil
+		},
+	})
+}
+
+// startSpinnerIfNeeded starts spinner ticks if we have pending activity.
+// Derived from the single op-state map: the spinner runs iff any root is
+// Creating or Busy, so the two can no longer desync.
+func (m *Model) startSpinnerIfNeeded() tea.Cmd {
+	if m.spinnerActive {
+		return nil
+	}
+	if len(m.workspaceOps) == 0 {
+		return nil
+	}
+	m.spinnerActive = true
+	m.markContentDirty()
+	return m.tickSpinner()
+}
+
+// StartSpinnerIfNeeded is the public version for external callers.
+func (m *Model) StartSpinnerIfNeeded() tea.Cmd {
+	return m.startSpinnerIfNeeded()
+}
+
+// busyOp reports the mutation verb for a root mid-mutation — the render-side
+// lookup behind the row spinner.
+func (m *Model) busyOp(root string) (WorkspaceOp, bool) {
+	entry, ok := m.workspaceOps[root]
+	if !ok || entry.state != opBusy {
+		return "", false
+	}
+	return entry.op, true
+}
+
+// creating reports whether a root's workspace is still being created — the
+// render-side lookup behind the "creating" row status.
+func (m *Model) creating(root string) bool {
+	entry, ok := m.workspaceOps[root]
+	return ok && entry.state == opCreating
+}
+
+// stepWorkspaceOp steps one root's lifecycle machine, carrying the extended
+// state (the pending *Workspace for Creating rows, the verb for Busy rows).
+// Returning to Idle deletes the entry — map presence is non-Idle — and a
+// self-loop refreshes the payload only when the caller supplied one, so a
+// rejected clear cannot wipe a held verb.
+func (m *Model) stepWorkspaceOp(root string, ev workspaceOpEvent, ws *data.Workspace, op WorkspaceOp) {
+	entry, ok := m.workspaceOps[root]
+	prev := workspaceOpState(0)
+	if ok {
+		prev = entry.state
+	}
+	next := nextWorkspaceOp(prev, ev)
+	switch {
+	case next == 0:
+		delete(m.workspaceOps, root)
+	case next == prev && ok:
+		if ws != nil {
+			entry.ws = ws
+		}
+		if op != "" {
+			entry.op = op
+		}
+		m.workspaceOps[root] = entry
+	default:
+		m.workspaceOps[root] = workspaceOpEntry{state: next, ws: ws, op: op}
+	}
+}
+
+// SetWorkspaceCreating marks a workspace as creating (or clears it).
+func (m *Model) SetWorkspaceCreating(ws *data.Workspace, creating bool) tea.Cmd {
+	if ws == nil {
+		return nil
+	}
+	if creating {
+		m.stepWorkspaceOp(ws.Root, opEventCreate, ws, "")
+		m.rebuildRows()
+		return m.startSpinnerIfNeeded()
+	}
+	m.stepWorkspaceOp(ws.Root, opEventCreated, nil, "")
+	m.rebuildRows()
+	return nil
+}
+
 // SetWorkspaceBusy marks a workspace as mid-mutation under op (or clears it).
 func (m *Model) SetWorkspaceBusy(root string, op WorkspaceOp, on bool) tea.Cmd {
 	if on {
-		m.busyWorkspaces[root] = op
+		m.stepWorkspaceOp(root, opEventBegin, nil, op)
 		m.markContentDirty()
 		return m.startSpinnerIfNeeded()
 	}
-	delete(m.busyWorkspaces, root)
+	m.stepWorkspaceOp(root, opEventEnd, nil, "")
 	m.markContentDirty()
 	return nil
 }
@@ -275,7 +404,7 @@ func filterDashboardRows(rows []Row, query string) []Row {
 
 func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 	existingRoots := make(map[string]bool, len(project.Workspaces))
-	workspaces := make([]*data.Workspace, 0, len(project.Workspaces)+len(m.creatingWorkspaces))
+	workspaces := make([]*data.Workspace, 0, len(project.Workspaces)+len(m.workspaceOps))
 
 	for i := range project.Workspaces {
 		ws := &project.Workspaces[i]
@@ -283,8 +412,9 @@ func (m *Model) sortedWorkspaces(project *data.Project) []*data.Workspace {
 		workspaces = append(workspaces, ws)
 	}
 
-	for _, ws := range m.creatingWorkspaces {
-		if ws == nil || ws.Repo != project.Path {
+	for _, entry := range m.workspaceOps {
+		ws := entry.ws
+		if entry.state != opCreating || ws == nil || ws.Repo != project.Path {
 			continue
 		}
 		if existingRoots[ws.Root] {
@@ -314,8 +444,10 @@ func (m *Model) projectRowActive(activityWorkspaceID string, main *data.Workspac
 	if activityWorkspaceID == "" || !m.activeWorkspaceIDs[activityWorkspaceID] {
 		return false
 	}
-	if main != nil && m.busyWorkspaces[main.Root] != "" {
-		return false
+	if main != nil {
+		if _, busy := m.busyOp(main.Root); busy {
+			return false
+		}
 	}
 	return true
 }

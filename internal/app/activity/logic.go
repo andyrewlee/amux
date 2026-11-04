@@ -374,13 +374,7 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 		updatedStates[session.Name] = state
 
 		// Determine if session is active based on score and hold duration
-		isActive := state.Score >= ScoreThreshold
-		if !isActive && !state.LastActiveAt.IsZero() {
-			// Check hold duration - stay active for a bit after last change
-			if now.Sub(state.LastActiveAt) < HoldDuration {
-				isActive = true
-			}
-		}
+		isActive := sessionActive(state, now)
 
 		if isActive {
 			if observedWork {

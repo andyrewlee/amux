@@ -41,12 +41,15 @@ type OutputDialog struct {
 	// Search state. While editing, the dialog consumes ALL input (keys and
 	// paste) into the query field — nothing reaches the terminal or the
 	// app-level `a` intercept. The app reads Editing() to gate those.
+	// search (search_model.go) is the control state — editing, accepted,
+	// one-shot wrap marker, no-match, cleared; query/matches/matchIdx are
+	// its extended state, kept here alongside. Follow mode is orthogonal
+	// to search and stays a bool.
 	searchable bool
-	editing    bool
 	query      string
 	matches    []outputDialogMatch
-	matchIdx   int  // selected match; -1 when query empty or no matches
-	wrapped    bool // the most recent n/N jump wrapped (one-jump footer marker)
+	matchIdx   int // selected match; -1 when query empty, no matches, or evicted
+	search     SearchCtl
 }
 
 // outputDialogMatch and the search machinery (updateQueryEdit, jumpMatch,
@@ -122,7 +125,7 @@ func (d *OutputDialog) SetSearchable(on bool) { d.searchable = on }
 // Editing reports whether the dialog is in query-edit mode — consuming all
 // input including paste. The owning overlay uses it to gate app-level key
 // intercepts (`a` attach) and paste fall-through.
-func (d *OutputDialog) Editing() bool { return d.editing }
+func (d *OutputDialog) Editing() bool { return d.search.Editing() }
 
 // Text returns the full retained snapshot — what `y` copy-out places on the
 // clipboard. The dialog itself never copies; the owning overlay slot wires
@@ -134,7 +137,7 @@ func (d *OutputDialog) Update(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 		return d, nil
 	}
 	// Query-edit mode consumes all input and never emits a close result.
-	if d.editing {
+	if d.search.Editing() {
 		return d.updateQueryEdit(msg)
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
@@ -146,7 +149,7 @@ func (d *OutputDialog) Update(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 		d.visible = false
 		return d, func() tea.Msg { return OutputDialogResult{} }
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("/"))) && d.searchable:
-		d.editing = true
+		d.search.Apply(SearchOpenField)
 		return d, nil
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("n"))):
 		d.jumpMatch(1)
@@ -154,34 +157,34 @@ func (d *OutputDialog) Update(msg tea.Msg) (*OutputDialog, tea.Cmd) {
 		d.jumpMatch(-1)
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("f"))):
 		d.following = !d.following
-		d.wrapped = false
+		d.search.Apply(SearchScroll)
 		if d.following {
 			d.offset = len(d.lines)
 		}
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("up", "k"))):
 		d.following = false
-		d.wrapped = false
+		d.search.Apply(SearchScroll)
 		d.offset--
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("down", "j"))):
 		d.following = false
-		d.wrapped = false
+		d.search.Apply(SearchScroll)
 		d.offset++
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("pgup"))):
 		d.following = false
-		d.wrapped = false
+		d.search.Apply(SearchScroll)
 		d.offset -= d.viewCap
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("pgdown"))):
 		d.following = false
-		d.wrapped = false
+		d.search.Apply(SearchScroll)
 		d.offset += d.viewCap
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("g"))):
 		d.following = false
-		d.wrapped = false
+		d.search.Apply(SearchScroll)
 		d.offset = 0
 	case key.Matches(keyMsg, key.NewBinding(key.WithKeys("G"))):
 		// Jump-to-bottom doubles as follow-resume (tail -f convention).
 		d.following = true
-		d.wrapped = false
+		d.search.Apply(SearchScroll)
 		d.offset = len(d.lines)
 	}
 	d.clampOffset()
@@ -270,7 +273,7 @@ func (d *OutputDialog) renderFooter(w, capLines int, muted lipgloss.Style) strin
 	}
 	accent := lipgloss.NewStyle().Foreground(ColorPrimary()).Bold(true)
 	switch {
-	case d.editing:
+	case d.search.Editing():
 		hint := "  esc done · enter accept"
 		echo := "/" + d.query + "█"
 		// The echo is truncated by display CELLS (leading …, tail kept —
@@ -312,7 +315,7 @@ func (d *OutputDialog) renderFooter(w, capLines int, muted lipgloss.Style) strin
 			status = fmt.Sprintf("%d matches", len(d.matches))
 		case len(d.matches) > 0:
 			status = fmt.Sprintf("match %d/%d", d.matchIdx+1, len(d.matches))
-			if d.wrapped {
+			if d.search.WrapMarked() {
 				status += " (wrapped)"
 			}
 		}

@@ -31,8 +31,9 @@ func TestStartSpinnerIfNeeded(t *testing.T) {
 		{
 			name: "pending creation starts the spinner",
 			setup: func(m *Model) {
-				m.creatingWorkspaces["/repo/.amux/workspaces/new"] = &data.Workspace{
-					Root: "/repo/.amux/workspaces/new",
+				m.workspaceOps["/repo/.amux/workspaces/new"] = workspaceOpEntry{
+					state: opCreating,
+					ws:    &data.Workspace{Root: "/repo/.amux/workspaces/new"},
 				}
 			},
 			wantCmd:    true,
@@ -41,7 +42,7 @@ func TestStartSpinnerIfNeeded(t *testing.T) {
 		{
 			name: "pending deletion starts the spinner",
 			setup: func(m *Model) {
-				m.busyWorkspaces["/repo/.amux/workspaces/old"] = WorkspaceOpDelete
+				m.workspaceOps["/repo/.amux/workspaces/old"] = workspaceOpEntry{state: opBusy, op: WorkspaceOpDelete}
 			},
 			wantCmd:    true,
 			wantActive: true,
@@ -49,10 +50,11 @@ func TestStartSpinnerIfNeeded(t *testing.T) {
 		{
 			name: "pending creation and deletion starts the spinner",
 			setup: func(m *Model) {
-				m.creatingWorkspaces["/repo/.amux/workspaces/new"] = &data.Workspace{
-					Root: "/repo/.amux/workspaces/new",
+				m.workspaceOps["/repo/.amux/workspaces/new"] = workspaceOpEntry{
+					state: opCreating,
+					ws:    &data.Workspace{Root: "/repo/.amux/workspaces/new"},
 				}
-				m.busyWorkspaces["/repo/.amux/workspaces/old"] = WorkspaceOpDelete
+				m.workspaceOps["/repo/.amux/workspaces/old"] = workspaceOpEntry{state: opBusy, op: WorkspaceOpDelete}
 			},
 			wantCmd:    true,
 			wantActive: true,
@@ -61,8 +63,9 @@ func TestStartSpinnerIfNeeded(t *testing.T) {
 			name: "already active with pending work is idempotent (no new command)",
 			setup: func(m *Model) {
 				m.spinnerActive = true
-				m.creatingWorkspaces["/repo/.amux/workspaces/new"] = &data.Workspace{
-					Root: "/repo/.amux/workspaces/new",
+				m.workspaceOps["/repo/.amux/workspaces/new"] = workspaceOpEntry{
+					state: opCreating,
+					ws:    &data.Workspace{Root: "/repo/.amux/workspaces/new"},
 				}
 			},
 			wantCmd:    false,
@@ -104,7 +107,7 @@ func TestStartSpinnerIfNeededEmittedCommandTicks(t *testing.T) {
 	t.Parallel()
 
 	m := New()
-	m.busyWorkspaces["/repo/.amux/workspaces/old"] = WorkspaceOpDelete
+	m.workspaceOps["/repo/.amux/workspaces/old"] = workspaceOpEntry{state: opBusy, op: WorkspaceOpDelete}
 
 	cmd := m.StartSpinnerIfNeeded()
 	if cmd == nil {
@@ -124,9 +127,9 @@ func TestStartSpinnerIfNeededMatchesUnexported(t *testing.T) {
 	t.Parallel()
 
 	pub := New()
-	pub.creatingWorkspaces["/repo/.amux/workspaces/new"] = &data.Workspace{Root: "/repo/.amux/workspaces/new"}
+	pub.workspaceOps["/repo/.amux/workspaces/new"] = workspaceOpEntry{state: opCreating, ws: &data.Workspace{Root: "/repo/.amux/workspaces/new"}}
 	priv := New()
-	priv.creatingWorkspaces["/repo/.amux/workspaces/new"] = &data.Workspace{Root: "/repo/.amux/workspaces/new"}
+	priv.workspaceOps["/repo/.amux/workspaces/new"] = workspaceOpEntry{state: opCreating, ws: &data.Workspace{Root: "/repo/.amux/workspaces/new"}}
 
 	pubCmd := pub.StartSpinnerIfNeeded()
 	privCmd := priv.startSpinnerIfNeeded()

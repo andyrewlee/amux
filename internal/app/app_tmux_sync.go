@@ -3,6 +3,7 @@ package app
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
 )
@@ -59,10 +60,10 @@ func (a *App) handleTmuxTabsSyncResult(msg tmuxTabsSyncResult) []tea.Cmd {
 			if tab.SessionName != update.SessionName {
 				continue
 			}
-			if tab.Status != update.Status {
-				tab.Status = update.Status
+			if tab.Status != data.SessionStatus(update.Status) {
+				tab.Status = data.SessionStatus(update.Status)
 				changed = true
-				if update.NotifyStopped && update.Status == "stopped" {
+				if update.NotifyStopped && update.Status == string(data.SessionStopped) {
 					sessionName := update.SessionName
 					wsID := msg.WorkspaceID
 					cmds = append(cmds, func() tea.Msg {

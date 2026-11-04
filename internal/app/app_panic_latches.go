@@ -31,16 +31,13 @@ package app
 //   - pendingInputLatency: a timing probe that self-heals on the next
 //     keypress.
 func (a *App) resetAdvisoryLatchesAfterPanic() {
-	clear(a.gitStatusInFlight)
-	// The pending maps pair with gitStatusInFlight: a cleared in-flight
-	// with a surviving pending mark yields one spurious follow-up refresh
-	// per entry on the next result. Cheap, but the maps also linger —
-	// drop both while the reset already touches this structure.
-	clear(a.gitStatusPending)
-	clear(a.gitStatusPendingFull)
+	// Git-status obligations are dropped wholesale (fresh coalescer entries):
+	// a spurious follow-up refresh is cheap, and lingering entries keep the
+	// maps alive for no reason.
+	clear(a.gitStatusCoalesce)
 	a.runScriptStatusInFlight = false
 	a.upgradeRunning = false
-	a.tmuxActivity.scanInFlight = false
+	a.tmuxActivity.scanCoalescePanicReset()
 
 	// Staged dialog handoffs cross two dialog results; a panic between arm
 	// and consume leaves a stale binding the next unrelated dialog would

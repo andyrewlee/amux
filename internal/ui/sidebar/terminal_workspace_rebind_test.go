@@ -43,11 +43,9 @@ func TestRebindWorkspaceIDMigratesTerminalState(t *testing.T) {
 	oldID := string(oldWS.ID())
 	newID := string(newWS.ID())
 	tab := &TerminalTab{
-		ID:   TerminalTabID("term-tab-1"),
-		Name: "Terminal 1",
-		State: &TerminalState{
-			Running: false,
-		},
+		ID:    TerminalTabID("term-tab-1"),
+		Name:  "Terminal 1",
+		State: &TerminalState{},
 	}
 	m.tabs.ByWorkspace[oldID] = []*TerminalTab{tab}
 	m.tabs.ActiveByWorkspace[oldID] = 0
@@ -94,11 +92,9 @@ func TestRebindWorkspaceIDOrphanedFlushTick(t *testing.T) {
 	oldID := string(oldWS.ID())
 
 	tab := &TerminalTab{
-		ID:   TerminalTabID("term-tab-1"),
-		Name: "Terminal 1",
-		State: &TerminalState{
-			Running: false,
-		},
+		ID:    TerminalTabID("term-tab-1"),
+		Name:  "Terminal 1",
+		State: &TerminalState{},
 	}
 	tab.State.PendingOutput = []byte("buffered output")
 	tab.State.FlushScheduled = true
@@ -133,7 +129,7 @@ func TestRebindWorkspaceIDOrphanedStoppedMsg(t *testing.T) {
 		ID:   TerminalTabID("term-tab-1"),
 		Name: "Terminal 1",
 		State: &TerminalState{
-			Running: true,
+			tab: tabRunning,
 		},
 	}
 	m.tabs.ByWorkspace[oldID] = []*TerminalTab{tab}
@@ -142,7 +138,7 @@ func TestRebindWorkspaceIDOrphanedStoppedMsg(t *testing.T) {
 	m.RebindWorkspaceID(oldWS, newWS)
 
 	m.handlePTYStopped(messages.SidebarPTYStopped{WorkspaceID: oldID, TabID: string(tab.ID)})
-	if !tab.State.Detached {
+	if tab.State.tab != tabDetachedAuto {
 		t.Fatal("orphaned SidebarPTYStopped was dropped — tab not marked detached")
 	}
 }
@@ -263,7 +259,7 @@ func TestRebindWorkspaceIDOrphanedOutputMsg(t *testing.T) {
 		ID:   TerminalTabID("term-tab-1"),
 		Name: "Terminal 1",
 		State: &TerminalState{
-			Running: true,
+			tab: tabRunning,
 		},
 	}
 	m.tabs.ByWorkspace[oldID] = []*TerminalTab{tab}

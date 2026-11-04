@@ -9,6 +9,13 @@ const SelectionScrollTickInterval = 100 * time.Millisecond
 // SelectionScrollState is the shared state machine for tick-based
 // auto-scrolling during mouse-drag text selection. Both the sidebar
 // terminal and the center pane embed this struct.
+//
+// The control-flow contract of these methods is formalized as an fsm table
+// in selection_scroll_model.go (selScrollMachine, verified by
+// SelectionScrollCheck and held in lockstep with this struct by the
+// exhaustive differential test there). (Active, ScrollDir) is a bijection
+// with the table's states; Gen and TickSeq are the epoch-fencing extended
+// state. See internal/ui/center/SCROLLING.md for the self-healing design.
 type SelectionScrollState struct {
 	// Gen is a generation counter used to invalidate stale tick loops.
 	Gen uint64

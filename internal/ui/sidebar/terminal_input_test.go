@@ -37,7 +37,7 @@ func inputBoundModel(t *testing.T, send func(string) error) (*TerminalModel, *Te
 	t.Helper()
 	stubSidebarInputSend(t, send)
 	ws := &data.Workspace{Name: "ws", Repo: "/repo/ws", Root: "/repo/ws"}
-	state := &TerminalState{VTerm: vterm.New(80, 24), Terminal: &appPty.Terminal{}, Running: true}
+	state := &TerminalState{VTerm: vterm.New(80, 24), Terminal: &appPty.Terminal{}, tab: tabRunning}
 	tab := &TerminalTab{ID: generateTerminalTabID(), Name: "Terminal 1", State: state}
 	m := NewTerminalModel()
 	m.workspace = ws
@@ -207,9 +207,8 @@ func TestSidebarInputFailureDetaches(t *testing.T) {
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if !state.Detached || state.Running || state.UserDetached {
-		t.Fatalf("expected non-user detach after input failure, got detached=%v running=%v user=%v",
-			state.Detached, state.Running, state.UserDetached)
+	if state.tab != tabDetachedAuto {
+		t.Fatalf("expected the automatic detach state after input failure, got %v", state.tab)
 	}
 	if state.Terminal != nil {
 		t.Fatal("expected Terminal cleared on detach")
@@ -237,7 +236,7 @@ func TestSidebarInputStaleFailureDoesNotDetach(t *testing.T) {
 	// The stale failure's gen (0) is below the live binding's gen after the
 	// retire — the handler must drop it.
 	state.mu.Lock()
-	detached := state.Detached
+	detached := state.tab == tabDetachedAuto
 	state.mu.Unlock()
 	if detached {
 		t.Fatal("stale input failure detached the replacement binding")

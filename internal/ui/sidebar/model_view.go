@@ -54,7 +54,7 @@ func (m *ChangesModel) View() string {
 // renderChanges renders the git changes with grouped display, or the
 // branch-vs-base list when branch mode is active (see branch.go).
 func (m *ChangesModel) renderChanges() string {
-	if !m.branchMode && m.gitStatus == nil {
+	if !m.branchModeOn() && m.gitStatus == nil {
 		return m.styles.Muted.Render("No status loaded")
 	}
 
@@ -92,7 +92,7 @@ func (m *ChangesModel) renderChanges() string {
 		b.WriteString("\n")
 	}
 
-	if m.branchMode {
+	if m.branchModeOn() {
 		return b.String() + m.renderBranchSection()
 	}
 
@@ -125,9 +125,13 @@ func (m *ChangesModel) renderChanges() string {
 
 // renderAheadBehindBadge renders the "↑N ↓M vs base" indicator, or "" when
 // there's nothing ahead/behind (mirrors the +/- line-stats convention above:
-// silent when zero) or the last AheadBehind fetch failed.
+// silent when zero) or the last AheadBehind fetch failed — a failed fetch
+// also drops the stale counts when the next one starts, so nothing from
+// before an error resurfaces mid-retry. A re-fetch in flight from a healthy
+// load keeps showing the last applied values, exactly as before the
+// phase machine existed.
 func (m *ChangesModel) renderAheadBehindBadge() string {
-	if m.workspace == nil || m.aheadBehindErr != nil {
+	if m.workspace == nil || m.aheadBehind == fetchError {
 		return ""
 	}
 	if m.ahead == 0 && m.behind == 0 {
@@ -144,14 +148,16 @@ func (m *ChangesModel) renderAheadBehindBadge() string {
 }
 
 // renderBranchSection renders the branch-mode body: a loading/error/empty
-// state, or the summary line plus the shared displayItems rows.
+// state, or the summary line plus the shared displayItems rows. The phase
+// machine fixes the precedence: loading, then error, then the loaded list.
 func (m *ChangesModel) renderBranchSection() string {
-	switch {
-	case m.branchLoading:
+	switch m.branch {
+	case fetchLoading:
 		return "\n" + m.styles.Muted.Render("Loading changes vs base...")
-	case m.branchErr != nil:
+	case fetchError:
 		return "\n" + m.styles.StatusDeleted.Render("Error: "+m.branchErr.Error())
-	case len(m.branchChanges) == 0:
+	}
+	if len(m.branchChanges) == 0 {
 		return "\n" + m.styles.StatusClean.Render(common.Icons.Clean+" No commits ahead of base")
 	}
 

@@ -89,12 +89,16 @@ type SettingsDialog struct {
 	assistantCommands map[string]string
 	assistantCursor   int
 
-	// Assistant add-mode state, mirroring EnvDialog's (assistantNotice is
-	// the transient footer line after an add/cancel/duplicate outcome,
-	// cleared on the next keypress). assistantNameValidator is the optional
-	// domain hook from SetAssistantNameValidator ("" return = accept) — the
-	// app wires the config name rules so a dialog-added name can't be
-	// silently dropped by the loader's validation on the next start.
+	// Assistant add-mode state, mirroring EnvDialog's — both are the
+	// runtime projection of the checked table addModeMachine (add_model.go;
+	// (assistantAdding, assistantAddField) ↔ browsing/name-entry/
+	// cmd-entry), which add_model_test.go asserts step-for-step for both
+	// dialogs. assistantNotice is the transient footer line after an
+	// add/cancel/duplicate outcome, cleared on the next keypress.
+	// assistantNameValidator is the optional domain hook from
+	// SetAssistantNameValidator ("" return = accept) — the app wires the
+	// config name rules so a dialog-added name can't be silently dropped
+	// by the loader's validation on the next start.
 	assistantAdding        bool
 	assistantAddField      int // 0 = name, 1 = command
 	assistantAddName       string

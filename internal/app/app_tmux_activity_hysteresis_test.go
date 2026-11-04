@@ -18,7 +18,7 @@ func TestSyncActivitySessionStates_DemotionHysteresis(t *testing.T) {
 	}
 	sessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: sessionName}}}
 	deadSvc := newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil) // not live
-	miss := map[string]int{}
+	miss := map[string]*activity.Liveness{}
 
 	r1, _ := syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
 	if len(r1) != 0 {
@@ -46,12 +46,12 @@ func TestSyncActivitySessionStates_LiveResetsMissCounter(t *testing.T) {
 		sessionName: {Status: "running", WorkspaceID: "ws"},
 	}
 	sessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: sessionName}}}
-	miss := map[string]int{}
+	miss := map[string]*activity.Liveness{}
 
 	deadSvc := newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil)
 	syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
-	if miss[sessionName] != 1 {
-		t.Fatalf("expected 1 miss after one non-live observation, got %d", miss[sessionName])
+	if got := miss[sessionName].Misses(); got != 1 {
+		t.Fatalf("expected 1 miss after one non-live observation, got %d", got)
 	}
 
 	liveSvc := newStubTmuxOps(map[string]tmux.SessionState{
@@ -74,12 +74,12 @@ func TestSyncActivitySessionStates_PrunesMissForClosedSession(t *testing.T) {
 	}
 	sessions := []activity.TaggedSession{{Session: tmux.SessionActivity{Name: sessionName}}}
 	deadSvc := newStubTmuxOps(map[string]tmux.SessionState{}, nil, nil)
-	miss := map[string]int{}
+	miss := map[string]*activity.Liveness{}
 
 	// One non-live observation records a miss for the open session.
 	syncActivitySessionStates(info, sessions, deadSvc, tmux.Options{}, miss)
-	if miss[sessionName] != 1 {
-		t.Fatalf("expected 1 miss after one non-live observation, got %d", miss[sessionName])
+	if got := miss[sessionName].Misses(); got != 1 {
+		t.Fatalf("expected 1 miss after one non-live observation, got %d", got)
 	}
 
 	// The tab/workspace closed: infoBySession (rebuilt fresh each scan) no longer
@@ -95,7 +95,9 @@ func TestSyncActivitySessionStates_PrunesMissForClosedSession(t *testing.T) {
 }
 
 func TestSyncActivitySessionStates_PrunesMissWhenLastSessionCloses(t *testing.T) {
-	miss := map[string]int{"amux-ws-sess": 1}
+	oneMiss := activity.NewLiveness()
+	oneMiss.ObserveMiss()
+	miss := map[string]*activity.Liveness{"amux-ws-sess": oneMiss}
 
 	syncActivitySessionStates(map[string]activity.SessionInfo{}, nil, newStubTmuxOps(nil, nil, nil), tmux.Options{}, miss)
 

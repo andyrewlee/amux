@@ -22,7 +22,10 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 		return nil
 	}
 
-	a.tmuxActivity.scanInFlight = false
+	// Discharge the scan coalescer: any rescan obligation recorded mid-scan
+	// is handed back here, then re-admitted below once tmux is still
+	// available (an unavailable tmux drops the obligation, as before).
+	rescanOwed, _ := a.tmuxActivity.scanEntry().Complete()
 
 	var cmds []tea.Cmd
 	if cmd := a.updateTmuxActivityOwnershipState(msg); cmd != nil {
@@ -40,8 +43,7 @@ func (a *App) handleTmuxActivityResult(msg tmuxActivityResult) []tea.Cmd {
 		}
 	}
 
-	if a.tmuxActivity.rescanPending && a.tmuxAvailable {
-		a.tmuxActivity.rescanPending = false
+	if rescanOwed && a.tmuxAvailable {
 		if scanCmd := a.scanTmuxActivityNow(); scanCmd != nil {
 			cmds = append(cmds, scanCmd)
 		}
@@ -216,8 +218,13 @@ type agentStateTagChange struct {
 func sessionAgentStateChanges(current map[string]*activity.SessionState, baseline map[string]activity.AgentState, now time.Time) []agentStateTagChange {
 	var changes []agentStateTagChange
 	for name, state := range current {
-		nextState := activity.ClassifyState(state, now)
+		signal := activity.SignalFor(state, now)
 		prevState, observed := baseline[name]
+		// The table is total and every edge's target equals the signal's
+		// classification (AgentStateMachineCheck enforces the agreement),
+		// so both first observations and baseline transitions classify
+		// through the same function; only the published prev differs.
+		nextState := activity.ClassifySignalTarget(signal)
 		baseline[name] = nextState
 		if !observed {
 			// First observation under this ownership epoch: publish the

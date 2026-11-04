@@ -13,7 +13,7 @@ func inFlightTerminalTab(id TerminalTabID, sessionName string) *TerminalTab {
 		Name: "Terminal 1",
 		State: &TerminalState{
 			SessionName: sessionName,
-			Detached:    true,
+			tab:         tabDetachedAuto,
 		},
 	}
 	tab.State.beginReattachLocked()
@@ -54,7 +54,7 @@ func TestSidebarSweepStalledReattachesReleasesOnlyStaleLocks(t *testing.T) {
 
 	running := inFlightTerminalTab(TerminalTabID("term-tab-running"), "sess-running")
 	running.State.Reattach.StartedAt = time.Now().Add(-2 * ptyio.ReattachStallTimeout)
-	running.State.Running = true
+	running.State.tab = tabRunning
 
 	m.tabs.ByWorkspace["ws"] = []*TerminalTab{stalled, fresh, running}
 

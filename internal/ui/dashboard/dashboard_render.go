@@ -17,7 +17,37 @@ func applyDirtyForeground(style lipgloss.Style, dirty, active, selected bool) li
 	return style
 }
 
-// renderRow renders a single dashboard row
+// workspaceRowMarker computes a workspace row's status marker pieces from
+// the op-lifecycle, attention, and status machines. The precedence is
+// deliberate: in-flight op > creating > attention bell > active agent >
+// done badge > dirty tree. Agent-bell attention outranks the working
+// marker because an agent that rings mid-run (e.g. a permission prompt)
+// needs a look now; active agents get a color change only, no spinner.
+func (m *Model) workspaceRowMarker(row Row) (statusText string, attention, working, done, dirty bool) {
+	if op, busy := m.busyOp(row.Workspace.Root); busy {
+		frame := common.SpinnerFrame(m.spinnerFrame)
+		return m.styles.StatusPending.Render(frame + " " + string(op)), false, false, false, false
+	}
+	if m.creating(row.Workspace.Root) {
+		frame := common.SpinnerFrame(m.spinnerFrame)
+		return m.styles.StatusPending.Render(frame + " creating"), false, false, false, false
+	}
+	if row.ActivityWorkspaceID != "" && m.attentionFlagged(row.ActivityWorkspaceID) {
+		return "", true, false, false, false
+	}
+	if row.ActivityWorkspaceID != "" && m.activeWorkspaceIDs[row.ActivityWorkspaceID] {
+		return "", false, true, false, false
+	}
+	if row.ActivityWorkspaceID != "" && m.doneBadgeVisible(row.ActivityWorkspaceID) {
+		return "", false, false, true, false
+	}
+	if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
+		return "", false, false, false, true
+	}
+	return "", false, false, false, false
+}
+
+// renderRow renders a single dashboard row.
 func (m *Model) renderRow(row Row, selected bool) string {
 	switch row.Type {
 	case RowHome:
@@ -45,11 +75,11 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		main := row.MainWorkspace
 		active := m.projectRowActive(row.ActivityWorkspaceID, main)
 		if main != nil {
-			if op := m.busyWorkspaces[main.Root]; op != "" {
+			if op, busy := m.busyOp(main.Root); busy {
 				frame := common.SpinnerFrame(m.spinnerFrame)
 				statusText = m.styles.StatusPending.Render(frame + " " + string(op))
 			} else if row.ActivityWorkspaceID != "" &&
-				m.attentionPending[row.ActivityWorkspaceID] {
+				m.attentionFlagged(row.ActivityWorkspaceID) {
 				// Bell attention outranks the active marker — same precedence
 				// as the workspace rows below.
 				attention = true
@@ -111,32 +141,8 @@ func (m *Model) renderRow(row Row, selected bool) string {
 		}
 		name := common.SanitizeDisplayText(row.Workspace.Name, 256)
 		status := ""
-		statusText := ""
-		dirty := false
-		working := false
-		done := false
-		attention := false
 
-		// Check deletion state first
-		if op := m.busyWorkspaces[row.Workspace.Root]; op != "" {
-			frame := common.SpinnerFrame(m.spinnerFrame)
-			statusText = m.styles.StatusPending.Render(frame + " " + string(op))
-		} else if _, ok := m.creatingWorkspaces[row.Workspace.Root]; ok {
-			frame := common.SpinnerFrame(m.spinnerFrame)
-			statusText = m.styles.StatusPending.Render(frame + " creating")
-		} else if row.ActivityWorkspaceID != "" && m.attentionPending[row.ActivityWorkspaceID] {
-			// Agent-bell attention outranks the working marker: an agent that
-			// rings mid-run (e.g. a permission prompt) needs a look now.
-			attention = true
-		} else if row.ActivityWorkspaceID != "" && m.activeWorkspaceIDs[row.ActivityWorkspaceID] {
-			// Active agents - color change only, no spinner
-			working = true
-		} else if row.ActivityWorkspaceID != "" &&
-			m.doneBadgeVisible(row.ActivityWorkspaceID) {
-			done = true
-		} else if s, ok := m.statusCache[row.Workspace.Root]; ok && !s.Clean {
-			dirty = true
-		}
+		statusText, attention, working, done, dirty := m.workspaceRowMarker(row)
 		if statusText != "" {
 			status = " " + statusText
 		} else if attention {

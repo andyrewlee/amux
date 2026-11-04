@@ -42,7 +42,7 @@ func (a *App) handleRunOutputTick(msg runOutputTickMsg) tea.Cmd {
 	}
 	token, svc := a.overlays.runOutputToken, a.workspaceService
 	session := a.overlays.runOutputSession
-	lifecycle := a.overlays.runOutputLifecycle
+	lifecycle := a.overlays.runOutputFlavor == runOutputFlavorScript
 	snap := cloneForCmd(ws)
 	return func() tea.Msg {
 		var content string
@@ -82,14 +82,9 @@ func (a *App) handleRunOutputRefreshed(msg runOutputRefreshedMsg) tea.Cmd {
 
 // closeRunOutputDialog clears the viewer state and kills its refresh loop by
 // bumping the token — an in-flight fetch or a scheduled tick then drops as
-// stale instead of mutating a closed (or next) dialog.
+// stale instead of mutating a closed (or next) dialog. The flavor machine
+// step back to closed is what disarms every flavor's intercepts.
 func (a *App) closeRunOutputDialog() {
-	a.overlays.runOutput = nil
-	a.overlays.runOutputWorkspace = nil
-	a.overlays.runOutputSession = ""
-	a.overlays.runOutputAttachable = false
-	a.overlays.runOutputReleaseCount = 0
-	a.overlays.runOutputUntrustable = false
-	a.overlays.runOutputLifecycle = false
+	a.overlays.closeRunOutputFlavor()
 	a.overlays.runOutputToken++
 }
