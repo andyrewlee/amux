@@ -37,15 +37,30 @@ The orchestrator becomes scriptable by the things it hosts:
 - `amux agent ls`: list live agents/workspaces with their reported state.
 - `amux send`: deliver input to a hosted session (the Phase A `amux wait`
   already covers the blocking half).
-- Workspace **templates** as roles (reviewer, implementer, auditor)
-  building on the existing run-script machinery.
 
 The workspace-management CLI was removed on purpose in PR #204
 (`c76dce7c`), and the deleted implementation is recoverable from
-`git show c76dce7c^` — Phase B trims it down rather than rewriting it,
-and updates the external-orchestration contract
-([docs/ORCHESTRATION.md](ORCHESTRATION.md)) and its pinning test in the
-same change.
+`git show c76dce7c^` for archaeology — but Phase B was built fresh from
+the [docs/ORCHESTRATION.md](ORCHESTRATION.md) contract rather than
+trimmed from it (the old `internal/cli/` was a larger job/hooks/run
+persistence surface than these verbs need), and updates that contract
+and its pinning test in the same change.
+
+Status: **landed.** The verbs (`--skill`, `agent ls`, `send`) are pinned
+by real-binary e2e tests. No CLI create verb — the lifecycle boundary in
+docs/ORCHESTRATION.md stands.
+
+> **Dropped (2026-11-04): workspace templates as roles.** The original
+> Phase B list carried a fourth bullet — repo-declared role presets
+> (reviewer/implementer/auditor) offering a picker in the create flow.
+> It was implemented, then removed by decision in the same session: the
+> immediate value was thin (saved typing) and the real consumer (Phase E's
+> agent-spawned child workspaces) does not exist yet. The create flow
+> stays as it is. If Phase E needs roles, reintroduce from this note, not
+> from scratch — the design that was removed is recoverable from the
+> session record and centered on: record stores the template NAME only,
+> scripts/env resolve on demand under the existing repo-config trust gate
+> (never copied into the ungated workspace fields).
 
 ## Phase C — The resume tier
 

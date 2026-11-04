@@ -69,6 +69,16 @@ type Report struct {
 // IsClear reports whether r is a clear directive rather than a state.
 func (r Report) IsClear() bool { return r.State == StateClear }
 
+// SurvivesProcessExit reports whether the report's state is still
+// meaningful after the pane's process exited — the single classification
+// source for the protocol's process-exit lifetime. Working and blocked are
+// transient: they describe a running program's situation, so a stored
+// transient report from a dead pane is void. Done, error, and idle are
+// outcomes or the absence of one, and survive.
+func (r Report) SurvivesProcessExit() bool {
+	return !(r.PaneDead && (r.State == StateWorking || r.State == StateBlocked))
+}
+
 // progressAbsent is the Progress value for reports without progress.
 const progressAbsent = -1
 

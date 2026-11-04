@@ -422,7 +422,12 @@ printf '\e]7501;state=blocked:kind=question:msg=%s\e\\' "$(printf '%s' "which DB
 `amux report --state blocked --message "which DB?"` is the validated form,
 and `amux wait --state blocked,error,done` blocks until some pane reports a
 matching state — the building block for scripts that supervise amux-hosted
-agents. See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) for the full
+agents. The rest of the agent-facing surface: `amux agent ls` lists the
+hosted fleet with each session's strongest state signal (`--json` for
+scripts), `amux send` delivers text or named keys to exactly one hosted
+session (submit via a literal CR, raw-mode-agent safe), and `amux --skill`
+prints the one-read manual for a program running inside an amux pane. See
+[docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) for the full
 contract (`@amux_reported_*` pane options, record semantics, lifetimes).
 
 Port assignments are durable: the first spawn that needs a workspace's range

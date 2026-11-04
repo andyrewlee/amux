@@ -13,13 +13,24 @@ The workspace-management CLI was removed on purpose in PR #204 (commit
 everything under `internal/cli/` and the `amux agent …` subcommands. amux
 remains a terminal UI that must be launched directly on a real TTY.
 
-Two command-line verbs exist today, both for the Program Status Protocol
-(their contract is the "Reporting status" section below): `amux report`
-(prints one OSC 7501 sequence; designed to run inside a hosted pane) and
-`amux wait` (blocks until a pane reports a matching state; the consumer for
-supervising scripts and agents). They manage no workspace, session, or
-workspace state — the removal's scope stands. Any other argument prints an
-error and exits non-zero (`cmd/amux/main.go`).
+A small headless verb set exists, all agent-facing and all managing no
+workspace, session, or workspace state beyond the input you explicitly
+send:
+
+- `amux --skill` — one-read docs for a program hosted in an amux pane.
+- `amux report` — print one Program Status Protocol (OSC 7501) sequence;
+  designed to run inside a hosted pane (contract in the "Reporting
+  status" section below).
+- `amux wait` — block until a pane reports a matching state; the consumer
+  for supervising scripts and agents.
+- `amux agent ls` — list the hosted fleet (`--json` for scripts), state
+  being the strongest signal available (a protocol report, else the
+  scan's `@amux_agent_state`, else `-`).
+- `amux send` — deliver literal text (`--text`, submit with `--enter`) or
+  named keys (`--keys`) to exactly one hosted session, encoding the
+  "Sending input" rules below so callers cannot get them wrong.
+
+Any other argument prints an error and exits non-zero (`cmd/amux/main.go`).
 
 External orchestration is nonetheless a real, current workflow: the maintainer
 drives amux agents from outside the process. The **only** supported control
@@ -258,16 +269,23 @@ session and writes bytes directly. An external orchestrator, which is not
 attached, drives a session with `tmux send-keys` against the same server:
 
 ```sh
-# Target the session by EXACT name. The '=' prefix stops tmux from
-# prefix-matching e.g. "...-tab-1a2b3c4d-1" onto "...-tab-1a2b3c4d-10".
-tmux -L "${AMUX_TMUX_SERVER:-amux}" send-keys -t '=amux-<ws>-<tabPart>' -l 'your text here'
+# Target the session by EXACT name. The '=' prefix plus trailing ':'
+# stops tmux from prefix-matching e.g. "...-tab-1a2b3c4d-1" onto
+# "...-tab-1a2b3c4d-10"; the bare '=name' form is a pane target tmux
+# rejects ("can't find pane").
+tmux -L "${AMUX_TMUX_SERVER:-amux}" send-keys -t '=amux-<ws>-<tabPart>:' -l 'your text here'
 ```
 
 The `=` exact-match prefix on the target is not optional: amux uses it for every
-session-scoped `send-keys`/`has-session`/`kill-session` for exactly this reason
-(`sessionTarget` in `internal/tmux/options.go`). (Note: tmux's `set-option` and
-`show-options` reject the `=` prefix, so tag reads/writes use the bare name —
-see `exactSessionOptionTarget` in the same file. Prefix collisions are still
+session-scoped `has-session`/`kill-session` (`sessionTarget` in
+`internal/tmux/options.go`). Input delivery is the strict case: tmux 3.7b
+rejects `=name` for `send-keys` ("can't find pane"), so the session part must
+be delimited with a trailing colon — `exactSessionPaneTarget` in
+`internal/tmux/send.go`. (`capture-pane` accepts the plain session target —
+amux's capture fast path relies on that — but the colon form is safe there
+too. And tmux's `set-option` and `show-options` reject the `=` prefix
+entirely, so tag reads/writes use the bare name — see
+`exactSessionOptionTarget` in the same file. Prefix collisions are still
 avoided there because names carry both workspace and tab IDs.)
 
 The interactive equivalent for seeding a brand-new agent is the agent
@@ -291,7 +309,7 @@ while the center pane keeps `Ctrl+]` for its own tab cycling:
    TUI never sees the named key translated to `0x0D`. Send the CR explicitly:
 
    ```sh
-   tmux -L "$srv" send-keys -t '=<session>' -H 0D
+   tmux -L "$srv" send-keys -t '=<session>:' -H 0D
    ```
 
 2. **Separate the text from the submit.** Send the line first, then the CR as a
@@ -697,20 +715,20 @@ against each other, and no update scheme on a POSIX filesystem can guarantee
 the new entry survives a power loss that lands between the rename and the
 sync — the backup exists so that failure mode is recoverable.
 
-## Option B: a minimal CLI (recorded, not recommended)
+## The recorded CLI option, exercised
 
-If the tmux contract above proves insufficient for a concrete orchestration need,
-a minimal command surface — something like `amux send` and `amux ls` — could be
-reintroduced. The deleted implementation is recoverable from `git show c76dce7c^`
-(the parent of the removal commit), including the old `agent send` execute path
-and session listing, to be trimmed down rather than rewritten. If this is ever
-done, treat the "Sending input" and "Reading state" sections above as the
-behavioral spec for the new commands so the two surfaces stay consistent.
+An earlier revision of this document recorded "Option B: a minimal CLI" —
+reintroduce a small command surface if the tmux contract proved
+insufficient — as not recommended by default. The roadmap
+([docs/ROADMAP.md](ROADMAP.md), Phase B) decided the question: agents
+hosted by amux need to drive amux and their siblings without speaking raw
+tmux, and the verb set above (`--skill`, `agent ls`, `send`, plus Phase
+A's `report`/`wait`) is that surface, trimmed from the same discipline
+this document teaches rather than from the deleted `internal/cli/`
+implementation. The recurring cost the removal warned about is real, and
+it is paid knowingly: every verb above is pinned by real-binary e2e tests
+and documented here.
 
-This is **not** recommended by default. The CLI was removed precisely because a
-second supported surface is a recurring cost: it needs its own tests, its own
-docs, and its own backward-compatibility guarantees, in perpetuity, on top of the
-TUI. The tmux seam already provides discovery, input, and state with zero extra
-maintained surface. Revisit this only when a specific orchestrator requirement is
-demonstrably unmet by tmux — name that requirement in the proposal — not merely
-because a CLI would be more convenient than raw tmux commands.
+The boundary stands: these verbs are agent-facing input and read verbs.
+They still manage no workspace lifecycle — no create, shelve, restore, or
+delete. That remains TUI-first by design.

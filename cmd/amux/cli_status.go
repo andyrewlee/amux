@@ -218,7 +218,7 @@ func findReportMatch(opts tmux.Options, want map[string]bool, workspace, session
 		// transient and do not survive the pane's process. A stored
 		// transient report from a dead pane is stale, not a match — the
 		// pane's program can no longer act on whatever waits for it.
-		if r.PaneDead && (r.State == agentstatus.StateWorking || r.State == agentstatus.StateBlocked) {
+		if !r.SurvivesProcessExit() {
 			continue
 		}
 		if !want["any"] && !want[r.State] {

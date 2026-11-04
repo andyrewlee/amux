@@ -76,6 +76,27 @@ func TestSessionNameContract(t *testing.T) {
 	}
 }
 
+// TestPaneTargetContract pins the pane-target grammar input delivery
+// requires (ORCHESTRATION.md "Sending input"): tmux rejects a bare `=name`
+// for pane-targeted commands ("can't find pane"), so send-keys targets
+// are `=name:` — exact session, delimited by the trailing colon, resolving
+// to its active pane. A change here is a breaking change for external
+// orchestrators and for `amux send`.
+func TestPaneTargetContract(t *testing.T) {
+	cases := []struct {
+		session string
+		want    string
+	}{
+		{"amux-9f8e7d6c5b4a3210-tab-1a2b3c4d-5", "=amux-9f8e7d6c5b4a3210-tab-1a2b3c4d-5:"},
+		{"amux-0011aabb2233ccdd-viewer", "=amux-0011aabb2233ccdd-viewer:"},
+	}
+	for _, tc := range cases {
+		if got := tmux.ExactSessionPaneTarget(tc.session); got != tc.want {
+			t.Fatalf("ExactSessionPaneTarget(%q) = %q, want %q", tc.session, got, tc.want)
+		}
+	}
+}
+
 // TestWorkspaceIDRoundTripContract pins that a workspace ID survives the trip
 // from SessionName construction back through WorkspaceIDFromSessionName. This is
 // the guarantee external tools rely on to map a discovered session to a

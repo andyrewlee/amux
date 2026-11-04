@@ -75,6 +75,13 @@ func main() {
 		os.Exit(code)
 	}
 
+	// Agent-facing surface (Phase B): `amux --skill`, `amux agent ls`,
+	// `amux send`. Headless like the status verbs — a hosted agent or a
+	// supervising script drives amux without a TTY.
+	if handled, code := HandleAgentCLI(args); handled {
+		os.Exit(code)
+	}
+
 	if isVersionInvocation(args) {
 		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
@@ -109,7 +116,7 @@ func unsupportedInvocationMessage(arg string) string {
 	if arg == "tui" {
 		return "run `amux` directly to start the terminal UI."
 	}
-	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI, `amux --version`, or a status verb (`amux report`, `amux wait`).", arg)
+	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI, `amux --version`, `amux --skill`, or a status/agent verb (`amux report`, `amux wait`, `amux agent ls`, `amux send`).", arg)
 }
 
 func nonInteractiveMessage() string {

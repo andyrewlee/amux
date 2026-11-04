@@ -44,7 +44,7 @@ func MergeReportedSessionStates(
 	for name, st := range states {
 		out[name] = ClassifyState(st, now)
 		if r, ok := reports[name]; ok {
-			if r.PaneDead && (r.State == agentstatus.StateWorking || r.State == agentstatus.StateBlocked) {
+			if !r.SurvivesProcessExit() {
 				continue // process-exit lifetime: transient states are void
 			}
 			// Known labels only: a legacy or hand-written option value with
