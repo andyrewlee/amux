@@ -65,6 +65,34 @@ func (m *Model) SetWorkspace(ws *data.Workspace) {
 	m.markTabFocused(m.workspaceID(), m.getActiveTabIdx())
 }
 
+// SetWorkspaceAgentStates mirrors the activity scan's per-workspace semantic
+// states (reported over heuristic, severity-folded) into the tab bar. The
+// map is copied on write; a nil map clears. A blocked or error state for the
+// current workspace colors its chat tabs' indicator — the tab-strip echo of
+// the dashboard's badge, so a workspace needing attention is visible from
+// every center view, not only the dashboard column.
+func (m *Model) SetWorkspaceAgentStates(states map[string]data.AgentState) {
+	if len(states) == 0 {
+		m.agentStatesByWorkspace = nil
+		return
+	}
+	copied := make(map[string]data.AgentState, len(states))
+	for id, st := range states {
+		copied[id] = st
+	}
+	m.agentStatesByWorkspace = copied
+}
+
+// workspaceAgentState reports the semantic state of the workspace whose tabs
+// are on screen. The zero value (idle) is also the no-data case; the render
+// only branches on blocked/error, so unknown reads as "no marker".
+func (m *Model) workspaceAgentState() data.AgentState {
+	if m.agentStatesByWorkspace == nil {
+		return data.StateIdle
+	}
+	return m.agentStatesByWorkspace[m.workspaceID()]
+}
+
 // HasTabs returns whether there are any tabs for the current workspace.
 func (m *Model) HasTabs() bool {
 	return len(m.getTabs()) > 0

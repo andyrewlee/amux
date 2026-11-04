@@ -3,6 +3,7 @@ package app
 import (
 	"time"
 
+	"github.com/andyrewlee/amux/internal/agentstatus"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -23,6 +24,13 @@ func (tmuxOps) ActiveAgentSessionsByActivity(window time.Duration, opts tmux.Opt
 
 func (tmuxOps) SessionsWithTags(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error) {
 	return tmux.SessionsWithTags(match, keys, opts)
+}
+
+// PaneReports reads the Program Status Protocol report of every pane (see
+// internal/agentstatus) — the authoritative input the activity merge layers
+// over the heuristic classification.
+func (tmuxOps) PaneReports(opts tmux.Options) (map[string]agentstatus.Report, error) {
+	return tmux.PaneReports(opts)
 }
 
 func (tmuxOps) SetSessionTagValueForSessions(sessionNames []string, key, value string, opts tmux.Options) error {

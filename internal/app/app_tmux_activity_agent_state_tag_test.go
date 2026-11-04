@@ -34,7 +34,7 @@ func TestSessionAgentStateChanges_CoalescesToRealTransitions(t *testing.T) {
 		"unchanged":       {Score: activity.ScoreThreshold},
 	}
 
-	changes := sessionAgentStateChanges(current, baseline, now)
+	changes := sessionAgentStateChanges(current, nil, baseline, now)
 
 	got := make(map[string]agentStateTagChange, len(changes))
 	for _, c := range changes {
@@ -61,7 +61,7 @@ func TestSessionAgentStateChanges_CoalescesToRealTransitions(t *testing.T) {
 // and prunes baseline entries for sessions no longer retained.
 func TestSessionAgentStateChanges_EmptyCurrentYieldsNoChanges(t *testing.T) {
 	baseline := map[string]activity.AgentState{"a": activity.StateWorking}
-	changes := sessionAgentStateChanges(nil, baseline, time.Now())
+	changes := sessionAgentStateChanges(nil, nil, baseline, time.Now())
 	if len(changes) != 0 {
 		t.Fatalf("expected no changes for empty current set, got %#v", changes)
 	}
@@ -83,7 +83,7 @@ func TestSessionAgentStateChanges_ClockOnlyDoneToIdle(t *testing.T) {
 	baseline := map[string]activity.AgentState{}
 
 	// t0: first observation publishes Done.
-	changes := sessionAgentStateChanges(current, baseline, t0.Add(time.Second))
+	changes := sessionAgentStateChanges(current, nil, baseline, t0.Add(time.Second))
 	if len(changes) != 1 || changes[0].state != activity.StateDone {
 		t.Fatalf("first observation must publish done, got %#v", changes)
 	}
@@ -93,13 +93,13 @@ func TestSessionAgentStateChanges_ClockOnlyDoneToIdle(t *testing.T) {
 
 	// Intermediate quiet scans below DoneWindow emit nothing.
 	for i := 0; i < 3; i++ {
-		if got := sessionAgentStateChanges(current, baseline, t0.Add(10*time.Second)); len(got) != 0 {
+		if got := sessionAgentStateChanges(current, nil, baseline, t0.Add(10*time.Second)); len(got) != 0 {
 			t.Fatalf("quiet scan %d must emit nothing, got %#v", i, got)
 		}
 	}
 
 	// After DoneWindow expires with zero content updates: exactly one Idle.
-	changes = sessionAgentStateChanges(current, baseline, t0.Add(activity.DoneWindow+time.Second))
+	changes = sessionAgentStateChanges(current, nil, baseline, t0.Add(activity.DoneWindow+time.Second))
 	if len(changes) != 1 {
 		t.Fatalf("clock-only Done→Idle must emit exactly one change, got %#v", changes)
 	}
@@ -108,7 +108,7 @@ func TestSessionAgentStateChanges_ClockOnlyDoneToIdle(t *testing.T) {
 	}
 
 	// Steady-state: further quiet scans emit nothing.
-	if got := sessionAgentStateChanges(current, baseline, t0.Add(2*activity.DoneWindow)); len(got) != 0 {
+	if got := sessionAgentStateChanges(current, nil, baseline, t0.Add(2*activity.DoneWindow)); len(got) != 0 {
 		t.Fatalf("idle steady state must emit nothing, got %#v", got)
 	}
 }
@@ -125,11 +125,11 @@ func TestSessionAgentStateChanges_HoldExpiryPublishes(t *testing.T) {
 	baseline := map[string]activity.AgentState{"sess-held": activity.StateWorking}
 
 	// Inside the hold window: still Working, nothing emitted.
-	if got := sessionAgentStateChanges(current, baseline, t0.Add(activity.HoldDuration-time.Second)); len(got) != 0 {
+	if got := sessionAgentStateChanges(current, nil, baseline, t0.Add(activity.HoldDuration-time.Second)); len(got) != 0 {
 		t.Fatalf("inside hold window must emit nothing, got %#v", got)
 	}
 	// Past the hold window: publishes Done (LastWorkingAt still fresh).
-	changes := sessionAgentStateChanges(current, baseline, t0.Add(activity.HoldDuration+time.Second))
+	changes := sessionAgentStateChanges(current, nil, baseline, t0.Add(activity.HoldDuration+time.Second))
 	if len(changes) != 1 || changes[0].state != activity.StateDone || changes[0].prev != activity.StateWorking {
 		t.Fatalf("hold expiry must publish working→done, got %#v", changes)
 	}

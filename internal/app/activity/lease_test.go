@@ -171,6 +171,42 @@ func TestEncodeSnapshot_Empty(t *testing.T) {
 	}
 }
 
+// TestEncodeDecodeSnapshotWithStates_RoundTrip pins that every semantic
+// state the encoder can write survives the decode: the follower read path
+// once mapped only working/done, silently stripping blocked and error —
+// a follower amux never latched a blocked badge because the owner's
+// snapshot decoded to no state at all.
+func TestEncodeDecodeSnapshotWithStates_RoundTrip(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	active := map[string]bool{"ws-b": true}
+	states := map[string]AgentState{
+		"ws-a": StateWorking,
+		"ws-b": StateBlocked,
+		"ws-c": StateError,
+		"ws-d": StateDone,
+	}
+	encoded := EncodeSnapshotWithStates(active, states, 7, now)
+
+	parsed, decodedStates, epoch, at, ok := DecodeSnapshotWithStates(encoded)
+	if !ok {
+		t.Fatal("expected snapshot to decode")
+	}
+	if epoch != 7 || !at.Equal(now) {
+		t.Fatalf("epoch/timestamp drift: %d %v", epoch, at)
+	}
+	if !parsed["ws-b"] || len(parsed) != 1 {
+		t.Fatalf("active set drift: %v", parsed)
+	}
+	if len(decodedStates) != len(states) {
+		t.Fatalf("decoded %d states, want %d: %v", len(decodedStates), len(states), decodedStates)
+	}
+	for wsID, want := range states {
+		if decodedStates[wsID] != want {
+			t.Fatalf("state for %q = %v, want %v", wsID, decodedStates[wsID], want)
+		}
+	}
+}
+
 // TestDecodeSnapshot_Malformed covers the error paths that make DecodeSnapshotWithStates
 // report ok=false: empty input, wrong field count, and non-numeric / non-positive
 // epoch and timestamp fields.

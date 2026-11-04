@@ -108,6 +108,7 @@ The table is hand-maintained; keep it in sync when adding or moving a package.
 | `internal/ui/theme` | Color palette, theme registry, icons, and lipgloss styles | `colors.go`, `theme.go`, `icons.go` |
 | `internal/vterm` | Terminal emulator: ANSI/VT parsing → cell grid + scrollback → ANSI | `vterm.go` |
 | `internal/tmux` | tmux CLI wrapper: sessions, capture, resize, activity tags | `tmux.go` |
+| `internal/agentstatus` | Program Status Protocol (OSC 7501, rev 0.4): model-checked tap scanner + prompt detector, spec payload parse (base64 msg, closed states, record ids), record set with replace/clear/lifetime — programs self-report state; amux never infers it from the screen | `agentstatus.go`, `scanner.go`, `records.go`, `prompt_detector.go` |
 | `internal/pty` | Pseudo-terminals backing hosted agents (Agent, Terminal) | `agent.go` |
 | `internal/panelaunch` | Private pane-launch transport: short-lived payload carrying workdir/command/env to the pane-side helper, plus the stable launcher that keeps pane spawns working after the running binary's path is deleted | `spec.go`, `prepare.go`, `launcher.go`, `invoke_unix.go` |
 | `internal/git` | git worktree-per-workspace model: worktrees, branches, diff, watcher | `operations.go`, `workspace.go` |

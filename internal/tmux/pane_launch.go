@@ -37,11 +37,15 @@ func (p *PreparedCommand) AbortBeforeStart() {
 // PayloadPath exposes the attempt's payload path for lifecycle assertions.
 func (p *PreparedCommand) PayloadPath() string { return p.payload.Path() }
 
-// preparedLaunch bundles one attempt's rendered shell fragments and its
-// owned payload so ensureSessionScript can wire the lifecycle branches.
+// preparedLaunch bundles one attempt's rendered shell fragments, the
+// resolved launcher executable, and its owned payload so ensureSessionScript
+// can wire the lifecycle branches. exe is the same path the pane invocation
+// embeds — the status tap reuses it so both survive the same binary
+// replacement scenarios.
 type preparedLaunch struct {
 	runArgv     string // '<exe>' --internal-pane-launch run '<payload>'
 	discardArgv string // '<exe>' --internal-pane-launch discard '<payload>'
+	exe         string // launcher executable resolved for this attempt
 	payload     *panelaunch.Prepared
 }
 
@@ -71,6 +75,7 @@ func prepareLaunch(workDir, command string, environment []string) (*preparedLaun
 	return &preparedLaunch{
 		runArgv:     quoteArgv(panelaunch.InvocationArgv(exe, "run", payload.Path())),
 		discardArgv: quoteArgv(panelaunch.InvocationArgv(exe, "discard", payload.Path())),
+		exe:         exe,
 		payload:     payload,
 	}, nil
 }

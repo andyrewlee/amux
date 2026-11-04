@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -317,11 +318,13 @@ func decodeSnapshotStatePayload(payload string) (map[string]bool, map[string]Age
 		if trimmed == "" {
 			continue
 		}
-		switch strings.ToLower(strings.TrimSpace(rawState)) {
-		case StateWorking.String():
-			states[trimmed] = StateWorking
-		case StateDone.String():
-			states[trimmed] = StateDone
+		// Parse every label the encoder can write (encode serializes
+		// state.String() for any non-idle state, blocked and error
+		// included): mapping only working/done here would silently strip
+		// reported states from the shared snapshot, and a follower amux
+		// would never see a blocked workspace.
+		if s, ok := data.ParseAgentState(strings.ToLower(strings.TrimSpace(rawState))); ok {
+			states[trimmed] = s
 		}
 	}
 	if len(states) == 0 {

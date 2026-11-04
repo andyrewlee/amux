@@ -406,6 +406,24 @@ from (`repo`/`user`/`project`).
 | `ROOT_WORKSPACE_PATH` | The source repository root (also shown in the example above) |
 | `AMUX_PORT` | An allocated per-workspace port — bind dev servers here to avoid collisions across parallel workspaces |
 | `AMUX_PORT_RANGE` | The `start-end` port range allocated to this workspace |
+| `AMUX_ENV` | Always `1`; marks the pane as amux-hosted (agents and workspace scripts alike) |
+| `AMUX_BIN_PATH` | Absolute path to the hosting amux binary — `"$AMUX_BIN_PATH" report …` works even when `amux` is not on the pane's `PATH` |
+
+Every amux-hosted pane also gets a status tap: a program can announce what it
+is doing with the Program Status Protocol (OSC 7501)
+and the dashboard surfaces it directly — a `blocked` report rings the bell
+and shows a badge instead of amux guessing from output heuristics. The
+one-liner for any script running in a pane:
+
+```sh
+printf '\e]7501;state=blocked:kind=question:msg=%s\e\\' "$(printf '%s' "which DB?" | base64 | tr -d '\n')"
+```
+
+`amux report --state blocked --message "which DB?"` is the validated form,
+and `amux wait --state blocked,error,done` blocks until some pane reports a
+matching state — the building block for scripts that supervise amux-hosted
+agents. See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) for the full
+contract (`@amux_reported_*` pane options, record semantics, lifetimes).
 
 Port assignments are durable: the first spawn that needs a workspace's range
 commits it to `~/.amux/port-reservations.json` under the workspace's persisted

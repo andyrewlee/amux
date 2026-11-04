@@ -8,12 +8,18 @@ conversation (doc + release notes) whenever any of it changes.
 
 ## Status of this contract
 
-amux has no command-line interface. The entire CLI was removed on purpose in
-PR #204 (commit `c76dce7c`, "chore: remove unsupported CLI and OpenClaw"), which
-deleted everything under `internal/cli/` and the `amux agent …` subcommands.
-Since then the binary accepts no arguments except `--version`/`-v`; any other
-argument prints an error and exits non-zero (`cmd/amux/main.go`). `amux` is a
-terminal UI that must be launched directly on a real TTY.
+The workspace-management CLI was removed on purpose in PR #204 (commit
+`c76dce7c`, "chore: remove unsupported CLI and OpenClaw"), which deleted
+everything under `internal/cli/` and the `amux agent …` subcommands. amux
+remains a terminal UI that must be launched directly on a real TTY.
+
+Two command-line verbs exist today, both for the Program Status Protocol
+(their contract is the "Reporting status" section below): `amux report`
+(prints one OSC 7501 sequence; designed to run inside a hosted pane) and
+`amux wait` (blocks until a pane reports a matching state; the consumer for
+supervising scripts and agents). They manage no workspace, session, or
+workspace state — the removal's scope stands. Any other argument prints an
+error and exits non-zero (`cmd/amux/main.go`).
 
 External orchestration is nonetheless a real, current workflow: the maintainer
 drives amux agents from outside the process. The **only** supported control
@@ -357,9 +363,20 @@ runtime (`internal/tmux/tags.go`, `internal/ui/center/model_input_lifecycle.go`,
 | `@amux_owner_heartbeat_ms` | last heartbeat from the owning amux process | Unix **milliseconds** |
 | `@amux_last_output_at` | last observed agent output | Unix **milliseconds** |
 | `@amux_last_input_at` | last input amux delivered | Unix **milliseconds** |
-| `@amux_agent_state` | semantic agent state (idle/working/done) | `idle` \| `working` \| `done` |
+| `@amux_agent_state` | semantic agent state (idle/working/done/blocked/error) | `idle` \| `working` \| `done` \| `blocked` \| `error` |
 | `@amux_workspace_name` | workspace display name | string, sanitized |
 | `@amux_project` | project display name (repo dir basename) | string, sanitized |
+
+Pane options (read with `list-panes -a -F '#{@amux_reported_state}'` and
+kin; they live and die with the pane):
+
+| pane option | meaning | values |
+| --- | --- | --- |
+| `@amux_reported_state` | the pane's self-reported state, folded per the protocol | `idle` \| `working` \| `done` \| `blocked` \| `error` |
+| `@amux_reported_kind` | with `blocked`: what is waited on | `permission` \| `question` \| `auth` |
+| `@amux_reported_app` | the reporter's identity | string, protocol app grammar |
+| `@amux_reported_message` | one-line context (base64-decoded) | string, sanitized |
+| `@amux_reported_at` | when amux accepted the report | Unix **milliseconds** |
 
 `@amux_workspace_name` and `@amux_project` are **display-only** labels for
 external tooling (`tmux ls`, `list-sessions -F`) so a session is identifiable
@@ -585,6 +602,84 @@ scrolls to the display segment intersecting the selected hit rather than the
 source line's first segment — a match deep in a wrapped tail is brought
 into view, with the enclosing hunk header retained only when it fits with
 that segment.
+
+## Reporting status: the Program Status Protocol (OSC 7501)
+
+A program hosted in an amux pane can tell amux what it is doing — instead of
+amux guessing from output heuristics — with the Program Status Protocol
+(OSC 7501). amux is a protocol consumer: it installs a
+`pipe-pane` tap on every hosted session at creation (both agent tabs and
+detached `run` sessions), the tap maintains the protocol's record set from
+the pane's raw output stream, and the folded result lands as the
+`@amux_reported_*` pane options above. Reported state overrides the
+output-heuristic classification in the dashboard (a blocked report rings
+the bell and shows a `blocked` badge even while output still scrolls), and
+`@amux_agent_state` publishes the merged view.
+
+The one-line recipe for any program or wrapper script running inside an
+amux pane (this is the protocol's own shell function, and it works in any
+terminal — well-behaved terminals ignore unknown OSCs):
+
+```sh
+status() {
+  printf '\e]7501;state=%s:msg=%s\e\\' "$1" "$(printf '%s' "$2" | base64 | tr -d '\n')"
+}
+status working "Refactoring the parser"
+# ... later, when the agent needs its human:
+status blocked "Which migration should I generate?"   # kind defaults absent
+status done "All tests green"
+```
+
+`amux report` is the same printf with validation, for programs that prefer
+an explicit call:
+
+```sh
+amux report --state blocked --kind question --app my-tool --message "needs a decision"
+amux report --state done --message "finished"
+amux report --clear        # removes every reported record for this program
+```
+
+State vocabulary and semantics follow the published spec (revision 0.4):
+
+- states: `idle`, `working`, `done`, `blocked`, `error`; unknown states are
+  ignored whole (never rendered as idle);
+- `msg` is base64 of UTF-8 text (single line, hard size caps);
+- `kind` (`permission`/`question`/`auth`) qualifies `blocked`;
+- `app` identifies the reporter; reports may address sub-records with `id`
+  (a blocked worker under a working root is the canonical case) and remove
+  them with `state=clear`;
+- lifetime: `working`/`blocked` records drop when the pane's process exits
+  or a new shell prompt begins (OSC 133 A); `done`/`error` survive until
+  the pane dies, the program reports again, or `state=clear` arrives.
+  Viewing a workspace acks the presentation (the badge clears in that amux
+  instance) but does not rewrite the stored records.
+
+The consumer for supervising scripts and agents is `amux wait`:
+
+```sh
+# Block until any pane reports blocked, error, or done (10s timeout):
+amux wait --state blocked,error,done --timeout 10s
+# Scoped to one workspace or session, matching on any state:
+amux wait --state any --workspace my-feature
+amux wait --state done --session amux-my-feature-1
+```
+
+It exits 0 on the first match (printing `session=… state=… kind=… app=…
+message=…`), 1 when tmux itself is unusable (missing or too old — waiting
+cannot fix that), and 2 on timeout or a usage error. A stored
+`working`/`blocked` report on a pane whose process has exited never
+matches — transient states die with their process, and a supervising
+script must not act on a pane that can no longer respond. Inside a pane it
+derives the tmux server from `$TMUX` automatically.
+
+Design notes for external tooling: reports live and die with their pane —
+the tap holds no state on disk, and killing a session clears its reports.
+The tap binds at creation to the exact pane it reads (its writes address
+that pane id, so a later `split-window` cannot skew reports onto the new
+active pane), is best-effort at creation (a session hosts fine without
+it), and `-o` keeps reinstall idempotent. amux injects `AMUX_ENV=1` and
+`AMUX_BIN_PATH=<amux binary>` into every hosted pane, so a wrapper can use
+`"$AMUX_BIN_PATH" report …` even if `amux` is not on the pane's `PATH`.
 
 ## Self-update replacement contract
 

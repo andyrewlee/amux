@@ -42,6 +42,8 @@ const (
 	StateIdle    = data.StateIdle    // quiet, nothing pending
 	StateWorking = data.StateWorking // actively producing output
 	StateDone    = data.StateDone    // recently finished (was working, now quiet)
+	StateBlocked = data.StateBlocked // reported: waiting on the user
+	StateError   = data.StateError   // reported: ended in failure
 )
 
 // SessionInfo maps a tmux session name to known tab metadata.

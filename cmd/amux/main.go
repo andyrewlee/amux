@@ -68,6 +68,13 @@ func main() {
 		os.Exit(code)
 	}
 
+	// Program Status Protocol surface: the pane tap helper, `amux report`,
+	// and `amux wait`. Same no-TTY rule as the pane-launch bootstrap, so it
+	// also runs before any interactive gate.
+	if handled, code := HandleStatusCLI(args); handled {
+		os.Exit(code)
+	}
+
 	if isVersionInvocation(args) {
 		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
@@ -102,7 +109,7 @@ func unsupportedInvocationMessage(arg string) string {
 	if arg == "tui" {
 		return "run `amux` directly to start the terminal UI."
 	}
-	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI or `amux --version`.", arg)
+	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI, `amux --version`, or a status verb (`amux report`, `amux wait`).", arg)
 }
 
 func nonInteractiveMessage() string {

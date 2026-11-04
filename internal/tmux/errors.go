@@ -13,6 +13,22 @@ func isExitCode1(err error) bool {
 	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
 }
 
+// UnavailableError marks a permanent tmux-availability failure: no usable
+// tmux binary (missing on PATH, `-V` failing, or older than 3.2). Unlike a
+// missing server, waiting cannot resolve it, so polling callers such as
+// `amux wait` exit immediately instead of retrying forever.
+type UnavailableError struct{ err error }
+
+func (e *UnavailableError) Error() string { return e.err.Error() }
+func (e *UnavailableError) Unwrap() error { return e.err }
+
+// IsUnavailableError reports whether err is (or wraps) a permanent
+// availability failure.
+func IsUnavailableError(err error) bool {
+	var unavailable *UnavailableError
+	return errors.As(err, &unavailable)
+}
+
 // IsNoServerError reports whether err indicates that no tmux server is
 // currently running for the selected socket/server name.
 func IsNoServerError(err error) bool {

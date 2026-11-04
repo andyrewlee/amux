@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/andyrewlee/amux/internal/data"
 	"github.com/andyrewlee/amux/internal/messages"
 	"github.com/andyrewlee/amux/internal/ui/common"
 )
@@ -34,6 +35,16 @@ func (m *Model) renderTabBar() string {
 
 	var renderedTabs []string
 	x := 0
+
+	// The current workspace's reported state colors its chat tabs' indicator
+	// — the tab-strip echo of the dashboard badge. All tabs in this bar
+	// belong to one workspace, so the lookup happens once.
+	wsState := m.workspaceAgentState()
+	wsNeedsAttention := wsState == data.StateBlocked || wsState == data.StateError
+	attentionColor := common.ColorWarning()
+	if wsState == data.StateError {
+		attentionColor = common.ColorError()
+	}
 
 	for i, tab := range currentTabs {
 		name := tab.Name
@@ -73,10 +84,15 @@ func (m *Model) renderTabBar() string {
 			// Active tab - each part styled with same background
 			bg := common.ColorSurface2()
 			pad := lipgloss.NewStyle().Background(bg).Render(" ")
-			// Use muted color for disconnected tabs
+			// Use muted color for disconnected tabs; a reported
+			// blocked/error state outranks the assistant brand color —
+			// the dot is what the eye tracks across tabs, so it carries
+			// the attention hue.
 			indicatorFg := agentStyle.GetForeground()
 			if tabDisconnected {
 				indicatorFg = common.ColorMuted()
+			} else if wsNeedsAttention {
+				indicatorFg = attentionColor
 			}
 			indicatorPart := lipgloss.NewStyle().Foreground(indicatorFg).Background(bg).Render(indicator)
 			// Use primary color and bold when actively working, muted when disconnected
@@ -101,11 +117,15 @@ func (m *Model) renderTabBar() string {
 			} else {
 				nameStyled = m.styles.Muted.Render(name)
 			}
-			// Use muted indicator color for disconnected tabs
+			// Use muted indicator color for disconnected tabs; a
+			// reported blocked/error state takes the attention hue.
 			var indicatorStyled string
-			if tabDisconnected {
+			switch {
+			case tabDisconnected:
 				indicatorStyled = m.styles.Muted.Render(indicator)
-			} else {
+			case wsNeedsAttention:
+				indicatorStyled = lipgloss.NewStyle().Foreground(attentionColor).Render(indicator)
+			default:
 				indicatorStyled = agentStyle.Render(indicator)
 			}
 			content := indicatorStyled + nameStyled + " " + closeLabel

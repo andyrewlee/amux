@@ -43,9 +43,21 @@ func EnsureDetachedSession(sessionName, workDir, command string, environment []s
 
 	// ensure-then-settings; the braced settings fallback cannot re-run
 	// ensureSession on its own failure (settingsScript already self-heals
-	// per-option), matching clientCommand's bracing discipline. The script
-	// text already ends with "; " and always exits true.
+	// per-option), matching clientCommand's bracing discipline. The status
+	// tap follows best-effort: a run script must still host when the tap
+	// cannot install.
 	script := fmt.Sprintf("%s && { %s}", ensureSessionScript(base, sessionName, dir, launch, true), settingsScript(base, settings))
+	if tap := StatusTapCommand(launch.exe, opts.ServerName, sessionName, opts); tap != "" {
+		// The '; ' separator is load-bearing: settingsScript's text ends
+		// with '}' and sh silently swallows a brace group glued directly
+		// onto it ('}{ cmd; }' parses but never runs), so the tap would
+		// install nowhere while every exit status stayed green. The
+		// script's status is captured before the tap and restored after:
+		// the tap is best-effort (a run script must still host without
+		// it), but an ensure failure must never read as success — the
+		// caller would treat a launch that never happened as hosted.
+		script += fmt.Sprintf("; s=$?; { %s; } 2>/dev/null; exit $s", tap)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), tmuxCommandTimeout)
 	defer cancel()
@@ -100,6 +112,19 @@ func CreateDetachedSession(sessionName, workDir, command string, environment []s
 		[]string{"-t", optionTgt, "remain-on-exit", "on"})
 
 	script := createSessionScript(base, sessionName, dir, launch, true, settingsScript(base, settings))
+	if tap := StatusTapCommand(launch.exe, opts.ServerName, sessionName, opts); tap != "" {
+		// The script's status is captured before the tap and restored
+		// after — the tap is best-effort and must not mask the allocation
+		// outcome — and the tap is skipped entirely on the collision
+		// sentinel: exit 3 means the name already belongs to another
+		// amux instance's session, and piping a foreign session's output
+		// through this helper (or stamping options onto it) is not
+		// best-effort, it is touching a session this call does not own.
+		// (The collision exit happens inside the race subshell; without
+		// the case guard the epilogue would run on that path too.)
+		script += fmt.Sprintf("; s=$?; case $s in %d) ;; *) { %s; } 2>/dev/null ;; esac; exit $s",
+			exitCodeCollision, tap)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), tmuxCommandTimeout)
 	defer cancel()

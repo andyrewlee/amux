@@ -75,8 +75,18 @@ func NewClientCommand(sessionName string, p ClientCommandParams) (*PreparedComma
 	// parsing makes a failed ensureSession fall through into the per-option
 	// fallback, spending a tmux round-trip per option against a session that does
 	// not exist.
+	//
+	// The status tap is installed after the settings exist and before the
+	// attach: pipe-pane -o is idempotent (a reattach never double-pipes),
+	// and its failure is best-effort — a session must be attachable even
+	// when the tap cannot install, at the cost of losing OSC 7501 reports
+	// from that pane (the `amux report` CLI channel still works).
+	script := fmt.Sprintf("%s && %s && { %s}; ", ensureSession, syncFeatureSet, settingsScript(base, settings))
+	if tap := StatusTapCommand(launch.exe, opts.ServerName, sessionName, opts); tap != "" {
+		script += fmt.Sprintf("{ %s; } 2>/dev/null; ", tap)
+	}
 	return &PreparedCommand{
-		Command: fmt.Sprintf("%s && %s && { %s}; %s", ensureSession, syncFeatureSet, settingsScript(base, settings), attach),
+		Command: script + attach,
 		payload: launch.payload,
 	}, nil
 }

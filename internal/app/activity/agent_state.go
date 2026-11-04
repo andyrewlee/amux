@@ -119,39 +119,10 @@ func AgentStateMachineCheck() error {
 	})
 }
 
-// ClassifyWorkspaceStates maps workspaces to a semantic AgentState. A workspace
-// is Working if it is in `active`; otherwise Done if any of its sessions went
-// quiet within DoneWindow (per ClassifyState); otherwise omitted. `updated` is
-// keyed by session name. Workspace IDs are resolved from local tab metadata and
-// the same tagged tmux session metadata used by active classification.
-func ClassifyWorkspaceStates(
-	active map[string]bool,
-	updated map[string]*SessionState,
-	infoBySession map[string]SessionInfo,
-	sessions []TaggedSession,
-	now time.Time,
-) map[string]AgentState {
-	out := make(map[string]AgentState, len(active))
-	for wsID := range active {
-		out[wsID] = StateWorking
-	}
-	workspaceBySession := workspaceIDsBySession(infoBySession, sessions)
-	for name, st := range updated {
-		if ClassifyState(st, now) != StateDone {
-			continue
-		}
-		workspaceID := workspaceBySession[name]
-		if workspaceID == "" {
-			continue
-		}
-		if _, isWorking := out[workspaceID]; !isWorking {
-			out[workspaceID] = StateDone
-		}
-	}
-	return out
-}
-
-func workspaceIDsBySession(infoBySession map[string]SessionInfo, sessions []TaggedSession) map[string]string {
+// WorkspaceIDsBySession resolves session names to workspace IDs from local
+// tab metadata and tagged tmux session metadata — the identity sources the
+// activity scan and the report merge both join on.
+func WorkspaceIDsBySession(infoBySession map[string]SessionInfo, sessions []TaggedSession) map[string]string {
 	out := make(map[string]string, len(infoBySession)+len(sessions))
 	for name, info := range infoBySession {
 		if info.WorkspaceID != "" {

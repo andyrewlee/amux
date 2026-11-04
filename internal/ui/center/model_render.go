@@ -140,6 +140,11 @@ func (m *Model) TabBarVersion() uint64 {
 	fp := common.FoldFingerprint(0, m.tabsRevision)
 	fp = common.FoldFingerprint(fp, uint64(m.getActiveTabIdx()+1))
 	fp = common.FoldFingerprint(fp, m.stylesRev)
+	// The current workspace's reported state colors the chat-tab indicator;
+	// fold it so a blocked/error publish re-renders the bar (the state map is
+	// written by SetWorkspaceAgentStates outside any tabs mutation, so no
+	// revision bump covers it).
+	fp = common.FoldFingerprint(fp, uint64(m.workspaceAgentState()))
 	for _, tab := range tabs {
 		withMu(&tab.mu, func() {
 			fp = common.FoldFingerprintString(fp, string(tab.ID))

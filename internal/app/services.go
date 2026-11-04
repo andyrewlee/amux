@@ -3,6 +3,7 @@ package app
 import (
 	"time"
 
+	"github.com/andyrewlee/amux/internal/agentstatus"
 	"github.com/andyrewlee/amux/internal/git"
 	"github.com/andyrewlee/amux/internal/tmux"
 	"github.com/andyrewlee/amux/internal/update"
@@ -27,6 +28,10 @@ type TmuxOps interface {
 	InstallHint() string
 	ActiveAgentSessionsByActivity(window time.Duration, opts tmux.Options) ([]tmux.SessionActivity, error)
 	SessionsWithTags(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error)
+	// PaneReports reads every pane's Program Status Protocol report in one
+	// call; declared on the interface because the activity merge has no
+	// fallback — a TmuxOps lacking it silently drops reported state.
+	PaneReports(opts tmux.Options) (map[string]agentstatus.Report, error)
 	// SetSessionTagValueForSessions is declared on the interface (not asserted)
 	// because owner-heartbeat refresh has no fallback: a TmuxOps lacking it
 	// silently breaks the cross-instance liveness the GC relies on.

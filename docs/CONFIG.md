@@ -109,6 +109,14 @@ The rest:
 | `AMUX_PERF_LOG_DIR`       | Directory for perf snapshot output from `AMUX_PERF_TEST` runs (test-only; defaults to the OS temp dir). |
 | `AMUX_E2E_BIN`            | Path to a prebuilt binary for `internal/e2e` tests (test-only).                            |
 
+Injected into every hosted pane (never set by users — the reserved `AMUX_*`
+namespace strips user layers from setting them):
+
+| Variable          | Meaning                                                                                    |
+|-------------------|--------------------------------------------------------------------------------------------|
+| `AMUX_ENV`        | Always `1`; marks a pane as amux-hosted so scripts can branch on it.                        |
+| `AMUX_BIN_PATH`   | Absolute path to the amux binary hosting this pane, so a wrapper can call `"$AMUX_BIN_PATH" report` / `wait` even when `amux` is not on the pane's `PATH`. Survives binary self-update via the same stable-launcher resolution as pane spawns. |
+
 `AMUX_SKIP_LINT` and `AMUX_SKIP_HARNESS` are contributor git-hook flags, not
 runtime configuration — the amux process never reads them, and each removes
 only its named gate in `.githooks/` (lint still runs formatting, drift, and

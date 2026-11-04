@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/andyrewlee/amux/internal/data"
+	"github.com/andyrewlee/amux/internal/panelaunch"
 )
 
 // EnvBuilder builds environment variables for script execution
@@ -46,6 +47,17 @@ func (b *EnvBuilder) BuildEnvLayers(ws *data.Workspace, layers ...map[string]str
 		"AMUX_WORKSPACE_BRANCH="+ws.Branch,
 		"ROOT_WORKSPACE_PATH="+ws.Repo,
 	)
+
+	// Program Status Protocol surface: every hosted process learns it runs
+	// inside amux and gets a stable way to call back (AMUX_BIN_PATH resolves
+	// through the pane launcher's stable path so it survives the running
+	// binary being replaced). See docs/ORCHESTRATION.md.
+	if bin, _, err := panelaunch.LauncherPath(); err == nil && bin != "" {
+		env = append(env,
+			"AMUX_ENV=1",
+			"AMUX_BIN_PATH="+bin,
+		)
+	}
 
 	// Add port allocation. ReserveWorkspace keys on the persisted metadata ID
 	// when the durable registry is configured, falling back to the root-keyed

@@ -19,6 +19,9 @@ func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 	activeWorkspaces := make(map[string]bool)
 	if !a.tmuxActivity.settled {
 		a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+		if a.center != nil {
+			a.center.SetWorkspaceAgentStates(nil)
+		}
 		return a.dashboard.SetAgentStates(nil)
 	}
 	for wsID := range a.tmuxActivity.activeWorkspaceIDs {
@@ -30,6 +33,9 @@ func (a *App) syncActiveWorkspacesToDashboard() tea.Cmd {
 		activeWorkspaces[wsID] = true
 	}
 	a.dashboard.SetActiveWorkspaces(activeWorkspaces)
+	if a.center != nil {
+		a.center.SetWorkspaceAgentStates(a.tmuxActivity.agentStates)
+	}
 	return a.dashboard.SetAgentStates(a.tmuxActivity.agentStates)
 }
 

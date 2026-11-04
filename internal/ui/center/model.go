@@ -44,6 +44,13 @@ type Model struct {
 	focused             bool
 	canFocusRight       bool
 	tabsRevision        uint64
+	// agentStatesByWorkspace mirrors the activity scan's per-workspace
+	// semantic states (reported over heuristic, severity-folded) so the
+	// tab bar can mark the current workspace's tabs when a program reports
+	// blocked/error. Keyed like dashboard agentStates; nil entry = unknown,
+	// rendered as no marker. Written by SetWorkspaceAgentStates from the
+	// app's scan sync, read on the render path.
+	agentStatesByWorkspace map[string]data.AgentState
 	// helpVersion is a monotonic version of every input that shapes HelpLines
 	// output (tab count, workspace presence, keymap-hint visibility, styles,
 	// pane size). INVARIANT: every update path that changes what HelpLines

@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/andyrewlee/amux/internal/agentstatus"
 	"github.com/andyrewlee/amux/internal/app/activity"
 	"github.com/andyrewlee/amux/internal/logging"
 	"github.com/andyrewlee/amux/internal/messages"
@@ -24,6 +25,12 @@ type tmuxActivityResult struct {
 	SessionStates      map[string]*activity.SessionState // complete retained set; replaces the live map when non-nil
 	UpdatedStates      map[string]*activity.SessionState // scan delta, merged only when SessionStates is absent
 	RemovedStates      []string                          // Session states pruned this scan (delete on merge)
+	// Semantics is the per-session classification this scan settled on:
+	// the heuristic view with reported Program Status Protocol state merged
+	// over it (see activity.MergeReportedSessionStates). Owner results use
+	// it for the @amux_agent_state publish so the published tag reflects
+	// reported truth, not just screen hysteresis. Nil on follower results.
+	Semantics map[string]activity.AgentState
 	// Now is the scan's single classification timestamp. Applying a result
 	// classifies transitions at this instant, so tests advance clocks through
 	// the result rather than sleeping.
@@ -184,14 +191,23 @@ func (a *App) runTmuxActivityScan(
 	// transition diff both classify the complete set at one timestamp.
 	currentStates := mergeActivitySessionStates(statesSnapshot, updatedStates, removedStates)
 	scanNow := time.Now()
+	// Reported program status is authoritative where present: one read of
+	// every pane's report, merged over the heuristic per-session
+	// classification, then folded per workspace by severity. A failed read
+	// degrades to the pure heuristic view — the same state silent agents
+	// always had.
+	reports := fetchPaneReports(svc, opts)
+	mergedSemantics := activity.MergeReportedSessionStates(currentStates, reports, scanNow)
+	workspaceBySession := activity.WorkspaceIDsBySession(infoBySession, sessions)
 	result := tmuxActivityResult{
 		Token:              scanToken,
 		ActiveWorkspaceIDs: active,
-		AgentStates:        activity.ClassifyWorkspaceStates(active, currentStates, infoBySession, sessions, scanNow),
+		AgentStates:        activity.FoldWorkspaceStates(active, mergedSemantics, workspaceBySession),
 		SessionStates:      currentStates,
 		UpdatedStates:      updatedStates,
 		RemovedStates:      removedStates,
 		Now:                scanNow,
+		Semantics:          mergedSemantics,
 		StoppedTabs:        stoppedTabs,
 		ScannerOwner:       true,
 		ScannerEpoch:       ownerEpoch,
@@ -201,6 +217,18 @@ func (a *App) runTmuxActivityScan(
 		a.publishActivitySnapshot(&result, active, opts)
 	}
 	return result
+}
+
+// fetchPaneReports reads every pane's status report, degrading to nil (pure
+// heuristic classification) when the read fails — a missing report channel
+// must never fail the scan itself.
+func fetchPaneReports(svc TmuxOps, opts tmux.Options) map[string]agentstatus.Report {
+	reports, err := svc.PaneReports(opts)
+	if err != nil {
+		logging.Warn("tmux pane report read failed; using heuristic classification only: %v", err)
+		return nil
+	}
+	return reports
 }
 
 // mergeActivitySessionStates assembles the scan's complete retained session

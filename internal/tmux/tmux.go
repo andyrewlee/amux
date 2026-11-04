@@ -22,7 +22,10 @@ import (
 )
 
 type Options struct {
-	ServerName      string
+	ServerName string
+	// SocketPath is an absolute tmux server socket (-S). When set it takes
+	// precedence over ServerName — tmux -L cannot address an absolute path.
+	SocketPath      string
 	ConfigPath      string
 	HideStatus      bool
 	DisableMouse    bool
@@ -68,6 +71,28 @@ func DefaultOptions() Options {
 	}
 }
 
+// OptionsFromTMUXEnv derives options for commands run from inside a pane:
+// $TMUX's first comma field is the server's socket path (set by tmux
+// itself, so it survives AMUX_TMUX_SERVER overrides at creation time). An
+// absolute path needs -S, so it lands in SocketPath; anything else is a
+// server name. Outside a pane the default options apply. The pane-side
+// verbs (`amux report`, `amux wait`, the status tap) resolve their server
+// this way so they always speak to the server hosting them.
+func OptionsFromTMUXEnv() Options {
+	opts := DefaultOptions()
+	if tmuxEnv := strings.TrimSpace(os.Getenv("TMUX")); tmuxEnv != "" {
+		if socket, _, ok := strings.Cut(tmuxEnv, ","); ok && socket != "" {
+			if strings.Contains(socket, "/") {
+				opts.SocketPath = socket
+				opts.ServerName = ""
+			} else {
+				opts.ServerName = socket
+			}
+		}
+	}
+	return opts
+}
+
 var ensureAvailability struct {
 	once sync.Once
 	err  error
@@ -87,19 +112,19 @@ func EnsureAvailable() error {
 
 func checkAvailability() error {
 	if _, err := exec.LookPath("tmux"); err != nil {
-		return fmt.Errorf("tmux is not installed.\n\n%s", InstallHint())
+		return &UnavailableError{fmt.Errorf("tmux is not installed.\n\n%s", InstallHint())}
 	}
 	out, err := exec.Command("tmux", "-V").Output()
 	if err != nil {
-		return fmt.Errorf("tmux is installed but `tmux -V` failed: %w\n\n%s", err, InstallHint())
+		return &UnavailableError{fmt.Errorf("tmux is installed but `tmux -V` failed: %w\n\n%s", err, InstallHint())}
 	}
 	raw := strings.TrimSpace(string(out))
 	major, minor, ok := parseVersion(raw)
 	if !ok {
-		return fmt.Errorf("unrecognized tmux version %q; amux requires tmux >= 3.2.\n\n%s", raw, InstallHint())
+		return &UnavailableError{fmt.Errorf("unrecognized tmux version %q; amux requires tmux >= 3.2.\n\n%s", raw, InstallHint())}
 	}
 	if major < 3 || (major == 3 && minor < 2) {
-		return fmt.Errorf("found %s, but amux requires tmux >= 3.2.\n\n%s", raw, InstallHint())
+		return &UnavailableError{fmt.Errorf("found %s, but amux requires tmux >= 3.2.\n\n%s", raw, InstallHint())}
 	}
 	return nil
 }
@@ -203,7 +228,12 @@ func SessionStateFor(sessionName string, opts Options) (SessionState, error) {
 
 func tmuxBase(opts Options) string {
 	base := "tmux"
-	if opts.ServerName != "" {
+	if opts.SocketPath != "" {
+		// An absolute socket path must go through -S: tmux -L treats its
+		// value as a name under the socket dir (an absolute path there
+		// produces socket-dir + path concatenation and a dead connection).
+		base = fmt.Sprintf("%s -S %s", base, shellutil.ShellQuote(opts.SocketPath))
+	} else if opts.ServerName != "" {
 		base = fmt.Sprintf("%s -L %s", base, shellutil.ShellQuote(opts.ServerName))
 	}
 	if opts.ConfigPath != "" {
@@ -214,7 +244,9 @@ func tmuxBase(opts Options) string {
 
 func tmuxArgs(opts Options, args ...string) []string {
 	out := []string{}
-	if opts.ServerName != "" {
+	if opts.SocketPath != "" {
+		out = append(out, "-S", opts.SocketPath)
+	} else if opts.ServerName != "" {
 		out = append(out, "-L", opts.ServerName)
 	}
 	if opts.ConfigPath != "" {

@@ -223,22 +223,25 @@ func (m *Model) SetActiveWorkspaces(active map[string]bool) {
 // It returns a bell command exactly once per unacked watched Working→Done
 // edge when notify-on-done is enabled: the edge is derived from the previous
 // publish, so a workspace that stays Done across frames does not re-bell. A
-// frame with several simultaneous edges still rings a single bell.
+// frame with several simultaneous edges still rings a single bell. A newly
+// latched reported-blocked publish always rings — the program itself said it
+// is waiting on the user, which is not a preference-gated heuristic.
 func (m *Model) SetAgentStates(states map[string]data.AgentState) tea.Cmd {
 	prev := m.agentStates
 	m.agentStates = states
 	if !maps.Equal(prev, states) {
 		m.markContentDirty()
 	}
-	bell := false
+	doneBell := false
+	blockedBell := false
 	// Walk the union: every workspace whose live publish changed (including
 	// one that dropped out of the map — its live Done badge must decay) steps
 	// its machine. Equal maps still walk, so latch bookkeeping is never
 	// skipped behind the dirty gate; unchanged publishes are self-loops.
 	for wsID, newLive := range states {
-		if m.stepAttention(wsID, prev[wsID], newLive) {
-			bell = true
-		}
+		doneEdge, blockedEdge := m.stepAttention(wsID, prev[wsID], newLive)
+		doneBell = doneBell || doneEdge
+		blockedBell = blockedBell || blockedEdge
 	}
 	for wsID, prevLive := range prev {
 		if _, kept := states[wsID]; kept {
@@ -246,7 +249,7 @@ func (m *Model) SetAgentStates(states map[string]data.AgentState) tea.Cmd {
 		}
 		m.stepAttention(wsID, prevLive, data.StateIdle)
 	}
-	if bell && m.notifyOnDone {
+	if blockedBell || (doneBell && m.notifyOnDone) {
 		return bellCmd()
 	}
 	return nil

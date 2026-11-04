@@ -153,17 +153,16 @@ func (a *App) applyTmuxActivityPayload(msg tmuxActivityResult) tea.Cmd {
 	// last ACCEPTED semantic value (the baseline), not a reclassified previous
 	// snapshot — only that lets clock-driven transitions (e.g. Done→Idle when
 	// DoneWindow expires with no content change) publish, since the snapshot
-	// alone can never differ from its own reclassification.
+	// alone can never differ from its own reclassification. Classification
+	// comes from the scan's merged semantics (reported status over
+	// hysteresis) when present, so a reported blocked/error publishes as
+	// itself.
 	var agentStateChanges []agentStateTagChange
 	if msg.ScannerOwner {
 		if a.tmuxActivity.agentStateBaseline == nil {
 			a.tmuxActivity.agentStateBaseline = make(map[string]activity.AgentState)
 		}
-		now := msg.Now
-		if now.IsZero() {
-			now = time.Now()
-		}
-		agentStateChanges = sessionAgentStateChanges(a.tmuxActivity.sessionStates, a.tmuxActivity.agentStateBaseline, now)
+		agentStateChanges = sessionAgentStateChanges(a.tmuxActivity.sessionStates, msg.Semantics, a.tmuxActivity.agentStateBaseline, msg.Now)
 	}
 	prevStates := a.tmuxActivity.agentStates
 	doneCount := countWorkingToDone(prevStates, msg.AgentStates)
@@ -201,30 +200,38 @@ type agentStateTagChange struct {
 	prev        activity.AgentState
 }
 
-// sessionAgentStateChanges classifies every retained session in `current` via
-// activity.ClassifyState at `now` and returns the sessions whose semantic
-// AgentState differs from the baseline — the last value this instance
-// accepted (and therefore published) for that session. It then updates
-// `baseline` in place: accepted values are recorded, first observations are
-// seeded with prev=state (publishing the current tag to correct external
-// drift while guaranteeing no false working→done hook edge), and sessions no
-// longer retained are dropped so a reappearing session re-observes fresh.
+// sessionAgentStateChanges resolves every retained session in `current` to
+// its effective semantic AgentState and returns the sessions whose value
+// differs from the baseline — the last value this instance accepted (and
+// therefore published) for that session. It then updates `baseline` in
+// place: accepted values are recorded, first observations are seeded with
+// prev=state (publishing the current tag to correct external drift while
+// guaranteeing no false working→done hook edge), and sessions no longer
+// retained are dropped so a reappearing session re-observes fresh.
 //
-// Evaluating the complete retained set is what makes clock-driven transitions
-// publish: a quiet session emits no update for scans at a time, yet its
-// classification still advances (Done→Idle when DoneWindow expires). The
-// baseline — not a reclassified snapshot — is the only side of the diff that
-// remembers that Done was ever published.
-func sessionAgentStateChanges(current map[string]*activity.SessionState, baseline map[string]activity.AgentState, now time.Time) []agentStateTagChange {
+// The classification is the scan's merged semantics when present (reported
+// Program Status Protocol state over the heuristic signal), falling back to
+// the pure heuristic classification for hand-built results. Evaluating the
+// complete retained set is what makes clock-driven transitions publish: a
+// quiet session emits no update for scans at a time, yet its classification
+// still advances (Done→Idle when DoneWindow expires). The baseline — not a
+// reclassified snapshot — is the only side of the diff that remembers that
+// Done was ever published.
+func sessionAgentStateChanges(
+	current map[string]*activity.SessionState,
+	semantics map[string]activity.AgentState,
+	baseline map[string]activity.AgentState,
+	now time.Time,
+) []agentStateTagChange {
 	var changes []agentStateTagChange
 	for name, state := range current {
-		signal := activity.SignalFor(state, now)
 		prevState, observed := baseline[name]
-		// The table is total and every edge's target equals the signal's
-		// classification (AgentStateMachineCheck enforces the agreement),
-		// so both first observations and baseline transitions classify
-		// through the same function; only the published prev differs.
-		nextState := activity.ClassifySignalTarget(signal)
+		var nextState activity.AgentState
+		if semantics != nil {
+			nextState = semantics[name]
+		} else {
+			nextState = activity.ClassifyState(state, now)
+		}
 		baseline[name] = nextState
 		if !observed {
 			// First observation under this ownership epoch: publish the

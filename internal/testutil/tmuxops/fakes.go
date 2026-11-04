@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/andyrewlee/amux/internal/agentstatus"
 	"github.com/andyrewlee/amux/internal/tmux"
 )
 
@@ -21,6 +22,9 @@ type FakeTmuxOps struct {
 	InstallHintFunc                   func() string
 	ActiveAgentSessionsByActivityFunc func(window time.Duration, opts tmux.Options) ([]tmux.SessionActivity, error)
 	SessionsWithTagsFunc              func(match map[string]string, keys []string, opts tmux.Options) ([]tmux.SessionTagValues, error)
+	// PaneReportsFunc backs the activity scan's Program Status Protocol
+	// read; nil (no reports) keeps the heuristic classification.
+	PaneReportsFunc                   func(opts tmux.Options) (map[string]agentstatus.Report, error)
 	SetSessionTagValueForSessionsFunc func(sessionNames []string, key, value string, opts tmux.Options) error
 	AllSessionStatesFunc              func(opts tmux.Options) (map[string]tmux.SessionState, error)
 	AllSessionMetaFunc                func(opts tmux.Options) (map[string]tmux.SessionMeta, error)
@@ -87,6 +91,13 @@ func (f *FakeTmuxOps) SessionsWithTags(match map[string]string, keys []string, o
 	f.mu.Unlock()
 	if f.SessionsWithTagsFunc != nil {
 		return f.SessionsWithTagsFunc(match, keys, opts)
+	}
+	return nil, nil
+}
+
+func (f *FakeTmuxOps) PaneReports(opts tmux.Options) (map[string]agentstatus.Report, error) {
+	if f.PaneReportsFunc != nil {
+		return f.PaneReportsFunc(opts)
 	}
 	return nil, nil
 }

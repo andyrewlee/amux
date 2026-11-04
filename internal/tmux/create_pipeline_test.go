@@ -109,6 +109,19 @@ func TestClientCommandAppliesOptionsAndTagsOnRealTmux(t *testing.T) {
 	if got := showWindowOption(t, opts, session, "monitor-activity"); got != "on" {
 		t.Errorf("window option monitor-activity = %q, want \"on\" — the activity-based quiet check depends on it", got)
 	}
+
+	// The status tap must have installed with the session: the pipe-pane
+	// fragment runs before the attach, and a silent no-op — the
+	// brace-adjacency class of bug where sh parses '}{ cmd; }' but never
+	// executes it, or a pane target tmux rejects — would leave every other
+	// assertion green while the pane reports nothing.
+	out, err := exec.Command("tmux", tmuxArgs(opts, "list-panes", "-t", session, "-F", "#{pane_pipe}")...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-panes pane_pipe on %s: %v\n%s", session, err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "1" {
+		t.Errorf("pane_pipe = %q, want \"1\" — the OSC 7501 tap did not install with the session", got)
+	}
 }
 
 // TestClientCommandEscapesDeletedServerWorkingDirectory reproduces the tmux
