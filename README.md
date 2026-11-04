@@ -95,7 +95,7 @@ outcome when the batch drains.
 
 Start with [`ARCHITECTURE.md`](ARCHITECTURE.md) for the repo-level package map and dependency direction. Then `internal/app/ARCHITECTURE.md` covers lifecycle, PTY flow, tmux tagging, and persistence invariants, and `internal/app/MESSAGE_FLOW.md` documents message boundaries and command discipline.
 
-External orchestration: the supported tmux-level contract is documented in [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
+External orchestration: the supported tmux-level contract is documented in [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md), and the direction of the project lives in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features
 
