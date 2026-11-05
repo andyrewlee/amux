@@ -174,14 +174,39 @@ func (m *Model) interruptActiveAgentCmd(tab *Tab) tea.Cmd {
 	)
 }
 
+// handleScrollbackKey claims the paging keys for local history. An
+// alternate-screen pane owns its viewport (amux keeps no local history for
+// it), so unmodified PgUp/PgDown are forwarded to the hosted application as
+// keypresses instead — chat TUIs bind them to their own transcript scrolling.
+// Modified combinations stay amux-local for consistency with the wheel
+// contract (shift is always the force-local override).
 func (m *Model) handleScrollbackKey(msg tea.KeyPressMsg, tab *Tab) (*Model, tea.Cmd, bool) {
-	switch {
-	case msg.Key().Code == tea.KeyPgUp:
-		return m.scrollTerminalPage(tab, 1), nil, true
-	case msg.Key().Code == tea.KeyPgDown:
-		return m.scrollTerminalPage(tab, -1), nil, true
+	code := msg.Key().Code
+	if code != tea.KeyPgUp && code != tea.KeyPgDown {
+		return m, nil, false
 	}
-	return m, nil, false
+	// The keyboard path routes on the cached pane state without probing (the
+	// input FIFO must never block on tmux). Within one freshness window the
+	// flag can be wrong in either direction: a PgUp can land in a pane that
+	// left the alternate screen, where a program may act on the stray bytes
+	// (vim reads `~` as case-toggle), or arrive as a page event an
+	// alternate-screen app binds to its own scrolling. Bounded by
+	// paneStateProbeFreshness and self-correcting on the next probe trigger.
+	paneAlt := withMuVal(&tab.mu, func() bool {
+		return tab.Terminal != nil && tab.Terminal.PaneAlternateScreen
+	})
+	if paneAlt && msg.Mod == 0 {
+		seq := "\x1b[5~"
+		if code == tea.KeyPgDown {
+			seq = "\x1b[6~"
+		}
+		res, gen := m.admitTabInput(tab, seq, "paging key", true)
+		return m, common.SafeBatch(m.rejectedTabInputCmd(tab, res, gen), m.userInputActivityTagCmd(tab)), true
+	}
+	if code == tea.KeyPgUp {
+		return m.scrollTerminalPage(tab, 1), nil, true
+	}
+	return m.scrollTerminalPage(tab, -1), nil, true
 }
 
 func (m *Model) scrollTerminalPage(tab *Tab, scrollPage int) *Model {

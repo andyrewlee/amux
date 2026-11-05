@@ -179,6 +179,7 @@ func TestShouldPostTabActorRedraw(t *testing.T) {
 		{kind: tabEventScrollBy, want: true},
 		{kind: tabEventScrollPage, want: true},
 		{kind: tabEventDiffInput, want: true},
+		{kind: tabEventWheel, want: true},
 		{kind: tabEventSendMouse, want: false},
 		{kind: tabEventWriteOutput, want: false},
 	}

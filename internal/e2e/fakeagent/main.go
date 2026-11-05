@@ -146,8 +146,15 @@ func main() {
 	}
 
 	// Match full-screen terminal apps that ask their host to deliver wheel
-	// events to stdin instead of using outer scrollback.
-	if _, err := fmt.Fprint(os.Stdout, "\x1b[?1000h\x1b[?1006h"); err != nil {
+	// events to stdin instead of using outer scrollback. Two flavors: mouse
+	// reporting (default, the Claude Code shape) and alternate scroll
+	// (FAKEAGENT_ALTSCROLL=1, the Codex shape: alt screen + DECSET 1007, no
+	// mouse reporting — the host converts wheel events to cursor keys).
+	wheelModes := "\x1b[?1000h\x1b[?1006h"
+	if os.Getenv("FAKEAGENT_ALTSCROLL") == "1" {
+		wheelModes = "\x1b[?1049h\x1b[?1007h"
+	}
+	if _, err := fmt.Fprint(os.Stdout, wheelModes); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeagent: write mouse mode:", err)
 		os.Exit(2)
 	}

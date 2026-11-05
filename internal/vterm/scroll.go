@@ -14,9 +14,10 @@ func (v *VTerm) scrollUp(n int) {
 		n = regionHeight
 	}
 
-	// Capture lines to scrollback (skip alt screen unless explicitly enabled;
-	// only a top-anchored region feeds scrollback per xterm/DEC semantics —
-	// lines scrolled off a partial region's top margin are discarded, not
+	// Capture lines to scrollback (the pane's primary screen only — a
+	// pane-alternate screen owns its viewport and amux keeps no history for
+	// it; only a top-anchored region feeds scrollback per xterm/DEC semantics
+	// — lines scrolled off a partial region's top margin are discarded, not
 	// saved, since they never reached the top of the physical screen).
 	if v.scrollbackEnabled() && v.ScrollTop == 0 {
 		top := v.ScrollTop
@@ -33,15 +34,6 @@ func (v *VTerm) scrollUp(n int) {
 		// (snapshot/render paths copy cell contents, never retain Screen row
 		// headers).
 		displaced := v.Screen[top:bottom]
-		// Synthesized history only, and only for a scroll that displaces the
-		// whole region at once: that is how tmux renders a repainting chat
-		// agent's scroll, and it is the only case where the displaced block is
-		// a frame whose tail is the agent's prompt box (see chrome_filter.go).
-		// A smaller scroll displaces rows from the middle of the transcript,
-		// where a trailing rule is content rather than chrome.
-		if v.AltScreen && v.AllowAltScreenScrollback && n >= regionHeight-1 {
-			displaced = trimCapturedChrome(displaced, v.Width)
-		}
 		added := 0
 		for _, line := range displaced {
 			v.Scrollback = append(v.Scrollback, copyLineTrimmed(line))

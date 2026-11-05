@@ -56,7 +56,6 @@ func (m *TerminalModel) createTerminalStateForTabWithSizeAndRefresh(
 	}
 
 	vt := vterm.New(termWidth, termHeight)
-	vt.AllowAltScreenScrollback = true
 	// Query replies join the input FIFO rather than writing to term directly:
 	// this callback fires inside VTerm.Write under ts.mu, so a stalled PTY
 	// would wedge every handler on the mutex (see the input queue contract).

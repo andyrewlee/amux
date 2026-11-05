@@ -273,13 +273,15 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 				// pendingOutput may still contain continuation bytes queued under the
 				// current parser carry, and recreate must preserve that continuity until
 				// buffered output is explicitly reconciled.
-				tab.Terminal.AllowAltScreenScrollback = true
 				m.applyTerminalCursorPolicyLocked(tab)
 				if msg.CaptureFullPane {
 					// A full tmux pane snapshot supersedes any preserved local PTY
 					// backlog for this terminal state.
 					tab.PendingOutput = nil
 					ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
+					if msg.SessionRestoreCapture.SnapshotModeState.HasState {
+						tab.markPaneStateFreshLocked()
+					}
 				} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
 					ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 				} else if m.width > 0 && m.height > 0 {
@@ -360,7 +362,6 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 
 	// Create virtual terminal emulator with scrollback
 	term := vterm.New(initialCols, initialRows)
-	term.AllowAltScreenScrollback = true
 
 	// Create tab with the caller-provided stable ID so tmux/session reconciliation
 	// cannot silently drift onto a different tab.
@@ -395,6 +396,9 @@ func (m *Model) handlePtyTabCreated(msg ptyTabCreateResult) tea.Cmd {
 	term.CaptureNormalScreenOnClear = isChat
 	if msg.CaptureFullPane {
 		ptyio.RestorePaneCapture(term, msg.SessionRestoreCapture, cols, rows)
+		if msg.SessionRestoreCapture.SnapshotModeState.HasState {
+			tab.markPaneStateFreshLocked()
+		}
 	} else {
 		ptyio.RestoreScrollbackCapture(term, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 	}

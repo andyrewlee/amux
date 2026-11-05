@@ -29,7 +29,6 @@ func setupScrollModel(t *testing.T) (*Model, *Tab, string) {
 	wtID := string(wt.ID())
 
 	vt := vterm.New(80, 24)
-	vt.AllowAltScreenScrollback = true
 	for i := 0; i < 100; i++ {
 		vt.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
 	}

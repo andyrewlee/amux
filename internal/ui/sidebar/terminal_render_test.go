@@ -23,7 +23,6 @@ func newTerminalModelWithWorkspace(t *testing.T) *TerminalModel {
 func scrolledVTerm(t *testing.T) *vterm.VTerm {
 	t.Helper()
 	vt := vterm.New(80, 24)
-	vt.AllowAltScreenScrollback = true
 	for i := 0; i < 100; i++ {
 		vt.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
 	}

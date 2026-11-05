@@ -11,6 +11,33 @@ func (v *VTerm) MouseSGRMode() bool {
 	return v != nil && v.mouseSGRMode
 }
 
+// AlternateScrollMode reports whether the hosted application requested DECSET
+// 1007. It is tracked for parser fidelity only: routing intentionally does
+// not key on it, because tmux absorbs the pane's 1007 and never relays it to
+// the client — the wheel contract keys on the probed pane screen instead
+// (see WheelScrollBecomesCursorKeys).
+func (v *VTerm) AlternateScrollMode() bool {
+	return v != nil && v.altScrollMode
+}
+
+// WheelScrollBecomesCursorKeys reports whether a wheel event addressed to this
+// pane must be encoded as arrow-key presses rather than mouse sequences: the
+// pane's application runs in the alternate screen (per the authoritative tmux
+// probe) and did not claim the mouse. This is the behavior tmux itself gives
+// fullscreen panes under alternate scroll — a pane's DECSET 1007 request is
+// absorbed by tmux and never reaches the client, so the conversion keys on
+// the pane's probed screen, not on relayed mode bits. Mouse reporting, when
+// the application asks for it, always wins.
+func (v *VTerm) WheelScrollBecomesCursorKeys() bool {
+	return v != nil && v.PaneAlternateScreen && !v.MouseReportingEnabled()
+}
+
+// ApplicationCursorKeys reports whether DECCKM is set, so arrow keys (and
+// wheel events converted to them) are encoded as SS3 rather than CSI.
+func (v *VTerm) ApplicationCursorKeys() bool {
+	return v != nil && v.applicationCursorKeys
+}
+
 // CursorRenderState is the cached cursor state from the previous render frame,
 // used to detect cursor-only changes and mark the affected lines dirty.
 type CursorRenderState struct {

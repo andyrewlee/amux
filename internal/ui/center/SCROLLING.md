@@ -129,14 +129,59 @@ lines up from the live view (`0` = live). Everything else is derived.
   anchors (`shiftSelectionAfterTrim`) but not `ViewOffset` (it is measured
   from the bottom).
 
-### Chat tabs: the history-only view
+### Alternate-screen panes: the application owns its viewport
 
-Chat agents (Claude-style) repaint their whole screen every frame, so their
-scrollback is a series of captured previous frames (`CaptureNormalScreenOnClear`
-capture on `2J`, deduplicated in `alt_screen_capture*.go`). Concatenating
-scrollback + live screen would show the live prompt box in the middle of
-history, so for chat tabs a scrolled viewport (`ViewOffset > 0`) renders a
-**scrollback-only** window (`applyScrolledChatHistoryViewLocked`):
+Full-screen applications (chat agents, vim, any 1049 user) render their own
+history interface, and amux never synthesizes one for them: no scrollback
+append on scroll, no capture on `2J`, and local scrolling is pinned to
+offset 0. The wheel and the paging keys are delivered to the application
+instead — the standard terminal contract, not an amux invention:
+
+- The application enabled mouse reporting (DECSET 1000/1002/1003, optionally
+  1006 SGR): wheel events forward as mouse sequences (`mouseWheelInputSequence`
+  in `model_input_mouse.go`). Claude Code does this. tmux relays mouse modes,
+  so this signal is always current.
+- Any other pane-alt application: wheel events forward as cursor-key presses,
+  three per notch, encoded SS3 or CSI per its DECCKM state — tmux's own
+  alternate-scroll behavior for fullscreen panes. Codex is this shape.
+
+**The pane's screen state is probed, not parsed.** amux's vterm models tmux's
+*client*, which enters the alternate screen for the entire attach (`1049h` at
+attach, `1049l` at detach — verified against the real client stream), so
+`vterm.AltScreen` says nothing about the application. tmux absorbs the pane's
+own `1049h`/`1049l` (and its DECSET 1007) rather than relaying them; the only
+faithful source is `#{alternate_on}`, read through `tmux.ProbeSession` into
+the host-managed `vterm.PaneAlternateScreen` flag:
+
+- Captures/restores apply it via `applyPaneModeState` (PaneModeState).
+- Wheel routing caches it per tab (`paneStateProbedAt`); a stale cache defers
+  the wheel to the tab actor (`tabEventWheel` → `handleWheel`), which probes
+  once (never on the UI goroutine — a busy tmux server can take hundreds of
+  ms) and then routes. `handleScrollbackKey` routes PgUp/PgDn on the cached
+  flag without probing: the input FIFO must never block on tmux, and a stale
+  misroute sends one key a pane ignores.
+
+Unmodified `PgUp`/`PgDn` forward as `\x1b[5~`/`\x1b[6~` for the same reason
+(`handleScrollbackKey`); modified combinations stay amux-local, matching the
+shift+wheel convention below.
+
+Before this contract, amux reconstructed transcript out of captured alt-screen
+frames (capture-on-2J, chrome filtering, shift-transition dedup, a
+history-only chat window over the synthesis). Every layer inferred what the
+agent's renderer meant, and each fix generation moved the failure to a
+neighboring layer — "scrolling gets cut off" was that inference losing
+transcript, permanently, at trim or transition seams. The machinery is
+deleted (`AllowAltScreenScrollback`, `chrome_filter.go`); do not rebuild it.
+
+### Chat tabs on the primary screen: the history-only view
+
+Chat agents that repaint with normal-screen `2J` (and the bootstrap phase
+before a chat agent enters the alternate screen) still capture previous
+frames into scrollback (`CaptureNormalScreenOnClear`, gated to the primary
+screen). Because each captured frame carries the app's own prompt and footer,
+a scrolled viewport (`ViewOffset > 0`) renders a **scrollback-only** window
+(`applyScrolledChatHistoryViewLocked`) so the live prompt box does not appear
+in the middle of history:
 
 - window start = `scrollbackLen - height - effectiveOffset + 1`
 - max offset = `scrollbackLen - height + 1` (a *different* max than the
@@ -151,32 +196,20 @@ Invariant (pinned by `TestChatTab_DragUpAutoScroll_AnchorStableWhileStreaming`):
 while an agent repaints and scrollback churns through capture/dedup, an
 anchored chat view must not move except by explicit scroll steps.
 
-### Chrome is not transcript
-
-A captured frame carries the agent's prompt box and footer as well as its
-transcript, so storing frames verbatim bakes a stale prompt box into history
-every time one is captured — scrolling back then reads as prose interrupted by
-`❯` rows and full-width rules in the left gutter. `vterm/chrome_filter.go`
-drops everything from the frame's last horizontal rule downward before it
-reaches scrollback. A rule is the anchor because it is unambiguous: no line of
-prose is one glyph repeated across most of the terminal.
-
-Both synthesized-history entry points trim: `captureScreenToScrollback` (the
-`2J` path) and `scrollUp` (tmux renders a chat agent's scroll as a bulk
-client-side scroll, so the displaced block is itself a frame). Trimming is
-gated on `AltScreen && AllowAltScreenScrollback` — a real scrollback-backed
-program keeps every scrolled line, rules included.
-
 ## Gestures: one implementation per gesture
 
 ### Shift+wheel forces local scrollback
 
-When the hosted app enables mouse reporting (DECSET 1000/1002/1003), plain
-wheel events are forwarded to it as SGR/X10 sequences and amux's own scrollback
+When the hosted app enabled mouse reporting (DECSET 1000/1002/1003), or is
+any pane-alternate application without the mouse, plain wheel events are
+forwarded to it (as mouse sequences or cursor keys — see the
+alternate-screen contract above) and amux's own scrollback
 does not move. **Shift+wheel bypasses that forwarding** and always scrolls
 `ViewOffset` locally (`updateMouseWheel` in `model_input_mouse.go`) — the same
 force-local convention as iTerm2, kitty, and xterm, so there is always a way
-to scroll regardless of what the embedded app does with the wheel. The diff
+to scroll regardless of what the embedded app does with the wheel. On an
+alternate-screen pane there is no local history, so shift+wheel is a no-op
+there by construction. The diff
 viewer still sees shift+wheel first: it is amux's own UI and never forwards
 anything to the agent.
 

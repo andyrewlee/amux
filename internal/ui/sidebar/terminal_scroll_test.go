@@ -23,7 +23,6 @@ func setupScrollModel(t *testing.T) (*TerminalModel, *TerminalState) {
 	wsID := string(wt.ID())
 
 	vt := vterm.New(80, 24)
-	vt.AllowAltScreenScrollback = true
 	// Write enough lines to create scrollback
 	for i := 0; i < 100; i++ {
 		vt.Write([]byte(fmt.Sprintf("line %d\r\n", i)))

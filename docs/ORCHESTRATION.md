@@ -322,8 +322,12 @@ modifier family (all seven arrow combinations, a modified tilde form, an
 SS3 F-key, and insert) through the real PTY path. The input layers above
 the encoder still reserve a few keys: `Ctrl+space` is amux's prefix key
 (prefix+prefix emits a literal NUL), the center pane keeps its own chords,
-and both panes reserve `PgUp`/`PgDn` in every modifier combination for
-local scrollback.
+and in the center pane `PgUp`/`PgDn` stay amux-local while the pane is on
+the primary screen — an alternate-screen application there receives them
+unmodified, because it owns its viewport and amux synthesizes no history for
+it (same contract as the wheel: mouse events when the app reports the mouse,
+arrow keys otherwise). Sidebar terminals never forward them: their PgUp/PgDn
+are always amux-local scrollback.
 
 Two hard-won caveats apply when the target is a raw-mode agent (Claude Code,
 Codex, and friends run in raw mode). amux earned these the hard way and pins

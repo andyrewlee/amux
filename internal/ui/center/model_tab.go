@@ -52,7 +52,13 @@ type Tab struct {
 	Workspace   *data.Workspace
 	Agent       *appPty.Agent
 	SessionName string
-	Detached    bool
+	// paneStateProbedAt timestamps the last tmux probe that set the
+	// terminal's PaneAlternateScreen flag. tmux absorbs the pane's own
+	// alternate-screen transitions, so the flag can only be refreshed by
+	// probing; input routing treats the cached value as authoritative for
+	// paneStateProbeFreshness and re-probes on the tab actor when stale.
+	paneStateProbedAt time.Time
+	Detached          bool
 	// DetachOnly marks a tab attached to a session it does not own (run
 	// session): closing detaches the client but never kills the session.
 	DetachOnly bool

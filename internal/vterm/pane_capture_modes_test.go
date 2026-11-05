@@ -137,8 +137,6 @@ func TestLoadPaneCaptureWithCursorAndModes_ClearsStaleAltScreenState(t *testing.
 		t.Fatal("expected main-screen snapshot to reset stale cursor-hidden mode")
 	}
 
-	vt.Write([]byte("\x1b[?1049h\x1b[?1049l"))
-
 	if got := vt.Screen[0][0].Rune; got != 'n' {
 		t.Fatalf("expected later alt-screen cycle to restore current snapshot, got %q", got)
 	}
@@ -205,7 +203,6 @@ func TestLoadPaneCaptureWithCursorAndModes_FreshAltScreenSnapshotKeepsHistoryWit
 func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawDoesNotDuplicateRestoredFrame(t *testing.T) {
 	t.Parallel()
 	vt := New(8, 2)
-	vt.AllowAltScreenScrollback = true
 
 	vt.LoadPaneCaptureWithCursorAndModes(
 		[]byte("older\nshell\nmenu one\nmenu two\n"),
@@ -239,21 +236,26 @@ func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawDoesNotDuplicateR
 	vt.Write([]byte("next one\r\nnext two"))
 	vt.Write([]byte("\x1b[H\x1b[2J"))
 
-	if len(vt.Scrollback) != 4 {
-		t.Fatalf("expected later redraws to capture the live alt-screen frame once, got %d rows", len(vt.Scrollback))
+	// Alt-screen panes never keep scrollback: later redraws never capture the
+	// live frame, so the restored history stays exactly as tmux delivered it.
+	if len(vt.Scrollback) != 2 {
+		t.Fatalf("expected later alt-screen redraws to capture nothing, got %d rows", len(vt.Scrollback))
 	}
-	if got := vt.Scrollback[2][0].Rune; got != 'n' {
-		t.Fatalf("expected later redraw to capture the new frame, got %q", got)
+	if got := vt.Scrollback[0][0].Rune; got != 'o' {
+		t.Fatalf("expected oldest history row to remain first after later redraw, got %q", got)
 	}
-	if got := vt.Scrollback[3][0].Rune; got != 'n' {
-		t.Fatalf("expected later redraw to capture the second new frame row, got %q", got)
+	if got := vt.Scrollback[1][0].Rune; got != 's' {
+		t.Fatalf("expected shell history row to remain second after later redraw, got %q", got)
 	}
 }
 
-func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenShiftAfterAttachPreservesScrolledOffTop(t *testing.T) {
+// TestLoadPaneCaptureWithCursorAndModes_AltScreenShiftAfterAttachKeepsRestoredHistory
+// pins the no-scrollback contract for alt-screen panes: a transcript-style
+// shift redraw after attach never captures into scrollback, so only the
+// history tmux delivered survives.
+func TestLoadPaneCaptureWithCursorAndModes_AltScreenShiftAfterAttachKeepsRestoredHistory(t *testing.T) {
 	t.Parallel()
 	vt := New(8, 3)
-	vt.AllowAltScreenScrollback = true
 
 	vt.LoadPaneCaptureWithCursorAndModes(
 		[]byte("history\nline1\nline2\nline3\n"),
@@ -272,9 +274,9 @@ func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenShiftAfterAttachPreserv
 	vt.Write([]byte("line2\r\nline3\r\nline4"))
 	vt.Write([]byte("\x1b[H\x1b[2J"))
 
-	want := []rune{'h', 'l', 'l', 'l', 'l'}
+	want := []rune{'h'}
 	if len(vt.Scrollback) != len(want) {
-		t.Fatalf("expected restored-frame shift to preserve only the scrolled-off prefix, got %d rows", len(vt.Scrollback))
+		t.Fatalf("expected alt-screen redraws to leave only the restored history, got %d rows", len(vt.Scrollback))
 	}
 	for i, wantRune := range want {
 		if got := vt.Scrollback[i][0].Rune; got != wantRune {
@@ -286,7 +288,6 @@ func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenShiftAfterAttachPreserv
 func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawAfterResizeDoesNotDuplicateRestoredFrame(t *testing.T) {
 	t.Parallel()
 	vt := New(8, 3)
-	vt.AllowAltScreenScrollback = true
 
 	vt.LoadPaneCaptureWithCursorAndModes(
 		[]byte("older\nmenu one\nmenu two\nmenu tre\n"),
@@ -302,33 +303,31 @@ func TestLoadPaneCaptureWithCursorAndModes_FirstAltScreenRedrawAfterResizeDoesNo
 	)
 	vt.Resize(8, 2)
 
-	if len(vt.Scrollback) != 2 {
-		t.Fatalf("expected resize to move only the trimmed top row into history, got %d rows", len(vt.Scrollback))
+	// Alt-screen panes never feed scrollback, so a shrink does not move the
+	// trimmed top row into history.
+	if len(vt.Scrollback) != 1 {
+		t.Fatalf("expected resize to leave the restored history untouched, got %d rows", len(vt.Scrollback))
 	}
 	if got := vt.Scrollback[0][0].Rune; got != 'o' {
 		t.Fatalf("expected oldest history row to remain first after resize, got %q", got)
 	}
-	if got := vt.Scrollback[1][0].Rune; got != 'm' {
-		t.Fatalf("expected resized-off row to be retained before redraw, got %q", got)
-	}
 
 	vt.Write([]byte("\x1b[H\x1b[2J"))
 
-	if len(vt.Scrollback) != 2 {
+	if len(vt.Scrollback) != 1 {
 		t.Fatalf("expected first redraw after resize to avoid duplicating restored frame, got %d rows", len(vt.Scrollback))
 	}
 	if got := vt.Scrollback[0][0].Rune; got != 'o' {
 		t.Fatalf("expected oldest history row to remain first after redraw, got %q", got)
 	}
-	if got := vt.Scrollback[1][0].Rune; got != 'm' {
-		t.Fatalf("expected resized-off row to remain second after redraw, got %q", got)
-	}
 }
 
-func TestAppendScrollbackDeltaWithSize_PreservesPendingAltScreenDedupAfterHistoryAppend(t *testing.T) {
+// TestAppendScrollbackDeltaWithSize_HistoryAppendSurvivesAltScreenRedraw pins
+// that history appended after attach stays intact across the pane's own
+// clear-screen redraws — alt-screen redraws never capture or trim scrollback.
+func TestAppendScrollbackDeltaWithSize_HistoryAppendSurvivesAltScreenRedraw(t *testing.T) {
 	t.Parallel()
 	vt := New(8, 2)
-	vt.AllowAltScreenScrollback = true
 
 	vt.LoadPaneCaptureWithCursorAndModes(
 		[]byte("older\nmenu one\nmenu two\n"),
@@ -347,7 +346,7 @@ func TestAppendScrollbackDeltaWithSize_PreservesPendingAltScreenDedupAfterHistor
 	vt.Write([]byte("\x1b[H\x1b[2J"))
 
 	if len(vt.Scrollback) != 4 {
-		t.Fatalf("expected post-attach history append to preserve the pending alt-screen dedupe marker, got %d rows", len(vt.Scrollback))
+		t.Fatalf("expected post-attach history append to survive the first alt-screen redraw, got %d rows", len(vt.Scrollback))
 	}
 	if got := vt.Scrollback[0][0].Rune; got != 'o' {
 		t.Fatalf("expected original history row to remain first, got %q", got)

@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-func TestAltScreenRepeatedAboveFoldChangesDoNotDuplicateIdenticalRedraw(t *testing.T) {
+func TestMainScreenRepeatedAboveFoldChangesDoNotDuplicateIdenticalRedraw(t *testing.T) {
 	t.Parallel()
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	frames := []string{
 		"AAA\r\nBBB\r\nCCC\r\nDDD\r\nEEE",
@@ -39,11 +38,10 @@ func TestAltScreenRepeatedAboveFoldChangesDoNotDuplicateIdenticalRedraw(t *testi
 	}
 }
 
-func TestAltScreenShiftRedrawDoesNotDuplicateRowsAlreadyScrolledOffDuringDraw(t *testing.T) {
+func TestMainScreenShiftRedrawDoesNotDuplicateRowsAlreadyScrolledOffDuringDraw(t *testing.T) {
 	t.Parallel()
 	vt := New(12, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	frames := []string{
 		"status1\r\na\r\nb\r\nc\r\nd",
@@ -73,11 +71,10 @@ func TestAltScreenShiftRedrawDoesNotDuplicateRowsAlreadyScrolledOffDuringDraw(t 
 	}
 }
 
-func TestAltScreenLongTranscriptShiftDoesNotDuplicateOrDropLines(t *testing.T) {
+func TestMainScreenLongTranscriptShiftDoesNotDuplicateOrDropLines(t *testing.T) {
 	t.Parallel()
 	vt := New(16, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	frame := func(i int) string {
 		return fmt.Sprintf(

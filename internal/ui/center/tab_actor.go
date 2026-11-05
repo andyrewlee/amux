@@ -60,6 +60,11 @@ const (
 	// hosted PTY on the actor goroutine outside the user-byte input FIFO by
 	// design (see tab_input.go). Its delivery failures stay untagged.
 	tabEventSendMouse
+	// tabEventWheel routes a wheel event whose target depends on the pane's
+	// probed screen state: the actor refreshes a stale cache (one tmux
+	// round-trip) and then either forwards the event to the pane as mouse
+	// bytes / cursor keys or scrolls local history.
+	tabEventWheel
 	tabEventWriteOutput
 )
 
@@ -77,6 +82,13 @@ type tabEvent struct {
 	notifyCopy  bool
 	scrollPage  int
 	diffMsg     tea.Msg
+	// mouseButton is the wheel direction for tabEventWheel.
+	mouseButton tea.MouseButton
+	// wheelAllowProbe permits tabEventWheel's handler to probe tmux for the
+	// pane's screen state. Only the actor-sent path sets it: the synchronous
+	// fallback runs on the UI goroutine, where a busy tmux server (hundreds
+	// of ms per probe) must never block Update.
+	wheelAllowProbe bool
 	// input carries mouse-report protocol bytes for tabEventSendMouse.
 	input           []byte
 	output          []byte
@@ -160,6 +172,11 @@ func (m *Model) dispatchOrHandleTabEvent(ev tabEvent) {
 	if m.isTabActorReady() && m.sendTabEvent(ev) {
 		return
 	}
+	if ev.kind == tabEventWheel {
+		// The fallback runs on the caller's (UI) goroutine: routing on the
+		// cached pane state is fine, blocking on a tmux probe is not.
+		ev.wheelAllowProbe = false
+	}
 	m.handleTabEvent(ev)
 }
 
@@ -190,7 +207,8 @@ func shouldPostTabActorRedraw(kind tabEventKind) bool {
 		tabEventScrollToBottom,
 		tabEventScrollPage,
 		tabEventScrollToTop,
-		tabEventDiffInput:
+		tabEventDiffInput,
+		tabEventWheel:
 		return true
 	default:
 		return false
@@ -264,6 +282,8 @@ func (m *Model) handleTabEvent(ev tabEvent) {
 		m.handleDiffInput(ev)
 	case tabEventSendMouse:
 		m.handleSendMouse(ev)
+	case tabEventWheel:
+		m.handleWheel(ev)
 	case tabEventWriteOutput:
 		m.handleWriteOutput(ev)
 	default:
@@ -331,6 +351,44 @@ func (m *Model) updateDiffViewer(tab *Tab, msg tea.Msg) tea.Cmd {
 
 func (m *Model) handleSendMouse(ev tabEvent) {
 	m.sendMouseToTerminal(ev.tab, string(ev.input), ev.tabID, ev.workspaceID)
+}
+
+// handleWheel routes a wheel event that could not be decided inline because
+// the pane's screen state was stale: refresh it from tmux (one probe), then
+// forward to the pane (mouse bytes or cursor keys) or scroll local history.
+// The probe runs only when ev.wheelAllowProbe is set, which is only true on
+// the actor-sent path; the synchronous fallback routes on the cached state
+// so the UI goroutine never blocks on tmux.
+func (m *Model) handleWheel(ev tabEvent) {
+	tab := ev.tab
+	if tab == nil {
+		return
+	}
+	if ev.wheelAllowProbe && withMuVal(&tab.mu, func() bool {
+		return tab.Terminal == nil || tab.paneStateIsStaleLocked()
+	}) {
+		m.probePaneAlternateScreen(tab)
+	}
+	input := ""
+	local := false
+	withMu(&tab.mu, func() {
+		if tab.Terminal == nil {
+			return
+		}
+		if ev.inBounds {
+			input = mouseWheelInputSequence(tab.Terminal, ev.mouseButton, ev.termX, ev.termY)
+		}
+		if input == "" && !tab.Terminal.PaneAlternateScreen {
+			local = true
+		}
+	})
+	if input != "" {
+		m.sendMouseToTerminal(tab, input, ev.tabID, ev.workspaceID)
+		return
+	}
+	if local {
+		m.handleScrollBy(ev)
+	}
 }
 
 // sendMouseToTerminal is the mouse-reporting control path: it writes protocol

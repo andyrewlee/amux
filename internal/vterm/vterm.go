@@ -43,9 +43,18 @@ type VTerm struct {
 
 	// Alt screen mode (full-screen TUI applications).
 	AltScreen bool
-	// AllowAltScreenScrollback keeps scrollback active even in alt screen.
-	// Useful for tmux-backed sessions where scrollback should remain available.
-	AllowAltScreenScrollback bool
+	// PaneAlternateScreen reports whether the hosted PANE is running in the
+	// alternate screen, per tmux's authoritative `alternate_on` state. This is
+	// deliberately separate from AltScreen: amux's terminal models tmux's
+	// client, which enters the alternate screen for the whole attach and so
+	// says nothing about the application's own screen choice. tmux absorbs
+	// pane-side 1049h/1049l rather than relaying it, so the only faithful
+	// source is the probe. Host-managed: set from pane captures and probes
+	// (SetPaneAlternateScreen, applyPaneModeState), never from parsed bytes.
+	// It gates every scroll contract: pane-alt panes own their viewport (no
+	// local scrollback, wheel becomes mouse/arrows), pane-primary panes keep
+	// real scrollback fed by relayed scroll events.
+	PaneAlternateScreen bool
 	// altCapture tracks the alt-screen frame currently reserved in scrollback
 	// (see altScreenCaptureState).
 	altCapture altScreenCaptureState
@@ -78,6 +87,16 @@ type VTerm struct {
 	// Mouse reporting modes requested by the hosted terminal application.
 	mouseTrackingMode int
 	mouseSGRMode      bool
+	// altScrollMode tracks DECSET 1007 (alternate scroll): while the hosted
+	// application is in the alternate screen without mouse reporting, a wheel
+	// event is delivered to it as cursor-key presses instead. This is the
+	// terminal contract full-screen TUIs that skip mouse reporting (e.g.
+	// Codex) rely on to receive wheel scrolls.
+	altScrollMode bool
+	// applicationCursorKeys tracks DECCKM (DECSET 1): arrow keys are encoded
+	// as SS3 (ESC O A/B/C/D) instead of CSI (ESC [ A/B/C/D). Wheel events
+	// converted to arrow keys under alternate scroll must honor it.
+	applicationCursorKeys bool
 
 	// Current style for new characters
 	CurrentStyle Style
@@ -185,8 +204,31 @@ func New(width, height int) *VTerm {
 	return v
 }
 
+// scrollbackEnabled reports whether the screen keeps local scrollback at all.
+// The decision belongs to the pane's own screen, not amux's client-side
+// alternate screen (which tmux holds for the entire attach): an application
+// that runs in the pane's primary screen has its scrolled lines relayed by
+// tmux, so they are real history; an alternate-screen application owns its
+// viewport entirely — amux never synthesizes history for it. Applications
+// that want the wheel forward their own scrolling (mouse reporting).
 func (v *VTerm) scrollbackEnabled() bool {
-	return !v.AltScreen || v.AllowAltScreenScrollback
+	return !v.PaneAlternateScreen
+}
+
+// SetPaneAlternateScreen records the pane's authoritative screen state, as
+// probed from tmux (`alternate_on`). The pane leaving the primary screen
+// snaps any local scroll view back to the live frame.
+func (v *VTerm) SetPaneAlternateScreen(alt bool) {
+	if v == nil || v.PaneAlternateScreen == alt {
+		return
+	}
+	v.PaneAlternateScreen = alt
+	if alt && v.ViewOffset != 0 {
+		v.ViewOffset = 0
+		// The snap discards the scrolled-back view a cached layer may still
+		// show; move the version or render caches keep serving that frame.
+		v.bumpVersion()
+	}
 }
 
 // makeScreen creates a blank screen buffer

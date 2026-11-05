@@ -32,7 +32,6 @@ func setupChatScrollModel(t *testing.T, lines int) (*Model, *Tab, string) {
 	wtID := string(wt.ID())
 
 	vt := vterm.New(80, 24)
-	vt.AllowAltScreenScrollback = true
 	vt.CaptureNormalScreenOnClear = true
 	for i := 0; i < lines; i++ {
 		vt.Write([]byte(fmt.Sprintf("line %d\r\n", i)))

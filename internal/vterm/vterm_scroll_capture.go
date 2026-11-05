@@ -100,6 +100,7 @@ func (v *VTerm) applyPaneModeState(modeState PaneModeState) {
 			return
 		}
 		v.AltScreen = false
+		v.PaneAlternateScreen = false
 		v.altScreenBuf = nil
 		v.altCursorX = 0
 		v.altCursorY = 0
@@ -110,6 +111,9 @@ func (v *VTerm) applyPaneModeState(modeState PaneModeState) {
 		v.CursorHidden = false
 		return
 	}
+	// The pane snapshot's mode state is authoritative for the pane's screen:
+	// refresh the host-managed pane flag alongside the client-modeled one.
+	v.PaneAlternateScreen = modeState.AltScreen
 	if modeState.AltScreen {
 		v.AltScreen = true
 		switch {

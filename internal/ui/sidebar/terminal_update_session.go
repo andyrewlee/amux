@@ -221,7 +221,6 @@ func restoreSidebarVTermLocked(ts *TerminalState, msg SidebarTerminalReattachRes
 	if ts.VTerm == nil {
 		return
 	}
-	ts.VTerm.AllowAltScreenScrollback = true
 	if msg.CaptureFullPane {
 		ptyio.RestorePaneCapture(ts.VTerm, msg.SessionRestoreCapture, termWidth, termHeight)
 		return

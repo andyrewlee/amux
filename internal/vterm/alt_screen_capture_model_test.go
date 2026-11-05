@@ -147,21 +147,19 @@ func assertCaptureLattice(t *testing.T, v *VTerm, step string) {
 	}
 }
 
-// TestCaptureLatticeHoldsOverRealFlow drives the real capture flow — alt
-// screen with scrollback allowed, transcript redraws with scrolling between
-// them, identical redraws (dedup), a resize, and a final wipe — and asserts
-// the numeric invariant lattice holds after every step.
+// TestCaptureLatticeHoldsOverRealFlow drives the real capture flow — main
+// screen with CaptureNormalScreenOnClear, transcript redraws with scrolling
+// between them, identical redraws (dedup), a resize, and a final wipe — and
+// asserts the numeric invariant lattice holds after every step.
 func TestCaptureLatticeHoldsOverRealFlow(t *testing.T) {
 	v := New(20, 6)
-	v.AllowAltScreenScrollback = true
+	v.CaptureNormalScreenOnClear = true
 
 	step := func(name string, data []byte) {
 		t.Helper()
 		v.Write(data)
 		assertCaptureLattice(t, v, name)
 	}
-
-	step("enter-alt", []byte("\x1b[?1049h"))
 
 	// captureNew: first transcript frame.
 	step("first-frame", []byte("alpha\nbeta\ngamma\n\x1b[2J"))

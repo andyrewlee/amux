@@ -140,7 +140,6 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 			// pendingOutput may still contain continuation bytes queued under the
 			// current parser carry, and reconnect must preserve that continuity until
 			// buffered output is explicitly reconciled.
-			tab.Terminal.AllowAltScreenScrollback = true
 			m.applyTerminalCursorPolicyLocked(tab)
 			if msg.CaptureFullPane {
 				// The tmux snapshot is now the source of truth for the restored frame.
@@ -148,6 +147,11 @@ func (m *Model) updatePtyTabReattachResult(msg ptyTabReattachResult) (*Model, te
 				// would duplicate on the next flush if we kept it alive.
 				tab.PendingOutput = nil
 				ptyio.RestorePaneCapture(tab.Terminal, msg.SessionRestoreCapture, cols, rows)
+				if msg.SessionRestoreCapture.SnapshotModeState.HasState {
+					// The capture carried authoritative pane mode state, so the
+					// terminal's PaneAlternateScreen flag is fresh.
+					tab.markPaneStateFreshLocked()
+				}
 			} else if createdTerminal || len(tab.Terminal.Scrollback) == 0 {
 				ptyio.RestoreScrollbackCapture(tab.Terminal, msg.ScrollbackCapture, captureCols, captureRows, cols, rows)
 			} else if m.width > 0 && m.height > 0 {

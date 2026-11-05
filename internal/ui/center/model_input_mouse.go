@@ -2,6 +2,7 @@ package center
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -111,6 +112,12 @@ func (m *Model) updateMouseRelease(msg tea.MouseReleaseMsg) (*Model, tea.Cmd) {
 }
 
 // updateMouseWheel handles tea.MouseWheelMsg in the Update switch.
+//
+// Routing depends on the pane's screen state, which only tmux knows (it
+// absorbs the pane's alternate-screen transitions rather than relaying
+// them). A fresh cached probe decides inline; a stale one defers the whole
+// decision to the tab actor (tabEventWheel), which probes once and routes —
+// one tmux round-trip per freshness window, never on the UI goroutine.
 func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 	tab := m.activeMouseTab()
 	if tab == nil {
@@ -118,14 +125,6 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 	}
 	if handled, cmd := m.dispatchDiffInput(tab, msg); handled {
 		return m, cmd
-	}
-	// Shift+wheel is the standard force-local-scroll override (iTerm2, kitty,
-	// xterm): it bypasses mouse-reporting forwarding so the user can always
-	// scroll amux's own scrollback, even when the hosted app wants the wheel.
-	if !msg.Mod.Contains(tea.ModShift) {
-		if m.forwardMouseWheelToTerminal(msg, tab) {
-			return m, nil
-		}
 	}
 
 	delta := 0
@@ -144,6 +143,67 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+
+	termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
+	// Shift+wheel is the standard force-local-scroll override (iTerm2, kitty,
+	// xterm): it bypasses forwarding so the user can always scroll amux's own
+	// scrollback, even when the hosted app wants the wheel. On a pane that
+	// owns its viewport there is no local history, so it is a no-op there by
+	// construction.
+	if !msg.Mod.Contains(tea.ModShift) && inBounds {
+		forwarded := false
+		stale := false
+		input := ""
+		withMu(&tab.mu, func() {
+			if tab.Terminal == nil {
+				return
+			}
+			// Mouse reporting is relayed by tmux, so it is always current;
+			// the pane's screen flag is only as fresh as the last probe.
+			if tab.Terminal.MouseReportingEnabled() || !tab.paneStateIsStaleLocked() {
+				input = mouseWheelInputSequence(tab.Terminal, msg.Button, termX, termY)
+				return
+			}
+			stale = true
+		})
+		switch {
+		case stale:
+			m.dispatchOrHandleTabEvent(tabEvent{
+				tab:             tab,
+				workspaceID:     m.workspaceID(),
+				tabID:           tab.ID,
+				kind:            tabEventWheel,
+				termX:           termX,
+				termY:           termY,
+				inBounds:        true,
+				mouseButton:     msg.Button,
+				delta:           delta,
+				wheelAllowProbe: true,
+			})
+			return m, nil
+		case input != "":
+			forwarded = true
+			m.dispatchOrHandleTabEvent(tabEvent{
+				tab:         tab,
+				workspaceID: m.workspaceID(),
+				tabID:       tab.ID,
+				kind:        tabEventSendMouse,
+				input:       []byte(input),
+			})
+		}
+		if forwarded {
+			return m, nil
+		}
+	}
+
+	// Pane-primary screens keep real local scrollback, fed by the scroll
+	// events tmux relays; pane-alt applications own their viewport and have
+	// nothing here to scroll.
+	if withMuVal(&tab.mu, func() bool {
+		return tab.Terminal != nil && tab.Terminal.PaneAlternateScreen
+	}) {
+		return m, nil
+	}
 	m.dispatchOrHandleTabEvent(tabEvent{
 		tab:         tab,
 		workspaceID: m.workspaceID(),
@@ -154,42 +214,8 @@ func (m *Model) updateMouseWheel(msg tea.MouseWheelMsg) (*Model, tea.Cmd) {
 	return m, nil
 }
 
-// forwardMouseWheelToTerminal forwards a wheel event to the hosted terminal
-// when the agent has mouse reporting enabled and the pointer is inside the
-// content area. Returns true when the event was consumed. Mouse reporting is
-// an explicit separate control path (tab_actor.go): it stays on the actor's
-// direct sendMouseToTerminal write rather than the user-byte input FIFO.
-func (m *Model) forwardMouseWheelToTerminal(msg tea.MouseWheelMsg, tab *Tab) bool {
-	if tab == nil {
-		return false
-	}
-	termX, termY, inBounds := m.screenToTerminal(msg.X, msg.Y)
-	if !inBounds {
-		return false
-	}
-
-	input := ""
-	withMu(&tab.mu, func() {
-		if tab.Terminal != nil {
-			input = mouseWheelInputSequence(tab.Terminal, msg.Button, termX, termY)
-		}
-	})
-	if input == "" {
-		return false
-	}
-
-	m.dispatchOrHandleTabEvent(tabEvent{
-		tab:         tab,
-		workspaceID: m.workspaceID(),
-		tabID:       tab.ID,
-		kind:        tabEventSendMouse,
-		input:       []byte(input),
-	})
-	return true
-}
-
 func mouseWheelInputSequence(term *vterm.VTerm, button tea.MouseButton, termX, termY int) string {
-	if term == nil || !term.MouseReportingEnabled() || termX < 0 || termY < 0 {
+	if term == nil || termX < 0 || termY < 0 {
 		return ""
 	}
 	buttonCode := 0
@@ -201,15 +227,43 @@ func mouseWheelInputSequence(term *vterm.VTerm, button tea.MouseButton, termX, t
 	default:
 		return ""
 	}
-	x := termX + 1
-	y := termY + 1
-	if term.MouseSGRMode() {
-		return fmt.Sprintf("\x1b[<%d;%d;%dM", buttonCode, x, y)
+	if term.MouseReportingEnabled() {
+		x := termX + 1
+		y := termY + 1
+		if term.MouseSGRMode() {
+			return fmt.Sprintf("\x1b[<%d;%d;%dM", buttonCode, x, y)
+		}
+		if x > 223 || y > 223 {
+			return ""
+		}
+		return string([]byte{0x1b, '[', 'M', byte(buttonCode + 32), byte(x + 32), byte(y + 32)})
 	}
-	if x > 223 || y > 223 {
-		return ""
+	if term.WheelScrollBecomesCursorKeys() {
+		return wheelArrowKeySequence(term, button)
 	}
-	return string([]byte{0x1b, '[', 'M', byte(buttonCode + 32), byte(x + 32), byte(y + 32)})
+	return ""
+}
+
+// altScrollWheelLines is how many cursor-key presses one wheel notch becomes
+// under DECSET 1007 alternate scroll — the common modern terminal default
+// (kitty, foot, WezTerm).
+const altScrollWheelLines = 3
+
+// wheelArrowKeySequence encodes a wheel event as cursor-key presses for an
+// alternate-screen application that enabled DECSET 1007 instead of mouse
+// reporting. DECCKM decides SS3 vs CSI encoding, exactly as a keypress would.
+func wheelArrowKeySequence(term *vterm.VTerm, button tea.MouseButton) string {
+	up := "\x1b[A"
+	down := "\x1b[B"
+	if term.ApplicationCursorKeys() {
+		up = "\x1bOA"
+		down = "\x1bOB"
+	}
+	seq := up
+	if button == tea.MouseWheelDown {
+		seq = down
+	}
+	return strings.Repeat(seq, altScrollWheelLines)
 }
 
 func (m *Model) getDiffViewer(tab *Tab) *diff.Model {

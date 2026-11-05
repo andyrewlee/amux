@@ -156,13 +156,18 @@ chords, to the hosted shell):
   cycling). Everything else passes through modifier-faithful: arrows, Home,
   End, Delete, Insert, and F1–F12 carry every shift/alt/ctrl combination as
   the exact sequence a terminal would send (Codex plan prompts answer to
-  `Shift+←`), so an embedded TUI sees the same keyboard you have. `PgUp` /
-  `PgDn` are the exception — both panes reserve them, in every modifier
-  combination, for local scrollback.
+  `Shift+←`), so an embedded TUI sees the same keyboard you have. Unmodified
+  `PgUp` / `PgDn` pass through to a full-screen (alternate-screen) application,
+  which owns its own scrolling; modified combinations and primary-screen panes
+  keep them for amux scrollback.
 - `PgUp` / `PgDn` scroll the focused terminal's scrollback (a quarter page in
-  the center pane, a half page in a sidebar terminal); the mouse wheel
-  scrolls whichever pane the pointer is over (`Shift`+wheel forces amux
-  scrollback even when the hosted app claims the wheel).
+  the center pane, a half page in a sidebar terminal) when it has one; the
+  mouse wheel scrolls whichever pane the pointer is over. A full-screen
+  application receives the wheel itself — as mouse events when it enables
+  mouse reporting, or as arrow keys otherwise (the convention full-screen
+  terminal apps expect) — because it owns its viewport and amux keeps no local
+  history for it. (`Shift`+wheel still forces amux scrollback; on a full-screen
+  pane there is nothing local to scroll.)
 - Left-drag selects text in a center terminal tab; releasing copies the
   selection to the system clipboard (the same selection-drag works while
   scrolled into scrollback). The hosted app never sees the drag — selection

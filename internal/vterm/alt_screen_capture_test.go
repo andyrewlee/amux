@@ -2,13 +2,12 @@ package vterm
 
 import "testing"
 
-// newTrackedAltCaptureVTerm builds a VTerm with a tracked alt-screen capture
-// by driving the public flow: enter alt screen, draw content, erase display.
+// newTrackedAltCaptureVTerm builds a VTerm with a tracked capture by driving
+// the public flow on the main screen: draw content, erase display.
 func newTrackedAltCaptureVTerm(t *testing.T) *VTerm {
 	t.Helper()
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h")) // enter alt screen
+	vt.CaptureNormalScreenOnClear = true
 	vt.Write([]byte("hello\r\nworld"))
 	vt.Write([]byte("\x1b[2J")) // erase display -> captureScreenToScrollback
 	if !vt.altCapture.tracked {

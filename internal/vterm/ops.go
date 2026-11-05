@@ -281,8 +281,7 @@ func (v *VTerm) eraseDisplay(mode int) {
 }
 
 func (v *VTerm) shouldCaptureScreenOnClear() bool {
-	return (v.AltScreen && v.AllowAltScreenScrollback) ||
-		(!v.AltScreen && v.CaptureNormalScreenOnClear)
+	return !v.PaneAlternateScreen && v.CaptureNormalScreenOnClear
 }
 
 // eraseStartX returns the effective start column for "cursor to end" erases.

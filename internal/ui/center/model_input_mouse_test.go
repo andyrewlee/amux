@@ -160,34 +160,3 @@ func TestMouseWheelScrollsCapturedNormalScreenChatHistory(t *testing.T) {
 		t.Fatalf("expected scrolled view to render captured old frame, got %q", view)
 	}
 }
-
-func TestMouseWheelScrollsTmuxWrappedChatRedrawHistory(t *testing.T) {
-	m, tab := setupSelectionModel(t)
-	tab.Assistant = "claude"
-	m.showKeymapHints = false
-	m.SetSize(80, 28)
-	m.SetOffset(0)
-	tab.mu.Lock()
-	tab.Terminal.AltScreen = true
-	tab.Terminal.AllowAltScreenScrollback = true
-	tab.Terminal.CaptureNormalScreenOnClear = true
-	tab.Terminal.TreatLFAsCRLF = true
-	tab.Terminal.Write([]byte("old-frame-00\nold-frame-01\n\x1b[H\x1b[Jnew-frame-00\nnew-frame-01\n"))
-	offsetBefore, maxBefore := tab.Terminal.GetScrollInfo()
-	tab.mu.Unlock()
-	if offsetBefore != 0 || maxBefore == 0 {
-		t.Fatalf("expected captured tmux-wrapped history at live bottom, got %d/%d", offsetBefore, maxBefore)
-	}
-
-	tm := m.terminalMetrics()
-	_, _ = m.Update(tea.MouseWheelMsg{
-		Button: tea.MouseWheelUp,
-		X:      tm.ContentStartX + 2,
-		Y:      tm.ContentStartY + 1,
-	})
-
-	view := ansi.Strip(m.View())
-	if !strings.Contains(view, "old-frame-00") {
-		t.Fatalf("expected scrolled tmux-wrapped view to render captured old frame, got %q", view)
-	}
-}

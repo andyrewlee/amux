@@ -33,7 +33,9 @@ func (m *Model) CanConsumeWheel() bool {
 		return tab.DiffViewer.CanConsumeWheel()
 	}
 	if tab.Terminal != nil {
-		return tab.Terminal.MouseReportingEnabled() || vterm.VTermHasScrollback(tab.Terminal)
+		return tab.Terminal.MouseReportingEnabled() ||
+			tab.Terminal.WheelScrollBecomesCursorKeys() ||
+			vterm.VTermHasScrollback(tab.Terminal)
 	}
 	return false
 }

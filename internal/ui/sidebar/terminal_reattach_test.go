@@ -412,7 +412,6 @@ func TestHandleTerminalCreated_UsesSnapshotDimensionsForFullPaneRestore(t *testi
 	capture := []byte("1234567890\nABCDE\nFGHIJ\n")
 
 	expected := vterm.New(snapshotWidth, snapshotHeight)
-	expected.AllowAltScreenScrollback = true
 	expected.LoadPaneCaptureWithCursorAndModes(capture, 0, 1, true, vterm.PaneModeState{})
 	expected.Resize(currentWidth, currentHeight)
 

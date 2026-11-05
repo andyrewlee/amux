@@ -31,7 +31,6 @@ func (m *Model) addDetachedTab(ws *data.Workspace, info data.TabInfo) {
 		displayName = "Terminal"
 	}
 	term := vterm.New(termWidth, termHeight)
-	term.AllowAltScreenScrollback = true
 	ca := info.CreatedAt
 	if ca == 0 {
 		ca = time.Now().Unix()
@@ -78,7 +77,6 @@ func (m *Model) addPlaceholderTab(ws *data.Workspace, info data.TabInfo) (TabID,
 		displayName = "Terminal"
 	}
 	term := vterm.New(termWidth, termHeight)
-	term.AllowAltScreenScrollback = true
 	tabID := generateTabID()
 	sessionName := strings.TrimSpace(info.SessionName)
 	if sessionName != "" && !tmux.ValidSessionName(sessionName) {

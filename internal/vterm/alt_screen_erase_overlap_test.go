@@ -5,12 +5,11 @@ import (
 	"testing"
 )
 
-func TestAltScreenEraseNoOverlapWhenContentDiffers(t *testing.T) {
+func TestMainScreenEraseNoOverlapWhenContentDiffers(t *testing.T) {
 	t.Parallel()
 	// Verify that overlap detection does not falsely match when content changes.
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	// Frame 1: overflow with AAA, BBB, CCC, DDD (AAA scrolls off)
 	vt.Write([]byte("AAA\r\nBBB\r\nCCC\r\nDDD"))
@@ -39,13 +38,12 @@ func TestAltScreenEraseNoOverlapWhenContentDiffers(t *testing.T) {
 	}
 }
 
-func TestAltScreenErasePartialOverlap(t *testing.T) {
+func TestMainScreenErasePartialOverlap(t *testing.T) {
 	t.Parallel()
 	// Manually set up scrollback to have specific tail lines,
 	// then verify partial overlap detection works.
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	// makeLine creates a []Cell row with given text.
 	makeLine := func(text string) []Cell {
@@ -85,13 +83,12 @@ func TestAltScreenErasePartialOverlap(t *testing.T) {
 	}
 }
 
-func TestAltScreenEraseOverlapAcrossMultipleRedraws(t *testing.T) {
+func TestMainScreenEraseOverlapAcrossMultipleRedraws(t *testing.T) {
 	t.Parallel()
 	// Verify duplication doesn't compound over 5 erase cycles
 	// with content that overflows the terminal.
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	// First draw
 	vt.Write([]byte("line1\r\nline2\r\nline3\r\nline4\r\nline5"))
@@ -122,13 +119,12 @@ func TestAltScreenEraseOverlapAcrossMultipleRedraws(t *testing.T) {
 	}
 }
 
-func TestAltScreenEraseContentChangeAfterOverflow(t *testing.T) {
+func TestMainScreenEraseContentChangeAfterOverflow(t *testing.T) {
 	t.Parallel()
 	// After overflowing content, changing the content should replace
 	// the old capture properly.
 	vt := New(10, 4)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	// Frame 1: 6 lines overflow 4-row terminal
 	vt.Write([]byte("aaa\r\nbbb\r\nccc\r\nddd\r\neee\r\nfff"))
@@ -167,7 +163,7 @@ func TestAltScreenEraseContentChangeAfterOverflow(t *testing.T) {
 	}
 }
 
-func TestAltScreenScrollbackTailOverlap(t *testing.T) {
+func TestScrollbackTailOverlap(t *testing.T) {
 	t.Parallel()
 	makeLine := func(text string, width int) []Cell {
 		line := MakeBlankLine(width)
@@ -214,13 +210,12 @@ func TestAltScreenScrollbackTailOverlap(t *testing.T) {
 	}
 }
 
-func TestAltScreenEraseManyOverflowCyclesStable(t *testing.T) {
+func TestMainScreenEraseManyOverflowCyclesStable(t *testing.T) {
 	t.Parallel()
 	// Stress test: 20 redraw cycles of overflowing content.
 	// Scrollback should stabilize and never grow unbounded.
 	vt := New(10, 4)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	// Generate 8 lines of content (overflows 4-row terminal)
 	content := "L01\r\nL02\r\nL03\r\nL04\r\nL05\r\nL06\r\nL07\r\nL08"
@@ -251,11 +246,10 @@ func TestAltScreenEraseManyOverflowCyclesStable(t *testing.T) {
 	}
 }
 
-func TestAltScreenErasePartialOverlapReservesFullFrameOnResizeGrow(t *testing.T) {
+func TestMainScreenErasePartialOverlapReservesFullFrameOnResizeGrow(t *testing.T) {
 	t.Parallel()
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	makeLine := func(text string) []Cell {
 		line := MakeBlankLine(10)
@@ -295,7 +289,7 @@ func TestAltScreenErasePartialOverlapReservesFullFrameOnResizeGrow(t *testing.T)
 	}
 }
 
-func TestAltScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
+func TestMainScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
 	t.Parallel()
 	// Regression: dedupScrollUpTrailing must not zero altScreenCaptureEndOffset
 	// when trailing lines don't overlap with pre-capture content.
@@ -303,8 +297,7 @@ func TestAltScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
 	// that don't match pre-capture [A,B]. endOffset must remain 2 so cycle 3
 	// computes the correct capture position.
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	// Cycle 1: draw A,B,C,D,E on 3-row screen → A,B scroll off, C/D/E on screen
 	vt.Write([]byte("AAA\r\nBBB\r\nCCC\r\nDDD\r\nEEE"))
@@ -335,8 +328,7 @@ func TestAltScreenEndOffsetPreservedOnPartialDedup(t *testing.T) {
 func TestResizeGrowReservesTrackedCaptureEndOffset(t *testing.T) {
 	t.Parallel()
 	vt := New(5, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.AltScreen = true
+	vt.CaptureNormalScreenOnClear = true
 
 	makeLine := func(text string) []Cell {
 		line := MakeBlankLine(5)
@@ -378,8 +370,8 @@ func TestResizeGrowReservesTrackedCaptureEndOffset(t *testing.T) {
 
 // TestScrollUpCustomScrollRegionSkipsTrackedAltScreenCaptureBookkeeping
 // covers a scroll region with a non-zero top margin (ScrollTop=1, i.e. row 0
-// is excluded, as a TUI would do to pin a status line) on the alt screen with
-// AllowAltScreenScrollback. Per the scrollback policy (only feed scrollback
+// is excluded, as a TUI would do to pin a status line) on the main screen
+// with CaptureNormalScreenOnClear. Per the scrollback policy (only feed scrollback
 // when the scroll region is top-anchored), scrollUp must not treat a line scrolled off
 // a partial region's top margin as having reached the top of the physical
 // screen: it must not append to Scrollback and must not bump
@@ -393,8 +385,7 @@ func TestResizeGrowReservesTrackedCaptureEndOffset(t *testing.T) {
 func TestScrollUpCustomScrollRegionSkipsTrackedAltScreenCaptureBookkeeping(t *testing.T) {
 	t.Parallel()
 	vt := New(10, 4)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	makeLine := func(text string) []Cell {
 		line := MakeBlankLine(10)
@@ -439,14 +430,13 @@ func TestScrollUpCustomScrollRegionSkipsTrackedAltScreenCaptureBookkeeping(t *te
 	}
 }
 
-func TestAltScreenDropRecaptureResetsEndOffset(t *testing.T) {
+func TestMainScreenDropRecaptureResetsEndOffset(t *testing.T) {
 	t.Parallel()
 	// Regression: dropTrackedAltScreenCapture must zero altScreenCaptureEndOffset
 	// after dedup so the next capture starts with a clean offset. Without the fix,
 	// stale endOffset from cycle 1 causes captureStart miscalculation in cycle 3.
 	vt := New(10, 3)
-	vt.AllowAltScreenScrollback = true
-	vt.Write([]byte("\x1b[?1049h"))
+	vt.CaptureNormalScreenOnClear = true
 
 	// Cycle 1: AAA,BBB scroll off; CCC,DDD,EEE captured
 	vt.Write([]byte("AAA\r\nBBB\r\nCCC\r\nDDD\r\nEEE"))

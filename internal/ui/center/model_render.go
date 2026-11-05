@@ -252,11 +252,33 @@ func (m *Model) helpEntries() [][2]string {
 			[2]string{"C-Spc t p", "prev"},
 			[2]string{"C-Spc t n", "next"},
 			[2]string{"C-Spc 1-9", "jump tab"},
-			[2]string{"PgUp", "scroll up"},
-			[2]string{"PgDn", "scroll down"},
 		)
+		// On a pane-alternate tab the unmodified paging keys are forwarded to
+		// the hosted app rather than scrolling local history, so the local
+		// scroll hints would misstate them.
+		if !m.activeTabPaneAlternate() {
+			items = append(items,
+				[2]string{"PgUp", "scroll up"},
+				[2]string{"PgDn", "scroll down"},
+			)
+		}
 	}
 	return items
+}
+
+// activeTabPaneAlternate reports whether the active tab's pane is on the
+// alternate screen, for context-dependent hint text. It reads the cached
+// probe flag without probing (the hint bar must never block on tmux).
+func (m *Model) activeTabPaneAlternate() bool {
+	tabs := m.getTabs()
+	idx := m.getActiveTabIdx()
+	if idx < 0 || idx >= len(tabs) {
+		return false
+	}
+	tab := tabs[idx]
+	return withMuVal(&tab.mu, func() bool {
+		return tab.Terminal != nil && tab.Terminal.PaneAlternateScreen
+	})
 }
 
 func (m *Model) helpLines(contentWidth int) []string {

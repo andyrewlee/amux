@@ -389,6 +389,8 @@ func (p *Parser) parseEscape(b byte) {
 		p.vt.CursorY = 0
 		p.vt.mouseTrackingMode = 0
 		p.vt.mouseSGRMode = false
+		p.vt.altScrollMode = false
+		p.vt.applicationCursorKeys = false
 		p.vt.preserveScrollbackOnNextClear3 = false
 		p.state = stateGround
 	case '=', '>': // DECKPAM/DECKPNM (keypad modes)

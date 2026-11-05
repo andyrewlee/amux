@@ -42,7 +42,7 @@ func (p *Parser) executeMode(set bool) {
 			}
 			p.vt.clampCursor()
 		case 1: // DECCKM - cursor keys mode
-			// Ignore
+			p.vt.applicationCursorKeys = set
 		case 7: // DECAWM - auto-wrap mode
 			// Always on
 		case 12: // Blinking cursor
@@ -69,6 +69,8 @@ func (p *Parser) executeMode(set bool) {
 			p.vt.setMouseTrackingMode(param, set)
 		case 1006: // SGR extended mouse coordinates
 			p.vt.mouseSGRMode = set
+		case 1007: // Alternate scroll - wheel becomes cursor keys in alt screen
+			p.vt.altScrollMode = set
 		}
 	}
 }

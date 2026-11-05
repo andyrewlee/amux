@@ -30,23 +30,21 @@ func scrollbackLines(v *VTerm) []string {
 	return out
 }
 
-// TestAltScreenCaptureRedrawsNeverDuplicateFrames drives random clear-screen
-// redraw cycles inside the alt screen and asserts the capture tracking
-// neither duplicates a repeated frame in scrollback nor corrupts its
-// bookkeeping fields.
-func TestAltScreenCaptureRedrawsNeverDuplicateFrames(t *testing.T) {
+// TestMainScreenCaptureRedrawsNeverDuplicateFrames drives random clear-screen
+// redraw cycles on the main screen (CaptureNormalScreenOnClear) and asserts
+// the capture tracking neither duplicates a repeated frame in scrollback nor
+// corrupts its bookkeeping fields.
+func TestMainScreenCaptureRedrawsNeverDuplicateFrames(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewSource(42))
 
 	for trial := 0; trial < 25; trial++ {
 		v := New(20, 5)
-		v.AllowAltScreenScrollback = true
+		v.CaptureNormalScreenOnClear = true
 		for i := 0; i < 8; i++ {
 			v.Write([]byte(fmt.Sprintf("hist %d\r\n", i)))
 		}
 		baseline := scrollbackLines(v)
-
-		v.Write([]byte("\x1b[?1049h")) // enter alt screen
 
 		frame := func(n int) []byte {
 			var b strings.Builder
@@ -95,11 +93,10 @@ func TestAltScreenCaptureRedrawsNeverDuplicateFrames(t *testing.T) {
 			}
 		}
 
-		v.Write([]byte("\x1b[?1049l")) // leave alt screen
 		lines := scrollbackLines(v)
 		for i, want := range baseline {
 			if lines[i] != want {
-				t.Fatalf("trial %d: history line %d corrupted after alt-screen exit: got %q want %q", trial, i, lines[i], want)
+				t.Fatalf("trial %d: history line %d corrupted after redraw cycles: got %q want %q", trial, i, lines[i], want)
 			}
 		}
 	}
