@@ -311,6 +311,20 @@ private-mode set) — the wait-for-readiness dance below, automated on the
 typed-input path. Orchestrators keep the `send-keys` approach; the field is
 a TUI convenience, not a new control surface.
 
+The interactive keymap has the same guarantee at its root: amux re-encodes
+every keystroke itself (`common.KeyToBytes` in `internal/ui/common`), and
+that mapping is total over the legacy xterm key space — arrows, Home/End,
+Delete/Insert, and F1–F12 with every shift/alt/ctrl modifier combination —
+so a key an embedded TUI binds arrives as the exact sequence a terminal
+would send (Codex answers plan prompts with `shift+left`). A spec-derived
+matrix test pins every combination, and the close-the-loop test drives a
+modifier family (all seven arrow combinations, a modified tilde form, an
+SS3 F-key, and insert) through the real PTY path. The input layers above
+the encoder still reserve a few keys: `Ctrl+space` is amux's prefix key
+(prefix+prefix emits a literal NUL), the center pane keeps its own chords,
+and both panes reserve `PgUp`/`PgDn` in every modifier combination for
+local scrollback.
+
 Two hard-won caveats apply when the target is a raw-mode agent (Claude Code,
 Codex, and friends run in raw mode). amux earned these the hard way and pins
 them with the close-the-loop e2e tests — `internal/e2e/closeloop_test.go` drives

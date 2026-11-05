@@ -138,6 +138,28 @@ func TestCloseLoopKeystrokeDeliveryToRawAgent(t *testing.T) {
 			got, wantEnhanced, session.ScreenASCII())
 	}
 
+	// Modifier and F-key sequences must survive the whole chain byte-for-byte:
+	// agent TUIs answer prompts to shift+left ("\x1b[1;2D", e.g. plan
+	// approval), word-jump on ctrl+right, and bind F-keys — the family spans
+	// all seven arrow modifier combinations, a modified tilde form
+	// (ctrl+delete), an SS3 F-key, and insert. PgUp/PgDn and ctrl+space are
+	// absent by design: both panes reserve PgUp/PgDn for local scrollback,
+	// and amux binds ctrl+space as its prefix key, with prefix+prefix as the
+	// documented literal-NUL escape hatch. Like the wheel block below, this
+	// asserts the family's own bytes (unique in the log) rather than the
+	// accumulated stream, so out-of-band pane writes between sends cannot
+	// fail a correct keyboard delivery.
+	modifierFamily := "\x1b[1;2D\x1b[1;3D\x1b[1;4D\x1b[1;5D\x1b[1;6D\x1b[1;7D\x1b[1;8D" +
+		"\x1b[1;5C\x1b[3;5~\x1bOP\x1b[15~\x1b[2~"
+	if err := session.SendString(modifierFamily); err != nil {
+		t.Fatalf("send modifier family: %v", err)
+	}
+	got, ok = waitForFileBytes(logPath, []byte(modifierFamily), closeLoopTimeout)
+	if !ok {
+		t.Fatalf("agent did not receive modifier/F-key family via amux\n got: % x\nwant: % x\n\nscreen:\n%s",
+			got, []byte(modifierFamily), session.ScreenASCII())
+	}
+
 	wheelInput := centerPaneWheelUpInput(120, 30, 2, 3)
 	if err := session.SendString(wheelInput.outer); err != nil {
 		t.Fatalf("send mouse wheel: %v", err)

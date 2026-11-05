@@ -204,7 +204,11 @@ inheriting the built-in delay again.
 (For completeness on key delivery: a focused terminal receives unreserved
 control chords as bytes — `Ctrl+Q` arrives as `0x11`, and a focused sidebar
 terminal also receives `Ctrl+]` as `0x1D` while the center pane reserves it
-for tab cycling.)
+for tab cycling. Beyond chords, every other unreserved key passes through
+modifier-faithful — arrows, Home, End, Delete, Insert, and F1–F12 with every
+shift/alt/ctrl combination arrive as the exact sequence a terminal would
+send; `PgUp`/`PgDn` stay reserved for local scrollback. See README's
+center-pane keys for the full surface.)
 
 Assistant names must start with a letter or number and may contain only letters,
 numbers, dots, dashes, or underscores (max 100 characters). Names are matched
