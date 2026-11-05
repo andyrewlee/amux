@@ -45,7 +45,9 @@ again, exit, or clear.
 ```
 
 State is your siblings' reported state when they report, else amux's
-scan-derived state, else `-`.
+scan-derived state, else `-`. With `--json`, a scan failure writes
+`{"error":{"code":…,"message":…}}` to stderr (code `unavailable`, exit
+4, when tmux cannot be reached).
 
 ## Wait on a sibling
 
@@ -53,10 +55,17 @@ scan-derived state, else `-`.
 "$AMUX_BIN_PATH" wait --state blocked,error,done [--workspace NAME] [--timeout 30s]
 ```
 
-Exits 0 on the first match (prints `session=… state=… kind=… app=…
-message=…`), 1 if tmux itself is unusable, 2 on timeout or a usage error.
-A stored `working`/`blocked` report from a pane whose process has exited
-never matches.
+Exits 0 on the first matching report (prints `session=… state=… kind=…
+app=… message=…`). When a pane under your filter exits while you wait,
+wait exits with that program's REAL exit status (prints `session=…
+exit=N`, plus the surviving report's fields when one exists). Start wait
+before spawning what you wait on — sessions already dead when wait
+starts never fire — and only sessions that keep their dead pane can pass
+an exit through (run sessions do; agent tab panes vanish with their
+process). 2 = timeout or a usage error, 4 = tmux itself unusable, 1 = an
+observed exit whose status tmux did not record (signal deaths record
+none). A stored `working`/`blocked` report from a pane whose process has
+exited never matches.
 
 ## Send input to a session
 
@@ -73,6 +82,10 @@ bspace delete insert f1..f12 c-x s-x m-x` — only names tmux resolves;
 `cr` is the raw submit byte). Exactly one live session must match the
 target; ambiguity is an error that lists the candidates, and a session
 whose pane process has exited is refused — input would have no reader.
+
+Failures are machine-branchable by exit code: 2 usage, 3 target not
+found or ambiguous (fix the selector), 4 unreachable — no tmux server,
+or the target's pane process has exited — 1 anything else.
 
 ## The tmux seam (advanced)
 

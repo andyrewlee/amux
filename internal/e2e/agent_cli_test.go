@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,7 +14,19 @@ import (
 // `amux agent ls` (tagged sessions, reported-state precedence), and
 // `amux send` (exact target resolution, literal text, CR submit) — all
 // against a real isolated tmux server, driving the actual binary the way
-// a hosted agent or supervising script would.
+// a hosted agent or supervising script would. Failures carry the stable
+// exit-code contract: 3 = target not found or ambiguous, 4 = unreachable
+// (no server, dead pane), 2 = usage.
+
+// exitCodeOf extracts a failed command's exit status for contract pins.
+func exitCodeOf(t *testing.T, err error) int {
+	t.Helper()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("expected an ExitError, got %v", err)
+	}
+	return ee.ExitCode()
+}
 
 func TestAgentCLIVerbsRealBinary(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -38,6 +51,18 @@ func TestAgentCLIVerbsRealBinary(t *testing.T) {
 		full := append([]string{"tmux", "-L", server, "-f", "/dev/null"}, args...)
 		out, _ := exec.Command(full[0], full[1:]...).CombinedOutput()
 		return string(out)
+	}
+
+	// Before any session exists (no tmux server): ls says "empty fleet"
+	// with exit 0 — nothing hosted is a valid answer — while send has a
+	// destination it cannot reach: exit 4.
+	if out, err := amux("agent", "ls"); err != nil || !strings.Contains(out, "WORKSPACE") {
+		t.Fatalf("agent ls with no server must be a valid empty answer (header, no rows), got (%v):\n%s", err, out)
+	}
+	if out, err := amux("send", "--session", "anything", "--text", "hi"); err == nil {
+		t.Fatalf("send with no server must fail, got success:\n%s", out)
+	} else if code := exitCodeOf(t, err); code != 4 {
+		t.Fatalf("send with no server must exit 4 (unreachable), got %d:\n%s", code, out)
 	}
 
 	// --skill: one read, no TTY, mentions the contract it documents.
@@ -128,6 +153,31 @@ func TestAgentCLIVerbsRealBinary(t *testing.T) {
 	if deadErr == nil || !strings.Contains(deadOut, "exited") {
 		t.Fatalf("send to a dead pane must fail with 'exited', got: %v\n%s", deadErr, deadOut)
 	}
+	if code := exitCodeOf(t, deadErr); code != 4 {
+		t.Fatalf("send to a dead pane must exit 4 (unreachable), got %d", code)
+	}
+
+	// The refusal must not depend on the pane having reported: a dead
+	// pane that never spoke the protocol has no report options, and
+	// send-keys against its corpse would still "succeed". Liveness is
+	// observed directly (the batched pane scan), so this session — dead,
+	// no report, own workspace so the ambiguity test stays two-way —
+	// must be refused with 4 too.
+	tmuxCmd("new-session", "-d", "-s", "amux-ws2-run-silent-1", "sh", "-c", "sleep 1; exit 0",
+		";", "set-option", "-w", "-t", "amux-ws2-run-silent-1", "remain-on-exit", "on")
+	tmuxCmd("set-option", "-t", "amux-ws2-run-silent-1", "@amux_workspace", "ws2")
+	tmuxCmd("set-option", "-t", "amux-ws2-run-silent-1", "@amux_workspace_name", "silent-e2e")
+	tmuxCmd("set-option", "-t", "amux-ws2-run-silent-1", "@amux_type", "run")
+	waitForCond(t, func() bool {
+		out, err := exec.Command("tmux", "-L", server, "-f", "/dev/null",
+			"list-panes", "-t", "amux-ws2-run-silent-1", "-F", "#{pane_dead}").CombinedOutput()
+		return err == nil && strings.TrimSpace(string(out)) == "1"
+	}, 5*time.Second, "silent pane in amux-ws2-run-silent-1 never died")
+	if out, err := amux("send", "--workspace", "silent-e2e", "--text", "anyone?"); err == nil {
+		t.Fatalf("send to a dead pane that never reported must fail, got success:\n%s", out)
+	} else if code := exitCodeOf(t, err); code != 4 {
+		t.Fatalf("send to an unreported dead pane must exit 4 (unreachable), got %d:\n%s", code, out)
+	}
 
 	// Ambiguity is an error, never a guess: two hosted sessions in one
 	// workspace, --workspace must refuse and list both.
@@ -139,16 +189,97 @@ func TestAgentCLIVerbsRealBinary(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ambiguous target must fail, got success:\n%s", out)
 	}
+	if code := exitCodeOf(t, err); code != 3 {
+		t.Fatalf("ambiguous target must exit 3, got %d:\n%s", code, out)
+	}
 	for _, session := range []string{"amux-ws1-tab-aa1-1", "amux-ws1-run-bb2-1"} {
 		if !strings.Contains(out, session) {
 			t.Fatalf("ambiguity error must list %q:\n%s", session, out)
 		}
 	}
 
-	// Untagged tmux sessions are not amux's to type into.
+	// Untagged tmux sessions are not amux's to type into, and an unknown
+	// workspace resolves to nothing — both are selector failures: 3.
 	tmuxCmd("new-session", "-d", "-s", "foreign-session", "cat")
 	if out, err := amux("send", "--session", "foreign-session", "--text", "hi"); err == nil {
 		t.Fatalf("send to an untagged session must fail, got success:\n%s", out)
+	} else if code := exitCodeOf(t, err); code != 3 {
+		t.Fatalf("send to an untagged session must exit 3 (not found), got %d:\n%s", code, out)
+	}
+	if out, err := amux("send", "--workspace", "no-such-workspace", "--text", "hi"); err == nil {
+		t.Fatalf("send to an unknown workspace must fail, got success:\n%s", out)
+	} else if code := exitCodeOf(t, err); code != 3 {
+		t.Fatalf("send to an unknown workspace must exit 3 (not found), got %d:\n%s", code, out)
+	}
+}
+
+// `amux wait` exit passthrough against a real server: a program's real
+// exit status becomes wait's exit status when its pane dies while wait
+// watches, and a session already dead when wait started never fires —
+// the baseline that keeps a lingering dead run session from ending every
+// later wait with stale news.
+func TestWaitExitPassthroughRealBinary(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+	bin, cleanupBin, err := buildAmuxBinary()
+	if err != nil {
+		t.Fatalf("build amux binary: %v", err)
+	}
+	defer cleanupBin()
+
+	server := fmt.Sprintf("amux-e2e-waitexit-%d", time.Now().UnixNano())
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", server, "kill-server").Run() })
+	env := append(os.Environ(), "AMUX_TMUX_SERVER="+server)
+	tmuxCmd := func(args ...string) string {
+		full := append([]string{"tmux", "-L", server, "-f", "/dev/null"}, args...)
+		out, _ := exec.Command(full[0], full[1:]...).CombinedOutput()
+		return string(out)
+	}
+	tagRunSession := func(session string) {
+		tmuxCmd("set-option", "-t", session, "@amux_workspace", "ws1")
+		tmuxCmd("set-option", "-t", session, "@amux_workspace_name", "wait-e2e")
+		tmuxCmd("set-option", "-t", session, "@amux_type", "run")
+	}
+
+	// The stale session: dead (exit 5) before wait ever starts.
+	// remain-on-exit is chained into the new-session command (the `;`
+	// argv separator, exactly how amux's own launcher does it): a pane
+	// that dies before a separate set-option lands is destroyed with its
+	// session, so the sleep alone would be a timing budget, not a
+	// guarantee.
+	tmuxCmd("new-session", "-d", "-s", "amux-ws1-run-stale", "sh", "-c", "sleep 1; exit 5",
+		";", "set-option", "-w", "-t", "amux-ws1-run-stale", "remain-on-exit", "on")
+	tagRunSession("amux-ws1-run-stale")
+	waitForCond(t, func() bool {
+		out, err := exec.Command("tmux", "-L", server, "-f", "/dev/null",
+			"list-panes", "-t", "amux-ws1-run-stale", "-F", "#{pane_dead}").CombinedOutput()
+		return err == nil && strings.TrimSpace(string(out)) == "1"
+	}, 5*time.Second, "stale pane never died")
+
+	// The fresh session: exits 7 a few seconds in — after wait is
+	// watching. This is the orchestrator's shape: start wait, then spawn
+	// the thing whose outcome you need. remain-on-exit rides the create
+	// for the same reason as the stale session's.
+	tmuxCmd("new-session", "-d", "-s", "amux-ws1-run-fresh", "sh", "-c", "sleep 4; exit 7",
+		";", "set-option", "-w", "-t", "amux-ws1-run-fresh", "remain-on-exit", "on")
+	tagRunSession("amux-ws1-run-fresh")
+
+	wait := exec.Command(bin, "wait", "--state", "any", "--workspace", "wait-e2e", "--timeout", "20s")
+	wait.Env = env
+	out, err := wait.CombinedOutput()
+	got := string(out)
+	if err == nil {
+		t.Fatalf("wait must exit with the program's status 7, got success:\n%s", got)
+	}
+	if code := exitCodeOf(t, err); code != 7 {
+		t.Fatalf("wait exit = %d, want 7 (the program's real status):\n%s", code, got)
+	}
+	if !strings.Contains(got, "session=amux-ws1-run-fresh") || !strings.Contains(got, "exit=7") {
+		t.Fatalf("wait output must name the session and its status:\n%s", got)
+	}
+	if strings.Contains(got, "exit=5") || strings.Contains(got, "stale") {
+		t.Fatalf("a session dead before wait started must never fire (baseline):\n%s", got)
 	}
 }
 

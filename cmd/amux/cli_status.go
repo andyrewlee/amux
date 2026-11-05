@@ -99,12 +99,34 @@ func runReportCommand(args []string) int {
 	return 0
 }
 
-// runWaitCommand implements `amux wait`: block until some pane reports a
-// matching state. Exit 0 on a match; 1 when tmux itself is unusable (a
-// permanent failure no amount of waiting fixes); 2 on timeout or a usage
-// error — one code for "did not match", so scripts branch on exactly
-// three outcomes. Transient read errors surface on stderr but keep
-// waiting (the session may still be starting). The default state set is
+// runWaitCommand implements `amux wait`: block until a pane reports a
+// matching state, or until a pane under the filters exits while we are
+// watching. The exit ladder is the machine contract:
+//
+//   - 0 — a pane reported a matching state (printed as session=… state=…);
+//     also the passthrough exit of a program that exited 0.
+//   - N — a pane's process exited while we watched; N is that program's
+//     real exit status (printed as session=… exit=N, with the surviving
+//     report's fields when one exists). tmux records no numeric status
+//     for processes killed by a signal — those fall to the 1 rung as
+//     exit=unknown.
+//   - 4 — tmux itself is unusable (missing or too old — waiting cannot
+//     fix that).
+//   - 2 — timeout or a usage error.
+//   - 1 — an observed exit whose status tmux did not record.
+//
+// Scan errors that are not unavailability are transient by contract:
+// they surface on stderr and wait keeps going, ending at the timeout's 2.
+//
+// Exit observation begins when wait begins: sessions already dead at the
+// first successful scan never fire (a lingering dead run session is
+// history, not news), so an orchestrator starts wait before spawning
+// what it waits on. Only sessions that keep their dead pane can pass an
+// exit through — run sessions do (remain-on-exit), agent tab panes are
+// destroyed with their process, so a tab's exit is invisible to wait and
+// its surviving done/error reports remain the signal. An observed exit
+// fires regardless of --state: a dead process can report nothing more,
+// so waiting on it is over. The default state set is
 // blocked,error,done — the states a supervising agent waits on.
 func runWaitCommand(args []string) int {
 	fs := flag.NewFlagSet("amux wait", flag.ContinueOnError)
@@ -129,26 +151,20 @@ func runWaitCommand(args []string) int {
 		fmt.Fprintf(os.Stderr, "amux wait: %v\n", err)
 		return 2
 	}
-	opts := tmux.OptionsFromTMUXEnv()
+	w := &waitWatcher{
+		opts:      tmux.OptionsFromTMUXEnv(),
+		want:      want,
+		workspace: *workspace,
+		session:   *session,
+	}
 	var deadline time.Time
 	if *timeout > 0 {
 		deadline = time.Now().Add(*timeout)
 	}
 	for {
-		matched, err := findReportMatch(opts, want, *workspace, *session)
-		switch {
-		case err == nil:
-			printReportMatch(matched)
-			return 0
-		case errors.Is(err, errNoMatch):
-			// nothing matched yet — fall through to the deadline
-		case tmux.IsUnavailableError(err):
-			fmt.Fprintf(os.Stderr, "amux wait: %v\n", err)
-			return 1
-		case tmux.IsNoServerError(err):
-			// a missing server simply has nothing to report yet
-		default:
-			fmt.Fprintf(os.Stderr, "amux wait: %v\n", err)
+		code, done := w.poll()
+		if done {
+			return code
 		}
 		if !deadline.IsZero() && time.Now().After(deadline) {
 			fmt.Fprintln(os.Stderr, "amux wait: timed out")
@@ -156,6 +172,183 @@ func runWaitCommand(args []string) int {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+// waitWatcher is one `amux wait` invocation's scan state: the filters,
+// the report state set, and the baseline of sessions already dead when
+// observation started (which never fire — see runWaitCommand).
+type waitWatcher struct {
+	opts      tmux.Options
+	want      map[string]bool
+	workspace string
+	session   string
+	baseline  map[string]bool
+}
+
+// poll runs one scan. It returns done=true with the exit code to exit
+// with (0 for a state match, the observed program's status for an exit
+// event), or done=false to keep waiting, with transient errors already
+// printed to stderr.
+func (w *waitWatcher) poll() (int, bool) {
+	reports, rerr := tmux.PaneReports(w.opts)
+	// Liveness comes from the same batched scan the dashboard uses
+	// (AllSessionStates: dead == exists && !hasLivePane) — report options
+	// only exist for panes that reported, and exit observation must not
+	// depend on the program having spoken the protocol.
+	states, serr := tmux.AllSessionStates(w.opts)
+	for _, err := range []error{rerr, serr} {
+		if err == nil {
+			continue
+		}
+		switch {
+		case tmux.IsUnavailableError(err):
+			// a permanent failure no amount of waiting fixes
+			fmt.Fprintf(os.Stderr, "amux wait: %v\n", err)
+			return 4, true
+		case tmux.IsNoServerError(err):
+			// a missing server simply has nothing to report yet
+		default:
+			fmt.Fprintf(os.Stderr, "amux wait: %v\n", err)
+		}
+	}
+	if reports == nil {
+		reports = map[string]agentstatus.Report{}
+	}
+	u := w.universe(reports)
+	dead := deadSessions(u, states)
+	if w.baseline == nil && serr == nil {
+		w.baseline = dead
+	}
+	// An observed process exit outranks a state match: the process is
+	// over, no further reports can arrive, and its status is the final
+	// answer.
+	if m, ok := w.findExitEvent(u, reports, dead); ok {
+		if code, ok := w.resolveExit(m); ok {
+			return code, true
+		}
+		// The event evaporated between scans (session or pane gone) —
+		// not an observable exit. Fall through and keep waiting.
+	}
+	if m, err := w.findMatch(reports); err == nil {
+		printReportMatch(m)
+		return 0, true
+	}
+	return 0, false
+}
+
+// universe is the set of session names exit observation applies to: the
+// exact --session, the workspace's hosted sessions, or (unfiltered)
+// every amux-hosted session plus every pane carrying a stored report.
+// Workspace filtering joins through matchesWorkspace — the single
+// workspace-join predicate the agent verbs share — so `wait
+// --workspace` cannot disagree with `agent ls`/`send` about what a
+// selector matches.
+func (w *waitWatcher) universe(reports map[string]agentstatus.Report) map[string]bool {
+	if w.session != "" {
+		return map[string]bool{w.session: true}
+	}
+	rows, err := tmux.SessionsWithTags(nil, []string{"@amux_workspace", "@amux_workspace_name", "@amux_type"}, w.opts)
+	if err != nil {
+		rows = nil // no server or transient: hosted universe is empty this poll
+	}
+	out := make(map[string]bool, len(rows)+len(reports))
+	for _, row := range rows {
+		id, typ := row.Tags["@amux_workspace"], row.Tags["@amux_type"]
+		if id == "" && typ == "" {
+			continue // not amux-hosted
+		}
+		if w.workspace != "" {
+			name := row.Tags["@amux_workspace_name"]
+			if name == "" {
+				name = id
+			}
+			if !(agentListRow{Workspace: name, WorkspaceID: id}).matchesWorkspace(w.workspace) {
+				continue
+			}
+		}
+		out[row.Name] = true
+	}
+	if w.workspace == "" {
+		for name := range reports {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// deadSessions is the per-poll dead set — universe sessions whose every
+// pane's process has exited (AllSessionStates' fold; a nil states map
+// from a failed scan yields none).
+func deadSessions(u map[string]bool, states map[string]tmux.SessionState) map[string]bool {
+	dead := make(map[string]bool, len(states))
+	for name := range u {
+		if st, ok := states[name]; ok && st.Exists && !st.HasLivePane {
+			dead[name] = true
+		}
+	}
+	return dead
+}
+
+// findExitEvent returns the deterministically-first session in the
+// universe whose process exited since the baseline (a session already
+// dead when observation started never fires), with the pane's surviving
+// report attached when one exists. The dead set is authoritative for the
+// pane's lifetime: a report fetched moments before the death still says
+// the pane was alive, so its transient flag is forced before the
+// process-exit lifetime is applied — a working/blocked state must not
+// outlive a death observed in the same poll.
+func (w *waitWatcher) findExitEvent(u map[string]bool, reports map[string]agentstatus.Report, dead map[string]bool) (waitMatch, bool) {
+	pick := ""
+	for name := range dead {
+		if w.baseline[name] || !u[name] {
+			continue
+		}
+		if pick == "" || name < pick {
+			pick = name
+		}
+	}
+	if pick == "" {
+		return waitMatch{}, false
+	}
+	m := waitMatch{Session: pick}
+	if r, ok := reports[pick]; ok {
+		r.PaneDead = true
+		if r.SurvivesProcessExit() {
+			m.Report = r
+		}
+	}
+	return m, true
+}
+
+// resolveExit recovers the program's exit status for an observed exit
+// and prints the match line. ok=false means the exit is not
+// passthrough-able (the session or its pane vanished between scans, or
+// the status probe failed transiently) and waiting should continue.
+func (w *waitWatcher) resolveExit(m waitMatch) (int, bool) {
+	exists, alive, code, err := tmux.RunSessionStatus(m.Session, w.opts)
+	if err != nil {
+		// Transient probe failure: the next poll re-fires the event.
+		if !tmux.IsNoServerError(err) && !tmux.IsUnavailableError(err) {
+			fmt.Fprintf(os.Stderr, "amux wait: %v\n", err)
+		}
+		return 0, false
+	}
+	if !exists || alive {
+		// A destroyed pane carries no status (an agent tab's exit is
+		// invisible by design); a live pane has not exited.
+		return 0, false
+	}
+	if code < 0 {
+		// Dead, but this tmux recorded no numeric status: a server older
+		// than 3.3 without a parsable banner, or a process killed by a
+		// signal (tmux names the signal instead of a number). The exit
+		// is real; the status is not recoverable.
+		printExitMatch(m, -1)
+		fmt.Fprintln(os.Stderr, "amux wait: exit status not recorded by tmux")
+		return 1, true
+	}
+	printExitMatch(m, code&0xFF)
+	return code & 0xFF, true
 }
 
 // parseWaitStates parses the --state filter: a comma-separated list of
@@ -189,28 +382,24 @@ type waitMatch struct {
 	Report  agentstatus.Report
 }
 
-// errNoMatch is findReportMatch's not-yet signal: the scan succeeded but
+// errNoMatch is findMatch's not-yet signal: the scan succeeded but
 // nothing matched. It is distinguishable from real scan errors so the
 // caller can keep waiting without printing.
 var errNoMatch = errors.New("no matching report yet")
 
-// findReportMatch reads every pane report and returns the first match
-// under the filters, deterministically ordered by session name, or
+// findMatch reads the already-fetched pane reports and returns the first
+// match under the filters, deterministically ordered by session name, or
 // errNoMatch. Workspace filtering joins the display tag
 // @amux_workspace_name (and the id tag @amux_workspace) the same way the
 // activity scan does.
-func findReportMatch(opts tmux.Options, want map[string]bool, workspace, session string) (waitMatch, error) {
-	reports, err := tmux.PaneReports(opts)
-	if err != nil {
-		return waitMatch{}, err
-	}
+func (w *waitWatcher) findMatch(reports map[string]agentstatus.Report) (waitMatch, error) {
 	names := make([]string, 0, len(reports))
 	for name := range reports {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if session != "" && name != session {
+		if w.session != "" && name != w.session {
 			continue
 		}
 		r := reports[name]
@@ -221,10 +410,10 @@ func findReportMatch(opts tmux.Options, want map[string]bool, workspace, session
 		if !r.SurvivesProcessExit() {
 			continue
 		}
-		if !want["any"] && !want[r.State] {
+		if !w.want["any"] && !w.want[r.State] {
 			continue
 		}
-		if workspace != "" && !sessionWorkspaceMatches(opts, name, workspace) {
+		if w.workspace != "" && !sessionWorkspaceMatches(w.opts, name, w.workspace) {
 			continue
 		}
 		return waitMatch{Session: name, Report: r}, nil
@@ -250,18 +439,38 @@ func sessionWorkspaceMatches(opts tmux.Options, sessionName, workspace string) b
 }
 
 func printReportMatch(m waitMatch) {
-	parts := []string{
-		"session=" + m.Session,
-		"state=" + m.Report.State,
+	parts := appendReportParts([]string{"session=" + m.Session}, m.Report)
+	fmt.Println(strings.Join(parts, " "))
+}
+
+// printExitMatch prints an observed process exit: the session, the
+// surviving report's fields when one exists (done/error survive the
+// process; transient states do not — an absent report is an empty
+// State), and the program's exit status — exit=unknown when tmux
+// recorded none.
+func printExitMatch(m waitMatch, status int) {
+	parts := []string{"session=" + m.Session}
+	if m.Report.State != "" {
+		parts = appendReportParts(parts, m.Report)
 	}
-	if m.Report.Kind != "" {
-		parts = append(parts, "kind="+m.Report.Kind)
-	}
-	if m.Report.App != "" {
-		parts = append(parts, "app="+m.Report.App)
-	}
-	if m.Report.Message != "" {
-		parts = append(parts, "message="+m.Report.Message)
+	if status >= 0 {
+		parts = append(parts, fmt.Sprintf("exit=%d", status))
+	} else {
+		parts = append(parts, "exit=unknown")
 	}
 	fmt.Println(strings.Join(parts, " "))
+}
+
+func appendReportParts(parts []string, r agentstatus.Report) []string {
+	parts = append(parts, "state="+r.State)
+	if r.Kind != "" {
+		parts = append(parts, "kind="+r.Kind)
+	}
+	if r.App != "" {
+		parts = append(parts, "app="+r.App)
+	}
+	if r.Message != "" {
+		parts = append(parts, "message="+r.Message)
+	}
+	return parts
 }

@@ -21,14 +21,30 @@ send:
 - `amux report` — print one Program Status Protocol (OSC 7501) sequence;
   designed to run inside a hosted pane (contract in the "Reporting
   status" section below).
-- `amux wait` — block until a pane reports a matching state; the consumer
-  for supervising scripts and agents.
+- `amux wait` — block until a pane reports a matching state, or a watched
+  pane's process exits; the consumer for supervising scripts and agents.
 - `amux agent ls` — list the hosted fleet (`--json` for scripts), state
   being the strongest signal available (a protocol report, else the
   scan's `@amux_agent_state`, else `-`).
 - `amux send` — deliver literal text (`--text`, submit with `--enter`) or
   named keys (`--keys`) to exactly one hosted session, encoding the
   "Sending input" rules below so callers cannot get them wrong.
+
+The verbs share one exit-code contract — scripts branch on the code,
+never on message text:
+
+| code | meaning |
+| --- | --- |
+| 0 | success (and `wait`'s passthrough of a program's exit 0) |
+| 1 | operational failure — delivery attempted and failed, `agent ls` scan errors, or `wait` observing an exit whose status tmux did not record |
+| 2 | usage error; `amux wait` timeout |
+| 3 | target not found or ambiguous (`send`'s selectors — fix the invocation) |
+| 4 | tmux unusable; for `send` also: no tmux server, or a target whose pane process has exited |
+
+In `--json` modes a failure also writes a machine envelope to stderr,
+`{"error":{"code":"unavailable"|"error","message":"…"}}`, pairing the
+code with exit 4/1. `agent ls` with no tmux server is a valid empty
+answer (exit 0, header only): nothing is hosted.
 
 Any other argument prints an error and exits non-zero (`cmd/amux/main.go`).
 
@@ -683,12 +699,31 @@ amux wait --state done --session amux-my-feature-1
 ```
 
 It exits 0 on the first match (printing `session=… state=… kind=… app=…
-message=…`), 1 when tmux itself is unusable (missing or too old — waiting
-cannot fix that), and 2 on timeout or a usage error. A stored
-`working`/`blocked` report on a pane whose process has exited never
-matches — transient states die with their process, and a supervising
-script must not act on a pane that can no longer respond. Inside a pane it
-derives the tmux server from `$TMUX` automatically.
+message=…`). It also watches for process exit: when a pane under the
+filters dies while wait is running, wait exits with that program's REAL
+exit status (printed as `session=… exit=N`, with the surviving report's
+fields when one exists) — an orchestrator gets the outcome, not a
+timeout. The status is tmux's own record (`pane_dead_status`, with the
+pre-3.3 remain-on-exit banner as fallback). Exit observation starts when
+wait starts: sessions already dead at the first successful scan never
+fire (a lingering dead run session is history, not news), so start wait
+before spawning what you wait on. Only panes that survive their process
+can pass an exit through — run sessions (remain-on-exit) do; an agent
+tab's pane is destroyed with its process, so a tab's exit is invisible
+to wait and its surviving `done`/`error` reports remain the signal. An
+observed exit fires regardless of `--state`: a dead process can report
+nothing more. The failure ladder: 4 when tmux itself is unusable
+(missing or too old — waiting cannot fix that), 2 on timeout or a usage
+error, 1 for an observed exit whose status tmux did not record
+(`exit=unknown`) — a server older than 3.3 without a parsable
+remain-on-exit banner, or a process killed by a signal, for which tmux
+records a name rather than a number. Scan errors that are not
+unavailability are transient: they surface on stderr and wait keeps
+going, ending at the timeout's 2. A stored `working`/`blocked` report on
+a pane whose process has exited never matches — transient states die
+with their process, and a supervising script must not act on a pane that
+can no longer respond. Inside a pane it derives the tmux server from
+`$TMUX` automatically.
 
 Design notes for external tooling: reports live and die with their pane —
 the tap holds no state on disk, and killing a session clears its reports.
@@ -719,13 +754,12 @@ sync — the backup exists so that failure mode is recoverable.
 
 An earlier revision of this document recorded "Option B: a minimal CLI" —
 reintroduce a small command surface if the tmux contract proved
-insufficient — as not recommended by default. The roadmap
-([docs/ROADMAP.md](ROADMAP.md), Phase B) decided the question: agents
-hosted by amux need to drive amux and their siblings without speaking raw
-tmux, and the verb set above (`--skill`, `agent ls`, `send`, plus Phase
-A's `report`/`wait`) is that surface, trimmed from the same discipline
-this document teaches rather than from the deleted `internal/cli/`
-implementation. The recurring cost the removal warned about is real, and
+insufficient — as not recommended by default. Phase B decided the
+question: agents hosted by amux need to drive amux and their siblings
+without speaking raw tmux, and the verb set above (`--skill`, `agent ls`,
+`send`, plus Phase A's `report`/`wait`) is that surface, trimmed from the
+same discipline this document teaches rather than from the deleted
+`internal/cli/` implementation. The recurring cost the removal warned about is real, and
 it is paid knowingly: every verb above is pinned by real-binary e2e tests
 and documented here.
 

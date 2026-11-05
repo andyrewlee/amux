@@ -8,7 +8,112 @@ import (
 	"testing"
 
 	"github.com/andyrewlee/amux/internal/agentstatus"
+	"github.com/andyrewlee/amux/internal/tmux"
 )
+
+// The wait watcher's pure decision paths — maps in, outcome out. The
+// baseline rule (sessions dead when observation started never fire), the
+// determinism of the pick, the process-exit lifetime of reports, and the
+// dead-set fold pin here; the live-scan halves are covered by the e2e
+// suites.
+func TestWaitWatcherExitEventBaselineAndPick(t *testing.T) {
+	w := &waitWatcher{
+		want:     map[string]bool{"any": true},
+		baseline: map[string]bool{"stale-run": true},
+	}
+	u := map[string]bool{"stale-run": true, "a-fresh-run": true, "b-fresh-run": true, "live-run": true}
+	dead := map[string]bool{"stale-run": true, "a-fresh-run": true, "b-fresh-run": true}
+	reports := map[string]agentstatus.Report{
+		"a-fresh-run": {State: agentstatus.StateDone},
+		"b-fresh-run": {State: agentstatus.StateDone},
+		"stale-run":   {State: agentstatus.StateDone},
+	}
+	m, ok := w.findExitEvent(u, reports, dead)
+	if !ok || m.Session != "a-fresh-run" {
+		t.Fatalf("findExitEvent = (%#v, %v), want a-fresh-run — the deterministic first non-baseline exit", m, ok)
+	}
+	if m.Report.State != agentstatus.StateDone {
+		t.Fatalf("a dead pane's surviving report must ride the event: %#v", m)
+	}
+
+	// Sessions outside the universe (an unreported foreign pane) never
+	// fire, dead or not.
+	u2 := map[string]bool{"a-fresh-run": true}
+	if m, ok := w.findExitEvent(u2, map[string]agentstatus.Report{}, dead); !ok || m.Session != "a-fresh-run" {
+		t.Fatalf("exit events must stay inside the universe: (%#v, %v)", m, ok)
+	}
+
+	// A transient report fetched before the death (its snapshot still
+	// says the pane was alive) must not ride the exit line: the dead set
+	// is authoritative for the pane's lifetime.
+	transient := map[string]agentstatus.Report{"a-fresh-run": {State: agentstatus.StateWorking}}
+	if m, _ := w.findExitEvent(u, transient, dead); m.Session == "a-fresh-run" && m.Report.State != "" {
+		t.Fatalf("a transient report must not survive an observed death: %#v", m)
+	}
+}
+
+// deadSessions folds AllSessionStates into the dead set: a session is
+// dead when it exists and no pane in it is live.
+func TestDeadSessionsFold(t *testing.T) {
+	states := map[string]tmux.SessionState{
+		"dead-run":   {Exists: true, HasLivePane: false},
+		"live-run":   {Exists: true, HasLivePane: true},
+		"half-multi": {Exists: true, HasLivePane: true}, // any live pane → not dead
+	}
+	u := map[string]bool{"dead-run": true, "live-run": true, "half-multi": true, "gone": true}
+	dead := deadSessions(u, states)
+	if !dead["dead-run"] || dead["live-run"] || dead["half-multi"] || dead["gone"] {
+		t.Fatalf("deadSessions = %#v", dead)
+	}
+}
+
+func TestWaitWatcherSessionUniverseIsExact(t *testing.T) {
+	w := &waitWatcher{session: "only-this"}
+	u := w.universe(map[string]agentstatus.Report{})
+	if len(u) != 1 || !u["only-this"] {
+		t.Fatalf("--session universe = %#v, want exactly the named session", u)
+	}
+}
+
+// The state-matching half keeps the protocol's process-exit lifetime: a
+// transient report on a dead pane is stale, never a match; a surviving
+// one matches.
+func TestWaitWatcherFindMatchLifetime(t *testing.T) {
+	w := &waitWatcher{want: map[string]bool{agentstatus.StateDone: true}, session: "the-tab"}
+	reports := map[string]agentstatus.Report{
+		"the-tab": {State: agentstatus.StateWorking, PaneDead: true},
+		"other":   {State: agentstatus.StateDone},
+	}
+	if _, err := w.findMatch(reports); err == nil {
+		t.Fatal("a transient report on a dead pane must never match")
+	}
+	reports["the-tab"] = agentstatus.Report{State: agentstatus.StateDone, PaneDead: true}
+	m, err := w.findMatch(reports)
+	if err != nil || m.Session != "the-tab" {
+		t.Fatalf("findMatch = (%#v, %v), want the-tab's surviving done report", m, err)
+	}
+}
+
+func TestPrintExitMatch(t *testing.T) {
+	stdout := captureStdout(t)
+	printExitMatch(waitMatch{
+		Session: "amux-ws1-run-1",
+		Report:  agentstatus.Report{State: agentstatus.StateDone, App: "run"},
+	}, 7)
+	out := stdout()
+	for _, want := range []string{"session=amux-ws1-run-1", "state=done", "app=run", "exit=7"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("exit print missing %q: %q", want, out)
+		}
+	}
+
+	stdout = captureStdout(t)
+	printExitMatch(waitMatch{Session: "amux-ws1-run-1"}, -1)
+	out = stdout()
+	if !strings.Contains(out, "exit=unknown") || strings.Contains(out, "state=") {
+		t.Fatalf("statusless exit print = %q, want exit=unknown and no report fields", out)
+	}
+}
 
 func TestParseWaitStates(t *testing.T) {
 	got, err := parseWaitStates("blocked, error ,done")

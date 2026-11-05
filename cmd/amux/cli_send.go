@@ -68,28 +68,59 @@ func runSendCommand(args []string) int {
 	target, err := resolveSendTarget(opts, *workspace, *session)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "amux send: %v\n", err)
-		return 1
+		var se *sendExitError
+		if errors.As(err, &se) {
+			return se.code
+		}
+		return sendDeliveryExit(err)
 	}
 
 	if hasText {
 		if err := tmux.SendSessionText(target, *text, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "amux send: %v\n", err)
-			return 1
+			return sendDeliveryExit(err)
 		}
 		if *enter {
 			time.Sleep(sendTextSubmitDelay)
 			if err := tmux.SendSessionKeys(target, []string{"cr"}, opts); err != nil {
 				fmt.Fprintf(os.Stderr, "amux send: %v\n", err)
-				return 1
+				return sendDeliveryExit(err)
 			}
 		}
 		return 0
 	}
 	if err := tmux.SendSessionKeys(target, keyNames, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "amux send: %v\n", err)
-		return 1
+		return sendDeliveryExit(err)
 	}
 	return 0
+}
+
+// sendDeliveryExit maps a failure send could not resolve to a typed
+// code: an unreachable server is 4 like every other reachability
+// failure; the rest are generic operational failures (1).
+func sendDeliveryExit(err error) int {
+	if tmux.IsUnavailableError(err) {
+		return 4
+	}
+	return 1
+}
+
+// sendExitError is a send failure a script can branch on by exit code:
+// 3 = the target does not resolve to exactly one hosted session (not
+// found or ambiguous — fix the invocation), 4 = unreachable — no tmux
+// server to deliver through, or the target's pane process has exited so
+// nothing can read the input (fix the environment or pick another
+// target).
+type sendExitError struct {
+	code int
+	msg  string
+}
+
+func (e *sendExitError) Error() string { return e.msg }
+
+func sendErrorf(code int, format string, args ...any) error {
+	return &sendExitError{code: code, msg: fmt.Sprintf(format, args...)}
 }
 
 func parseSendKeys(raw string) []string {
@@ -114,14 +145,25 @@ func parseSendKeys(raw string) []string {
 // (remain-on-exit) is refused when its death is observable — a stored
 // report annotated pane-dead — because send-keys would otherwise succeed
 // against the dead pane with nothing to read it, reporting delivery that
-// never happened.
+// never happened. Failures are sendExitError-typed so `amux send` can
+// report the stable exit codes: 3 for a selector that does not resolve
+// to exactly one hosted session (not found, ambiguous), 4 for an
+// unreachable destination (no tmux server, or the pane's process has
+// exited).
 func resolveSendTarget(opts tmux.Options, workspace, session string) (string, error) {
 	rows, err := hostedAgentRows(opts)
 	if err != nil {
-		if tmux.IsNoServerError(err) {
-			return "", errors.New("no amux-hosted sessions (no tmux server running)")
+		if tmux.IsUnavailableError(err) {
+			return "", sendErrorf(4, "%v", err)
 		}
 		return "", err
+	}
+	if len(rows) == 0 && !tmux.HasServer(opts) {
+		// The tag readers cannot distinguish "no server" from "server
+		// with nothing hosted" (list-sessions' exit-1 swallowing), so
+		// probe: an empty fleet is a selector failure, a missing
+		// transport is unreachable.
+		return "", sendErrorf(4, "no amux-hosted sessions (no tmux server running)")
 	}
 	matches := make([]string, 0, 2)
 	for _, row := range rows {
@@ -139,17 +181,17 @@ func resolveSendTarget(opts tmux.Options, workspace, session string) (string, er
 	case 1:
 		for _, row := range rows {
 			if row.Session == matches[0] && row.paneDead {
-				return "", fmt.Errorf("session %s: pane process has exited; nothing can read the input", matches[0])
+				return "", sendErrorf(4, "session %s: pane process has exited; nothing can read the input", matches[0])
 			}
 		}
 		return matches[0], nil
 	case 0:
 		if session != "" {
-			return "", fmt.Errorf("no hosted session named %q", session)
+			return "", sendErrorf(3, "no hosted session named %q", session)
 		}
-		return "", fmt.Errorf("no hosted sessions for workspace %q", workspace)
+		return "", sendErrorf(3, "no hosted sessions for workspace %q", workspace)
 	default:
-		return "", fmt.Errorf("%d sessions match; pass --session with one of: %s",
+		return "", sendErrorf(3, "%d sessions match; pass --session with one of: %s",
 			len(matches), strings.Join(matches, ", "))
 	}
 }

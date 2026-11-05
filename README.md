@@ -95,7 +95,7 @@ outcome when the batch drains.
 
 Start with [`ARCHITECTURE.md`](ARCHITECTURE.md) for the repo-level package map and dependency direction. Then `internal/app/ARCHITECTURE.md` covers lifecycle, PTY flow, tmux tagging, and persistence invariants, and `internal/app/MESSAGE_FLOW.md` documents message boundaries and command discipline.
 
-External orchestration: the supported tmux-level contract is documented in [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md), and the direction of the project lives in [docs/ROADMAP.md](docs/ROADMAP.md).
+External orchestration: the supported tmux-level contract is documented in [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
 
 ## Features
 
@@ -421,8 +421,11 @@ printf '\e]7501;state=blocked:kind=question:msg=%s\e\\' "$(printf '%s' "which DB
 
 `amux report --state blocked --message "which DB?"` is the validated form,
 and `amux wait --state blocked,error,done` blocks until some pane reports a
-matching state — the building block for scripts that supervise amux-hosted
-agents. The rest of the agent-facing surface: `amux agent ls` lists the
+matching state — or, when a watched pane's process exits, returns that
+program's real exit status, so a supervising script can branch on outcome.
+Verb failures are machine-branchable: 2 usage (or `wait`'s timeout), 3
+target not found or ambiguous, 4 unreachable for `send` (no server, dead
+pane). The rest of the agent-facing surface: `amux agent ls` lists the
 hosted fleet with each session's strongest state signal (`--json` for
 scripts), `amux send` delivers text or named keys to exactly one hosted
 session (submit via a literal CR, raw-mode-agent safe), and `amux --skill`

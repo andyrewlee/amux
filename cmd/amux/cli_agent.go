@@ -121,12 +121,18 @@ func runAgentListCommand(args []string) int {
 	opts := tmux.OptionsFromTMUXEnv()
 	rows, err := hostedAgentRows(opts)
 	if err != nil {
-		if tmux.IsNoServerError(err) {
-			rows = nil // no server: nothing is hosted, that is a valid answer
-		} else {
-			fmt.Fprintf(os.Stderr, "amux agent ls: %v\n", err)
-			return 1
+		fmt.Fprintf(os.Stderr, "amux agent ls: %v\n", err)
+		if *asJSON {
+			code := "error"
+			if tmux.IsUnavailableError(err) {
+				code = "unavailable"
+			}
+			printJSONErrorEnvelope(code, err.Error())
 		}
+		if tmux.IsUnavailableError(err) {
+			return 4
+		}
+		return 1
 	}
 	if *workspace != "" {
 		filtered := rows[:0]
@@ -160,8 +166,30 @@ func runAgentListCommand(args []string) int {
 	return 0
 }
 
+// printJSONErrorEnvelope writes the machine error envelope to stderr for
+// the --json mode of the agent verbs: {"error":{"code":…,"message":…}}.
+// The code pairs with the process exit code (unavailable=4, error=1) so
+// a script branches on the exit code and never parses the message.
+func printJSONErrorEnvelope(code, message string) {
+	payload := struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}{}
+	payload.Error.Code = code
+	payload.Error.Message = message
+	_ = json.NewEncoder(os.Stderr).Encode(payload)
+}
+
 // hostedAgentRows reads every amux-hosted session (tagged @amux_workspace
-// or @amux_type) and resolves its state, deterministically ordered.
+// or @amux_type) and resolves its state, deterministically ordered. Pane
+// liveness is authoritative: row.paneDead is set when the batched
+// liveness scan says the session's process has exited (report options
+// only exist for panes that spoke the protocol — a dead pane that never
+// reported must still refuse input), or when a stored report is annotated
+// dead; a failed liveness scan degrades to the report-annotated flag
+// rather than failing the whole read.
 func hostedAgentRows(opts tmux.Options) ([]agentListRow, error) {
 	keys := []string{
 		"@amux_workspace", "@amux_workspace_name", "@amux_type",
@@ -172,9 +200,10 @@ func hostedAgentRows(opts tmux.Options) ([]agentListRow, error) {
 		return nil, err
 	}
 	reports, reportsErr := tmux.PaneReports(opts)
-	if reportsErr != nil && !tmux.IsNoServerError(reportsErr) {
+	if reportsErr != nil && !tmux.IsUnavailableError(reportsErr) {
 		return nil, reportsErr
 	}
+	states, statesErr := tmux.AllSessionStates(opts)
 	rows := make([]agentListRow, 0, len(sessions))
 	for _, session := range sessions {
 		id := session.Tags["@amux_workspace"]
@@ -196,7 +225,9 @@ func hostedAgentRows(opts tmux.Options) ([]agentListRow, error) {
 		// process-exit lifetime — a dead pane's transient working/blocked
 		// report is void), then the scan's published heuristic state.
 		if r, ok := reports[session.Name]; ok {
-			row.paneDead = r.PaneDead
+			if r.PaneDead {
+				row.paneDead = true
+			}
 			if r.SurvivesProcessExit() {
 				row.State, row.StateSource = r.State, "reported"
 			}
@@ -204,6 +235,11 @@ func hostedAgentRows(opts tmux.Options) ([]agentListRow, error) {
 		if row.State == "" {
 			if tagged := strings.TrimSpace(session.Tags[tmux.TagAgentState]); tagged != "" {
 				row.State, row.StateSource = tagged, "scan"
+			}
+		}
+		if statesErr == nil {
+			if st, ok := states[session.Name]; ok && st.Exists && !st.HasLivePane {
+				row.paneDead = true
 			}
 		}
 		rows = append(rows, row)

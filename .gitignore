@@ -1,5 +1,8 @@
 /amux
 /amux-harness
+# windows-build's GOOS=windows go build drops the same main packages here.
+/amux.exe
+/amux-harness.exe
 /tmp/
 /dist/
 .gemini-clipboard/

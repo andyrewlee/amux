@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -118,5 +120,28 @@ func TestHandleAgentCLIDispatch(t *testing.T) {
 	}
 	if handled, _ := HandleAgentCLI([]string{"--skill"}); !handled {
 		t.Fatal("--skill must be handled")
+	}
+}
+
+// The --json error envelope is a machine seam: exact shape, compact, on
+// stderr — scripts branch on the exit code and may parse the code field,
+// so the bytes are pinned.
+func TestPrintJSONErrorEnvelope(t *testing.T) {
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	printJSONErrorEnvelope("unavailable", "tmux: not found")
+	os.Stderr = old
+	w.Close()
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("read captured stderr: %v", err)
+	}
+	want := `{"error":{"code":"unavailable","message":"tmux: not found"}}` + "\n"
+	if buf.String() != want {
+		t.Fatalf("envelope = %q, want %q", buf.String(), want)
 	}
 }
