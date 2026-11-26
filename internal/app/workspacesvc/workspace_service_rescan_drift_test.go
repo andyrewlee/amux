@@ -11,27 +11,23 @@ import (
 )
 
 // gitTestRepo creates a real git repo (git worktree list needs one) under dir.
+// Every git call goes through testutil.RunGit, which strips the inherited
+// GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE that git exports to hooks: the
+// pre-push hook runs the test sweep with GIT_DIR set, and an inherited value
+// hijacks every child command into the real repo whatever cmd.Dir says.
 func gitTestRepo(t *testing.T, dir string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	run("init", "-b", "main")
-	run("config", "user.email", "amux@example.com")
-	run("config", "user.name", "amux")
+	testutil.RunGit(t, dir, "init", "-b", "main")
+	testutil.RunGit(t, dir, "config", "user.email", "amux@example.com")
+	testutil.RunGit(t, dir, "config", "user.name", "amux")
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", "README.md")
-	run("commit", "-m", "init")
+	testutil.RunGit(t, dir, "add", "README.md")
+	testutil.RunGit(t, dir, "commit", "-m", "init")
 }
 
 // TestLoadProjectsRescanDoesNotFlapArchiveDriftedKey pins the rescan archive
@@ -72,15 +68,9 @@ func TestLoadProjectsRescanDoesNotFlapArchiveDriftedKey(t *testing.T) {
 
 	// Now the worktree appears (git reports the resolved path) — the record's
 	// ComputedID flips to the resolved form while storeID keeps the old key.
-	runGit := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = repo
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	runGit("worktree", "add", filepath.Join(realDir, "managed", "feat"), "-b", "feat")
+	// RunGit, not a raw exec: inherited GIT_DIR would aim the worktree
+	// registration at the real repo (see gitTestRepo).
+	testutil.RunGit(t, repo, "worktree", "add", filepath.Join(realDir, "managed", "feat"), "-b", "feat")
 
 	// Seed a genuinely-missing record that SHOULD still archive.
 	gone := data.NewWorkspace("gone", "gone", "main", repo, filepath.Join(link, "managed", "gone"))
@@ -137,12 +127,9 @@ func TestLoadProjectsRescanSkipsTombstonedDiscovery(t *testing.T) {
 	svc := New(registry, store, nil, managed)
 
 	wtPath := filepath.Join(managed, "feat")
-	cmd := exec.Command("git", "worktree", "add", wtPath, "-b", "feat")
-	cmd.Dir = repo
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git worktree add: %v\n%s", err, out)
-	}
+	// RunGit, not a raw exec: inherited GIT_DIR would aim the worktree
+	// registration at the real repo (see gitTestRepo).
+	testutil.RunGit(t, repo, "worktree", "add", wtPath, "-b", "feat")
 
 	// The discovered workspace computes its identity at discovery time —
 	// which may resolve /var→/private/var on macOS. Mark the tombstone under
@@ -162,12 +149,7 @@ func TestLoadProjectsRescanSkipsTombstonedDiscovery(t *testing.T) {
 	// Positive control: a second untombstoned worktree must import in the
 	// same rescan, proving discovery actually ran.
 	cleanWT := filepath.Join(managed, "clean")
-	cmd = exec.Command("git", "worktree", "add", cleanWT, "-b", "clean")
-	cmd.Dir = repo
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git worktree add clean: %v\n%s", err, out)
-	}
+	testutil.RunGit(t, repo, "worktree", "add", cleanWT, "-b", "clean")
 
 	_ = svc.RescanWorkspaces()()
 	for _, r := range []string{repo, resolvedRepo} {
