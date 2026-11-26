@@ -157,8 +157,8 @@ func TestHysteresisInitDoesNotSetHoldTimer(t *testing.T) {
 	hashFn := func(string) [16]byte { return [16]byte{1} }
 
 	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, nil, tmux.Options{}, captureFn, hashFn)
-	if !active["ws-init"] {
-		t.Fatal("expected newly discovered session to be active immediately")
+	if active["ws-init"] {
+		t.Fatal("first observation must seed the baseline, not claim activity")
 	}
 	state := updated["sess-init"]
 	if state == nil {
@@ -168,11 +168,10 @@ func TestHysteresisInitDoesNotSetHoldTimer(t *testing.T) {
 		t.Fatal("expected initial observation to avoid hold timer")
 	}
 
-	// No further output; should decay below threshold on the next scan
-	// without being held active.
+	// No further output; the seeded baseline keeps the session inactive.
 	active, _, _ = activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, updated, nil, nil, tmux.Options{}, captureFn, hashFn)
 	if active["ws-init"] {
-		t.Fatal("expected session to stop being active after one unchanged scan")
+		t.Fatal("expected session to stay inactive on unchanged content")
 	}
 }
 

@@ -143,10 +143,11 @@ func TestLastWorkingAtRecordsRealWorkOnly(t *testing.T) {
 
 	states := map[string]*SessionState{}
 
-	// First scan: initializes state (score set to threshold, immediately active).
+	// First scan: seeds the baseline (score 0, no activity claim, no
+	// LastWorkingAt — initialization is not finished work).
 	active, updated, _ := activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, states, nil, nil, tmux.Options{}, captureFn, hashFn)
-	if !active["ws1"] {
-		t.Fatal("expected ws1 to be active after initialization scan")
+	if active["ws1"] {
+		t.Fatal("first observation must not claim activity without a delta")
 	}
 	state := updated["amux-ws1-tab-1"]
 	if state == nil {
@@ -155,20 +156,38 @@ func TestLastWorkingAtRecordsRealWorkOnly(t *testing.T) {
 	if !state.LastWorkingAt.IsZero() {
 		t.Fatal("expected first-scan baseline to not set LastWorkingAt")
 	}
-
-	// ClassifyState on the returned state must report Working.
-	got := ClassifyState(state, time.Now())
-	if got != StateWorking {
-		t.Errorf("ClassifyState after active scan = %v, want StateWorking", got)
+	if state.Score != 0 {
+		t.Fatalf("expected seeded score 0, got %d", state.Score)
 	}
 
+	// ClassifyState on the seeded state must report Idle, not Working.
+	got := ClassifyState(state, time.Now())
+	if got != StateIdle {
+		t.Errorf("ClassifyState after seeded scan = %v, want StateIdle", got)
+	}
+
+	// Second scan: a real content delta (+2 → score 2) is still below the
+	// threshold; LastWorkingAt records only crossing it.
 	active, updated, _ = activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, updated, nil, nil, tmux.Options{}, captureFn, hashFn)
-	if !active["ws1"] {
-		t.Fatal("expected ws1 to stay active after content delta")
+	if active["ws1"] {
+		t.Fatal("one changed scan (score=2) should not yet reach the threshold")
 	}
 	state = updated["amux-ws1-tab-1"]
 	if state == nil {
 		t.Fatal("expected updated state after second scan")
+	}
+	if !state.LastWorkingAt.IsZero() {
+		t.Fatal("expected LastWorkingAt to stay unset below the threshold")
+	}
+
+	// Third scan: another delta crosses the threshold — work is recorded.
+	active, updated, _ = activeWorkspaceIDsWithHysteresisWithSeen(infoBySession, sessions, updated, nil, nil, tmux.Options{}, captureFn, hashFn)
+	if !active["ws1"] {
+		t.Fatal("expected ws1 to be active after deltas cross the threshold")
+	}
+	state = updated["amux-ws1-tab-1"]
+	if state == nil {
+		t.Fatal("expected updated state after third scan")
 	}
 	if state.LastWorkingAt.IsZero() {
 		t.Fatal("expected LastWorkingAt to be set after a real content delta")

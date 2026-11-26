@@ -202,21 +202,21 @@ func TestActivityScan_FallbackCapturesBoundedParallel(t *testing.T) {
 	if got := maxInFlight.Load(); got < 2 {
 		t.Fatalf("expected overlapping captures with %d sessions, max in-flight was %d", n, got)
 	}
-	// Serial semantics: each session initialized from its own capture, scored
-	// at threshold, and marked its workspace active.
+	// Serial semantics: each session initialized from its own capture and
+	// seeded its baseline hash; a first observation claims no activity.
 	for _, s := range sessions {
 		st := updated[s.Session.Name]
 		if st == nil || !st.Initialized {
 			t.Fatalf("session %s missing initialized state: %+v", s.Session.Name, st)
 		}
-		if st.Score != ScoreThreshold {
-			t.Fatalf("session %s score = %d, want %d", s.Session.Name, st.Score, ScoreThreshold)
+		if st.Score != 0 {
+			t.Fatalf("session %s score = %d, want 0 (first observation seeds)", s.Session.Name, st.Score)
 		}
 		if want := tmux.ContentHash("pane-" + s.Session.Name); st.LastHash != want {
 			t.Fatalf("session %s hash mismatch: got %v want %v", s.Session.Name, st.LastHash, want)
 		}
-		if !active["ws-"+s.Session.Name] {
-			t.Fatalf("session %s workspace not active", s.Session.Name)
+		if active["ws-"+s.Session.Name] {
+			t.Fatalf("session %s workspace must not be active from a first observation", s.Session.Name)
 		}
 	}
 }
@@ -259,11 +259,11 @@ func TestActivityScan_ParallelCaptureFailureDecays(t *testing.T) {
 			}
 			continue
 		}
-		if !st.Initialized || st.Score != ScoreThreshold {
-			t.Fatalf("session %s: initialized=%v score=%d, want initialized score %d", s.Session.Name, st.Initialized, st.Score, ScoreThreshold)
+		if !st.Initialized || st.Score != 0 {
+			t.Fatalf("session %s: initialized=%v score=%d, want initialized score 0 (first observation seeds)", s.Session.Name, st.Initialized, st.Score)
 		}
-		if !active["ws-"+s.Session.Name] {
-			t.Fatalf("session %s workspace must be active", s.Session.Name)
+		if active["ws-"+s.Session.Name] {
+			t.Fatalf("session %s workspace must not be active from a first observation", s.Session.Name)
 		}
 	}
 }
@@ -301,10 +301,10 @@ func TestActivityScan_FallbackCapturePanicDegradesToFailure(t *testing.T) {
 	if active["ws-panic"] {
 		t.Fatalf("panicking session must not mark its workspace active")
 	}
-	if ok := updated["sess-ok"]; ok == nil || !ok.Initialized || ok.Score != ScoreThreshold {
+	if ok := updated["sess-ok"]; ok == nil || !ok.Initialized || ok.Score != 0 {
 		t.Fatalf("healthy session must capture normally, got %+v", ok)
 	}
-	if !active["ws-ok"] {
-		t.Fatalf("healthy session's workspace must be active")
+	if active["ws-ok"] {
+		t.Fatalf("healthy session's workspace must not be active from a first observation")
 	}
 }

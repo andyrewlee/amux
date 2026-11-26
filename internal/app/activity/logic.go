@@ -335,12 +335,24 @@ func activeWorkspaceIDsWithHysteresisWithSeen(
 
 			// Update hysteresis score based on content change
 			if !state.Initialized {
-				// First time seeing this session -- treat as active immediately.
-				// If it stops generating output, hysteresis decay will clear it
-				// on the next scan without triggering hold duration.
+				// First observation seeds the baseline; it carries no
+				// evidence that the pane is producing output NOW. The
+				// sessions that reach this branch are fallback-routed ones
+				// (stale or missing output tags), and an empty state map is
+				// exactly what an app start or an activity-scan ownership
+				// handoff leaves behind — granting immediate activity here
+				// blipped long-idle workspaces as "working" for one
+				// published scan (tmux window_activity — the stale-tag
+				// fallback's gate — refreshes on any pane output, not just
+				// agent work). Sessions with real fresh output carry fresh
+				// @amux_last_output_at / lease tags and are classified by
+				// the tag routes (whose first-observation trust lives in
+				// FreshTagVisibleActivity), never through this branch.
+				// Activity therefore requires an observed pane delta on a
+				// later scan.
 				state.LastHash = hash
 				state.Initialized = true
-				state.Score = ScoreThreshold
+				state.Score = 0
 			} else if hash != state.LastHash {
 				// Content changed - bump score
 				state.Score += 2
