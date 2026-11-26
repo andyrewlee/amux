@@ -26,6 +26,7 @@ var appDialogHandlers = map[string]dialogResultHandler{
 	DialogCreateWorkspace:      dialogResultCreateWorkspace,
 	DialogDeleteWorkspace:      dialogResultDeleteWorkspace,
 	DialogRenameWorkspace:      dialogResultRenameWorkspace,
+	DialogRenameProject:        dialogResultRenameProject,
 	DialogCommitWorkspace:      dialogResultCommitWorkspace,
 	DialogMergeWorkspace:       dialogResultMergeWorkspace,
 	DialogMergeConflict:        dialogResultMergeConflict,

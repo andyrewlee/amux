@@ -49,6 +49,23 @@ scan-derived state, else `-`. With `--json`, a scan failure writes
 `{"error":{"code":…,"message":…}}` to stderr (code `unavailable`, exit
 4, when tmux cannot be reached).
 
+## See and rename projects
+
+```sh
+"$AMUX_BIN_PATH" project ls          # name  path (registry's authoritative names)
+"$AMUX_BIN_PATH" project ls --json   # {"name":…,"path":…} per project
+"$AMUX_BIN_PATH" project rename ~/Code/checkfu checkfu-old
+```
+
+Names are the registry's, not the repo basename — two repos with the same
+basename hold distinct names (`checkfu`, `checkfu-2`). `project rename`
+moves the project's worktrees under the workspaces root into the renamed
+container and rebinds their records in place (sessions, tags, and ports
+survive the move). Exit codes: 2 usage, 3 path not registered, 1 any other
+failure (including an incomplete migration, whose counts the output
+reports), 0 success. With `--json`, a `project ls` failure also writes the
+`{"error":{…}}` envelope to stderr.
+
 ## Wait on a sibling
 
 ```sh

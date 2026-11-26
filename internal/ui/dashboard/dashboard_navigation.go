@@ -442,8 +442,9 @@ func (m *Model) handleShelve() tea.Cmd {
 	return nil
 }
 
-// handleRename handles the rename key. Only workspace rows can be renamed
-// (Tier-1 label rename); projects have no rename action.
+// handleRename handles the rename key. Workspace rows rename the workspace
+// (Tier-1 label rename); project rows rename the project, which migrates its
+// managed worktrees into the renamed container.
 func (m *Model) handleRename() tea.Cmd {
 	if m.cursor >= len(m.rows) {
 		return nil
@@ -455,6 +456,13 @@ func (m *Model) handleRename() tea.Cmd {
 			return messages.ShowRenameWorkspaceDialog{
 				Project:   row.Project,
 				Workspace: row.Workspace,
+			}
+		}
+	}
+	if row.Type == RowProject && row.Project != nil {
+		return func() tea.Msg {
+			return messages.ShowRenameProjectDialog{
+				Project: row.Project,
 			}
 		}
 	}

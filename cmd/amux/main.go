@@ -82,6 +82,12 @@ func main() {
 		os.Exit(code)
 	}
 
+	// Project-facing surface: `amux project ls`, `amux project rename`.
+	// Headless; bootstraps the registry and workspace metadata, not the TUI.
+	if handled, code := HandleProjectCLI(args); handled {
+		os.Exit(code)
+	}
+
 	if isVersionInvocation(args) {
 		fmt.Printf("amux %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
@@ -116,7 +122,7 @@ func unsupportedInvocationMessage(arg string) string {
 	if arg == "tui" {
 		return "run `amux` directly to start the terminal UI."
 	}
-	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI, `amux --version`, `amux --skill`, or a status/agent verb (`amux report`, `amux wait`, `amux agent ls`, `amux send`).", arg)
+	return fmt.Sprintf("unexpected argument %q. Run `amux` to start the terminal UI, `amux --version`, `amux --skill`, or a status/agent/project verb (`amux report`, `amux wait`, `amux agent ls`, `amux send`, `amux project ls`, `amux project rename`).", arg)
 }
 
 func nonInteractiveMessage() string {

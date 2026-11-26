@@ -288,7 +288,11 @@ func (r *ScriptRunner) runScriptHosted(ws *data.Workspace, cmdStr string) error 
 			WorkspaceID:   string(ws.MetadataID()),
 			CreatedAt:     time.Now().Unix(),
 			WorkspaceName: ws.Name,
-			ProjectName:   data.ProjectNameForRepo(ws.Repo),
+			// The registry's authoritative project name (stamped on the
+			// workspace by the service's load path), not the repo basename —
+			// same source as the @amux_project tag on agent panes, so a
+			// renamed or disambiguated project reports one name everywhere.
+			ProjectName: data.ProjectDisplayName(ws),
 		}
 		if canCreate {
 			err = creator.Create(name, ws.Root, cmdStr, env, meta)

@@ -32,6 +32,10 @@ const (
 	DialogCreateWorkspace = "create_workspace"
 	DialogDeleteWorkspace = "delete_workspace"
 	DialogRenameWorkspace = "rename_workspace"
+	// DialogRenameProject renames a registered project: the registry name
+	// changes, managed worktrees migrate to the new container, and records
+	// rebind in place (stable IDs keep sessions/ports intact).
+	DialogRenameProject   = "rename_project"
 	DialogCommitWorkspace = "commit_workspace"
 	DialogMergeWorkspace  = "merge_workspace"
 	DialogMergeConflict   = "merge_conflict"

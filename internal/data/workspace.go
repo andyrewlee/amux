@@ -3,6 +3,7 @@ package data
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"time"
 )
 
@@ -63,6 +64,18 @@ type Workspace struct {
 	Name    string    `json:"name"`
 	Created time.Time `json:"created"`
 	storeID WorkspaceID
+
+	// ProjectName is the owning project's registry name (the workspaces-root
+	// segment), stamped by the service layer when a workspace is
+	// loaded/created so display surfaces (pane tags, tab headers, run
+	// sessions) carry one name without plumbing a Project through every UI
+	// layer. It is a per-load cache of the registry's name, not a second
+	// authority: the registry (RegistryEntry.Name) owns the fact, the field
+	// is never persisted, and the same reload that re-reads the registry
+	// re-stamps it — the only staleness window is mid-session between a
+	// rename and the reload the rename result triggers. Empty falls back to
+	// the repo basename (ProjectDisplayName).
+	ProjectName string `json:"-"`
 
 	// Git info
 	Branch string `json:"branch"`
@@ -153,6 +166,21 @@ func (w Workspace) MetadataID() WorkspaceID {
 // reservations) keys on StoredID only — never on a recomputed path hash.
 func (w Workspace) StoredID() (WorkspaceID, bool) {
 	return w.storeID, w.storeID != ""
+}
+
+// ProjectDisplayName returns the project name to display for a workspace:
+// the transient ProjectName the service stamped when the workspace was
+// loaded/created (the registry's authoritative, possibly renamed or
+// disambiguated value), falling back to the repo-basename derivation when
+// the field is unset (freshly constructed or un-stamped workspaces).
+func ProjectDisplayName(ws *Workspace) string {
+	if ws == nil {
+		return ""
+	}
+	if name := strings.TrimSpace(ws.ProjectName); name != "" {
+		return name
+	}
+	return ProjectNameForRepo(ws.Repo)
 }
 
 // WorkspaceIdentitySet returns the deduped identity forms under which a

@@ -138,7 +138,7 @@ func TestIsManagedWorkspaceChildPathForProject(t *testing.T) {
 // while a legitimate direct-child worktree still surfaces.
 func TestShouldSurfaceWorkspace_ForgedWorktreePaths(t *testing.T) {
 	svc := New(nil, nil, nil, "/tmp/workspaces")
-	projectPath := "/tmp/repo"
+	project := data.NewProject("/tmp/repo")
 
 	cases := []struct {
 		name string
@@ -147,24 +147,24 @@ func TestShouldSurfaceWorkspace_ForgedWorktreePaths(t *testing.T) {
 	}{
 		{
 			name: "legitimate direct child",
-			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repo/feature"},
+			ws:   &data.Workspace{Repo: project.Path, Root: "/tmp/workspaces/repo/feature"},
 			want: true,
 		},
 		{
 			// Flat depth-1 worktrees under the managed root are legitimate:
 			// git-discovered worktrees can live outside any project segment.
 			name: "flat child of managed root",
-			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/feature"},
+			ws:   &data.Workspace{Repo: project.Path, Root: "/tmp/workspaces/feature"},
 			want: true,
 		},
 		{
 			name: "forged project root entry",
-			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repo"},
+			ws:   &data.Workspace{Repo: project.Path, Root: "/tmp/workspaces/repo"},
 			want: false,
 		},
 		{
 			name: "forged subdirectory of a live workspace",
-			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repo/feature/src"},
+			ws:   &data.Workspace{Repo: project.Path, Root: "/tmp/workspaces/repo/feature/src"},
 			want: false,
 		},
 		{
@@ -172,17 +172,17 @@ func TestShouldSurfaceWorkspace_ForgedWorktreePaths(t *testing.T) {
 			// Repo matched this project) — but the stricter per-project gate
 			// on destructive paths means it cannot be deleted through it.
 			name: "cross-segment grandchild surfaces",
-			ws:   &data.Workspace{Repo: projectPath, Root: "/tmp/workspaces/repoX/feature"},
+			ws:   &data.Workspace{Repo: project.Path, Root: "/tmp/workspaces/repoX/feature"},
 			want: true,
 		},
 		{
 			name: "forged path outside managed root",
-			ws:   &data.Workspace{Repo: projectPath, Root: "/home/user/important"},
+			ws:   &data.Workspace{Repo: project.Path, Root: "/home/user/important"},
 			want: false,
 		},
 		{
 			name: "empty root",
-			ws:   &data.Workspace{Repo: projectPath, Root: ""},
+			ws:   &data.Workspace{Repo: project.Path, Root: ""},
 			want: false,
 		},
 		{
@@ -193,15 +193,26 @@ func TestShouldSurfaceWorkspace_ForgedWorktreePaths(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := svc.shouldSurfaceWorkspace(projectPath, tt.ws); got != tt.want {
+			if got := svc.shouldSurfaceWorkspace(project, tt.ws); got != tt.want {
 				t.Fatalf("shouldSurfaceWorkspace() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 
 	// The primary checkout is exempt — it never lives under the managed root.
-	primary := &data.Workspace{Repo: projectPath, Root: projectPath}
-	if !svc.shouldSurfaceWorkspace(projectPath, primary) {
+	primary := &data.Workspace{Repo: project.Path, Root: project.Path}
+	if !svc.shouldSurfaceWorkspace(project, primary) {
 		t.Fatal("primary checkout should always surface")
+	}
+
+	// A stored name that differs from the basename must reject its own
+	// container too, not just the basename container — a forged entry naming
+	// the renamed container must not surface as a deletable row.
+	renamed := data.NewProjectNamed("repo-old", "/tmp/repo")
+	if svc.shouldSurfaceWorkspace(renamed, &data.Workspace{Repo: renamed.Path, Root: "/tmp/workspaces/repo-old"}) {
+		t.Fatal("renamed project's own container must be rejected as a row")
+	}
+	if !svc.shouldSurfaceWorkspace(renamed, &data.Workspace{Repo: renamed.Path, Root: "/tmp/workspaces/repo-old/feature"}) {
+		t.Fatal("worktree inside the renamed container must surface")
 	}
 }

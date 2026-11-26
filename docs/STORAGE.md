@@ -51,6 +51,25 @@ describes behavior; the helper is the single implementation of it. Each
 store supplies only its record type, wire shape, empty-record rule, and
 copy boundary.
 
+## The registry's name authority
+
+`projects.json` is the authority for a project's name — the single
+filesystem segment under `~/.amux/workspaces/` that the project's
+worktrees live in. The name is minted at registration (the repo basename
+when free, `basename-2`, `basename-3`, … when another registered project
+holds it, matching case-insensitively because the workspaces root commonly
+lives on a case-insensitive filesystem) and is preserved verbatim by every
+save; it is never re-derived from the path. Reading repairs two legacy
+shapes in memory — duplicate names (pre-authority files where two
+same-basename repos both wrote the bare name) and unsafe segments — the
+same deterministic way, persisting the repair on the next mutating save
+(`Load` stays read-only). `amux project rename` (and the TUI's `R`) is the
+explicit rename path: the registry validates and commits the new name
+first, then the service migrates worktrees with `git worktree move` and
+rebinds records in place under their stable workspace IDs
+(`WorkspaceStore.RebindRoot` — the one sanctioned Root write; `Update`
+refuses identity changes by design).
+
 `port-reservations.json` has one extra contract: the first-adoption guard
 (see `Initialize`) runs only while this process has never seen an existing
 registry. A registry file deleted mid-run is recreated empty without the

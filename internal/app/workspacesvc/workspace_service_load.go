@@ -63,10 +63,16 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 		if s == nil || s.registry == nil {
 			return messages.ProjectsLoaded{LoadToken: loadToken}
 		}
-		paths, err := s.registry.Projects()
+		// Fence against a concurrent rename migration (see migrationMu):
+		// the reconciliation and record reads below must not interleave
+		// with worktree moves whose records lag behind them.
+		s.migrationMu.RLock()
+		defer s.migrationMu.RUnlock()
+		entries, err := s.registeredEntries()
 		if err != nil {
 			return messages.Error{Err: err, Context: workspaceErrContext("loading projects")}
 		}
+		paths := data.EntryPaths(entries)
 		paths = s.pruneMissingTemporaryProjects(paths)
 		// Metadata reconciliation scans every persisted record. Run it for the
 		// initial dashboard load rather than on each UI refresh; explicit project
@@ -80,12 +86,16 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 		recordSet := s.loadWorkspaceRecordSet()
 
 		var projects []data.Project
-		for _, path := range paths {
+		for _, entry := range entries {
+			path := entry.Path
 			if !git.IsGitRepository(path) {
 				continue
 			}
 
-			project := data.NewProject(path)
+			// The registry's stored name is authoritative — it may be a
+			// disambiguated or renamed value where the basename would
+			// collide with another registered repo.
+			project := data.NewProjectNamed(entry.Name, path)
 
 			// Start from stored workspaces so metadata is authoritative.
 			var storedWorkspaces []*data.Workspace
@@ -103,9 +113,10 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 				if s.finishInterruptedDelete(ws) {
 					continue
 				}
-				if !s.shouldSurfaceWorkspace(path, ws) {
+				if !s.shouldSurfaceWorkspace(project, ws) {
 					continue
 				}
+				ws.ProjectName = project.Name
 				workspaces = append(workspaces, *ws)
 			}
 
@@ -122,7 +133,7 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 			}
 
 			if !hasPrimary {
-				workspaces = s.prependPrimaryCheckout(path, workspaces)
+				workspaces = s.prependPrimaryCheckout(project, workspaces)
 			}
 
 			project.Workspaces = workspaces
@@ -130,7 +141,14 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 			// sidebar tree and every live-set consumer must never see them.
 			// The shared recordSet serves this too: a second full metadata
 			// scan per project would undo the point of loading it.
-			project.ShelvedWorkspaces = s.listShelvedWorkspaces(recordSet, path)
+			shelved, listErr := s.listShelvedWorkspaces(recordSet, path)
+			if listErr != nil {
+				logging.Error("Failed to list shelved workspaces for %s: %v", path, listErr)
+			}
+			project.ShelvedWorkspaces = shelved
+			for i := range project.ShelvedWorkspaces {
+				project.ShelvedWorkspaces[i].ProjectName = project.Name
+			}
 			projects = append(projects, *project)
 		}
 
@@ -138,27 +156,36 @@ func (s *Service) LoadProjects(loadToken int) tea.Cmd {
 	}
 }
 
+// registeredEntries returns the registry's name+path entries.
+func (s *Service) registeredEntries() ([]data.RegistryEntry, error) {
+	return s.registry.Entries()
+}
+
 // importManagedWorkspaces discovers and persists amux-owned worktrees for one
 // project. It is best-effort because registration has already succeeded; a
 // transient git/store error should not roll back a valid project addition.
-func (s *Service) importManagedWorkspaces(path string) {
-	if s == nil || s.store == nil || s.gitOps == nil || !git.IsGitRepository(path) {
+// It deliberately takes no migrationMu RLock: it is reachable from
+// LoadProjects' prune path (pruneMissingTemporaryProjects →
+// removeProjectMetadata → restoreMetadataIfProjectReadded), and Go's
+// RWMutex does not admit recursive read locks.
+func (s *Service) importManagedWorkspaces(project *data.Project) {
+	if s == nil || s.store == nil || s.gitOps == nil || project == nil || !git.IsGitRepository(project.Path) {
 		return
 	}
-	project := data.NewProject(path)
 	discovered, err := s.gitOps.DiscoverWorkspaces(project)
 	if err != nil {
-		logging.Error("Failed to discover workspaces while adding %s: %v", path, err)
+		logging.Error("Failed to discover workspaces while adding %s: %v", project.Path, err)
 		return
 	}
 	for i := range discovered {
 		ws := &discovered[i]
-		if !s.shouldSurfaceWorkspace(path, ws) {
+		if !s.shouldSurfaceWorkspace(project, ws) {
 			continue
 		}
 		if strings.TrimSpace(ws.Assistant) == "" {
 			ws.Assistant = s.resolvedDefaultAssistant()
 		}
+		ws.ProjectName = project.Name
 		var upsertErr error
 		if !s.runUnlessMutationInFlight(ws, func() {
 			upsertErr = s.store.UpsertFromDiscovery(ws)
@@ -166,16 +193,33 @@ func (s *Service) importManagedWorkspaces(path string) {
 			continue
 		}
 		if upsertErr != nil {
-			logging.Error("Failed to import workspace %s while adding %s: %v", ws.Name, path, upsertErr)
+			logging.Error("Failed to import workspace %s while adding %s: %v", ws.Name, project.Path, upsertErr)
 		}
 	}
+}
+
+// projectForPath rebuilds the registry-backed Project for a repository path —
+// the stored name when the path is registered, the basename otherwise.
+func (s *Service) projectForPath(path string) *data.Project {
+	if s != nil && s.registry != nil {
+		entries, err := s.registry.Entries()
+		if err == nil {
+			for _, entry := range entries {
+				if data.NormalizePath(entry.Path) == data.NormalizePath(path) {
+					return data.NewProjectNamed(entry.Name, entry.Path)
+				}
+			}
+		}
+	}
+	return data.NewProject(path)
 }
 
 // prependPrimaryCheckout inserts the repo's primary checkout as a transient
 // workspace at the front of workspaces, loading any persisted UI state. It
 // returns workspaces unchanged when the repo's branch can't be read — the
 // repo may be in a bad state or no longer a valid git repo.
-func (s *Service) prependPrimaryCheckout(path string, workspaces []data.Workspace) []data.Workspace {
+func (s *Service) prependPrimaryCheckout(project *data.Project, workspaces []data.Workspace) []data.Workspace {
+	path := project.Path
 	branch, err := git.GetCurrentBranch(path)
 	if err != nil {
 		logging.Warn("Failed to get current branch for %s: %v", path, err)
@@ -189,6 +233,7 @@ func (s *Service) prependPrimaryCheckout(path string, workspaces []data.Workspac
 		path,                // root (same as repo for primary)
 	)
 	primaryWs.Assistant = s.resolvedDefaultAssistant()
+	primaryWs.ProjectName = project.Name
 	// Load any persisted UI state (OpenTabs, etc.) for the primary checkout.
 	// SaveIfAbsent runs the load-or-create as one locked transaction: a record
 	// committed between an unlocked lookup and the save is merged, never
@@ -212,7 +257,12 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 		if s == nil || s.registry == nil {
 			return messages.RefreshDashboard{}
 		}
-		paths, err := s.registry.Projects()
+		// Fence against a concurrent rename migration (see migrationMu):
+		// a rescan must not mint a duplicate record at a moved worktree's
+		// new root while the record still points at the old one.
+		s.migrationMu.RLock()
+		defer s.migrationMu.RUnlock()
+		entries, err := s.registeredEntries()
 		if err != nil {
 			return messages.Error{Err: err, Context: workspaceErrContext("rescanning workspaces")}
 		}
@@ -221,12 +271,13 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 		// LoadProjects for why per-repo ListByRepo calls don't scale.
 		recordSet := s.loadWorkspaceRecordSet()
 
-		for _, path := range paths {
+		for _, entry := range entries {
+			path := entry.Path
 			if !git.IsGitRepository(path) {
 				continue
 			}
 
-			project := data.NewProject(path)
+			project := data.NewProjectNamed(entry.Name, path)
 			discoveredWorkspaces, err := git.DiscoverWorkspaces(project)
 			if err != nil {
 				logging.Error("Failed to discover workspaces for %s: %v", path, err)
@@ -241,7 +292,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 			discoveredSet := make(map[string]bool, len(discoveredWorkspaces))
 			for i := range discoveredWorkspaces {
 				ws := &discoveredWorkspaces[i]
-				if !s.shouldSurfaceWorkspace(path, ws) {
+				if !s.shouldSurfaceWorkspace(project, ws) {
 					continue
 				}
 				discoveredSet[workspaceLookupKey(ws.Repo, ws.Root)] = true
@@ -302,7 +353,7 @@ func (s *Service) RescanWorkspaces() tea.Cmd {
 					// permanently break the recovery loop.
 					continue
 				}
-				if !s.shouldSurfaceWorkspace(path, ws) {
+				if !s.shouldSurfaceWorkspace(project, ws) {
 					s.archiveWorkspaceRecord(ws, "unmanaged workspace")
 					continue
 				}

@@ -83,6 +83,34 @@ type ProjectRemoved struct {
 	Path string
 }
 
+// ProjectRenamed is sent when a project rename completes. The rename itself
+// always succeeded (a failure emits messages.Error instead); the counters and
+// Err describe the worktree migration that followed: Moved worktrees now live
+// in the new container, Skipped ones stayed put because scripts were running
+// in them (retry the rename after closing them), and Failed ones report the
+// joined error. Worktrees left behind keep working through the old
+// container's path-basename aliases.
+type ProjectRenamed struct {
+	Path    string
+	OldName string
+	NewName string
+	Moved   int
+	Skipped int
+	Failed  int
+	Err     error
+}
+
+// RenameProject requests renaming a registered project.
+type RenameProject struct {
+	Project *data.Project
+	NewName string
+}
+
+// ShowRenameProjectDialog requests showing the rename project dialog.
+type ShowRenameProjectDialog struct {
+	Project *data.Project
+}
+
 // GitStatusRequest requests a git status refresh
 type GitStatusRequest struct {
 	Root string

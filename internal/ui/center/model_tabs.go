@@ -146,7 +146,7 @@ func (m *Model) createAgentTabWithSession(assistant string, ws *data.Workspace, 
 			SessionOwner:  m.instanceID,
 			LeaseAtMS:     now.UnixMilli(),
 			WorkspaceName: ws.Name,
-			ProjectName:   data.ProjectNameForRepo(ws.Repo),
+			ProjectName:   data.ProjectDisplayName(ws),
 		}
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
 		// The minted tab ID names a brand-new session; the attach still never

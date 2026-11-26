@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -314,6 +315,50 @@ func (a *App) handleProjectRemoved(msg messages.ProjectRemoved) []tea.Cmd {
 	}
 	cmds = append(cmds, a.loadProjects())
 	return cmds
+}
+
+// renameProject renames a registered project; the service moves managed
+// worktrees into the new container and rebinds records in place. Dispatch-time
+// side effects wait for the confirmed ProjectRenamed result.
+func (a *App) renameProject(project *data.Project, newName string) tea.Cmd {
+	if project == nil {
+		return func() tea.Msg {
+			return messages.Error{Err: errors.New("missing project"), Context: errorContext(errorServiceWorkspace, "renaming project")}
+		}
+	}
+	if a.workspaceService == nil {
+		return nil
+	}
+	return a.workspaceService.RenameProject(project, newName)
+}
+
+// handleProjectRenamed applies the confirmed-rename side effects: a success
+// toast whose detail reflects the migration outcome, and a reload so rows,
+// containers, and pane tags pick up the new name. A rename with skipped or
+// failed worktrees still succeeded — the toast says exactly what remains.
+func (a *App) handleProjectRenamed(msg messages.ProjectRenamed) []tea.Cmd {
+	toast := fmt.Sprintf("Renamed %s to %s", msg.OldName, msg.NewName)
+	switch {
+	case msg.Err != nil:
+		// Err is set for per-worktree failures (Failed > 0) and for
+		// whole-migration failures that carry no per-worktree counts —
+		// container creation and discovery errors return Failed == 0 with
+		// nothing moved. Keying on the error (not the count) is what keeps
+		// those from masquerading as success; the counts tell the user what
+		// remains to retry.
+		toast = fmt.Sprintf("Renamed %s to %s; %d moved, %d skipped, %d failed: %v",
+			msg.OldName, msg.NewName, msg.Moved, msg.Skipped, msg.Failed, msg.Err)
+		// A migration failure leaves worktrees behind: the app's convention
+		// for a failed user-initiated operation is the error toast (the
+		// service logs this at logging.Error, the CLI exits 1) — a warning
+		// understates the work that remains to be retried.
+		cmds := []tea.Cmd{a.toast.ShowError(toast)}
+		return append(cmds, a.loadProjects())
+	case msg.Skipped > 0:
+		toast = fmt.Sprintf("Renamed %s to %s; %d worktree(s) skipped (scripts running — close and retry)", msg.OldName, msg.NewName, msg.Skipped)
+	}
+	cmds := []tea.Cmd{a.toast.ShowSuccess(toast)}
+	return append(cmds, a.loadProjects())
 }
 
 // goHome is the explicit "no active workspace" state transition: it clears the

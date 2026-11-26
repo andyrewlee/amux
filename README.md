@@ -187,7 +187,13 @@ Dashboard rows (workspace/project/shelved list):
   bulk-deletes them; with marks on shelved rows it bulk-purges. Bulk deletes
   are a typed confirm — type the workspace count — and drain each workspace
   through the same guarded path a single delete uses.
-- `R` renames a workspace; `M` merges its branch into the base (see
+- `R` renames the row: a workspace gets a Tier-1 label rename, a project
+  gets a registry rename — its managed worktrees migrate into
+  `~/.amux/workspaces/<new-name>/` with `git worktree move`, and workspace
+  records rebind in place (session names, tags, and port reservations keep
+  their IDs). Worktrees with amux-hosted scripts running are skipped and
+  reported; re-run the rename after closing them to move the rest.
+  `M` merges a workspace's branch into the base (see
   [How it works](#how-it-works)) — single-row by design since a merge can
   stop on conflicts; on success a follow-up offers to shelve or delete the
   now-merged workspace; `S` shelves it (bulk-shelves the marked set).
@@ -439,7 +445,15 @@ pane). The rest of the agent-facing surface: `amux agent ls` lists the
 hosted fleet with each session's strongest state signal (`--json` for
 scripts), `amux send` delivers text or named keys to exactly one hosted
 session (submit via a literal CR, raw-mode-agent safe), and `amux --skill`
-prints the one-read manual for a program running inside an amux pane. See
+prints the one-read manual for a program running inside an amux pane. The
+project-facing surface is headless too: `amux project ls` prints the
+registry (name + repo path, `--json` for scripts), and `amux project rename
+<path> <new-name>` renames a project and migrates its worktrees — the same
+operation the dashboard's `R` runs, safe to interrupt and re-run (a
+migration that fails reports the error and exits 1, even when no individual
+worktree failed). One difference: the CLI hosts no scripts, so it cannot
+see the running sessions the dashboard's `R` would skip — close them before
+renaming out from under them. See
 [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) for the full
 contract (`@amux_reported_*` pane options, record semantics, lifetimes).
 
@@ -492,7 +506,7 @@ scripts never widens what the repo can inject into your agents.
 
 Because these commands come from the repository, amux runs them only after you trust the repo. The first time a repo's `.amux/workspaces.json` would run (and every time its contents change), amux records the approved content of the file; until then those project-supplied scripts are skipped and you are notified, rather than executing arbitrary commands chosen by the repo's author. Editing `.amux/workspaces.json` invalidates the approval, so changed commands are re-gated until you trust the file again. To revoke an approval outright, open the workspace status dialog (`i`) and press `U`, then type `untrust` to confirm — the recorded grant is dropped and the next run re-prompts. (Run/archive scripts you enter yourself in the amux UI are your own input and are never gated.)
 
-Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>`. A resilient copy of the running binary lives at `~/.amux/var/amux-pane-launcher` (see Operations below). Field writes are transactional and narrow: renaming a workspace, editing its env or scripts, shelving/restoring it, and debounced tab-state saves each rewrite only their own fields inside the record lock, so concurrent edits merge instead of a delayed write resurrecting a stale snapshot. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`, and the
+Workspace metadata is stored in `~/.amux/workspaces-metadata/<workspace-id>/workspace.json`, and local worktree directories live under `~/.amux/workspaces/<project>/<workspace>` — where `<project>` is the project's registry name, not the repo's basename. The registry (`~/.amux/projects.json`) is the name authority: registering a second repo whose basename collides with an existing project's name mints a disambiguated one (`checkfu`, `checkfu-2`, …), and a duplicate-name file from an older amux is repaired the same way on read. A rename (`R` on a project row, or `amux project rename`) changes the name, moves the project's worktrees into the renamed container, and rebinds records in place — stable workspace IDs keep their tmux sessions, tags, and port reservations across the move. A resilient copy of the running binary lives at `~/.amux/var/amux-pane-launcher` (see Operations below). Field writes are transactional and narrow: renaming a workspace, editing its env or scripts, shelving/restoring it, and debounced tab-state saves each rewrite only their own fields inside the record lock, so concurrent edits merge instead of a delayed write resurrecting a stale snapshot. Trusted-repo approvals are recorded in `~/.amux/trusted-scripts.json`, and the
 project-level environment map in `~/.amux/project-env.json` and per-project
 script defaults in `~/.amux/project-scripts.json` (hand-edited — nothing in
 the UI writes it yet). These registries share one write

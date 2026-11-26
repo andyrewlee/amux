@@ -306,15 +306,16 @@ func (s *Service) RestoreWorkspace(project *data.Project, ws *data.Workspace) te
 // listShelvedWorkspaces returns the repo's intentionally shelved workspaces
 // (Archived && Shelved). Accidental archives are GC bookkeeping, not shelves,
 // and are excluded. The caller's already-loaded metadata snapshot is reused
-// when present; a nil set falls back to the store's per-repo read.
-func (s *Service) listShelvedWorkspaces(set *data.WorkspaceRecordSet, repoPath string) []data.Workspace {
+// when present; a nil set falls back to the store's per-repo read. A store
+// read failure is returned, not swallowed — the callers decide whether it
+// degrades a load or fails a rename migration.
+func (s *Service) listShelvedWorkspaces(set *data.WorkspaceRecordSet, repoPath string) ([]data.Workspace, error) {
 	if s == nil || s.store == nil {
-		return nil
+		return nil, nil
 	}
 	all, err := s.listByRepoFromSet(set, repoPath, true)
 	if err != nil {
-		logging.Error("Failed to list shelved workspaces for %s: %v", repoPath, err)
-		return nil
+		return nil, err
 	}
 	shelved := make([]data.Workspace, 0, len(all))
 	for _, ws := range all {
@@ -325,5 +326,5 @@ func (s *Service) listShelvedWorkspaces(set *data.WorkspaceRecordSet, repoPath s
 			shelved = append(shelved, *ws)
 		}
 	}
-	return shelved
+	return shelved, nil
 }

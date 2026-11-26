@@ -138,6 +138,12 @@ func (a *App) rebindActiveSelectionForLoad(loadToken projectsLoadToken) []tea.Cm
 					cmds = append(cmds, cmd)
 				}
 			}
+		} else if !data.SamePath(previous.Root, ws.Root) {
+			// Same record (stable store key) but a different root: a project
+			// rename migrated the worktree. The watch would otherwise stay
+			// on the moved-away path and leak — nothing re-arms it on the
+			// ID-stability path.
+			cmds = append(cmds, a.rebindActiveWorkspaceWatch(previous.Root, ws.Root)...)
 		}
 		a.activeWorkspace = ws
 		a.activeProject = project

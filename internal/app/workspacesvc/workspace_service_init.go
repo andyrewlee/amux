@@ -26,6 +26,9 @@ type GitOperations interface {
 	RemoveWorkspace(repoPath, workspacePath string) error
 	DeleteBranch(repoPath, branch string) error
 	DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error)
+	// MoveWorktree relocates a worktree directory and its registration —
+	// the project-rename primitive. Branch and contents are untouched.
+	MoveWorktree(repoPath, fromPath, toPath string) error
 }
 
 type defaultGitOps struct{}
@@ -52,6 +55,10 @@ func (defaultGitOps) DeleteBranch(repoPath, branch string) error {
 
 func (defaultGitOps) DiscoverWorkspaces(project *data.Project) ([]data.Workspace, error) {
 	return git.DiscoverWorkspaces(project)
+}
+
+func (defaultGitOps) MoveWorktree(repoPath, fromPath, toPath string) error {
+	return git.MoveWorktree(repoPath, fromPath, toPath)
 }
 
 type Service struct {
@@ -83,6 +90,20 @@ type Service struct {
 	// by normalized project path) so concurrent create/delete of workspaces in the
 	// same repo do not contend on .git locks (index.lock / packed-refs).
 	repoGitLocks sync.Map
+	// migrationMu fences a project rename's move-then-rebind window against
+	// this process's loads, rescans, and prunes: the migration holds the
+	// write side for its whole run, the read-side flows take RLock, so a
+	// concurrent rescan cannot mint a duplicate record at a moved worktree's
+	// new root and a concurrent prune cannot delete the old-root record as a
+	// missing root mid-migration. It fences this process only; cross-process
+	// sequencing (the CLI renaming while a TUI runs) remains the user's.
+	migrationMu sync.RWMutex
+	// scriptsRunning probes whether amux-hosted scripts are live in a
+	// workspace — the rename flow refuses to relocate a worktree out from
+	// under a running agent. Defaults to the wired ScriptRunner's probe;
+	// overridable directly in package tests (the runner is a concrete type,
+	// so this is the only injection point).
+	scriptsRunning func(ws *data.Workspace) bool
 	// tabPersist orders and narrows OpenTabs/ActiveTabIndex writes — see
 	// workspace_tab_persistence.go.
 	tabPersist *tabPersistence
@@ -130,6 +151,9 @@ func New(registry ProjectRegistry, store WorkspaceStore, scripts *process.Script
 		gitOps:             defaultGitOps{},
 		gitPathWaitTimeout: 3 * time.Second,
 		tabPersist:         newTabPersistence(),
+		scriptsRunning: func(ws *data.Workspace) bool {
+			return scripts != nil && scripts.IsRunning(ws)
+		},
 	}
 	// Optional capabilities are asserted at the call site, but a missing one
 	// must never be silent — log once at construction so a test stub

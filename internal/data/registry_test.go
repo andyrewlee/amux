@@ -284,7 +284,7 @@ func TestRegistry_AddProjectDuplicateRepairsPrimaryFromBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected repaired primary to be parseable, got %v", err)
 	}
-	if len(paths) != 1 || canonicalProjectPath(paths[0]) != canonicalProjectPath(repoPath) {
+	if len(paths) != 1 || canonicalProjectPath(paths[0].Path) != canonicalProjectPath(repoPath) {
 		t.Fatalf("unexpected repaired primary data: %v", paths)
 	}
 }
@@ -319,7 +319,181 @@ func TestRegistry_RemoveProjectNoopRepairsPrimaryFromBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected repaired primary to be parseable, got %v", err)
 	}
-	if len(paths) != 1 || canonicalProjectPath(paths[0]) != canonicalProjectPath(repoPath) {
+	if len(paths) != 1 || canonicalProjectPath(paths[0].Path) != canonicalProjectPath(repoPath) {
 		t.Fatalf("unexpected repaired primary data: %v", paths)
+	}
+}
+
+func TestRegistry_AddProjectMintsUniqueNamesForSameBasename(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(filepath.Join(tmpDir, "Code", "checkfu")); err != nil {
+		t.Fatalf("AddProject(first) error = %v", err)
+	}
+	if err := r.AddProject(filepath.Join(tmpDir, "other", "checkfu")); err != nil {
+		t.Fatalf("AddProject(second) error = %v", err)
+	}
+	if err := r.AddProject(filepath.Join(tmpDir, "third", "checkfu")); err != nil {
+		t.Fatalf("AddProject(third) error = %v", err)
+	}
+
+	entries, err := r.Entries()
+	if err != nil {
+		t.Fatalf("Entries() error = %v", err)
+	}
+	want := []string{"checkfu", "checkfu-2", "checkfu-3"}
+	if len(entries) != len(want) {
+		t.Fatalf("expected %d entries, got %d (%v)", len(want), len(entries), entries)
+	}
+	for i, name := range want {
+		if entries[i].Name != name {
+			t.Errorf("entries[%d].Name = %q, want %q", i, entries[i].Name, name)
+		}
+	}
+}
+
+func TestRegistry_AddProjectMintSkipsCaseInsensitiveCollision(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(filepath.Join(tmpDir, "a", "Checkfu")); err != nil {
+		t.Fatalf("AddProject(first) error = %v", err)
+	}
+	if err := r.AddProject(filepath.Join(tmpDir, "b", "checkfu")); err != nil {
+		t.Fatalf("AddProject(second) error = %v", err)
+	}
+
+	entries, err := r.Entries()
+	if err != nil {
+		t.Fatalf("Entries() error = %v", err)
+	}
+	if entries[0].Name != "Checkfu" || entries[1].Name != "checkfu-2" {
+		t.Fatalf("expected Checkfu/checkfu-2 (case-insensitive segments), got %q/%q", entries[0].Name, entries[1].Name)
+	}
+}
+
+func TestRegistry_EntriesRepairsDuplicateNamesFromLegacyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	codeCheckfu := filepath.Join(tmpDir, "Code", "checkfu")
+	homeCheckfu := filepath.Join(tmpDir, "home", "checkfu")
+	legacy := `{"version":1,"projects":[` +
+		`{"name":"checkfu","path":"` + codeCheckfu + `"},` +
+		`{"name":"checkfu","path":"` + homeCheckfu + `"}]}`
+	if err := os.WriteFile(registryPath, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy registry: %v", err)
+	}
+
+	r := NewRegistry(registryPath)
+	entries, err := r.Entries()
+	if err != nil {
+		t.Fatalf("Entries() error = %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d (%v)", len(entries), entries)
+	}
+	if entries[0].Name != "checkfu" || entries[1].Name != "checkfu-2" {
+		t.Fatalf("expected duplicate names repaired to checkfu/checkfu-2, got %q/%q", entries[0].Name, entries[1].Name)
+	}
+
+	// The repair is in memory only; a mutating save persists it.
+	if err := r.AddProject(filepath.Join(tmpDir, "extra", "repo")); err != nil {
+		t.Fatalf("AddProject(extra) error = %v", err)
+	}
+	raw, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatalf("read registry: %v", err)
+	}
+	persisted, err := parseRegistryData(raw, registryPath)
+	if err != nil {
+		t.Fatalf("parseRegistryData() error = %v", err)
+	}
+	if len(persisted) != 3 {
+		t.Fatalf("expected 3 persisted entries, got %d", len(persisted))
+	}
+	if persisted[0].Name != "checkfu" || persisted[1].Name != "checkfu-2" {
+		t.Fatalf("expected repaired names persisted, got %q/%q", persisted[0].Name, persisted[1].Name)
+	}
+}
+
+func TestRegistry_RenameProject(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	codeCheckfu := filepath.Join(tmpDir, "Code", "checkfu")
+	otherRepo := filepath.Join(tmpDir, "other", "repo")
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(codeCheckfu); err != nil {
+		t.Fatalf("AddProject(codeCheckfu) error = %v", err)
+	}
+	if err := r.AddProject(otherRepo); err != nil {
+		t.Fatalf("AddProject(otherRepo) error = %v", err)
+	}
+
+	if err := r.RenameProject(codeCheckfu, "checkfu-old"); err != nil {
+		t.Fatalf("RenameProject() error = %v", err)
+	}
+	entries, err := r.Entries()
+	if err != nil {
+		t.Fatalf("Entries() error = %v", err)
+	}
+	if entries[0].Name != "checkfu-old" || entries[0].Path != codeCheckfu {
+		t.Fatalf("expected rename to checkfu-old, got %+v", entries[0])
+	}
+
+	// Colliding rename (case-insensitive) is rejected.
+	if err := r.RenameProject(otherRepo, "CHECKFU-OLD"); err == nil {
+		t.Fatalf("expected collision with checkfu-old to be rejected (case-insensitive)")
+	}
+
+	// Unsafe names are rejected. (Trailing whitespace is trimmed first, so
+	// the control-character case uses a non-whitespace control char.)
+	for _, bad := range []string{"", "a/b", "..", "a\\b", "a\x01b"} {
+		if err := r.RenameProject(codeCheckfu, bad); err == nil {
+			t.Errorf("expected unsafe name %q rejected", bad)
+		}
+	}
+
+	// Unknown path is rejected.
+	if err := r.RenameProject(filepath.Join(tmpDir, "missing"), "nope"); err == nil {
+		t.Fatalf("expected unknown project path to be rejected")
+	}
+}
+
+func TestRegistry_SavePreservesStoredNames(t *testing.T) {
+	tmpDir := t.TempDir()
+	registryPath := filepath.Join(tmpDir, "projects.json")
+	codeCheckfu := filepath.Join(tmpDir, "Code", "checkfu")
+	otherRepo := filepath.Join(tmpDir, "other", "repo")
+
+	r := NewRegistry(registryPath)
+	if err := r.AddProject(codeCheckfu); err != nil {
+		t.Fatalf("AddProject(codeCheckfu) error = %v", err)
+	}
+	if err := r.AddProject(otherRepo); err != nil {
+		t.Fatalf("AddProject(otherRepo) error = %v", err)
+	}
+	if err := r.RenameProject(codeCheckfu, "checkfu-old"); err != nil {
+		t.Fatalf("RenameProject() error = %v", err)
+	}
+
+	// A path-only Save must not regenerate the basename over the rename.
+	if err := r.Save([]string{otherRepo, codeCheckfu}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	entries, err := r.Entries()
+	if err != nil {
+		t.Fatalf("Entries() error = %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	for _, entry := range entries {
+		if entry.Path == codeCheckfu && entry.Name != "checkfu-old" {
+			t.Fatalf("Save() regenerated name %q over stored checkfu-old", entry.Name)
+		}
 	}
 }

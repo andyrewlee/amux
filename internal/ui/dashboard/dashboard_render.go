@@ -321,7 +321,10 @@ func (m *Model) helpLines(contentWidth int) []string {
 				items = append(items, m.helpItem("D", "purge"))
 			}
 		case RowProject:
-			items = append(items, m.helpItem("D", "remove"))
+			items = append(items,
+				m.helpItem("R", "rename"),
+				m.helpItem("D", "remove"),
+			)
 		}
 	}
 	if n := m.MarkedCount(); n > 0 {

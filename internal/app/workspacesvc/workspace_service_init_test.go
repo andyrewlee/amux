@@ -221,6 +221,10 @@ func (f *fakeAssistantStore) Delete(data.WorkspaceID) error { panic("unexpected 
 
 func (f *fakeAssistantStore) Rename(data.WorkspaceID, string) error { panic("unexpected Rename") }
 
+func (f *fakeAssistantStore) RebindRoot(data.WorkspaceID, string) error {
+	panic("unexpected RebindRoot")
+}
+
 func (f *fakeAssistantStore) SetEnv(data.WorkspaceID, map[string]string) error {
 	panic("unexpected SetEnv")
 }

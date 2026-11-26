@@ -2,8 +2,12 @@ package testutil
 
 // Hook-driven structural fakes shared across test packages. Each method runs
 // its Func hook when non-nil and otherwise returns the zero value — the same
-// semantics the hand-rolled stubs they replace had. Recorders are always on
-// and mutex-guarded; read them through the accessors.
+// semantics the hand-rolled stubs they replace had. A few methods instead
+// derive a useful default from the fake's other state
+// (FakeProjectRegistry.Entries from Projects, FakeWorkspaceStore.Update and
+// RebindRoot from the saved records) — each carries an inline comment at its
+// definition, and wiring the matching Func hook opts out of the derivation.
+// Recorders are always on and mutex-guarded; read them through the accessors.
 //
 // FakeGitOps, FakeWorkspaceStore, and FakeProjectRegistry satisfy the
 // workspacesvc interfaces by name (asserted in fakes_test.go). FakeTmuxOps
@@ -15,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"sync"
 
 	"github.com/andyrewlee/amux/internal/data"
@@ -31,6 +36,7 @@ type FakeGitOps struct {
 	RemoveWorkspaceFunc    func(repoPath, workspacePath string) error
 	DeleteBranchFunc       func(repoPath, branch string) error
 	DiscoverWorkspacesFunc func(project *data.Project) ([]data.Workspace, error)
+	MoveWorktreeFunc       func(repoPath, fromPath, toPath string) error
 }
 
 func (f *FakeGitOps) CreateWorkspace(repoPath, workspacePath, branch, base string) (bool, error) {
@@ -75,15 +81,25 @@ func (f *FakeGitOps) DiscoverWorkspaces(project *data.Project) ([]data.Workspace
 	return nil, nil
 }
 
+func (f *FakeGitOps) MoveWorktree(repoPath, fromPath, toPath string) error {
+	if f.MoveWorktreeFunc != nil {
+		return f.MoveWorktreeFunc(repoPath, fromPath, toPath)
+	}
+	return nil
+}
+
 // FakeProjectRegistry satisfies workspacesvc.ProjectRegistry and records
-// RemoveProject calls.
+// RemoveProject and RenameProject calls.
 type FakeProjectRegistry struct {
 	ProjectsFunc      func() ([]string, error)
+	EntriesFunc       func() ([]data.RegistryEntry, error)
 	AddProjectFunc    func(path string) error
 	RemoveProjectFunc func(path string) error
+	RenameProjectFunc func(path, newName string) error
 
 	mu           sync.Mutex
 	removedPaths []string
+	renames      []RenameCall
 }
 
 func (f *FakeProjectRegistry) Projects() ([]string, error) {
@@ -91,6 +107,26 @@ func (f *FakeProjectRegistry) Projects() ([]string, error) {
 		return f.ProjectsFunc()
 	}
 	return nil, nil
+}
+
+func (f *FakeProjectRegistry) Entries() ([]data.RegistryEntry, error) {
+	if f.EntriesFunc != nil {
+		return f.EntriesFunc()
+	}
+	// Default: derive path-only entries with basename names so tests that
+	// only exercise path semantics keep working without hook wiring.
+	paths, err := f.Projects()
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]data.RegistryEntry, len(paths))
+	for i, path := range paths {
+		entries[i] = data.RegistryEntry{
+			Name: filepath.Base(path),
+			Path: path,
+		}
+	}
+	return entries, nil
 }
 
 func (f *FakeProjectRegistry) AddProject(path string) error {
@@ -110,6 +146,22 @@ func (f *FakeProjectRegistry) RemoveProject(path string) error {
 	return nil
 }
 
+func (f *FakeProjectRegistry) RenameProject(path, newName string) error {
+	f.mu.Lock()
+	f.renames = append(f.renames, RenameCall{Path: path, NewName: newName})
+	f.mu.Unlock()
+	if f.RenameProjectFunc != nil {
+		return f.RenameProjectFunc(path, newName)
+	}
+	return nil
+}
+
+// RenameCall is one recorded RenameProject invocation.
+type RenameCall struct {
+	Path    string
+	NewName string
+}
+
 // RemovedPaths returns a copy of every path passed to RemoveProject.
 func (f *FakeProjectRegistry) RemovedPaths() []string {
 	f.mu.Lock()
@@ -122,6 +174,13 @@ func (f *FakeProjectRegistry) RemoveCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.removedPaths)
+}
+
+// RenamedCalls returns a copy of every RenameProject invocation.
+func (f *FakeProjectRegistry) RenamedCalls() []RenameCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]RenameCall(nil), f.renames...)
 }
 
 // FakeWorkspaceStore satisfies workspacesvc.WorkspaceStore and records
@@ -140,6 +199,7 @@ type FakeWorkspaceStore struct {
 	SaveIfAbsentFunc             func(workspace *data.Workspace) (*data.Workspace, bool, error)
 	DeleteFunc                   func(id data.WorkspaceID) error
 	RenameFunc                   func(id data.WorkspaceID, newName string) error
+	RebindRootFunc               func(id data.WorkspaceID, newRoot string) error
 	SetEnvFunc                   func(id data.WorkspaceID, env map[string]string) error
 	SetScriptsFunc               func(id data.WorkspaceID, scripts data.ScriptsConfig, mode data.ScriptMode) error
 	MarkDeletingFunc             func(id data.WorkspaceID) error
@@ -272,6 +332,30 @@ func (f *FakeWorkspaceStore) Rename(id data.WorkspaceID, newName string) error {
 		return f.RenameFunc(id, newName)
 	}
 	return nil
+}
+
+// RebindRoot mirrors the real store's root-migration contract: the record's
+// Root changes in place under its existing key. Absent a hook it finds the
+// last record carrying id and saves it with the new root.
+func (f *FakeWorkspaceStore) RebindRoot(id data.WorkspaceID, newRoot string) error {
+	if f.RebindRootFunc != nil {
+		return f.RebindRootFunc(id, newRoot)
+	}
+	f.mu.Lock()
+	var cur *data.Workspace
+	for i := len(f.saved) - 1; i >= 0; i-- {
+		if f.saved[i].MetadataID() == id || f.saved[i].ID() == id {
+			cur = f.saved[i]
+			break
+		}
+	}
+	f.mu.Unlock()
+	if cur == nil {
+		return fmt.Errorf("fake: no record for %s: %w", id, fs.ErrNotExist)
+	}
+	cp := *cur
+	cp.Root = newRoot
+	return f.Save(&cp)
 }
 
 func (f *FakeWorkspaceStore) SetEnv(id data.WorkspaceID, env map[string]string) error {

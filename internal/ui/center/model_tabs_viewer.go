@@ -46,7 +46,7 @@ func (m *Model) createVimTab(filePath string, ws *data.Workspace) tea.Cmd {
 			SessionOwner:  m.instanceID,
 			LeaseAtMS:     time.Now().UnixMilli(),
 			WorkspaceName: ws.Name,
-			ProjectName:   data.ProjectNameForRepo(ws.Repo),
+			ProjectName:   data.ProjectDisplayName(ws),
 		}
 		ptyRows, ptyCols, _ := appPty.WinsizeFromInts(termHeight, termWidth)
 		agent, err := m.agentManager.CreateViewerWithTags(ws, cmd, sessionName, ptyRows, ptyCols, tags)

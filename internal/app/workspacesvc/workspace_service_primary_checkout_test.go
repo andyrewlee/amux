@@ -35,7 +35,7 @@ func TestPrependPrimaryCheckout_AdoptsConcurrentRecord(t *testing.T) {
 	}
 	svc := New(nil, store, nil, t.TempDir())
 
-	out := svc.prependPrimaryCheckout(repo, nil)
+	out := svc.prependPrimaryCheckout(data.NewProject(repo), nil)
 	if len(out) != 1 {
 		t.Fatalf("workspaces = %d, want the transient primary only", len(out))
 	}
@@ -67,7 +67,7 @@ func TestPrependPrimaryCheckout_CreatesWhenAbsent(t *testing.T) {
 	}
 	svc := New(nil, store, nil, t.TempDir())
 
-	out := svc.prependPrimaryCheckout(repo, nil)
+	out := svc.prependPrimaryCheckout(data.NewProject(repo), nil)
 	if len(out) != 1 {
 		t.Fatalf("workspaces = %d, want the transient primary only", len(out))
 	}

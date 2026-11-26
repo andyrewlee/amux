@@ -30,15 +30,37 @@ send:
   named keys (`--keys`) to exactly one hosted session, encoding the
   "Sending input" rules below so callers cannot get them wrong.
 
+One project-level verb pair manages the registry rather than sessions:
+
+- `amux project ls` — print the registered projects (name + repo path,
+  `--json` for scripts).
+- `amux project rename <path> <new-name>` — rename a registered project
+  and migrate its managed worktrees into the renamed
+  `~/.amux/workspaces/<name>/` container (`git worktree move`, records
+  rebound in place under their stable workspace IDs). The rename lands
+  before the migration and old locations keep working through
+  path-basename aliases, so an interrupted run is safe to re-run —
+  worktrees already moved finish their record rebind, the rest move
+  (re-issuing the name the project already holds reconciles without
+  rewriting the registry). A new name that differs from the current one
+  only by letter case is refused when both spellings resolve to the same
+  directory (case-insensitive filesystem): record and git identities are
+  case-sensitive strings, and the rename would split them across two
+  spellings of one path. Sessions, tags, and port reservations keyed on
+  workspace IDs survive untouched. The same operation is reachable in the
+  TUI (`R` on a project row), with one gap: the CLI hosts no scripts and
+  cannot probe for the running-script skip the TUI performs — close hosted
+  sessions yourself before renaming out from under them.
+
 The verbs share one exit-code contract — scripts branch on the code,
 never on message text:
 
 | code | meaning |
 | --- | --- |
-| 0 | success (and `wait`'s passthrough of a program's exit 0) |
-| 1 | operational failure — delivery attempted and failed, `agent ls` scan errors, or `wait` observing an exit whose status tmux did not record |
+| 0 | success (and `wait`'s passthrough of a program's exit 0; `project rename` reports its migration counts on stdout, with 0 even when some worktrees were skipped — a skip only the TUI's in-process probe produces) |
+| 1 | operational failure — delivery attempted and failed, `agent ls` scan errors, `wait` observing an exit whose status tmux did not record, or a refused/failed `project rename` (including an incomplete migration, whose counts and error the output reports) |
 | 2 | usage error; `amux wait` timeout |
-| 3 | target not found or ambiguous (`send`'s selectors — fix the invocation) |
+| 3 | target not found or ambiguous (`send`'s selectors — fix the invocation; `project rename`'s path is not a registered project) |
 | 4 | tmux unusable; for `send` also: no tmux server, or a target whose pane process has exited |
 
 In `--json` modes a failure also writes a machine envelope to stderr,
@@ -417,7 +439,7 @@ runtime (`internal/tmux/tags.go`, `internal/ui/center/model_input_lifecycle.go`,
 | `@amux_last_input_at` | last input amux delivered | Unix **milliseconds** |
 | `@amux_agent_state` | semantic agent state (idle/working/done/blocked/error) | `idle` \| `working` \| `done` \| `blocked` \| `error` |
 | `@amux_workspace_name` | workspace display name | string, sanitized |
-| `@amux_project` | project display name (repo dir basename) | string, sanitized |
+| `@amux_project` | project display name (the registry's authoritative name — the workspaces-root segment, which may be a disambiguated or renamed value rather than the repo dir basename) | string, sanitized |
 
 Pane options (read with `list-panes -a -F '#{@amux_reported_state}'` and
 kin; they live and die with the pane):

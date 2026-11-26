@@ -7,11 +7,14 @@ import (
 )
 
 // ProjectRegistry is the minimal interface used by the service for project
-// tracking.
+// tracking. Entries pairs each path with its authoritative name (the
+// workspaces-root segment); Projects remains the path-only view.
 type ProjectRegistry interface {
 	Projects() ([]string, error)
+	Entries() ([]data.RegistryEntry, error)
 	AddProject(path string) error
 	RemoveProject(path string) error
+	RenameProject(path, newName string) error
 }
 
 // WorkspaceStore is the minimal interface used by the service for workspace
@@ -41,6 +44,10 @@ type WorkspaceStore interface {
 	// setters and tab persistence go through it so concurrent writers merge
 	// instead of clobbering each other's snapshots.
 	Update(id data.WorkspaceID, fn func(ws *data.Workspace) (changed bool, err error)) error
+	// RebindRoot updates a record's Root in place under its existing key —
+	// the intentional identity migration a project rename performs after
+	// moving the worktree. (Update refuses Root changes by design.)
+	RebindRoot(id data.WorkspaceID, newRoot string) error
 	Delete(id data.WorkspaceID) error
 	Rename(id data.WorkspaceID, newName string) error
 	SetEnv(id data.WorkspaceID, env map[string]string) error

@@ -11,13 +11,14 @@ import (
 
 // shouldSurfaceWorkspace returns true for workspaces managed by amux for this
 // project and for the primary checkout. Managed workspaces live under the
-// managed root — either <root>/<project>/<name> or, for git-discovered
+// managed root — <root>/<project>/<name> (project being the registry's stored
+// name, or the path basename when they drifted) or, for git-discovered
 // worktrees, flat <root>/<name>. Forged `git worktree
 // list` entries (a bundled .git ships its own admin dirs) that name the
 // managed root, a project container, or a deep descendant are rejected so
 // they can never become a plausible-looking row the user might delete.
-func (s *Service) shouldSurfaceWorkspace(path string, ws *data.Workspace) bool {
-	if ws == nil {
+func (s *Service) shouldSurfaceWorkspace(project *data.Project, ws *data.Workspace) bool {
+	if ws == nil || project == nil {
 		return false
 	}
 	if ws.IsPrimaryCheckout() {
@@ -49,7 +50,7 @@ func (s *Service) shouldSurfaceWorkspace(path string, ws *data.Workspace) bool {
 	if !inside {
 		return false
 	}
-	for _, container := range managedProjectRoots(managedRoot, data.NewProject(path)) {
+	for _, container := range managedProjectRoots(managedRoot, project) {
 		for _, target := range workspacePathAliases(wsRoot) {
 			if rel, ok := data.PathWithin(container, target); ok && rel == "." {
 				return false
@@ -105,7 +106,9 @@ func (s *Service) PendingWorkspace(project *data.Project, name, base string) *da
 	if projectRoot == "" {
 		return nil
 	}
-	return data.NewWorkspace(name, name, base, project.Path, filepath.Join(projectRoot, name))
+	ws := data.NewWorkspace(name, name, base, project.Path, filepath.Join(projectRoot, name))
+	ws.ProjectName = project.Name
+	return ws
 }
 
 func lexicalWorkspacePath(path string) string {

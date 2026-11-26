@@ -174,19 +174,19 @@ func (s *Service) restoreMetadataIfProjectReadded(repoPath string) {
 	if s == nil || s.registry == nil {
 		return
 	}
-	paths, err := s.registry.Projects()
+	entries, err := s.registeredEntries()
 	if err != nil {
 		logging.Warn("Could not verify whether project %s was re-added during metadata cleanup: %v", repoPath, err)
 		return
 	}
 	target := data.NormalizePath(repoPath)
-	for _, path := range paths {
-		if data.NormalizePath(path) != target {
+	for _, entry := range entries {
+		if data.NormalizePath(entry.Path) != target {
 			continue
 		}
 		// Registry removal happened before metadata cleanup. If the project is
 		// present again now, another process re-added it later and therefore wins.
-		s.importManagedWorkspaces(path)
+		s.importManagedWorkspaces(data.NewProjectNamed(entry.Name, entry.Path))
 		return
 	}
 }

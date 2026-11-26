@@ -80,7 +80,7 @@ func AttachSessionTags(ws *data.Workspace, tabID, sessionType, assistant, instan
 		SessionOwner:  instanceID,
 		LeaseAtMS:     time.Now().UnixMilli(),
 		WorkspaceName: ws.Name,
-		ProjectName:   data.ProjectNameForRepo(ws.Repo),
+		ProjectName:   data.ProjectDisplayName(ws),
 	}
 	if fresh {
 		tags.CreatedAt = time.Now().Unix()

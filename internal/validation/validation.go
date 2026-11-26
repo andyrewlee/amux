@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // ValidationError represents a validation failure
@@ -147,6 +148,33 @@ func ValidateBaseRef(ref string) error {
 // ValidateAssistant validates an assistant name
 func ValidateAssistant(assistant string) error {
 	return validateIdentifier("assistant", strings.TrimSpace(assistant))
+}
+
+// ValidateProjectName validates a project name — the single filesystem
+// segment under the workspaces root a project's worktrees live in. Unlike
+// workspace names it permits spaces and most punctuation (repository
+// basenames can carry them), rejecting only what cannot be a safe segment:
+// separators, traversal forms, control characters, and the length cap.
+func ValidateProjectName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return &ValidationError{Field: "name", Message: "name cannot be empty"}
+	}
+	if len(name) > 100 {
+		return &ValidationError{Field: "name", Message: "name too long (max 100 characters)"}
+	}
+	if name == "." || name == ".." {
+		return &ValidationError{Field: "name", Message: fmt.Sprintf("'%s' is not a usable name", name)}
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return &ValidationError{Field: "name", Message: "name must be a single path segment (no '/' or '\\')"}
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return &ValidationError{Field: "name", Message: "name cannot contain control characters"}
+		}
+	}
+	return nil
 }
 
 // SanitizeInput removes potentially dangerous characters from input

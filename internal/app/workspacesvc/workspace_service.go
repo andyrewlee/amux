@@ -70,7 +70,7 @@ func (s *Service) AddProject(path string) tea.Cmd {
 		}
 		// Restore managed worktrees automatically when a previously removed
 		// project is re-added; removing it left those files on disk.
-		s.importManagedWorkspaces(path)
+		s.importManagedWorkspaces(s.projectForPath(path))
 
 		logging.Info("Project added successfully: %s", path)
 		return messages.RefreshDashboard{}

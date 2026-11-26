@@ -107,8 +107,8 @@ func TestOverlayOpenDropsStaleWorkspaceSubject_SubjectDialogs(t *testing.T) {
 }
 
 // TestOverlayOpenDropsStaleWorkspaceSubject_ProjectDialogs: a project removed
-// while its open sits queued must not host a create or present a remove
-// confirmation — both are project-subject opens.
+// while its open sits queued must not host a create, present a remove
+// confirmation, or present a rename — all are project-subject opens.
 func TestOverlayOpenDropsStaleWorkspaceSubject_ProjectDialogs(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -121,6 +121,9 @@ func TestOverlayOpenDropsStaleWorkspaceSubject_ProjectDialogs(t *testing.T) {
 		{"remove", func(a *App, p *data.Project) {
 			a.handleShowRemoveProjectDialog(messages.ShowRemoveProjectDialog{Project: p})
 		}, func(a *App) bool { return a.dialog != nil }},
+		{"rename", func(a *App, p *data.Project) {
+			a.handleShowRenameProjectDialog(messages.ShowRenameProjectDialog{Project: p})
+		}, func(a *App) bool { return a.dialog != nil || a.dlg.project != nil }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := arbiterTestApp()
@@ -139,6 +142,33 @@ func TestOverlayOpenDropsStaleWorkspaceSubject_ProjectDialogs(t *testing.T) {
 				t.Fatal("project dialog presented for a project that no longer exists")
 			}
 		})
+	}
+}
+
+// TestShowRenameProjectDialog_DroppedStaleOpenKeepsPendingCreate pins the
+// rename dialog's present-only clear: a queued rename open whose project is
+// gone at drain must drop without tearing down an unrelated in-flight
+// create→agent-picker handoff (the arbiter's stated contract).
+func TestShowRenameProjectDialog_DroppedStaleOpenKeepsPendingCreate(t *testing.T) {
+	a := arbiterTestApp()
+	a.overlays.runOutput = visibleRunOutput()
+	a.projects = []data.Project{{Path: "/repo", Name: "proj"}}
+	staged := pendingWorkspaceCreateState{project: &a.projects[0], name: "handoff"}
+	a.pendingWorkspaceCreate = staged
+
+	a.handleShowRenameProjectDialog(messages.ShowRenameProjectDialog{Project: &a.projects[0]})
+	if len(a.pendingOverlayOpens) != 1 {
+		t.Fatalf("expected the open queued, got %d", len(a.pendingOverlayOpens))
+	}
+	a.projects = nil // removed while queued
+	a.overlays.runOutput.Hide()
+	a.drainPendingOverlayOpens()
+
+	if a.dialog != nil || a.dlg.project != nil {
+		t.Fatal("stale rename open presented")
+	}
+	if a.pendingWorkspaceCreate != staged {
+		t.Fatalf("dropped stale open must not clear an in-flight create handoff: %+v", a.pendingWorkspaceCreate)
 	}
 }
 

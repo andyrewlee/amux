@@ -112,6 +112,29 @@ func TestDashboardKey_R_EmitsRenameDialog(t *testing.T) {
 	}
 }
 
+func TestDashboardKey_R_OnProjectRowEmitsRenameProjectDialog(t *testing.T) {
+	m := keyedDashboard(t)
+	for i, row := range m.rows {
+		if row.Type != RowProject || row.Project == nil {
+			continue
+		}
+		m.cursor = i
+		_, cmd := m.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
+		if cmd == nil {
+			t.Fatal("expected non-nil cmd from R on a project row")
+		}
+		msg, ok := cmd().(messages.ShowRenameProjectDialog)
+		if !ok {
+			t.Fatalf("expected messages.ShowRenameProjectDialog, got %T", cmd())
+		}
+		if msg.Project != row.Project {
+			t.Fatalf("dialog must carry the row's project, got %+v", msg.Project)
+		}
+		return
+	}
+	t.Fatal("fixture has no project row")
+}
+
 func TestDashboardKey_EnterActivatesWorkspaceRow(t *testing.T) {
 	m := keyedDashboard(t)
 	m.cursor = firstWorkspaceRow(t, m)
